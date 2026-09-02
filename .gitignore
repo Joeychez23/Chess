@@ -1,0 +1,16 @@
+# Dependency directories
+node_modules
+dist
+*.txt
+workbench
+images
+audio
+*.tfstate
+*.terraform
+*.hcl
+*.backup
+workbench
+sony
+*.yml
+sony
+*.zip

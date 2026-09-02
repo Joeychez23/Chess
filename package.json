@@ -1,0 +1,38 @@
+{
+	"scripts": {
+		"dev": "cd client && webpack-dev-server --open --port 3002",
+		"iframe": "cd iframe && webpack-dev-server --open",
+		"build": "cd client && webpack"
+	},
+	"name": "chess-frontend",
+	"description": "<a href=\"https://aws-prac-route53.com/\" target=\"_blank\"> https://aws-prac-route53.com/ </a>",
+	"version": "1.0.0",
+	"devDependencies": {
+		"@babel/core": "^7.15.0",
+		"@babel/plugin-transform-runtime": "^7.15.0",
+		"@babel/preset-env": "^7.15.0",
+		"@babel/runtime": "^7.15.3",
+		"babel-loader": "^8.2.2",
+		"css-loader": "^6.2.0",
+		"html-webpack-plugin": "^5.3.2",
+		"http-server": "^14.1.1",
+		"style-loader": "^3.2.1",
+		"webpack": "^5.51.1",
+		"webpack-cli": "^4.8.0",
+		"webpack-dev-server": "^4.0.0",
+		"webpack-pwa-manifest": "^4.0.0",
+		"workbox-webpack-plugin": "^6.2.4"
+	},
+	"dependencies": {
+		"bson": "^6.3.0",
+		"chess.js": "^1.0.0-beta.6",
+		"copy-webpack-plugin": "^11.0.0",
+		"crypto": "^1.0.1",
+		"dotenv-webpack": "^8.0.1",
+		"js-chess-engine": "^1.0.2",
+		"workbox-window": "^7.0.0"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC"
+}
