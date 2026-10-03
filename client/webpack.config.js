@@ -38,12 +38,12 @@ module.exports = () => {
 				start_url: '/'
 			}),
 
-			new CopyWebpackPlugin({
-				patterns: [
-					{ from: 'src/images', to: 'images/' },
-					{ from: 'src/audio', to: 'audio/' },
-				]
-			}),
+			// new CopyWebpackPlugin({
+			// 	patterns: [
+			// 		{ from: 'src/images', to: 'images/' },
+			// 		{ from: 'src/audio', to: 'audio/' },
+			// 	]
+			// }),
 
 			new Dotenv({
 				path: `./.env`
