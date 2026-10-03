@@ -98,6 +98,8 @@ export async function renderCanvas(playerData) {
 	let currInst;
 	let availableMovesData = { piece: null, square: null }
 	let widthGreater;
+	let portraitBoard = false;
+	let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
 	const frameRate = 1000 / 33;
 	const imagePaths = [];			// This will hold array of all loaded image resources
 	const images = [];
@@ -637,25 +639,36 @@ export async function renderCanvas(playerData) {
 		 * @description Initializes draw data which sets positions onto the board
 		 */
 		function renderBoard() {
-			cw = (canvas.width = window.innerWidth);
-			ch = (canvas.height = window.innerHeight);
+			cw = window.innerWidth;
+			ch = window.innerHeight;
+			const dpr = Math.min(window.devicePixelRatio || 1, 2); // RENDER AT DEVICE RESOLUTION (CAPPED) SO THE BOARD IS SHARP ON HIGH DPI / MOBILE SCREENS
+			canvas.width = Math.round(cw * dpr);
+			canvas.height = Math.round(ch * dpr);
+			canvas.style.width = `${cw}px`;
+			canvas.style.height = `${ch}px`;
+			ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // ALL DRAWING STAYS IN CSS PIXELS
+			portraitBoard = cw < ch;
 			let boardPadding = 1.4;
 			boardWidth = cw / boardPadding;
 			boardHeight = (9 * (cw / boardPadding)) / 11;
 			// SET MENU ELEMENT SIZING
 
 			const resultDisplay = document.getElementById("resultDisplay");
+			const menuBox = document.getElementById("menuBox");
 			const menuButtons = document.getElementsByClassName("menuButton");
 
 			if ((ch / cw) > .225) {
 				let menuSize = ((ch) * .90);
-				menu.style.width = `${menuSize}px`;
-				menu.style.height = `${9 * (menuSize) / 16}px`;
+				if (Math.min(cw, ch) < 600) { menuSize = Math.min(ch * 1.9, cw * 2.2); } // SMALL (MOBILE) SCREENS: GROW MENU TO FIT THE SCREEN SO BUTTONS ARE TAPPABLE
+				menu.style.width = `${Math.min(menuSize, cw)}px`; // CONTAINER NEVER WIDER / TALLER THAN THE SCREEN, MOBILE BROWSERS ZOOM OUT TO FIT OVERFLOW
+				menu.style.height = `${Math.min(9 * (menuSize) / 16, ch)}px`;
+				menuBox.style.width = `${menuSize * .375}px`;
+				menuBox.style.height = `${(9 * (menuSize) / 16) * .7}px`;
 
 				for (let i = 0; i < menuButtons.length; i++) {
 					menuButtons[i].style.fontSize = `${(menuSize) * .035}px`
 					for (let i = 0; i < newGameInput.length; i++) {
-						newGameInput[i].style.fontSize = `${(menuSize) * .035}px`
+						newGameInput[i].style.fontSize = `${Math.max(16, (menuSize) * .035)}px` // >= 16PX STOPS IOS FROM ZOOMING IN ON INPUT FOCUS
 					}
 				}
 				resultDisplay.style.fontSize = `${(menuSize) * .05}px`
@@ -690,6 +703,10 @@ export async function renderCanvas(playerData) {
 				} else {
 					renderCoffeeImg = false;
 					widthGreater = false;
+					if (portraitBoard) { // PORTRAIT (MOBILE) BOARD: FILL THE WIDTH, LEAVING HEIGHT FOR THE TAKEN PIECE ROWS ABOVE & BELOW
+						boardWidth = Math.min(cw * 0.98, ch * 0.8);
+						boardHeight = (9 * boardWidth) / 11;
+					}
 				}
 			}
 
@@ -1642,12 +1659,13 @@ export async function renderCanvas(playerData) {
 					}
 				}
 			} else {
+				const xStart = portraitBoard ? 0 : -1; // PORTRAIT BOARD FILLS THE WIDTH, SO KEEP TAKEN PIECES ON SCREEN
 				if (playerColor == 'w') {
-					if (paramColor == "w") { xPos = -1; yPos = 9; }
-					else { xPos = -1; yPos = -2; }
+					if (paramColor == "w") { xPos = xStart; yPos = 9; }
+					else { xPos = xStart; yPos = -2; }
 				} else if (playerColor == 'b') {
-					if (paramColor == "w") { xPos = -1; yPos = -2; }
-					else { xPos = -1; yPos = 9; }
+					if (paramColor == "w") { xPos = xStart; yPos = -2; }
+					else { xPos = xStart; yPos = 9; }
 				}
 
 				for (let i = 0; i < takenPieces.length; i++) {
@@ -1663,7 +1681,7 @@ export async function renderCanvas(playerData) {
 						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wBishopShdw, wBishopBlackSqImg]); xPos += 1; }
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bBishopShdw, bBishopWhiteSqImg]); xPos += 1; }
 					} else if (takenPieces[i].type.match(/[n]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR KNIGHT
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wRightKnightShdw, wRightKnightImg]) }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wRightKnightShdw, wRightKnightImg]); xPos += 1; }
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bRightKnightShdw, bRightKnightImg]); xPos += 1; }
 					} else if (takenPieces[i].type.match(/[r]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR ROOK
 						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wRookShdw, wRookImg]); xPos += 1; }
@@ -2112,16 +2130,28 @@ export async function renderCanvas(playerData) {
 		/**
 		 * @description If piece is clicked, based on new positions or if piece is set back in original position, etc...
 		 */
+		/* ---------------------------------------------------------------- */
+		// Get Canvas Point
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Converts viewport coordinates to canvas coordinates (mobile browser toolbars can offset the canvas)
+		 */
+		function getCanvasPoint(e) {
+			const rect = canvas.getBoundingClientRect();
+			return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+		}
+
 		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("click", handleCanvasClick); }
 		async function handleCanvasClick(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			clientX = e.clientX;
-			clientY = e.clientY;
-			tileX = Math.floor((e.clientX - xBoardOff) / tileWidth);
-			tileY = Math.floor((e.clientY - yBoardOff) / tileHeight);
+			const point = getCanvasPoint(e);
+			clientX = point.x;
+			clientY = point.y;
+			tileX = Math.floor((point.x - xBoardOff) / tileWidth);
+			tileY = Math.floor((point.y - yBoardOff) / tileHeight);
 
-			if ((!tileX && !tileY) && remoteNavBox) {
+			if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (TV REMOTE) ENTER HAS NO POINTER POSITION
 				tileX = remoteNavBox.x; tileY = remoteNavBox.y;
 			}
 
@@ -2221,10 +2251,11 @@ export async function renderCanvas(playerData) {
 			e.preventDefault();
 			e.stopPropagation();
 			// IF PIECE IS CLICK TO BE MOVED MOUSE POSITION
-			clientX = e.clientX
-			clientY = e.clientY
-			tileX = Math.floor((e.clientX - xBoardOff) / tileWidth);
-			tileY = Math.floor((e.clientY - yBoardOff) / tileHeight);
+			const point = getCanvasPoint(e);
+			clientX = point.x
+			clientY = point.y
+			tileX = Math.floor((point.x - xBoardOff) / tileWidth);
+			tileY = Math.floor((point.y - yBoardOff) / tileHeight);
 			// remoteNavBox.isClicked = false;
 			if (!((tileX < 0 || tileX > 7) && (tileY < 0 || tileY > 7))) { // MOUSE INSIDE THE BOARD
 				if (currPromotion) {
@@ -2265,8 +2296,9 @@ export async function renderCanvas(playerData) {
 		async function handleMouseDown(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			tileX = Math.floor((e.clientX - xBoardOff) / tileWidth);
-			tileY = Math.floor((e.clientY - yBoardOff) / tileHeight); // IF HOVER IS TRUE
+			const point = getCanvasPoint(e);
+			tileX = Math.floor((point.x - xBoardOff) / tileWidth);
+			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // IF HOVER IS TRUE
 			for (let i = 0; i < tiles.length; i++) {
 				let tile = tiles[i];
 				if ((tile.isHovering && tile.type && tile.color == playerColor)) {
@@ -2295,8 +2327,9 @@ export async function renderCanvas(playerData) {
 		async function handleMouseUp(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			tileX = Math.floor((e.clientX - xBoardOff) / tileWidth);
-			tileY = Math.floor((e.clientY - yBoardOff) / tileHeight); // IF HOVER IS TRUE
+			const point = getCanvasPoint(e);
+			tileX = Math.floor((point.x - xBoardOff) / tileWidth);
+			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // IF HOVER IS TRUE
 			for (let i = 0; i < tiles.length; i++) {
 				let tile = tiles[i];
 				if (tile.isMousedown && tile.isHovering && tile.type && tile.color == playerColor) {
@@ -2307,6 +2340,86 @@ export async function renderCanvas(playerData) {
 					refresh = true;
 				}
 			}
+		}
+
+
+		/* ---------------------------------------------------------------- */
+		// Touch (Mobile)
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Maps touch input onto the mouse handlers so pieces can be tapped or dragged on mobile browsers
+		 */
+		const touchDragThreshold = 10; // PX A FINGER MUST MOVE BEFORE A TAP BECOMES A DRAG
+		let audioUnlocked = false;
+
+		function touchToMouseEvent(touch) {
+			return { clientX: touch.clientX, clientY: touch.clientY, preventDefault() { }, stopPropagation() { } };
+		}
+
+		function findActiveTouch(touchList) {
+			for (let i = 0; i < touchList.length; i++) { if (touchList[i].identifier == touchState.id) { return touchList[i]; } }
+			return null;
+		}
+
+		function unlockAudio() { // IOS ONLY PLAYS AUDIO STARTED BY A USER GESTURE, PLAY MUTED ONCE SO LATER MOVE SOUNDS (AI / OPPONENT) CAN PLAY
+			if (audioUnlocked) { return; }
+			audioUnlocked = true;
+			moveAudio.muted = true;
+			moveAudio.play().then(() => { moveAudio.pause(); moveAudio.currentTime = 0; moveAudio.muted = false; }).catch(() => { moveAudio.muted = false; });
+		}
+
+		if (!TV_BOOL || OVERRIDE_TV) {
+			canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
+			canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
+			canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
+			canvas.addEventListener("touchcancel", handleTouchCancel, { passive: false });
+		}
+
+		function handleTouchStart(e) {
+			e.preventDefault(); // STOPS SCROLL / ZOOM & THE BROWSER'S EMULATED MOUSE EVENTS
+			if (touchState) { return; } // IGNORE EXTRA FINGERS
+			const touch = e.changedTouches[0];
+			const point = touchToMouseEvent(touch);
+			touchState = { id: touch.identifier, startX: touch.clientX, startY: touch.clientY, dragging: false, point };
+			handleMouseMove(point); // TOUCH HAS NO HOVER, SO SET IT BEFORE MOUSEDOWN
+			handleMouseDown(point);
+		}
+
+		function handleTouchMove(e) {
+			e.preventDefault();
+			if (!touchState) { return; }
+			const touch = findActiveTouch(e.changedTouches);
+			if (!touch) { return; }
+			touchState.point = touchToMouseEvent(touch);
+			if (!touchState.dragging && Math.hypot(touch.clientX - touchState.startX, touch.clientY - touchState.startY) < touchDragThreshold) { return; } // SMALL FINGER JITTER IS STILL A TAP
+			touchState.dragging = true;
+			handleMouseMove(touchState.point);
+		}
+
+		function handleTouchEnd(e) {
+			e.preventDefault();
+			if (!touchState) { return; }
+			const touch = findActiveTouch(e.changedTouches);
+			if (!touch) { return; }
+			const point = touchToMouseEvent(touch);
+			const dragging = touchState.dragging;
+			touchState = null;
+			unlockAudio();
+			handleMouseMove(point);
+			if (dragging) { // DROP THE DRAGGED PIECE ON THE RELEASE TILE (THE RENDER LOOP ONLY DOES THIS ON ITS NEXT FRAME)
+				for (let i = 0; i < tiles.length; i++) {
+					if (tiles[i].isMousedown && tiles[i].color == playerColor) { tiles[i].x = tileX; tiles[i].y = tileY; tiles[i].isClicked = true; }
+				}
+				handleMouseMove(point);
+			}
+			handleMouseUp(point);
+			handleCanvasClick(point);
+		}
+
+		function handleTouchCancel(e) {
+			if (!touchState) { return; }
+			handleMouseUp(touchState.point);
+			touchState = null;
 		}
 
 
@@ -2358,72 +2471,24 @@ export async function renderCanvas(playerData) {
 			menuToggled = false;
 			optBtn.style.display = "none"
 			menu.style.display = "none"
-			await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, playerColor);
-			response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false);
-			drawScreen = function () { return };
-			await setInitialData();
-			if (playerColor == "w") { // DRAW SCREEN W
-				currInst = chessInst.board();
-				drawScreen = async function () {
-					const boardData = renderBoard();
-					clickX = boardData.clickX;
-					clickY = boardData.clickY;
-					currInst = chessInst.board();
-					overlapSlideObj = null
-					renderPiecesToBoard(currInst, clickX, clickY, true);
-					if (currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
-						if (playerColor == 'w') { bTakenPieces = setTakenPieceArr("w"); renderTakenPieces(bTakenPieces, 'b'); }
-						else if (playerColor == 'b') { wTakenPieces = setTakenPieceArr("b"); renderTakenPieces(bTakenPieces, 'w'); }
-					} else {
-						wTakenPieces = setTakenPieceArr(playerColor);
-						bTakenPieces = setTakenPieceArr(opponentColor);
-						renderTakenPieces(wTakenPieces, opponentColor);
-						renderTakenPieces(bTakenPieces, playerColor)
-					}
-
-					ctx.globalAlpha = 0.05
-					ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
-					ctx.globalAlpha = 1;
-
-					canvas.style.backgroundRepeat = "repeat-y";
-					canvas.style.backgroundImage = 'url("../images/board/table.webp")';
-					canvas.style.backgroundSize = "cover";
-					canvas.style.backgroundPosition = "center";
-				}
-			} else if (playerColor == "b") { // DRAW SCREEN B
-				currInst = chessInst.board().reverse();
-				for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); }
-				drawScreen = async function () {
-					const boardData = renderBoard();
-					clickX = boardData.clickX;
-					clickY = boardData.clickY;
-					currInst = chessInst.board().reverse();
-					for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); }
-					overlapSlideObj = null
-					renderPiecesToBoard(currInst, clickX, clickY, true);
-					if (currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
-						if (playerColor == 'w') { bTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(bTakenPieces, opponentColor); }
-						else if (playerColor == 'b') { wTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(wTakenPieces, opponentColor); }
-					} else {
-						wTakenPieces = setTakenPieceArr(opponentColor);
-						bTakenPieces = setTakenPieceArr(playerColor);
-						renderTakenPieces(wTakenPieces, playerColor);
-						renderTakenPieces(bTakenPieces, opponentColor);
-					}
-					ctx.globalAlpha = 0.05
-					ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
-					ctx.globalAlpha = 1;
-					canvas.style.backgroundRepeat = "repeat-y";
-					canvas.style.backgroundImage = 'url("../images/board/table.webp")';
-					canvas.style.backgroundSize = "cover";
-					canvas.style.backgroundPosition = "center";
-				}
+			// THE RESTART PARAM IS THE AI'S COLOR (THE BACKEND STORES PLAYER_ID_1 AS WHITE), GIVING THE AI THE PLAYER'S COLOR FLIPS SIDES EACH RESTART
+			const aiColor = playerColor;
+			const restartResponse = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, aiColor); // RESETS THE GAME IN THE DATABASE
+			if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME
+				console.log(restartResponse);
+				optBtn.style.display = "flex";
+				boardReset = false;
+				refresh = true;
+				return;
 			}
+			drawScreen = function () { return };
+			await setInitialData(); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
+			handleInitialData();
 			optBtn.style.display = "flex";
 			optResumeBtn.parentElement.style.display = 'flex';
 			resultDisplay.innerText = "Lakeside Chess"
 			await refreshData(response);
-			opposingMove = false;
+			opposingMove = chessInst.turn() != playerColor;
 			boardReset = false;
 			refresh = true;
 			return
@@ -2445,12 +2510,16 @@ export async function renderCanvas(playerData) {
 				menu.style.display = "none"
 				if (document.getElementById("loadingDiv")) { document.getElementById("loadingDiv").remove(); }
 
-				window.removeEventListener("resize", handleCanvasClick);
+				window.removeEventListener("resize", handleWindowResize);
 				window.removeEventListener("keydown", handleKeyPress);
 				canvas.removeEventListener("click", handleCanvasClick);
 				canvas.removeEventListener("mousemove", handleMouseMove);
 				canvas.removeEventListener("mousedown", handleMouseDown);
 				canvas.removeEventListener("mouseup", handleMouseUp);
+				canvas.removeEventListener("touchstart", handleTouchStart);
+				canvas.removeEventListener("touchmove", handleTouchMove);
+				canvas.removeEventListener("touchend", handleTouchEnd);
+				canvas.removeEventListener("touchcancel", handleTouchCancel);
 
 				optBtn.removeEventListener("click", handleMenuBtn);
 				optResumeBtn.removeEventListener("click", handleResume);

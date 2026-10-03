@@ -9,16 +9,27 @@ html {
 	align-items: center;
 	justify-content: center;
 	height: 100vh;
+	height: 100dvh; /* MOBILE: VISIBLE HEIGHT, EXCLUDES BROWSER TOOLBARS */
 }
 body {
 	display: flex;
 	height: 100vh;
+	height: 100dvh;
 	width: 100vw;
 	margin: 0;
 	padding: 0;
 	justify-content: center;
 	align-items: center;
 	overflow: hidden;
+	overscroll-behavior: none; /* MOBILE: NO PULL TO REFRESH / RUBBER BANDING */
+	background-color: #220B00;
+	-webkit-tap-highlight-color: transparent;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
+button {
+	touch-action: manipulation; /* MOBILE: NO DOUBLE TAP ZOOM DELAY ON BUTTONS */
 }
 
 
@@ -27,6 +38,7 @@ body {
 	justify-content: center;
 	align-items: center;
 	height: 100vh;
+	height: 100dvh;
 	width: 100vw;
 	background-repeat: "repeat-y";
 	background-size: "cover";
@@ -34,30 +46,49 @@ body {
 }
 
 #main canvas {
+	display: block;
 	padding: 0;
+	touch-action: none; /* MOBILE: TOUCHES ON THE BOARD ARE HANDLED AS GAME INPUT, NOT SCROLL / ZOOM */
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
 }
 
 #main #optBtn {
 	position: absolute;
+	z-index: 2;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	min-width: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	min-height: 44px;
 	background-color: transparent;
 	color: burlywood;
 	margin-right: 7.5px;
 	margin-top: 7.5px;
-	top: 0;
-	right: 0;
-	font-size: calc(.75vw + .75vh + 3vmin);
+	top: env(safe-area-inset-top, 0px);
+	right: env(safe-area-inset-right, 0px);
+	font-size: max(28px, calc(.75vw + .75vh + 3vmin));
 	border: none;
-	transition: ease-out 375ms;	
+	cursor: pointer;
+	transition: ease-out 375ms;
 	text-shadow: 2px 2px 2.5px black, -0.5px -0.5px 0px black, -0.5px 0.5px 0px black, 0.5px -0.5px 0px black, 0.5px 0.5px 0px black;
 }
 
-#main #optBtn:hover {
+@media (hover: hover) {
+	#main #optBtn:hover {
+		color: white;
+		transition: ease-in 375ms;
+	}
+}
+
+#main #optBtn:active {
 	color: white;
-	transition: ease-in 375ms;
 }
 
 #menuContainer {
 	position: absolute;
+	z-index: 3;
 	display: none;
 	justify-content: center;
 	align-items: center;
@@ -131,11 +162,17 @@ body {
 	text-shadow: 2px 2px 2.5px black, -0.5px -0.5px 0px black, -0.5px 0.5px 0px black, 0.5px -0.5px 0px black, 0.5px 0.5px 0px black;
 }
 
-#menuBox #menuContent #menuButtonList li button:hover {
-	transition: ease-in 125ms;
+@media (hover: hover) {
+	#menuBox #menuContent #menuButtonList li button:hover {
+		transition: ease-in 125ms;
+		background-color: burlywood;
+		border: none;
+		border-radius: 10px;
+	}
+}
+
+#menuBox #menuContent #menuButtonList li button:active {
 	background-color: burlywood;
-	border: none;
-	border-radius: 10px;
 }
 
 

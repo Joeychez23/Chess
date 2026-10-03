@@ -35,7 +35,9 @@ let menuToggled = false;
 
 const { validate, getUserGameData, initMultiplayerGame } = require('./gameplay/validate/index.js');
 
-const parent = window.location?.ancestorOrigins[0];
+// Firefox (desktop & Android) has no location.ancestorOrigins, fall back to the embedding page's origin
+const ancestorOrigins = window.location.ancestorOrigins || ((window.parent !== window && document.referrer) ? [new URL(document.referrer).origin] : []);
+const parent = ancestorOrigins[0];
 document.cookie = "cookieID=1; SameSite=None; Secure";
 
 
@@ -51,7 +53,7 @@ let playerData;
 //  * @description Start renderCanvas() function
 //  */
 window.addEventListener("load", function () {
-	if (window.location.ancestorOrigins.length == 0) {
+	if (ancestorOrigins.length == 0) {
 		playerData = { GAME_URL: process.env.CHESS_URL, GAME_ID: process.env.GAME_ID, PLAYER_ID: process.env.PLAYER_ID }
 		window.postMessage({
 			action: "start",          // Action key.
@@ -112,7 +114,7 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		if (document.getElementById('gameContainer')) { document.getElementById('gameContainer').remove(); }
 		main.width = window.innerWidth;
 		main.height = window.innerHeight;
-		if (window.location.ancestorOrigins.length != 0 && parent) {
+		if (ancestorOrigins.length != 0 && parent) {
 			const { action, receiptToken } = data; // Return message handler for the current event.
 			window.parent.postMessage({
 				action: action,          // Action key.
@@ -129,7 +131,7 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		}
 	},
 	exit: (data, returnMessage) => {
-		if (window.location.ancestorOrigins.length != 0 && parent) {
+		if (ancestorOrigins.length != 0 && parent) {
 			const { action, receiptToken } = data; // Return message handler for the current event.
 			window.parent.postMessage({
 				action: action,          // Action key.

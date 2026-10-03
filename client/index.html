@@ -5,7 +5,8 @@
 	<meta charset="UTF-8" />
 	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
 	<link rel="icon" href="./images/images.png" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="theme-color" content="#220B00" />
 	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Audiowide">
 	<link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 	<!-- <link rel="shortcut icon" href="#"> -->
@@ -26,7 +27,7 @@
 					<li><button class="menuButton" id="optNewMulti">Play Friends</button></li>
 
 					<form id="muliplayerForm">
-						<input class="newGameInput" type="text" id="enterMultiEmail" name="enterMultiEmail" placeholder="Opponent Email">
+						<input class="newGameInput" type="text" inputmode="email" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Opponent Email">
 						<button class="newGameInput" id="enterMultiSubmit">Submit</button>
 						<br>
 					</form>
@@ -39,7 +40,7 @@
 	</div>
 
 	<main id="main">
-		<button id="optBtn" class="material-icons"> settings </button>
+		<button id="optBtn" class="material-icons" type="button" aria-label="Menu"> settings </button>
 	</main>
 </body>
 
