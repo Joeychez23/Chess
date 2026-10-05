@@ -14,3 +14,4 @@ sony
 *.yml
 sony
 *.zip
+package-lock.json
