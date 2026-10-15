@@ -105,3 +105,15 @@ export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail) {
 		return
 	}
 }
+
+export async function stockfishAPI(data = {}) {
+	const response = await fetch("https://engine.aws-prac-route53.com/v1", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json"
+		},
+		body: JSON.stringify(data),
+	});
+	return response.json();
+}
+// await stockfishAPI({ fen: `${chessInst.fen()}`, depth: 1 }).then((data) => { console.log(data); });

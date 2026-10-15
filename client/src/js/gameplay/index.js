@@ -241,7 +241,6 @@ export async function renderCanvas(playerData) {
 	 */
 	const startGameCheck = setInterval(async function () { if (loadedImages == images.length) { startGame(); clearInterval(startGameCheck) } }, 1000);
 
-
 	/* ---------------------------------------------------------------- */
 	// Start Game
 	/* ---------------------------------------------------------------- */
@@ -286,58 +285,14 @@ export async function renderCanvas(playerData) {
 			receiptToken: "{receipt-token}", // Receipt validation token.
 		})
 		main.append(canvas);
-		
+
 		/* ################################################################ */
 		/* ################################################################ */
 		// CORE RENDER LOOP
 		/* ################################################################ */
 		/* ################################################################ */
 
-		// async function renderLoop() {
-		// 	const endTime = Date.now();
-		// 	initialAnimation = false;
-		// 	if ((refresh || currSlide) && !boardReset) {
-		// 		try {
-		// 			if (initialAnimation) { renderBoardAnimation(currInst); refresh = true; }
-		// 			else {
-		// 				if (ai && chessInst.turn() != playerColor && aiTurn) { // IF AI
-		// 					revert = response;
-		// 					moveObj = playAi(chessInst, opponentColor); // IF PLAYER MOVE IS VALID -> MAKE AI MOVE
-		// 					validateState.load(response.game_board);
-		// 					validateState.move(moveObj);
-		// 					for (let i = 0; i < tiles.length; i++) {
-		// 						if (tiles[i].square == moveObj.from) {
-		// 							slideStart = true;
-		// 							tiles[i].isSliding = true;
-		// 							if (playerColor == 'w') {
-		// 								tiles[i].xSlideTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-		// 								tiles[i].ySlideTo = 8 - moveObj.to.split("")[1];
-		// 							} else if (playerColor == 'b') {
-		// 								tiles[i].xSlideTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
-		// 								tiles[i].ySlideTo = moveObj.to.split("")[1] - 1;
-		// 							}
-		// 							tiles[i].xDiff = 0;
-		// 							tiles[i].yDiff = 0;
-		// 						} else if (tiles[i].isSliding) {
-		// 							tiles[i].isSliding = false;
-		// 							tiles[i].xDiff = 0;
-		// 							tiles[i].yDiff = 0;
-		// 						}
-		// 					}
-		// 					aiTurn = false;
-		// 					currSlide = true;
-		// 					startTime = new Date();
-		// 					return;
-		// 				}
-		// 				drawScreen();
-		// 				refresh = false;
-		// 			}
-		// 		} catch (err) { console.log(err); }
-		// 	}
-		// 	if ((endTime - refreshDataStartTime > 2000) && !ai) { await checkOpponentMove(); } // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
-		// }
-
-		const drawInterval = setInterval(async function () {
+		async function renderLoop() {
 			const endTime = Date.now();
 			initialAnimation = false;
 			if ((refresh || currSlide) && !boardReset) {
@@ -346,7 +301,7 @@ export async function renderCanvas(playerData) {
 					else {
 						if (ai && chessInst.turn() != playerColor && aiTurn) { // IF AI
 							revert = response;
-							moveObj = playAi(chessInst, opponentColor); // IF PLAYER MOVE IS VALID -> MAKE AI MOVE
+							moveObj = await playAi(chessInst, opponentColor); // IF PLAYER MOVE IS VALID -> MAKE AI MOVE
 							validateState.load(response.game_board);
 							validateState.move(moveObj);
 							for (let i = 0; i < tiles.length; i++) {
@@ -379,7 +334,11 @@ export async function renderCanvas(playerData) {
 				} catch (err) { console.log(err); }
 			}
 			if ((endTime - refreshDataStartTime > 2000) && !ai) { await checkOpponentMove(); } // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
-		}, frameRate);
+		}
+
+		const drawInterval = setInterval(async function () { renderLoop() }, frameRate);
+
+		/*____________________________________________________________________________________________________________________________*/
 
 		/* ################################################################ */
 		/* ################################################################ */
@@ -605,7 +564,7 @@ export async function renderCanvas(playerData) {
 				if (response.ai) {
 					ai = true;
 					if (opponentColor == chessInst.turn()) { //PLAY AI MOVE
-						moveObj = playAi(chessInst, opponentColor); // IF PLAYER MOVE IS VALID -> MAKE AI MOVE
+						moveObj = await playAi(chessInst, opponentColor); // IF PLAYER MOVE IS VALID -> MAKE AI MOVE
 						tiles = await setTiles();
 						aiTurn = true;
 						refresh = true;
