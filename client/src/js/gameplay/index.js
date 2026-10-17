@@ -301,7 +301,9 @@ export async function renderCanvas(playerData) {
 					else {
 						if (ai && chessInst.turn() != playerColor && aiTurn) { // IF AI
 							revert = response;
+							clearInterval(drawInterval)
 							moveObj = await playAi(chessInst, opponentColor); // IF PLAYER MOVE IS VALID -> MAKE AI MOVE
+
 							validateState.load(response.game_board);
 							validateState.move(moveObj);
 							for (let i = 0; i < tiles.length; i++) {
@@ -326,6 +328,7 @@ export async function renderCanvas(playerData) {
 							aiTurn = false;
 							currSlide = true;
 							startTime = new Date();
+							drawInterval = setInterval(async function () { await renderLoop() }, frameRate);
 							return;
 						}
 						drawScreen();
@@ -336,7 +339,7 @@ export async function renderCanvas(playerData) {
 			if ((endTime - refreshDataStartTime > 2000) && !ai) { await checkOpponentMove(); } // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
 		}
 
-		const drawInterval = setInterval(async function () { renderLoop() }, frameRate);
+		let drawInterval = setInterval(async function () { await renderLoop() }, frameRate);
 
 		/*____________________________________________________________________________________________________________________________*/
 
