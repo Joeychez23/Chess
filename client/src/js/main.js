@@ -11,7 +11,6 @@ const optNewGameBtn = document.getElementById("optRestart");
 const optHomepageBtn = document.getElementById("optSettings");
 const optExitBtn = document.getElementById("optExit");
 const multiEmailBtn = document.getElementById("enterMultiSubmit");
-
 exitState = {
 	button: null,
 	nest: 0
@@ -24,7 +23,8 @@ const optNewMultiBtn = document.getElementById("optNewMulti");
 const muliplayerForm = document.getElementById("muliplayerForm");
 
 const { ObjectId } = require("bson");
-
+const { InternalAuth }  = require("./auth/clientSideAuth.js");
+let auth = new InternalAuth;
 let gameOpen;
 let gameContainer
 
@@ -56,10 +56,26 @@ window.addEventListener("load", function () {
 	if (ancestorOrigins.length == 0) {
 		playerData = { GAME_URL: process.env.CHESS_URL, GAME_ID: process.env.GAME_ID, PLAYER_ID: process.env.PLAYER_ID }
 		window.postMessage({
-			action: "start",          // Action key.
+			action: "auth",          // Action key.
 			receiptToken: "{receipt-token}", // Receipt validation token.
 		})
 	}
+}, false);
+
+/* ---------------------------------------------------------------- */
+// Window Message
+/* ---------------------------------------------------------------- */
+/**
+ * @description Listen to messages from Application integration.
+ */
+window.addEventListener("message", function (event) {
+	if (event.origin != this.origin) {
+		// console.log(`[CHESS] Message received from [CHESS]:  [action: ${event.data.action}]`);
+		console.log(`[CHESS] Message received from ${event.origin}:  [action: ${event.data.action}]`);
+	}
+	if (!(event.data?.action in gameCenterActionsIn)) { return } // Unknown action.
+	const returnMessage = (message) => { window.postMessage(message) }// Send the message receipt.
+	gameCenterActionsIn[event.data.action](event.data, returnMessage);
 }, false);
 
 
@@ -72,6 +88,7 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 			playerData = null;
 		}
 	},
+	auth: () => { auth.authenticate(); },
 	start: () => { // "start" action handler.
 		if (playerData?.PLAYER_ID) { // Start a new full game.
 			optNewGameBtn.innerHTML = "Restart"
@@ -211,7 +228,8 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 				gameList.append(listElement);
 			}
 			main.append(gameContainer);
-		} else {
+		} 
+		else {
 			window.parent.postMessage({
 				action: "auth",          // Action key.
 				receiptToken: "{receipt-token}", // Receipt validation token.
@@ -232,17 +250,17 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 // Window Message
 /* ---------------------------------------------------------------- */
 /**
- * @description Listen to messages from the Sinclair Game Center.
+ * @description Listen to messages from Application integration.
  */
-window.addEventListener("message", function (event) {
-	if (event.origin != this.origin) {
-		// console.log(`[CHESS] Message received from [CHESS]:  [action: ${event.data.action}]`);
-		console.log(`[CHESS] Message received from ${event.origin}:  [action: ${event.data.action}]`);
-	}
-	if (!(event.data?.action in gameCenterActionsIn)) { return } // Unknown action.
-	const returnMessage = (message) => { window.postMessage(message) }// Send the message receipt.
-	gameCenterActionsIn[event.data.action](event.data, returnMessage);
-}, false);
+// window.addEventListener("message", function (event) {
+// 	if (event.origin != this.origin) {
+// 		// console.log(`[CHESS] Message received from [CHESS]:  [action: ${event.data.action}]`);
+// 		console.log(`[CHESS] Message received from ${event.origin}:  [action: ${event.data.action}]`);
+// 	}
+// 	if (!(event.data?.action in gameCenterActionsIn)) { return } // Unknown action.
+// 	const returnMessage = (message) => { window.postMessage(message) }// Send the message receipt.
+// 	gameCenterActionsIn[event.data.action](event.data, returnMessage);
+// }, false);
 
 
 
