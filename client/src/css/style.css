@@ -1,0 +1,220 @@
+* {
+	font-family: "Trirong", serif;
+	padding: 0;
+	margin: 0;
+}
+
+html {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100vh;
+	height: 100dvh; /* MOBILE: VISIBLE HEIGHT, EXCLUDES BROWSER TOOLBARS */
+}
+body {
+	display: flex;
+	height: 100vh;
+	height: 100dvh;
+	width: 100vw;
+	margin: 0;
+	padding: 0;
+	justify-content: center;
+	align-items: center;
+	overflow: hidden;
+	overscroll-behavior: none; /* MOBILE: NO PULL TO REFRESH / RUBBER BANDING */
+	background-color: #220B00;
+	-webkit-tap-highlight-color: transparent;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
+button {
+	touch-action: manipulation; /* MOBILE: NO DOUBLE TAP ZOOM DELAY ON BUTTONS */
+}
+
+
+#main {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	height: 100vh;
+	height: 100dvh;
+	width: 100vw;
+	background-repeat: "repeat-y";
+	background-size: "cover";
+	background-position: "center";
+}
+
+#main canvas {
+	display: block;
+	padding: 0;
+	touch-action: none; /* MOBILE: TOUCHES ON THE BOARD ARE HANDLED AS GAME INPUT, NOT SCROLL / ZOOM */
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+}
+
+#main #optBtn {
+	position: absolute;
+	z-index: 2;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	min-width: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	min-height: 44px;
+	background-color: transparent;
+	color: burlywood;
+	margin-right: 7.5px;
+	margin-top: 7.5px;
+	top: env(safe-area-inset-top, 0px);
+	right: env(safe-area-inset-right, 0px);
+	font-size: max(28px, calc(.75vw + .75vh + 3vmin));
+	border: none;
+	cursor: pointer;
+	transition: ease-out 375ms;
+	text-shadow: 2px 2px 2.5px black, -0.5px -0.5px 0px black, -0.5px 0.5px 0px black, 0.5px -0.5px 0px black, 0.5px 0.5px 0px black;
+}
+
+@media (hover: hover) {
+	#main #optBtn:hover {
+		color: white;
+		transition: ease-in 375ms;
+	}
+}
+
+#main #optBtn:active {
+	color: white;
+}
+
+#menuContainer {
+	position: absolute;
+	z-index: 3;
+	display: none;
+	justify-content: center;
+	align-items: center;
+	height: 50%;
+	border-radius: 15px;
+}
+
+#menuBox {
+	background-color: #220B00;
+	border: 5px solid #CD853F;
+	border-radius: 10px;
+	opacity: 95%;   
+	height: 70%;
+	width: 37.5%;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	align-items: top;
+	box-shadow: 10px 10px 20px black;
+}
+
+#menuBox #menuContent {
+	height: 100%;
+	width: 100%;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	/* border: 3px solid purple; */
+} 
+
+#menuBox #menuContent #resultDisplay {
+	padding-top: 5%;
+	width: 100%;
+	height: 12.5%;
+	text-align: center;
+	align-items: center;
+	color: #CD853F;
+	font-weight: 500;
+	text-shadow: 2px 2px 2.5px black, -0.5px -0.5px 0px black, -0.5px 0.5px 0px black, 0.5px -0.5px 0px black, 0.5px 0.5px 0px black;
+	/* border: 2px solid blue; */
+}
+
+#menuBox #menuContent #menuButtonList {
+	padding-top: 1%;
+	z-index: 1;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	width: 100%;
+	height: 67.5%;
+	list-style-type: none;
+	/* border: 2px solid red; */
+}
+
+#menuBox #menuContent #menuButtonList li {
+	width: 66%;
+	height: 20%;
+	display: flex;
+	justify-content: center;
+	/* border: 2px solid green */
+}
+
+#menuBox #menuContent #menuButtonList li button {
+	height: 100%;
+	width: 100%;
+	background-color: #CD853F;
+	color: white;
+	border: none;
+	border-radius: 10px;
+	transition: ease-out 125ms;
+	text-shadow: 2px 2px 2.5px black, -0.5px -0.5px 0px black, -0.5px 0.5px 0px black, 0.5px -0.5px 0px black, 0.5px 0.5px 0px black;
+}
+
+@media (hover: hover) {
+	#menuBox #menuContent #menuButtonList li button:hover {
+		transition: ease-in 125ms;
+		background-color: burlywood;
+		border: none;
+		border-radius: 10px;
+	}
+}
+
+#menuBox #menuContent #menuButtonList li button:active {
+	background-color: burlywood;
+}
+
+
+.newGameInput {
+	width: 100%;
+	height: 40%;
+}
+
+#enterMultiEmail {
+	background-color: white;
+	border: none;
+	border-radius: 2px;
+}
+
+#enterMultiSubmit {
+	color: white;
+	background-color: #CD853F;
+	border: none;
+	border-radius: 10px;
+	text-shadow: 2px 2px 2.5px black, -0.5px -0.5px 0px black, -0.5px 0.5px 0px black, 0.5px -0.5px 0px black, 0.5px 0.5px 0px black;
+}
+
+
+.enterMultiSubmit:hover {
+	transition: ease-in 125ms;
+	background-color: burlywood;
+	border: none;
+	border-radius: 10px;
+}
+
+#muliplayerForm {
+	/* border: 2px red solid; */
+	width: 66%;
+	display: none;
+	justify-content: center;
+	align-items: center;
+	flex-wrap: wrap;
+	height: 50%;
+
+}
+
+
+#gameList {
+	list-style: none;
+}

@@ -1,0 +1,47 @@
+[
+	{
+		"player_id": "6518e28528f7c82a29ba7bbUser1",
+		"games": [
+			"6518e28528f7c82a29ba7bbGame1",
+			"6518e28528f7c82a29ba7bbGame2",
+			"6518e28528f7c82a29ba7bbGame3"
+		],
+		"name": "Carson Keller"
+	},
+	{
+		"player_id": "6518e28528f7c82a29ba7bbUser2",
+		"games": [
+			"6518e28528f7c82a29ba7bbGame4",
+			"6518e28528f7c82a29ba7bbGame5",
+			"6518e28528f7c82a29ba7bbGame6"
+		],
+		"name": "Stuart Kerr"
+	},
+	{
+		"player_id": "6518e28528f7c82a29ba7bbUser3",
+		"games": [
+			"6518e28528f7c82a29ba7bbGame7",
+			"6518e28528f7c82a29ba7bbGame8",
+			"6518e28528f7c82a29ba7bbGame9"
+		],
+		"name": "James Butler"
+	},
+	{
+		"player_id": "6518e28528f7c82a29ba7bbUser4",
+		"games": [
+			"6518e28528f7c82a29ba7bbGame10",
+			"6518e28528f7c82a29ba7bbGame11",
+			"6518e28528f7c82a29ba7bbGame12"
+		],
+		"name": "Kevin Wright"
+	},
+	{
+		"player_id": "6518e28528f7c82a29ba7bbUser5",
+		"games": [
+			"6518e28528f7c82a29ba7bbGame13",
+			"6518e28528f7c82a29ba7bbGame14",
+			"6518e28528f7c82a29ba7bbGame15"
+		],
+		"name": "Macon Burt"
+	}
+]
