@@ -1,0 +1,50 @@
+provider "aws" {
+  region = var.aws_region
+}
+
+# ---------------------------------------------------------------- #
+# Chess Table (one item per game)
+# ---------------------------------------------------------------- #
+# MATCHES THE TABLE ALREADY IN AWS. IMPORT IT BEFORE THE FIRST APPLY (SEE README)
+resource "aws_dynamodb_table" "chess_table" {
+  name           = var.chess_table_name
+  billing_mode   = "PROVISIONED"
+  read_capacity  = 5
+  write_capacity = 5
+  hash_key       = "game_id" # SEARCH KEY
+
+  attribute {
+    name = "game_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expireAt" # SET BY THE CHESS LAMBDA, 25 DAYS AFTER THE LAST MOVE (EPOCH SECONDS)
+    enabled        = true
+  }
+
+  lifecycle {
+    prevent_destroy = true # HOLDS LIVE GAMES, TERRAFORM WILL REFUSE TO DELETE OR REPLACE IT
+  }
+}
+
+# ---------------------------------------------------------------- #
+# User Table (one item per user)
+# ---------------------------------------------------------------- #
+# MATCHES THE TABLE ALREADY IN AWS. IMPORT IT BEFORE THE FIRST APPLY (SEE README)
+resource "aws_dynamodb_table" "user_table" {
+  name           = var.user_table_name
+  billing_mode   = "PROVISIONED"
+  read_capacity  = 5
+  write_capacity = 5
+  hash_key       = "user_id" # SEARCH KEY (AUTH0 USER ID)
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+
+  lifecycle {
+    prevent_destroy = true # HOLDS LIVE USERS, TERRAFORM WILL REFUSE TO DELETE OR REPLACE IT
+  }
+}

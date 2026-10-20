@@ -2,13 +2,17 @@
 // CHESS
 /* ---------------------------------------------------------------- */
 /**
- * @description Conditionalize user request of GET Game or POST move which is validate by the sinclair chess lambda(s)
+ * @description Conditionalize user request of GET Game, PUT move, or POST restart, validated by the chess routes on the express server (server/controllers/chessController.js)
+ * @param  {[string]} gameUrl [chess api, "/api/chess"]
+ * @param  {[string]} gameId [game id]
  * @param  {[object]} _id [player id]
  * @param  {[object]} move [move array]
+ * @param  {[string]} promotion [promotion piece]
+ * @param  {[string]} restart [AI color 'w' or 'b' to restart the game]
  * @return {[object]} response.json() = backend server response object of request data
  */
 export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
-	if (restart) { // RESTART GAME
+	if (restart) { // RESTART GAME (POST /game, OVERWRITES game_id WITH A NEW BOARD)
 		let options;
 		if (restart == 'w') {
 			options = {
@@ -33,16 +37,15 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 		}
 		try {
 
-			return await fetch(gameUrl, options).then(res => res.json())
+			return await fetch(`${gameUrl}/game`, options).then(res => res.json())
 		} catch (err) {
 			return
 		}
-	} else if (move) { // MOVE UPDATE
+	} else if (move) { // MOVE UPDATE (PUT /game/:gameId)
 		const options = {
-			method: "POST",
+			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				game_id: gameId,
 				player_id: _id,
 				move,
 				promotion
@@ -50,22 +53,16 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 		};
 		try {
 
-			return await fetch(gameUrl, options).then(res => res.json())
+			return await fetch(`${gameUrl}/game/${encodeURIComponent(gameId)}`, options).then(res => res.json())
 		} catch (err) {
 			return
 		}
-	} else { // GET GAME
+	} else { // GET GAME (GET /game/:gameId)
 		const options = {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				game_id: gameId,
-				player_id: _id,
-			})
-
+			method: "GET"
 		};
 		try {
-			return await fetch(gameUrl, options).then(res => res.json())
+			return await fetch(`${gameUrl}/game/${encodeURIComponent(gameId)}?player_id=${encodeURIComponent(_id)}`, options).then(res => res.json())
 		} catch (err) {
 			return;
 		}
@@ -73,42 +70,25 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 
 }
 
+/**
+ * @description Gets a user's game lists for Home (GET /user/:userId)
+ */
 export async function getUserGameData(gameUrl, userId) {
 	const options = {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			user_id: userId
-		})
-
+		method: "GET"
 	};
 	try {
-		return await fetch(gameUrl, options).then(res => res.json())
+		return await fetch(`${gameUrl}/user/${encodeURIComponent(userId)}`, options).then(res => res.json())
 	} catch (err) {
 		return;
 	}
 }
 
+/**
+ * @description New game vs a friend, the server finds their account by email (POST /invite)
+ */
 export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail) {
 	let options = {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			game_id: gameId,
-			player_id_1: _id,
-			player_id_2: opponentEmail
-		})
-	};
-	try {
-		return await fetch(gameUrl, options).then(res => res.json())
-	} catch (err) {
-		return
-	}
-}
-
-
-export async function createNewGame(gameUrl, gameId, _id) {
-		let options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -118,7 +98,7 @@ export async function createNewGame(gameUrl, gameId, _id) {
 		})
 	};
 	try {
-		return await fetch(gameUrl, options).then(res => res.json())
+		return await fetch(`${gameUrl}/invite`, options).then(res => res.json())
 	} catch (err) {
 		return
 	}
@@ -131,6 +111,7 @@ export async function stockfishAPI(data = {}) {
 			"Content-Type": "application/json"
 		},
 		body: JSON.stringify(data),
+		signal: AbortSignal.timeout(2500), // ENGINE UNREACHABLE -> playAi() FALLS BACK TO js-chess-engine AFTER 2 SECONDS
 	});
 	return response.json();
 }
