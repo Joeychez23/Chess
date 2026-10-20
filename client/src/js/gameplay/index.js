@@ -1887,7 +1887,7 @@ export async function renderCanvas(playerData) {
 
 
 				response = await validate(GAME_URL, GAME_ID, PLAYER_ID, [moveObj.from, moveObj.to], moveObj.promotion, false);
-				console.log(response)
+				
 				chessInst.load(response.game_board);
 
 				if (response.status == 200) {
@@ -2558,7 +2558,7 @@ export async function renderCanvas(playerData) {
 			const aiColor = playerColor;
 			const restartResponse = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, aiColor); // RESETS THE GAME IN THE DATABASE
 			if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME
-				console.log(restartResponse);
+				// console.log(restartResponse);
 				optBtn.style.display = "flex";
 				boardReset = false;
 				refresh = true;

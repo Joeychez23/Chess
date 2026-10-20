@@ -34,6 +34,7 @@ let openCanvas;
 let menuToggled = false;
 
 const { validate, getUserGameData, initMultiplayerGame } = require('./gameplay/validate/index.js');
+const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
 
 // Firefox (desktop & Android) has no location.ancestorOrigins, fall back to the embedding page's origin
 const ancestorOrigins = window.location.ancestorOrigins || ((window.parent !== window && document.referrer) ? [new URL(document.referrer).origin] : []);
@@ -60,7 +61,7 @@ preloadImages();
 //  */
 window.addEventListener("load", function () {
 	if (ancestorOrigins.length == 0) {
-		playerData = { GAME_URL: process.env.CHESS_URL, GAME_ID: process.env.GAME_ID, PLAYER_ID: process.env.PLAYER_ID }
+		playerData = { GAME_URL: CHESS_URL, GAME_ID: process.env.GAME_ID, PLAYER_ID: process.env.PLAYER_ID }
 		// window.postMessage({
 		// 	action: "start",          // Action key.
 		// 	receiptToken: "{receipt-token}", // Receipt validation token.
@@ -460,6 +461,7 @@ async function handleMultiSubmit(e) {
 			console.log(email)
 			const response = await initMultiplayerGame(playerData.GAME_URL, _id, playerData.PLAYER_ID, email);
 			console.log(response)
+			if (response?.status != 200) { return; } // NO ACCOUNT FOR THAT EMAIL, STAY ON THE FORM
 			GAME_ID = _id
 			playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: GAME_ID, PLAYER_ID: playerData.PLAYER_ID }
 			window.postMessage({

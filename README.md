@@ -5,9 +5,10 @@
 A chess game drawn entirely on an HTML5 canvas: sprite pieces with shadows and
 reflections on a wooden table, sliding move animations, and move sounds. Play
 the computer or challenge a friend by email. The browser checks each move
-first, then a Lambda backend
-([chess-validation](https://github.com/Joeychez23/Lambdas)) checks it again
-against the board stored in DynamoDB before it counts.
+first, then the Express server checks it again against the board stored in
+DynamoDB before it counts. (This used to be the chess lambda in
+[chess-validation](https://github.com/Joeychez23/Lambdas); see
+[Chess API](#chess-api).)
 
 Built with vanilla JavaScript, HTML5 Canvas, Webpack 5,
 [chess.js](https://github.com/jhlywa/chess.js) (rules, legal moves, check),
@@ -33,21 +34,21 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
 1. **Startup.** If the page is opened directly (not in an iframe), it asks the
    server who is signed in (`GET /api/user`) while the page loads. A signed-in
    player opens their latest game (or a new one vs. the AI). A guest gets
-   `PLAYER_ID`, `GAME_ID`, and `CHESS_URL` from `client/.env`, which
-   `dotenv-webpack` inlines at build time. Inside an
+   `PLAYER_ID` and `GAME_ID` from `client/.env`, which `dotenv-webpack`
+   inlines at build time. Inside an
    iframe, it waits for the host page to send `userinfo` and `start` messages
    (see [Embedding](#embedding)).
-2. **Load.** `renderCanvas()` preloads every sprite, then asks the backend for
-   the game (`POST { game_id, player_id }`). The backend returns the board
+2. **Load.** `renderCanvas()` preloads every sprite, then asks the server for
+   the game (`GET /api/chess/game/:gameId?player_id=`). The server returns the board
    (FEN), your color, and whether the opponent is the AI. If `PLAYER_ID`
    equals `GAME_ID` and no game exists yet, a new game against the AI is
-   created first.
+   created first (`POST /api/chess/game`).
 3. **Render loop.** A ~33 fps loop redraws only when something changed: a
    hover, a drag, a slide in progress, or new data.
 4. **Your move.** chess.js plays the move locally, which throws on an illegal
-   move. If it's legal, the move is sent as
-   `POST { game_id, player_id, move: [from, to], promotion }`. If the server
-   rejects it, the board reverts to the last state the server confirmed.
+   move. If it's legal, the move is sent as `PUT /api/chess/game/:gameId`
+   with `{ player_id, move: [from, to], promotion }`. If the server rejects
+   it, the board reverts to the last state the server confirmed.
 5. **AI move.** js-chess-engine picks a move from the current FEN. The move is
    animated and then submitted under the player id `CHESS_AI`, so the server
    validates it like any other move.
@@ -78,11 +79,14 @@ cd server && npm install
 In the Auth0 app's settings, add `AUTH0_CALLBACK_URL` to **Allowed Callback
 URLs** and `CLIENT_URL` to **Allowed Logout URLs**.
 
+The server reads and writes the DynamoDB tables with the AWS credentials on the
+machine: `~/.aws` locally (`aws configure`), or the instance's IAM role on AWS.
+It needs read/write access to `chess_db` and `user_db` in us-east-1.
+
 `client/.env`:
 
 | Variable | Purpose |
 | --- | --- |
-| `CHESS_URL` | Chess API endpoint, e.g. `https://backend.chess.aws-prac-route53.com/api/chess` |
 | `PLAYER_ID` | Player id used when the page isn't embedded |
 | `GAME_ID` | Game to open. Set it equal to `PLAYER_ID` to get a personal game vs. the AI that's created on first load. |
 
@@ -122,6 +126,27 @@ checked on every request, and a refresh token (7 days) that's only sent to
 `/api/auth`. When `/api/user` returns `401`, the client calls
 `/api/auth/refresh` once and uses the user it returns. Checking a session is a
 signature check on the server, so startup doesn't wait on Auth0.
+
+## Chess API
+
+The chess lambda now runs on the Express server. Each branch of the lambda's
+handler is its own route under `/api/chess`. The client calls them from
+`client/src/js/gameplay/validate/index.js`, with `GAME_URL` set to `/api/chess`
+in `main.js`. Responses keep the lambda's body (`{ status, ..., message }`),
+and a rejected request still comes back as HTTP 200 with `status: 500` in the
+body, so the client checks them the same way as before.
+
+| Route | Body / query | What it does |
+| --- | --- | --- |
+| `GET /api/chess/game/:gameId` | `?player_id=` | The board, the player's color, and whether the opponent is the AI |
+| `POST /api/chess/game` | `{ game_id, player_id_1, player_id_2 }` | New game, or restart: an existing `game_id` is overwritten with a new board. `player_id_1` plays white. Leave out `game_id` to generate one |
+| `PUT /api/chess/game/:gameId` | `{ player_id, move: [from, to], promotion }` | Validates the move against the stored board and saves it |
+| `POST /api/chess/invite` | `{ game_id, challenger_id, opponent_email }` | New game vs. a friend. Finds their Auth0 account by email (`getAuth0User`). The challenger plays white |
+| `GET /api/chess/user/:userId` | | The user's game lists for Home. Ids of games TTL already deleted are pruned first |
+
+The move rules (`server/utils/validate.js`) are a copy of the lambda's
+`validate/validate.js`. `chess.js` is pinned to the client's version
+(`1.0.0-beta.6`) so the browser and the server agree on what's legal.
 
 ## Deploy
 
@@ -178,8 +203,8 @@ game against the AI on each load.
 
 ## Resetting a game for testing
 
-Send a `POST` to `https://backend.chess.aws-prac-route53.com/api/chess` from
-Postman, Insomnia, or curl. `player_id_1` plays white:
+Send a `POST` to `http://localhost:3001/api/chess/game` from Postman,
+Insomnia, or curl. `player_id_1` plays white:
 
 ```json
 {
@@ -211,12 +236,15 @@ client/
 server/
   index.js                   Express: serves client/dist + /api routes
   config.js                  Reads server/.env
-  routes/api/                /api/auth/* and /api/user
+  dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js)
+  routes/api/                /api/auth/*, /api/user, /api/chess/*
   controllers/
     authController.js        login, callback, logout, refresh
     userController.js        getUser
+    chessController.js       get game, new game, move, invite, user games (was the chess lambda)
   middleware/auth.js         JWT session cookies, requireAuth
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
+  utils/validate.js          Move rules (was the lambda's validate/validate.js)
 terraform/
   aws-enviroment/            Root module: bucket, domain names, table names
   modules/cloudfront/        ACM cert, DNS validation, CloudFront, Route 53 alias

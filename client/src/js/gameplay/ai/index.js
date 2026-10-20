@@ -15,6 +15,7 @@ export async function playAi(chessInst, aiColor) {
 	let promote;
 	try {
 		let response = await stockfishAPI({ fen: `${chessInst.fen()}`, depth: 1 });
+		// console.log(response);
 		startPos = response.from;
 		endPos = response.to;
 		promote = response.promotion
@@ -22,7 +23,7 @@ export async function playAi(chessInst, aiColor) {
 		computerMove = JSON.stringify(aiMove(chessInst.fen(), 1)).split("\""); // AI MOVE -> SPLIT STRING BY "
 		startPos = computerMove[1].toLowerCase();
 		endPos = computerMove[3].toLowerCase();
-		console.log(computerMove)
+		// console.log(computerMove)
 		promote = false;
 	}
 	// let computerMove = JSON.stringify(aiMove(chessInst.fen(), 1)).split("\""); // AI MOVE -> SPLIT STRING BY "

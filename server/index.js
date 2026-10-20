@@ -9,6 +9,7 @@ const routes = require("./routes")
 const app = express();
 const buildDir = path.join(`${__dirname}/../client/dist/`);
 app.use(cookieParser()); // SESSION TOKENS ARE READ FROM COOKIES (req.cookies)
+app.use(express.json()); // CHESS ROUTES SEND JSON BODIES (req.body)
 app.use(express.static(buildDir));
 app.use(routes);
 if (fs.existsSync(buildDir)) {
