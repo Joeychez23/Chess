@@ -1,11 +1,6 @@
 const { renderCanvas, preloadImages } = require("./gameplay/index.js");
 // ENV
 
-if (window.location.hash.split('=')[0] == "#access_token") {
-	localStorage.setItem("hash", window.location.hash);
-	console.log(window.location)
-}
-
 const main = document.querySelector("#main");
 
 const optBtn = document.getElementById("optBtn");
@@ -28,7 +23,7 @@ const optNewMultiBtn = document.getElementById("optNewMulti");
 const muliplayerForm = document.getElementById("muliplayerForm");
 
 const { ObjectId } = require("bson");
-const { InternalAuth } = require("./auth/clientSideAuth.js");
+const { InternalAuth } = require("./auth/index.js");
 let auth = new InternalAuth;
 let gameOpen;
 let gameContainer
@@ -44,6 +39,9 @@ const { validate, getUserGameData, initMultiplayerGame } = require('./gameplay/v
 const ancestorOrigins = window.location.ancestorOrigins || ((window.parent !== window && document.referrer) ? [new URL(document.referrer).origin] : []);
 const parent = ancestorOrigins[0];
 document.cookie = "cookieID=1; SameSite=None; Secure";
+
+let sessionUser = null; // SIGNED IN USER FROM THE SERVER, NULL FOR GUESTS
+let sessionCheck = ancestorOrigins.length == 0 ? auth.getUser() : null; // STARTS CHECKING THE SESSION NOW INSTEAD OF AFTER THE PAGE LOADS
 
 
 const TV_DEV = false;
@@ -63,7 +61,11 @@ preloadImages();
 window.addEventListener("load", function () {
 	if (ancestorOrigins.length == 0) {
 		playerData = { GAME_URL: process.env.CHESS_URL, GAME_ID: process.env.GAME_ID, PLAYER_ID: process.env.PLAYER_ID }
-
+		// window.postMessage({
+		// 	action: "start",          // Action key.
+		// 	receiptToken: "{receipt-token}", // Receipt validation token.
+		// })
+		// return;
 		// playerData = { GAME_URL: process.env.CHESS_URL, PLAYER_ID: "GUEST_USER" }
 		// if (!localStorage.getItem("GAME_ID")) {
 		// 	playerData.GAME_ID = new ObjectId;
@@ -78,17 +80,10 @@ window.addEventListener("load", function () {
 		// }
 		// playerData = { GAME_URL: process.env.CHESS_URL, PLAYER_ID: "GUEST_USER" }
 
-		if (localStorage.getItem("hash")) {
-			window.postMessage({
-				action: "auth",          // Action key.
-				receiptToken: "{receipt-token}", // Receipt validation token.
-			})
-		} else {
-			window.postMessage({
-				action: "start",          // Action key.
-				receiptToken: "{receipt-token}", // Receipt validation token.
-			})
-		}
+		window.postMessage({
+			action: "auth",          // Action key.
+			receiptToken: "{receipt-token}", // Receipt validation token.
+		})
 	}
 }, false);
 
@@ -120,7 +115,18 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 	// 		playerData = null;
 	// 	}
 	// },
-	auth: () => { auth.authenticate(); },
+	auth: async () => { // Signed in -> "auth-result", guest -> "start"
+		sessionUser = sessionCheck ? await sessionCheck : await auth.getUser(); // USES THE EARLY CHECK THE FIRST TIME
+		sessionCheck = null;
+		if (sessionUser) {
+			window.postMessage({ action: "auth-result", receiptToken: `${"auth-result"}-${"token"}`, userData: sessionUser }, window.location.origin)
+		} else {
+			window.postMessage({
+				action: "start",          // Action key.
+				receiptToken: "{receipt-token}", // Receipt validation token.
+			})
+		}
+	},
 	"auth-result": async (data, returnMessage) => { // Logged in
 		const { userData } = data;
 		// window.postMessage({
@@ -130,21 +136,29 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		// console.log(message)
 		// console.log(userData);
 
-		playerData.PLAYER_ID = userData.userId.split("auth0|")[1]; // Start new game
-		const gameData = await getUserGameData(playerData.GAME_URL, playerData.PLAYER_ID);
-		const openGames = JSON.parse(gameData?.open_games);
-		if (openGames.length) {
-			playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: openGames[openGames.length - 1], PLAYER_ID: playerData.PLAYER_ID }
-		} else {
-			let _id = new ObjectId();
-			playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: _id, PLAYER_ID: playerData.PLAYER_ID }
-			let startColor
-			let randInt = Math.round(Math.random() * 1)
-			if (randInt == 0) { startColor = 'w' }
-			else { startColor = 'b' }
-			try {
-				await validate(playerData.GAME_URL, _id, playerData.PLAYER_ID, false, false, startColor); // CREATE NEW GAME
-			} catch (err) { console.log(err) }
+		// console.log(auth.getUserData())
+		// console.log(userData)
+		if (userData?.userId) {
+			playerData.PLAYER_ID = userData.userId.split("auth0|")[1]; // Start new game
+			const gameData = await getUserGameData(playerData.GAME_URL, playerData.PLAYER_ID);
+			const openGames = JSON.parse(gameData?.open_games || "[]"); // NEW USERS HAVE NO GAMES YET
+			if (openGames.length) {
+				playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: openGames[openGames.length - 1], PLAYER_ID: playerData.PLAYER_ID }
+			} else {
+				let _id = new ObjectId();
+				playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: _id, PLAYER_ID: playerData.PLAYER_ID }
+				let startColor
+				let randInt = Math.round(Math.random() * 1)
+				if (randInt == 0) { startColor = 'w' }
+				else { startColor = 'b' }
+				try {
+					await validate(playerData.GAME_URL, _id, playerData.PLAYER_ID, false, false, startColor); // CREATE NEW GAME
+				} catch (err) { console.log(err) }
+			}
+			// window.postMessage({
+			// 	action: "start",          // Action key.
+			// 	receiptToken: "{receipt-token}", // Receipt validation token.
+			// })
 		}
 		window.postMessage({
 			action: "start",          // Action key.
@@ -168,7 +182,7 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 
 			optResumeBtn.parentElement.style.display = "block";
 			optNewGameBtn.parentElement.style.display = "block";
-			optHomepageBtn.parentElement.style.display = "block";
+			optHomepageBtn.parentElement.style.display = sessionUser ? "block" : "none"; // HOME IS ONLY FOR SIGNED IN USERS
 
 			optNewSoloBtn.parentElement.style.display = 'none'
 			optNewMultiBtn.parentElement.style.display = 'none'
@@ -176,11 +190,9 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 			muliplayerForm.style.display = 'none'
 
 			optNewGameBtn.innerHTML = "Restart"
-			optExitBtn.innerHTML = "Exit"
+			optExitBtn.innerHTML = exitText()
 
 			// if (window.location.ancestorOrigins.length == 0 && parent) { optHomepageBtn.parentElement.style.display = "none"; }
-			if (playerData?.PLAYER_ID != "GUEST_USER") { optHomepageBtn.innerText = "Home" }
-			else { optHomepageBtn.innerText = "Sign-in" }
 
 
 			playerData.TV_BOOL = TV_DEV; // TV CONDITIONAL
@@ -209,8 +221,12 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 
 	// 	}
 	// },
-	exit: (data, returnMessage) => {
-		if (ancestorOrigins.length != 0 && parent) {
+	exit: (data, returnMessage) => { // Not embedded: signed in -> logout, guest -> login
+		if (ancestorOrigins.length == 0) {
+			if (sessionUser) { auth.logout(); }
+			else { auth.login(); }
+		}
+		else if (parent) {
 			const { action, receiptToken } = data; // Return message handler for the current event.
 			window.parent.postMessage({
 				action: action,          // Action key.
@@ -226,6 +242,9 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 	},
 	home: async (data, returnMessage) => {
 		// const { userData } = data;
+		sessionUser = await auth.getUser(); // HOME IS LOCKED TO SIGNED IN USERS, RE-CHECKS (AND RE-UPS) THE SESSION
+		if (!sessionUser) { return auth.login(); }
+
 		if (document.getElementById("canvas")) {
 			optBtn.addEventListener("click", handleMenuBtn);
 			optResumeBtn.addEventListener("click", handleResume);
@@ -255,7 +274,8 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		}
 
 		//const gameData = await getUserGameData(playerData.GAME_URL, playerData.PLAYER_ID);
-		//console.log(gameData)
+		// console.log(userData)
+		// console.log(userData?.userId)
 
 		if (!gameOpen) {
 			// console.log(userData)
@@ -455,7 +475,7 @@ async function handleMultiSubmit(e) {
 // Exit Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description !NOTE: NOT WORKING 
+ * @description Top menu: logout (signed in) or login (guest). Inside New Game menus: "Back"
  */
 function handleExit(e) {
 	e.preventDefault();
@@ -472,7 +492,7 @@ function handleExit(e) {
 			optNewSoloBtn.parentElement.style.display = 'none'
 			optNewMultiBtn.parentElement.style.display = 'none'
 			muliplayerForm.style.display = 'none'
-			optExitBtn.innerHTML = "Exit"
+			optExitBtn.innerHTML = exitText()
 			exitState.button = null;
 			exitState.nest = exitState.nest - 1;
 		} else {
@@ -487,6 +507,14 @@ function handleExit(e) {
 			exitState.nest = exitState.nest - 1;
 		}
 	}
+}
+
+/**
+ * @description Exit button text for the top menu
+ */
+function exitText() {
+	if (ancestorOrigins.length != 0) { return "Exit" } // EMBEDDED: HOST PAGE HANDLES EXIT
+	return sessionUser ? "Logout" : "Login";
 }
 
 

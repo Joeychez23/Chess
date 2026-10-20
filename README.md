@@ -23,15 +23,18 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
 | **Promotion** | When a pawn reaches the last rank, you pick the new piece by clicking one of your captured pieces beside the board. |
 | **Play AI** | The computer opponent (js-chess-engine, level 1) runs in the browser. Your color is random. |
 | **Play Friends** | Enter your opponent's email. The backend looks up their Auth0 account and creates the game. Their moves are picked up by polling every 2 seconds and animated when they arrive. |
-| **Home** | Signed-in players see a list of their open games. |
+| **Home** | Signed-in players only: a list of their open games. Hidden for guests. |
+| **Login / Logout** | The menu's Exit button logs guests in and signed-in players out. Auth0 runs on the Express server (see [Auth](#auth)). |
 | **Mobile** | Portrait and landscape layouts and touch input. iOS audio is unlocked on the first tap so the opponent's move sounds play. |
 | **TV / remote mode** | Arrow keys move a cursor and Enter picks up and drops pieces and drives the menu. Turn it on with the `TV_DEV` flag in `client/src/js/main.js`. |
 
 ## How it works
 
-1. **Startup.** If the page is opened directly (not in an iframe), it reads
+1. **Startup.** If the page is opened directly (not in an iframe), it asks the
+   server who is signed in (`GET /api/user`) while the page loads. A signed-in
+   player opens their latest game (or a new one vs. the AI). A guest gets
    `PLAYER_ID`, `GAME_ID`, and `CHESS_URL` from `client/.env`, which
-   `dotenv-webpack` inlines at build time, and starts a game. Inside an
+   `dotenv-webpack` inlines at build time. Inside an
    iframe, it waits for the host page to send `userinfo` and `start` messages
    (see [Embedding](#embedding)).
 2. **Load.** `renderCanvas()` preloads every sprite, then asks the backend for
@@ -53,11 +56,27 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
 
 ## Setup
 
-Requires Node 18+.
+Requires Node 22+ (the server).
 
 ```bash
 npm install
+cd server && npm install
 ```
+
+`server/.env` (see `server/.env.example`):
+
+| Variable | Purpose |
+| --- | --- |
+| `API_PORT` | Server port, e.g. `3001` |
+| `AUTH0_ISSUER_BASE_URL_ORIGIN` | Auth0 tenant domain |
+| `AUTH0_CONNECTION` | Database connection players log in with (`auth0-default-connection`) |
+| `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`) |
+| `JWT_SECRET` | Signs the session tokens |
+| `AUTH0_CALLBACK_URL` | Optional. Defaults to `http://localhost:API_PORT/api/auth/callback` |
+| `CLIENT_URL` | Optional. Where the browser goes after login/logout. Defaults to `http://localhost:API_PORT/` |
+
+In the Auth0 app's settings, add `AUTH0_CALLBACK_URL` to **Allowed Callback
+URLs** and `CLIENT_URL` to **Allowed Logout URLs**.
 
 `client/.env`:
 
@@ -77,9 +96,32 @@ serves them. The game waits for every sprite to load before it starts.
 ## Run
 
 ```bash
-npm run dev     # webpack-dev-server on http://localhost:3002
+npm start       # builds client/dist and serves it + the auth routes on http://localhost:3001
+npm run dev     # webpack-dev-server on http://localhost:3002, /api is proxied to :3001 (run the server too)
 npm run build   # bundles into client/dist
 ```
+
+With `npm run dev`, set `CLIENT_URL=http://localhost:3002/` so login returns
+to the dev server.
+
+## Auth
+
+Auth0 only runs on the server. The browser never sees an Auth0 token or the
+client secret.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/auth/login` | Redirects to the Auth0 login page |
+| `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for the user, looks them up through the Management API (`getAuth0User`, which replaced the `user` lambda), and starts the session |
+| `POST /api/auth/refresh` | Re-ups the session: a valid refresh token gets a new access + refresh token |
+| `GET /api/auth/logout` | Clears the session and logs out of Auth0 |
+| `GET /api/user` | The signed-in user, or `401` |
+
+The session is two JWTs in httpOnly cookies: an access token (15 minutes)
+checked on every request, and a refresh token (7 days) that's only sent to
+`/api/auth`. When `/api/user` returns `401`, the client calls
+`/api/auth/refresh` once and uses the user it returns. Checking a session is a
+signature check on the server, so startup doesn't wait on Auth0.
 
 ## Deploy
 
@@ -114,10 +156,10 @@ communicates with it through `postMessage`.
 | host → game | `home` | `{ userInfo }`: show the signed-in player's open games |
 | game → host | `ready` | Board is rendered |
 | game → host | `exit` | Player chose Exit from the menu |
-| game → host | `auth` | Player chose Sign-in (guest) or Home without a session |
 
+Inside an iframe, Exit is passed to the host instead of logging in or out.
 The player id `LAKESIDE_GUEST_USER` is treated as a guest. Guests get a fresh
-game against the AI on each load, and Home becomes Sign-in.
+game against the AI on each load.
 
 ## Resetting a game for testing
 
@@ -140,16 +182,26 @@ leave out `game_id`, the backend creates a new game and generates its id.
 ```
 client/
   index.html                 Menu markup (Resume, Restart, Home, Play AI, Play Friends, Exit)
-  webpack.config.js          Entry, HTML template, PWA manifest, dotenv
+  webpack.config.js          Entry, HTML template, PWA manifest, dotenv, dev proxy
   src-sw.js                  Workbox service worker (not registered at the moment)
   src/css/style.css          Menu, game list, and layout styles
   src/js/main.js             Menu, postMessage handling, new solo/multiplayer games
+  src/js/auth/clientSideAuth.js  login() / logout() / getUser() / refresh() → server auth routes
   src/js/gameplay/
     index.js                 renderCanvas(): sprite loading, render loop, input, animation
     validate/index.js        Backend calls: get game, move, reset, user games, invite
     ai/index.js              Computer move via js-chess-engine (+ promotion)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move
     utils/index.js           Per-square tile state
+server/
+  index.js                   Express: serves client/dist + /api routes
+  config.js                  Reads server/.env
+  routes/api/                /api/auth/* and /api/user
+  controllers/
+    authController.js        login, callback, logout, refresh
+    userController.js        getUser
+  middleware/auth.js         JWT session cookies, requireAuth
+  utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
 terraform/
   aws-enviroment/            Root module: bucket, domain names
   modules/cloudfront/        ACM cert, DNS validation, CloudFront, Route 53 alias
