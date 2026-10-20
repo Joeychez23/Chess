@@ -12,16 +12,17 @@ const auth0 = require('auth0-js');
 
 
 export class InternalAuth {
-	state;
 
-	constructor(state) {
+
+	constructor() {
 		this.hash = null;
-		this.state = state;
-		this.userInfo = null;
+		this.userData = null;
 	}
 
 	initialize() { console.log("Internal Auth Init") }
 
+	// getUserData() { return this.userData }
+	// setUserData(userData) { this.userData = userData }
 	async authenticate() {
 		if (window.location.ancestorOrigins.length == 0) {
 			console.log(auth0.version)
@@ -50,6 +51,7 @@ export class InternalAuth {
 			if (this.hash) {
 				if (this.hash.split('=')[0] == "#access_token") {
 					await webAuth.parseHash({ hash: this.hash, state: `test`, nonce: `test` }, async function (err, authResult) {
+						console.log(authResult)
 						if (err) {
 							console.log("Invalid Token"); return handleAuthError()
 						} else {
@@ -71,23 +73,23 @@ export class InternalAuth {
 							const authInteval = setInterval(async function () {
 								response = await reqUser();
 								authReqCount += 1;
+								console.log(response)
 								if (response) {
-									// console.log(response)
-									const ret = {
-										userId: response.userData.user_id || '',
-										screenname: response.userData.user_metadata?.screenname || '',
-										siteSlug: "demo",
-										signedIn: true,
-										action: "user",
-										gameReturnKey: "TEST_KEY",
-										email: response.userData.email,
-										emailVerified: response.userData.email_verified,
-										firstName: response.userData.user_metadata?.first_name,
-										lastName: response.userData.user_metadata?.last_name
-									}
-									// this.userInfo = userInfo;
-									window.clearInterval(authInteval);
-									window.postMessage({ action: "auth-result", receiptToken: `${"auth-result"}-${"token"}`, userData: ret }, window.location.origin);
+										const ret = {
+											userId: response.userData.user_id,
+											screenname: response.userData.user_metadata?.screenname || '',
+											siteSlug: "demo",
+											signedIn: true,
+											action: "user",
+											gameReturnKey: "TEST_KEY",
+											email: response.userData.email,
+											emailVerified: response.userData.email_verified,
+											firstName: response.userData.user_metadata?.first_name,
+											lastName: response.userData.user_metadata?.last_name
+										}
+										window.clearInterval(authInteval);
+										window.postMessage({ action: "auth-result", receiptToken: `${"auth-result"}-${"token"}`, userData: ret }, window.location.origin)
+									// window.postMessage({ action: "auth-result", receiptToken: `${"auth-result"}-${"token"}`, userData }, window.location.origin);
 								}
 								else if (authReqCount == 5) {
 									console.log("Request Limit Reached");
@@ -100,7 +102,7 @@ export class InternalAuth {
 							async function reqUser() { // THIS FUNCTION CANNOT BE CLIENT SIDE, MUST BE MOVED TO LAMBDA
 								try {
 									await webAuth.client.userInfo(accessToken, async function (err, user) {
-										if (err || !user) {
+										if (err || !Object.keys(user).length || !user) {
 											console.log("Invalid Token");
 											window.clearInterval(authInteval);
 											return handleAuthError();
@@ -116,7 +118,7 @@ export class InternalAuth {
 									window.clearInterval(authInteval);
 									return handleAuthError();
 								}
-
+								console.log(auth0Response)
 
 								if (auth0Response) {
 									let options = {
@@ -136,4 +138,5 @@ export class InternalAuth {
 			} else if (this.hash === null) { window.location.href = authUrl; }
 		}
 	}
+
 }

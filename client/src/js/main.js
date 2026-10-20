@@ -63,7 +63,11 @@ preloadImages();
 window.addEventListener("load", function () {
 	if (ancestorOrigins.length == 0) {
 		playerData = { GAME_URL: process.env.CHESS_URL, GAME_ID: process.env.GAME_ID, PLAYER_ID: process.env.PLAYER_ID }
-
+		// window.postMessage({
+		// 	action: "start",          // Action key.
+		// 	receiptToken: "{receipt-token}", // Receipt validation token.
+		// })
+		// return;
 		// playerData = { GAME_URL: process.env.CHESS_URL, PLAYER_ID: "GUEST_USER" }
 		// if (!localStorage.getItem("GAME_ID")) {
 		// 	playerData.GAME_ID = new ObjectId;
@@ -130,21 +134,29 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		// console.log(message)
 		// console.log(userData);
 
-		playerData.PLAYER_ID = userData.userId.split("auth0|")[1]; // Start new game
-		const gameData = await getUserGameData(playerData.GAME_URL, playerData.PLAYER_ID);
-		const openGames = JSON.parse(gameData?.open_games);
-		if (openGames.length) {
-			playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: openGames[openGames.length - 1], PLAYER_ID: playerData.PLAYER_ID }
-		} else {
-			let _id = new ObjectId();
-			playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: _id, PLAYER_ID: playerData.PLAYER_ID }
-			let startColor
-			let randInt = Math.round(Math.random() * 1)
-			if (randInt == 0) { startColor = 'w' }
-			else { startColor = 'b' }
-			try {
-				await validate(playerData.GAME_URL, _id, playerData.PLAYER_ID, false, false, startColor); // CREATE NEW GAME
-			} catch (err) { console.log(err) }
+		// console.log(auth.getUserData())
+		// console.log(userData)
+		if (userData?.userId) {
+			playerData.PLAYER_ID = userData.userId.split("auth0|")[1]; // Start new game
+			const gameData = await getUserGameData(playerData.GAME_URL, playerData.PLAYER_ID);
+			const openGames = JSON.parse(gameData?.open_games);
+			if (openGames.length) {
+				playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: openGames[openGames.length - 1], PLAYER_ID: playerData.PLAYER_ID }
+			} else {
+				let _id = new ObjectId();
+				playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: _id, PLAYER_ID: playerData.PLAYER_ID }
+				let startColor
+				let randInt = Math.round(Math.random() * 1)
+				if (randInt == 0) { startColor = 'w' }
+				else { startColor = 'b' }
+				try {
+					await validate(playerData.GAME_URL, _id, playerData.PLAYER_ID, false, false, startColor); // CREATE NEW GAME
+				} catch (err) { console.log(err) }
+			}
+			// window.postMessage({
+			// 	action: "start",          // Action key.
+			// 	receiptToken: "{receipt-token}", // Receipt validation token.
+			// })
 		}
 		window.postMessage({
 			action: "start",          // Action key.
@@ -255,7 +267,8 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		}
 
 		//const gameData = await getUserGameData(playerData.GAME_URL, playerData.PLAYER_ID);
-		//console.log(gameData)
+		// console.log(userData)
+		// console.log(userData?.userId)
 
 		if (!gameOpen) {
 			// console.log(userData)
