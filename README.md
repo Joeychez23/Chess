@@ -133,6 +133,8 @@ signature check on the server, so startup doesn't wait on Auth0.
 - CloudFront distribution with the S3 website endpoint as origin, HTTP →
   HTTPS redirect, and TTL 0 so a new deploy shows up right away
 - Route 53 `A` alias record pointing the subdomain at the distribution
+- DynamoDB tables (us-east-1): `chess_db` (key `game_id`, TTL on `expireAt` so
+  abandoned games are deleted after 25 days) and `user_db` (key `user_id`)
 
 ```bash
 cd terraform/aws-enviroment
@@ -143,6 +145,19 @@ terraform apply
 The Route 53 hosted zone for `aws-prac-route53.com` and the S3 bucket
 (`aws-prac-chess-s3`, us-west-2) must already exist. Names are set in
 `terraform/aws-enviroment/locals.tf`.
+
+The two DynamoDB tables were created in the AWS console before they were added
+to Terraform. Import them once, before the first `apply`; otherwise `apply`
+tries to create them and fails with "table already exists":
+
+```bash
+terraform import module.dynamodb_module.aws_dynamodb_table.chess_table chess_db
+terraform import module.dynamodb_module.aws_dynamodb_table.user_table user_db
+```
+
+`terraform plan` should then show no changes for either table. Both tables have
+`prevent_destroy` set, so Terraform refuses any plan that would delete or
+replace them.
 
 ## Embedding
 
@@ -203,6 +218,7 @@ server/
   middleware/auth.js         JWT session cookies, requireAuth
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
 terraform/
-  aws-enviroment/            Root module: bucket, domain names
+  aws-enviroment/            Root module: bucket, domain names, table names
   modules/cloudfront/        ACM cert, DNS validation, CloudFront, Route 53 alias
+  modules/dynamodb/          Chess (games) and user tables
 ```
