@@ -16,4 +16,3 @@ sony
 *.zip
 package-lock.json
 .env
-server

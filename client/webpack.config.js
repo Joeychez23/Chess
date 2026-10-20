@@ -69,6 +69,9 @@ module.exports = () => {
 		},
 		resolve: {
 			fallback: { crypto: false },
+		},
+		devServer: {
+			proxy: { '/api': 'http://localhost:3001' }, // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
 		}
 	};
 };
