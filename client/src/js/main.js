@@ -23,7 +23,7 @@ const optNewMultiBtn = document.getElementById("optNewMulti");
 const muliplayerForm = document.getElementById("muliplayerForm");
 
 const { ObjectId } = require("bson");
-const { InternalAuth } = require("./auth/clientSideAuth.js");
+const { InternalAuth } = require("./auth/index.js");
 let auth = new InternalAuth;
 let gameOpen;
 let gameContainer
