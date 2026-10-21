@@ -386,7 +386,7 @@ export async function renderCanvas(playerData) {
 						if (ai && chessInst.turn() != playerColor && aiTurn) { // IF AI
 							revert = response;
 							clearInterval(drawInterval)
-							moveObj = await playAi(chessInst, opponentColor); // IF PLAYER MOVE IS VALID -> MAKE AI MOVE
+							moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
 
 							validateState.load(response.game_board);
 							validateState.move(moveObj);
@@ -646,7 +646,7 @@ export async function renderCanvas(playerData) {
 				if (response.ai) {
 					ai = true;
 					if (opponentColor == chessInst.turn()) { //PLAY AI MOVE
-						moveObj = await playAi(chessInst, opponentColor); // IF PLAYER MOVE IS VALID -> MAKE AI MOVE
+						moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
 						tiles = await setTiles();
 						aiTurn = true;
 						refresh = true;
@@ -1949,7 +1949,7 @@ export async function renderCanvas(playerData) {
 				}
 
 				revert = response;
-				if (ai) { response = await validate(GAME_URL, GAME_ID, "CHESS_AI", [moveObj.from, moveObj.to], moveObj.promotion, false); }
+				if (ai) { response = moveObj.response; } // ALREADY SAVED BY THE SERVER, NO PUT
 				else { response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false); }
 				chessInst.load(response.game_board); // UPDATE BOARD
 				if (response.status == 200) { // IF VALIDATED UPDATE BOARD STATE

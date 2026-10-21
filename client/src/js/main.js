@@ -19,6 +19,7 @@ exitState = {
 
 const optNewSoloBtn = document.getElementById("optNewSolo")
 const optNewMultiBtn = document.getElementById("optNewMulti");
+const aiLevelSelect = document.getElementById("aiLevel"); // NEXT TO PLAY AI, FILLED FROM THE SERVER'S LEVELS
 
 const muliplayerForm = document.getElementById("muliplayerForm");
 
@@ -33,7 +34,7 @@ let newGameMenu = false;
 let openCanvas;
 let menuToggled = false;
 
-const { validate, getUserGameData, initMultiplayerGame } = require('./gameplay/validate/index.js');
+const { validate, getUserGameData, initMultiplayerGame, getLevels } = require('./gameplay/validate/index.js');
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
 
 // Firefox (desktop & Android) has no location.ancestorOrigins, fall back to the embedding page's origin
@@ -245,6 +246,7 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		// const { userData } = data;
 		sessionUser = await auth.getUser(); // HOME IS LOCKED TO SIGNED IN USERS, RE-CHECKS (AND RE-UPS) THE SESSION
 		if (!sessionUser) { return auth.login(); }
+		if (!aiLevelSelect.options.length) { loadLevels(); } // ONCE
 
 		if (document.getElementById("canvas")) {
 			optBtn.addEventListener("click", handleMenuBtn);
@@ -417,7 +419,7 @@ async function handleNewSoloGame(e) {
 	if (randInt == 0) { startColor = 'w' }
 	else { startColor = 'b' }
 	try {
-		await validate(playerData.GAME_URL, _id, playerData.PLAYER_ID, false, false, startColor); // CREATE NEW GAME
+		await validate(playerData.GAME_URL, _id, playerData.PLAYER_ID, false, false, startColor, aiLevelSelect.value); // CREATE NEW GAME AT THE PICKED LEVEL
 		playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: _id, PLAYER_ID: playerData.PLAYER_ID }
 		window.postMessage({
 			action: "start",          // Action key.
@@ -425,6 +427,27 @@ async function handleNewSoloGame(e) {
 		})
 	} catch (err) {
 		console.log(err)
+	}
+}
+
+
+
+/* ---------------------------------------------------------------- */
+// AI Levels
+/* ---------------------------------------------------------------- */
+/**
+ * @description Fills the dropdown next to Play AI with the server's levels & their approx Elo. The level is saved with the game,
+ * so it only changes by starting a new game
+ */
+async function loadLevels() {
+	const response = await getLevels(CHESS_URL);
+	if (response?.status != 200) { return; } // NO LEVELS -> THE SERVER USES ITS DEFAULT
+	for (let i = 0; i < response.levels.length; i++) {
+		const option = document.createElement("option");
+		option.value = response.levels[i].level;
+		option.innerText = `Level ${response.levels[i].level} (${response.levels[i].elo})`;
+		if (response.levels[i].level == response.default_level) { option.selected = true; }
+		aiLevelSelect.append(option);
 	}
 }
 

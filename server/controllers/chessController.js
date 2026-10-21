@@ -11,7 +11,9 @@
 /* ---------------------------------------------------------------- */
 
 const { ObjectId } = require("bson");
+const { Chess } = require("chess.js");
 const { validateMove, gameResult } = require("../utils/validate.js");
+const { levelList, readLevel, aiMove } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { initalizeGame, retrieveGame, updateGame, closeGame, requestRematch, acceptRematch, retrieveUser, pruneOpenGames } = require("../dynamoDB.js");
 const { emitToGame } = require("../socket.js");
@@ -24,7 +26,7 @@ const REMATCH_TIME = 60 * 1000; // BOTH PLAYERS MUST PRESS REMATCH WITHIN 1 MINU
 /**
  * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, game_board, ai, player_color, opponent_color, moves, prev_move, w_knight, b_knight, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, player_color, opponent_color, moves, prev_move, w_knight, b_knight, state, winner, reason, message }]
  */
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -42,6 +44,7 @@ async function getGame(req, res) {
 		game_id: gameData.game_id.S,
 		game_board: gameData.game_board.S,
 		ai: isAiGame(gameData),
+		ai_level: aiLevel(gameData),
 		player_color: playerColor,
 		opponent_color: opponentColor,
 		moves: gameData.moves.S,
@@ -57,18 +60,21 @@ async function getGame(req, res) {
 // New Game (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Creates a game vs the AI, or restarts one: an existing game_id is overwritten with a new board (AI games only)
- * @param  {[object]} req.body [{ game_id (optional, generated when left out), player_id_1 (white), player_id_2 (black) }, one side is "CHESS_AI", the other side is always the requester]
- * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, message }]
+ * @description Creates a game vs the AI, or restarts a guest's game: their game_id is overwritten with a new board (signed in users restart with /restart)
+ * @param  {[object]} req.body [{ game_id (optional, generated when left out), player_id_1 (white), player_id_2 (black), ai_level (optional, Home's dropdown) }, one side is "CHESS_AI", the other side is always the requester]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, message }]
  */
 async function newGame(req, res) {
-	const { game_id, player_id_1, player_id_2 } = req.body || {};
+	const { game_id, player_id_1, player_id_2, ai_level } = req.body || {};
 	if ((player_id_1 == "CHESS_AI") == (player_id_2 == "CHESS_AI")) { return res.json({ status: 500, message: "One player must be CHESS_AI, friend games start from /invite" }); }
 
+	let level = readLevel(ai_level);
 	if (game_id) { // RESTART: ONLY A PLAYER IN THE GAME CAN WIPE IT
 		const existing = await retrieveGame(game_id);
 		if (existing.game_data && !playerInGame(req, existing.game_data)) { return notInGame(req, res); }
 		if (existing.game_data && !isAiGame(existing.game_data)) { return res.json({ status: 500, message: "Friend games can't be restarted" }); } // WOULD TURN IT INTO AN AI GAME & LOCK THE FRIEND OUT
+		if (existing.game_data && req.user) { return res.json({ status: 500, message: "Game id already in use, restart with /restart" }); } // WOULD ERASE THE RESULT WITHOUT A FORFEIT
+		if (existing.game_data && ai_level == undefined) { level = aiLevel(existing.game_data); } // GUEST RESTART KEEPS THE LEVEL
 	}
 
 	const playerId = req.user ? userPlayerId(req.user) : game_id; // A GUEST'S PLAYER ID IS THEIR GAME ID
@@ -77,7 +83,7 @@ async function newGame(req, res) {
 	const whiteId = player_id_1 == "CHESS_AI" ? "CHESS_AI" : playerId;
 	const blackId = player_id_2 == "CHESS_AI" ? "CHESS_AI" : playerId;
 
-	const response = await initalizeGame(game_id || false, whiteId, blackId); // CREATE NEW GAME
+	const response = await initalizeGame(game_id || false, whiteId, blackId, level); // CREATE NEW GAME
 	return res.json(gameResponse(response));
 }
 
@@ -85,13 +91,14 @@ async function newGame(req, res) {
 // Move (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Processes player move: GET -> VALIDATE -> PUT -> CLOSE (checkmate / draw), then tells the game's room so a friend sees it
+ * @description Processes player move: GET -> VALIDATE -> PUT -> CLOSE (checkmate / draw), then tells the game's room so a friend sees it.
+ * The requester always moves for themself, the AI's moves come from /ai-move
  * @param  {[string]} req.params.gameId [game id]
- * @param  {[object]} req.body [{ player_id ("CHESS_AI" for the AI's moves, otherwise the requester moves), move: [from, to], promotion }]
+ * @param  {[object]} req.body [{ move: [from, to], promotion }]
  * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, state, winner, reason, message }]
  */
 async function moveGame(req, res) {
-	const { player_id, move, promotion } = req.body || {};
+	const { move, promotion } = req.body || {};
 	if (!Array.isArray(move) || move.length != 2) { return res.json({ status: 500, message: "Invalid piece movement" }); }
 
 	let response = await retrieveGame(req.params.gameId); // GET GAME DATA BY ID
@@ -101,12 +108,12 @@ async function moveGame(req, res) {
 	if (!playerId) { return notInGame(req, res); }
 	if (!gameOpen(response.game_data)) { return res.json({ status: 500, message: "Game is over" }); }
 
-	const moverId = (player_id == "CHESS_AI" && isAiGame(response.game_data)) ? "CHESS_AI" : playerId; // THE AI RUNS IN THE BROWSER, SO ITS OPPONENT SENDS ITS MOVES
-	const playerData = { game_id: req.params.gameId, player_id: moverId, move, promotion };
+	const prevBoard = response.game_data.game_board.S;
+	const playerData = { game_id: req.params.gameId, player_id: playerId, move, promotion };
 
 	response = await validateMove(playerData, response.game_data); // VALIDATE MOVE WITH EXISTING BOARD
 	if (response.status == 200) {
-		response = await updateGame(response.game_data); // PUT VALIDATED MOVE
+		response = await updateGame(response.game_data, prevBoard); // PUT VALIDATED MOVE
 		if (response.status == 200) {
 			const result = gameResult(response.game_data.game_board.S); // CHECKMATE OR A DRAW ENDS THE GAME
 			if (result) {
@@ -114,7 +121,7 @@ async function moveGame(req, res) {
 				if (closed.status == 200) { response.game_data = closed.game_data; }
 			}
 			response.message = "Validation Successful";
-			emitToGame(playerData.game_id, "move", { game_id: playerData.game_id, player_id: moverId }); // THE OPPONENT'S CLIENT LOADS THE NEW BOARD
+			emitToGame(playerData.game_id, "move", { game_id: playerData.game_id, player_id: playerId }); // THE OPPONENT'S CLIENT LOADS THE NEW BOARD
 		}
 	}
 	return res.json(gameResponse(response));
@@ -125,7 +132,7 @@ async function moveGame(req, res) {
 /* ---------------------------------------------------------------- */
 /**
  * @description AI games: restarting a game that's still going forfeits it, then a new game starts with a new id
- * (the old one stays closed). Guests only have one game, so theirs is overwritten
+ * (the old one stays closed) at the same level. Guests only have one game, so theirs is overwritten
  * @param  {[string]} req.params.gameId [current game id]
  * @param  {[object]} req.body [{ ai_color: "w" | "b" }]
  * @return {[object]} response [{ status, game_id (the new game), ai, game_board, w_knight, b_knight, state, winner, reason, message }]
@@ -144,15 +151,72 @@ async function restartGame(req, res) {
 
 	const whiteId = ai_color == "w" ? "CHESS_AI" : playerId;
 	const blackId = ai_color == "b" ? "CHESS_AI" : playerId;
+	const level = aiLevel(gameData); // THE LEVEL ONLY CHANGES WITH A NEW GAME FROM HOME
 
 	if (!req.user) { // GUESTS HAVE ONE GAME, IT'S OVERWRITTEN
-		response = await initalizeGame(gameData.game_id.S, whiteId, blackId);
+		response = await initalizeGame(gameData.game_id.S, whiteId, blackId, level);
 		return res.json(gameResponse(response));
 	}
 
 	if (gameOpen(gameData)) { await closeGame(gameData, playerId == gameData.white_player_id.S ? "b" : "w", "forfeit"); } // RESTARTING MID GAME FORFEITS IT
-	response = await initalizeGame(false, whiteId, blackId); // CREATE NEW GAME
+	response = await initalizeGame(false, whiteId, blackId, level); // CREATE NEW GAME
 	return res.json(gameResponse(response));
+}
+
+/* ---------------------------------------------------------------- */
+// AI Move (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description AI games: the server picks the AI's move at the game's level & saves it. The client only animates it.
+ * Asking again after the AI moved returns the saved move instead of a new one
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, state, winner, reason, ai_move: { from, to, promotion }, message }]
+ */
+async function aiMoveGame(req, res) {
+	let response = await retrieveGame(req.params.gameId);
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	const playerId = playerInGame(req, gameData);
+	if (!playerId) { return notInGame(req, res); }
+	if (!isAiGame(gameData)) { return res.json({ status: 500, message: "Friend games have no AI" }); }
+
+	const aiColor = gameData.white_player_id.S == "CHESS_AI" ? "w" : "b";
+	if (new Chess(gameData.game_board.S).turn() != aiColor) { return res.json(savedAiMove(response)); } // ALREADY MOVED
+	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is over" }); }
+
+	const prevBoard = gameData.game_board.S;
+	const move = await aiMove(prevBoard, aiLevel(gameData)); // STOCKFISH AT THE GAME'S LEVEL
+	const playerData = { game_id: req.params.gameId, player_id: "CHESS_AI", move: [move.from, move.to], promotion: move.promotion };
+
+	response = await validateMove(playerData, gameData); // SAME RULES AS A PLAYER'S MOVE
+	if (response.status == 200) {
+		response = await updateGame(response.game_data, prevBoard); // PUT VALIDATED MOVE
+		if (response.status != 200) { // ANOTHER REQUEST SAVED THE AI'S MOVE FIRST
+			const latest = await retrieveGame(req.params.gameId);
+			if (!latest.game_data) { return res.json({ status: latest.status, message: latest.message }); }
+			return res.json(savedAiMove(latest));
+		}
+		const result = gameResult(response.game_data.game_board.S); // CHECKMATE OR A DRAW ENDS THE GAME
+		if (result) {
+			const closed = await closeGame(response.game_data, result.winner, result.reason);
+			if (closed.status == 200) { response.game_data = closed.game_data; }
+		}
+		response.message = "AI moved";
+		return res.json({ ...gameResponse(response), ai_move: move });
+	}
+	return res.json(gameResponse(response));
+}
+
+/* ---------------------------------------------------------------- */
+// Levels (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The AI levels & their approximate Elo for Home's dropdown
+ * @return {[object]} response [{ status, levels: [{ level, elo }], default_level }]
+ */
+async function getLevels(req, res) {
+	return res.json({ status: 200, ...levelList() });
 }
 
 /* ---------------------------------------------------------------- */
@@ -292,12 +356,35 @@ function gameResponse(response) {
 		status: response.status,
 		game_id: response.game_data.game_id.S,
 		ai: isAiGame(response.game_data),
+		ai_level: aiLevel(response.game_data),
 		game_board: response.game_data.game_board.S,
 		w_knight: response.game_data.w_knight.S,
 		b_knight: response.game_data.b_knight.S,
 		...gameState(response.game_data),
 		message: response.message,
 	};
+}
+
+/**
+ * @description The AI's level, sent with every AI game response
+ * @param  {[object]} gameData [game item]
+ * @return {[number]} level [null for friend games, AI games made before levels get the default]
+ */
+function aiLevel(gameData) {
+	return isAiGame(gameData) ? readLevel(gameData.ai_level?.N) : null;
+}
+
+/**
+ * @description The AI's last saved move, for a repeat /ai-move request (the client asks again when a game loads on the AI's turn)
+ * @param  {[object]} response [retrieveGame response, it's the player's turn]
+ * @return {[object]} response [gameResponse + ai_move, or an error when the AI hasn't moved yet]
+ */
+function savedAiMove(response) {
+	const { moves, prev_move } = response.game_data;
+	const lastMove = moves.S[moves.S.length - 1];
+	if (!lastMove) { return { status: 500, message: "It's not the AI's turn" }; } // THE PLAYER MOVES FIRST
+	const promotion = lastMove.match(/=([QRBN])/)?.[1].toLowerCase(); // "e8=Q+"
+	return { ...gameResponse(response), ai_move: { from: prev_move.S[0], to: prev_move.S[1], promotion }, message: "AI already moved" };
 }
 
 /**
@@ -364,4 +451,4 @@ function isAiGame(gameData) {
 }
 
 
-module.exports = { getGame, newGame, moveGame, restartGame, forfeitGame, rematchGame, inviteGame, getUserGames };
+module.exports = { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, getUserGames };
