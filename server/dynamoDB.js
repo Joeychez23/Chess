@@ -187,6 +187,147 @@ async function updateGame(gameData) {
 }
 
 /* ---------------------------------------------------------------- */
+// Close game (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Ends a game: saves the result & moves it from open_games to closed_games for both players.
+ * Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
+ * @param  {[object]} gameData [game item from retrieveGame]
+ * @param  {[string]} winner ["w", "b" or "draw"]
+ * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule" or "forfeit"]
+ * @return {[object]} response [{ status, game_data, message }]
+ */
+async function closeGame(gameData, winner, reason) {
+	const gameId = gameData.game_id.S;
+	const aiGame = gameData.white_player_id.S == "CHESS_AI" || gameData.black_player_id.S == "CHESS_AI";
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason${aiGame ? "" : " REMOVE expireAt"}`, // NO expireAt = TTL NEVER DELETES IT
+		ConditionExpression: 'attribute_not_exists(#state) OR #state <> :closed', // ONLY ONE CLOSE WINS (FORFEIT & CHECKMATE AT THE SAME TIME)
+		ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }, // "state" IS A DYNAMODB RESERVED WORD
+		ExpressionAttributeValues: {
+			":closed": { S: "CLOSED" },
+			":winner": { S: winner },
+			":reason": { S: reason }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Game is already over: ${gameId}` }; }
+		throw err;
+	}
+
+	await closeUserGame(gameData.white_player_id.S, gameId);
+	await closeUserGame(gameData.black_player_id.S, gameId);
+
+	gameData.state = { S: "CLOSED" };
+	gameData.winner = { S: winner };
+	gameData.reason = { S: reason };
+	if (!aiGame) { delete gameData.expireAt; }
+	return {
+		status: 200,
+		game_data: gameData,
+		message: `Closed game id: ${gameId}`
+	}
+}
+
+/**
+ * @description Moves a game id from a user's open_games to closed_games (Home only lists open games)
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @param  {[string]} gameId [closed game]
+ */
+async function closeUserGame(userId, gameId) {
+	if (userId == "CHESS_AI" || userId == "GUEST_USER") { return; }
+	const response = await retrieveUser(userId);
+	if (!response.user_data) { return; }
+
+	let userData = response.user_data;
+	let closedGames = JSON.parse(userData.closed_games.S);
+	if (!closedGames.includes(gameId)) { closedGames[closedGames.length] = gameId; }
+
+	//SET DATA
+	userData.open_games.S = JSON.parse(userData.open_games.S).filter((openGameId) => openGameId != gameId);
+	userData.closed_games.S = closedGames;
+	userData.requested_games.S = JSON.parse(userData.requested_games.S);
+
+	//UPDATE DATA
+	await updateUser(userData);
+}
+
+/* ---------------------------------------------------------------- */
+// Request rematch (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description First rematch press: saves who asked & when the request runs out
+ * @param  {[string]} gameId [closed friend game]
+ * @param  {[string]} playerId [player asking]
+ * @param  {[number]} expires [epoch ms the request runs out]
+ * @return {[boolean]} saved [false when the opponent is already waiting or the rematch already started]
+ */
+async function requestRematch(gameId, playerId, expires) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: 'SET rematch_player_id = :player_id, rematch_expires = :expires',
+		ConditionExpression: 'attribute_not_exists(rematch_game_id) AND (attribute_not_exists(rematch_player_id) OR rematch_player_id = :player_id OR rematch_expires < :now)', // PRESSING AGAIN RESTARTS YOUR OWN MINUTE
+		ExpressionAttributeValues: {
+			":player_id": { S: playerId },
+			":expires": { N: `${expires}` },
+			":now": { N: `${Date.now()}` }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Accept rematch (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Second rematch press: claims the rematch by saving the new game id, only one press can claim it
+ * @param  {[string]} gameId [closed friend game]
+ * @param  {[string]} playerId [player accepting]
+ * @param  {[string]} newGameId [id the rematch will use]
+ * @return {[boolean]} claimed [false when the opponent has no live request or the rematch already started]
+ */
+async function acceptRematch(gameId, playerId, newGameId) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: 'SET rematch_game_id = :rematch_game_id',
+		ConditionExpression: 'attribute_not_exists(rematch_game_id) AND rematch_player_id <> :player_id AND rematch_expires >= :now',
+		ExpressionAttributeValues: {
+			":rematch_game_id": { S: newGameId },
+			":player_id": { S: playerId },
+			":now": { N: `${Date.now()}` }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Initalize user (POST)
 /* ---------------------------------------------------------------- */
 /**
@@ -360,4 +501,4 @@ async function pruneOpenGames(userData) {
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, initalizeUser, retrieveUser, updateUser, pruneOpenGames }
+module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, pruneOpenGames }

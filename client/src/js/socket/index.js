@@ -1,7 +1,8 @@
 /*
  *  socket/index.js  --  chess frontend
  *	Friend Game Socket
- *  The server pushes "move" when a friend game's board changes (server/socket.js).
+ *  The server pushes "move" when a friend game's board changes, "game-over" when the opponent forfeits
+ *  & "rematch" when both players asked for one (server/socket.js).
  *  The socket is only open while a friend game is on screen. Guests & AI games never open one.
  *
  */
@@ -14,12 +15,12 @@ let socket = null;
 // Join Game
 /* ---------------------------------------------------------------- */
 /**
- * @description Opens the socket & joins a friend game's room. After a reconnect it joins again & catches up on missed moves
+ * @description Opens the socket & joins a friend game's room. After a reconnect it joins again & catches up on anything missed
  * @param  {[string]} gameId [game id]
- * @param  {[string]} playerId [this player, their own moves already came back from the PUT so they're skipped]
- * @param  {[function]} onMove [called when the opponent moves]
+ * @param  {[string]} playerId [this player, their own moves & forfeits already came back from the request so they're skipped]
+ * @param  {[object]} handlers [{ move() opponent moved, gameOver(result) opponent forfeited, rematch(newGameId) both asked for a rematch }]
  */
-export function joinGame(gameId, playerId, onMove) {
+export function joinGame(gameId, playerId, handlers) {
 	leaveGame();
 	const gameSocket = io({ withCredentials: true }); // SAME ORIGIN, THE SESSION COOKIE SIGNS IN THE SOCKET
 	let joined = false;
@@ -30,13 +31,24 @@ export function joinGame(gameId, playerId, onMove) {
 		gameSocket.emit("join-game", `${gameId}`, (response) => { // GAME_ID CAN BE AN ObjectId, SEND IT AS A STRING
 			if (response?.status != 200) { return console.log(`[SOCKET] ${response?.message}`); }
 			refreshed = false;
-			if (joined) { onMove(); } // RECONNECTED, THE OPPONENT MAY HAVE MOVED WHILE OFFLINE
+			if (joined) { // RECONNECTED, THE OPPONENT MAY HAVE MOVED OR FORFEITED WHILE OFFLINE
+				handlers.move();
+				if (response.state == "CLOSED" && response.reason == "forfeit") { handlers.gameOver(response); }
+			}
 			joined = true;
 		});
 	});
 
 	gameSocket.on("move", (data) => {
-		if (data?.game_id == `${gameId}` && data.player_id != playerId) { onMove(); }
+		if (data?.game_id == `${gameId}` && data.player_id != playerId) { handlers.move(); }
+	});
+
+	gameSocket.on("game-over", (data) => {
+		if (data?.game_id == `${gameId}` && data.player_id != playerId) { handlers.gameOver(data); }
+	});
+
+	gameSocket.on("rematch", (data) => {
+		if (data?.game_id == `${gameId}`) { handlers.rematch(data.new_game_id); }
 	});
 
 	gameSocket.on("connect_error", async () => {

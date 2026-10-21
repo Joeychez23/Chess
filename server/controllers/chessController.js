@@ -10,10 +10,13 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { validateMove } = require("../utils/validate.js");
+const { ObjectId } = require("bson");
+const { validateMove, gameResult } = require("../utils/validate.js");
 const { getAuth0User } = require("../utils/auth0.js");
-const { initalizeGame, retrieveGame, updateGame, retrieveUser, pruneOpenGames } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, closeGame, requestRematch, acceptRematch, retrieveUser, pruneOpenGames } = require("../dynamoDB.js");
 const { emitToGame } = require("../socket.js");
+
+const REMATCH_TIME = 60 * 1000; // BOTH PLAYERS MUST PRESS REMATCH WITHIN 1 MINUTE
 
 /* ---------------------------------------------------------------- */
 // Get Game (GET)
@@ -21,7 +24,7 @@ const { emitToGame } = require("../socket.js");
 /**
  * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, game_board, ai, player_color, opponent_color, moves, prev_move, w_knight, b_knight, message }]
+ * @return {[object]} response [{ status, game_id, game_board, ai, player_color, opponent_color, moves, prev_move, w_knight, b_knight, state, winner, reason, message }]
  */
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -45,6 +48,7 @@ async function getGame(req, res) {
 		prev_move: gameData.prev_move.S,
 		w_knight: gameData.w_knight.S,
 		b_knight: gameData.b_knight.S,
+		...gameState(gameData),
 		message: response.message,
 	});
 }
@@ -81,10 +85,10 @@ async function newGame(req, res) {
 // Move (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Processes player move: GET -> VALIDATE -> PUT, then tells the game's room so a friend sees it
+ * @description Processes player move: GET -> VALIDATE -> PUT -> CLOSE (checkmate / draw), then tells the game's room so a friend sees it
  * @param  {[string]} req.params.gameId [game id]
  * @param  {[object]} req.body [{ player_id ("CHESS_AI" for the AI's moves, otherwise the requester moves), move: [from, to], promotion }]
- * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, message }]
+ * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, state, winner, reason, message }]
  */
 async function moveGame(req, res) {
 	const { player_id, move, promotion } = req.body || {};
@@ -95,6 +99,7 @@ async function moveGame(req, res) {
 
 	const playerId = playerInGame(req, response.game_data);
 	if (!playerId) { return notInGame(req, res); }
+	if (!gameOpen(response.game_data)) { return res.json({ status: 500, message: "Game is over" }); }
 
 	const moverId = (player_id == "CHESS_AI" && isAiGame(response.game_data)) ? "CHESS_AI" : playerId; // THE AI RUNS IN THE BROWSER, SO ITS OPPONENT SENDS ITS MOVES
 	const playerData = { game_id: req.params.gameId, player_id: moverId, move, promotion };
@@ -103,11 +108,117 @@ async function moveGame(req, res) {
 	if (response.status == 200) {
 		response = await updateGame(response.game_data); // PUT VALIDATED MOVE
 		if (response.status == 200) {
+			const result = gameResult(response.game_data.game_board.S); // CHECKMATE OR A DRAW ENDS THE GAME
+			if (result) {
+				const closed = await closeGame(response.game_data, result.winner, result.reason);
+				if (closed.status == 200) { response.game_data = closed.game_data; }
+			}
 			response.message = "Validation Successful";
 			emitToGame(playerData.game_id, "move", { game_id: playerData.game_id, player_id: moverId }); // THE OPPONENT'S CLIENT LOADS THE NEW BOARD
 		}
 	}
 	return res.json(gameResponse(response));
+}
+
+/* ---------------------------------------------------------------- */
+// Restart (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description AI games: restarting a game that's still going forfeits it, then a new game starts with a new id
+ * (the old one stays closed). Guests only have one game, so theirs is overwritten
+ * @param  {[string]} req.params.gameId [current game id]
+ * @param  {[object]} req.body [{ ai_color: "w" | "b" }]
+ * @return {[object]} response [{ status, game_id (the new game), ai, game_board, w_knight, b_knight, state, winner, reason, message }]
+ */
+async function restartGame(req, res) {
+	const { ai_color } = req.body || {};
+	if (ai_color != "w" && ai_color != "b") { return res.json({ status: 500, message: "Missing ai_color" }); }
+
+	let response = await retrieveGame(req.params.gameId);
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	const playerId = playerInGame(req, gameData);
+	if (!playerId) { return notInGame(req, res); }
+	if (!isAiGame(gameData)) { return res.json({ status: 500, message: "Friend games can't be restarted" }); }
+
+	const whiteId = ai_color == "w" ? "CHESS_AI" : playerId;
+	const blackId = ai_color == "b" ? "CHESS_AI" : playerId;
+
+	if (!req.user) { // GUESTS HAVE ONE GAME, IT'S OVERWRITTEN
+		response = await initalizeGame(gameData.game_id.S, whiteId, blackId);
+		return res.json(gameResponse(response));
+	}
+
+	if (gameOpen(gameData)) { await closeGame(gameData, playerId == gameData.white_player_id.S ? "b" : "w", "forfeit"); } // RESTARTING MID GAME FORFEITS IT
+	response = await initalizeGame(false, whiteId, blackId); // CREATE NEW GAME
+	return res.json(gameResponse(response));
+}
+
+/* ---------------------------------------------------------------- */
+// Forfeit (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Friend games: closes the game & the other side wins. Both boards open the menu with Rematch
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, state, winner, reason, message }]
+ */
+async function forfeitGame(req, res) {
+	const response = await retrieveGame(req.params.gameId);
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	const playerId = playerInGame(req, gameData);
+	if (!playerId) { return notInGame(req, res); }
+	if (isAiGame(gameData)) { return res.json({ status: 500, message: "AI games restart instead" }); }
+	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is already over" }); }
+
+	const winner = playerId == gameData.white_player_id.S ? "b" : "w"; // THE OTHER SIDE WINS
+	const closed = await closeGame(gameData, winner, "forfeit");
+	if (closed.status == 200) { emitToGame(gameData.game_id.S, "game-over", { game_id: gameData.game_id.S, player_id: playerId, winner, reason: "forfeit" }); } // OPPONENT'S BOARD OPENS THE MENU
+	return res.json(gameResponse(closed));
+}
+
+/* ---------------------------------------------------------------- */
+// Rematch (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Friend games that are over: the first press waits 1 minute for the other player. If they press
+ * in time a new game starts with the sides picked at random, and both boards load it
+ * @param  {[string]} req.params.gameId [closed game id]
+ * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in } while waiting]
+ */
+async function rematchGame(req, res) {
+	const response = await retrieveGame(req.params.gameId);
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	const gameId = gameData.game_id.S;
+	const playerId = playerInGame(req, gameData);
+	if (!playerId) { return notInGame(req, res); }
+	if (isAiGame(gameData)) { return res.json({ status: 500, message: "AI games restart instead" }); }
+	if (gameOpen(gameData)) { return res.json({ status: 500, message: "Game isn't over yet" }); }
+	if (gameData.rematch_game_id) { return res.json({ status: 200, new_game_id: gameData.rematch_game_id.S, message: "Rematch started" }); }
+
+	const waiting = { status: 200, waiting: true, expires_in: REMATCH_TIME, message: "Waiting for opponent" };
+	if (await requestRematch(gameId, playerId, Date.now() + REMATCH_TIME)) { return res.json(waiting); } // FIRST PRESS
+
+	const newGameId = `${new ObjectId()}`;
+	if (!(await acceptRematch(gameId, playerId, newGameId))) { // OPPONENT'S MINUTE JUST RAN OUT, OR THE REMATCH ALREADY STARTED
+		const latest = await retrieveGame(gameId);
+		if (latest.game_data?.rematch_game_id) { return res.json({ status: 200, new_game_id: latest.game_data.rematch_game_id.S, message: "Rematch started" }); }
+		if (await requestRematch(gameId, playerId, Date.now() + REMATCH_TIME)) { return res.json(waiting); }
+		return res.json({ status: 500, message: "Rematch failed" });
+	}
+
+	// SIDES ARE PICKED AT RANDOM
+	const players = [gameData.white_player_id.S, gameData.black_player_id.S];
+	let randInt = Math.round(Math.random() * 1)
+	const created = await initalizeGame(newGameId, players[randInt], players[1 - randInt]); // CREATE NEW GAME
+	if (!created.game_data) { return res.json({ status: created.status, message: created.message }); }
+
+	emitToGame(gameId, "rematch", { game_id: gameId, new_game_id: newGameId }); // BOTH BOARDS LOAD THE NEW GAME
+	return res.json({ status: 200, new_game_id: newGameId, message: "Rematch started" });
 }
 
 /* ---------------------------------------------------------------- */
@@ -184,8 +295,31 @@ function gameResponse(response) {
 		game_board: response.game_data.game_board.S,
 		w_knight: response.game_data.w_knight.S,
 		b_knight: response.game_data.b_knight.S,
+		...gameState(response.game_data),
 		message: response.message,
 	};
+}
+
+/**
+ * @description The game's result fields, sent with every game response
+ * @param  {[object]} gameData [game item]
+ * @return {[object]} result [{ state: "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason }]
+ */
+function gameState(gameData) {
+	return {
+		state: gameData.state?.S || "OPEN",
+		winner: gameData.winner?.S || null,
+		reason: gameData.reason?.S || null,
+	};
+}
+
+/**
+ * @description True until the game is checkmated, drawn or forfeited
+ * @param  {[object]} gameData [game item]
+ * @return {[boolean]} open
+ */
+function gameOpen(gameData) {
+	return gameData.state?.S != "CLOSED";
 }
 
 /**
@@ -230,4 +364,4 @@ function isAiGame(gameData) {
 }
 
 
-module.exports = { getGame, newGame, moveGame, inviteGame, getUserGames };
+module.exports = { getGame, newGame, moveGame, restartGame, forfeitGame, rematchGame, inviteGame, getUserGames };

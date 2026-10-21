@@ -105,6 +105,54 @@ export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail) {
 }
 
 /**
+ * @description AI games: new board with a new game id, a game that's still going is forfeited first (POST /game/:gameId/restart)
+ * @param  {[string]} aiColor [the AI's color in the new game, 'w' or 'b']
+ * @return {[object]} response [the new game: { status, game_id, ai, game_board, ..., state }]
+ */
+export async function restartGame(gameUrl, gameId, aiColor) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ ai_color: aiColor })
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/restart`, options)
+	} catch (err) {
+		return
+	}
+}
+
+/**
+ * @description Friend games: forfeits, the other side wins (POST /game/:gameId/forfeit)
+ * @return {[object]} response [{ status, state, winner, reason, ... }]
+ */
+export async function forfeitGame(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/forfeit`, options)
+	} catch (err) {
+		return
+	}
+}
+
+/**
+ * @description Friend games that are over: asks for a rematch, it starts when both players ask within 1 minute (POST /game/:gameId/rematch)
+ * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in } until then]
+ */
+export async function rematchGame(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch`, options)
+	} catch (err) {
+		return
+	}
+}
+
+/**
  * @description fetch() for the chess routes. The server takes the player from the session cookie,
  * so a 401 means the access token expired mid game: re-up the session once & try again
  */
