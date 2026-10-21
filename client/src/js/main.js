@@ -253,7 +253,6 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 			optExitBtn.addEventListener("click", handleExit);
 
 			optNewGameBtn.innerHTML = "New Game"
-			optNewGameBtn.parentElement.style.display = "block"; // A FRIEND GAME HIDES RESTART, HOME NEEDS IT BACK AS NEW GAME
 			optHomepageBtn.parentElement.style.display = 'none'
 
 			openCanvas = null;

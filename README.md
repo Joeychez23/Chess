@@ -22,9 +22,11 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
 | **Canvas rendering** | Board, table, and pieces are sprites drawn in layers (reflection, shadow, piece). Knights face the direction they last moved; the backend tracks each knight's last move so this survives a reload. |
 | **Moving** | Drag and drop, or click a piece and then a square. Legal moves are highlighted, and a king in check is highlighted. Moves slide into place with a sound. |
 | **Promotion** | When a pawn reaches the last rank, you pick the new piece by clicking one of your captured pieces beside the board. |
-| **Play AI** | The computer opponent (js-chess-engine, level 1) runs in the browser. Your color is random. |
-| **Play Friends** | Enter your opponent's email. The backend looks up their Auth0 account and creates the game. While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. |
-| **Home** | Signed-in players only: a list of their open games. Hidden for guests. |
+| **Play AI** | The computer opponent (js-chess-engine, level 1) runs in the browser. Your color is random. Restart flips your color and starts a new game. Restarting a game that's still going counts as a forfeit. |
+| **Play Friends** | Enter your opponent's email. The backend looks up their Auth0 account and creates the game. While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. The menu's Restart button is **Forfeit** here (it asks "Are you sure?" first). |
+| **Game over** | The server ends a game on checkmate, stalemate, insufficient material, the fifty-move rule, or a forfeit, and saves who won and why. Both boards open the menu with the result. Finished games leave Home. |
+| **Rematch** | After a friend game ends, both players get a Rematch button. If both press it within 1 minute, a new game starts with the sides picked at random and both boards load it. |
+| **Home** | Signed-in players only: a list of their open games (finished games aren't listed). Hidden for guests. |
 | **Login / Logout** | The menu's Exit button logs guests in and signed-in players out. Auth0 runs on the Express server (see [Auth](#auth)). |
 | **Mobile** | Portrait and landscape layouts and touch input. iOS audio is unlocked on the first tap so the opponent's move sounds play. |
 | **TV / remote mode** | Arrow keys move a cursor and Enter picks up and drops pieces and drives the menu. Turn it on with the `TV_DEV` flag in `client/src/js/main.js`. |
@@ -48,7 +50,9 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
 4. **Your move.** chess.js plays the move locally, which throws on an illegal
    move. If it's legal, the move is sent as `PUT /api/chess/game/:gameId`
    with `{ player_id, move: [from, to], promotion }`. If the server rejects
-   it, the board reverts to the last state the server confirmed.
+   it, the board reverts to the last state the server confirmed. If the move
+   ends the game, the response has `state: "CLOSED"` with the `winner` and
+   `reason`, and the menu opens with the result.
 5. **AI move.** js-chess-engine picks a move from the current FEN. The move is
    animated and then submitted under the player id `CHESS_AI`, so the server
    validates it like any other move.
@@ -56,7 +60,8 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
    the game's room. When the server saves a move it emits `move` to the room,
    and the other player's client fetches the game and animates the server's
    `prev_move`. Going Home closes the socket. After a reconnect the client
-   joins again and fetches the game once in case a move was missed.
+   joins again and fetches the game once in case a move was missed (or the
+   opponent forfeited).
 
 ## Setup
 
@@ -149,9 +154,12 @@ expired mid game) or `403` when signed in.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |
-| `GET /api/chess/game/:gameId` | | The board, the player's color, and whether the opponent is the AI |
+| `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, and the result (`state`, `winner`, `reason`) |
 | `POST /api/chess/game` | `{ game_id, player_id_1, player_id_2 }` | New game vs. the AI, or restart: an existing `game_id` is overwritten with a new board. One side must be `CHESS_AI`, and the other side is always you. `player_id_1` plays white. Leave out `game_id` to generate one. Only a player in the game can restart it, and friend games can't be restarted |
-| `PUT /api/chess/game/:gameId` | `{ player_id, move: [from, to], promotion }` | Validates the move against the stored board and saves it |
+| `PUT /api/chess/game/:gameId` | `{ player_id, move: [from, to], promotion }` | Validates the move against the stored board and saves it. Closes the game on checkmate or a draw. Refused once the game is closed |
+| `POST /api/chess/game/:gameId/restart` | `{ ai_color }` | AI games. Forfeits the game if it's still going, then starts a new game with a new id. `ai_color` is the AI's color in the new game. Guests' one game is overwritten instead |
+| `POST /api/chess/game/:gameId/forfeit` | | Signed in, friend games. Closes the game, and the other side wins. Emits `game-over` |
+| `POST /api/chess/game/:gameId/rematch` | | Signed in, finished friend games. The first press waits 1 minute (`{ waiting, expires_in }`). If the other player presses in time, a new game starts with random sides (`{ new_game_id }`) and `rematch` is emitted |
 | `POST /api/chess/invite` | `{ game_id, opponent_email }` | Signed in only. New game vs. a friend. Finds their Auth0 account by email (`getAuth0User`). You play white. `game_id` must not exist yet |
 | `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home. Ids of games TTL already deleted are pruned first |
 
@@ -162,13 +170,29 @@ players can connect (the handshake reads the same access-token cookie).
 
 | Event | Direction | Meaning |
 | --- | --- | --- |
-| `join-game` | client → server | `gameId`, answered with `{ status, message }`. Joins the game's room if you're a player in it. One game per socket |
+| `join-game` | client → server | `gameId`, answered with `{ status, message, state, winner, reason }`. Joins the game's room if you're a player in it. One game per socket |
 | `move` | server → client | `{ game_id, player_id }`. Sent to the room after a move is saved. The client skips its own moves |
+| `game-over` | server → client | `{ game_id, player_id, winner, reason }`. Sent when a player forfeits. The opponent's board opens the menu with Rematch |
+| `rematch` | server → client | `{ game_id, new_game_id }`. Both players asked for a rematch. Both boards load the new game |
 
 The client side is `client/src/js/socket/index.js`. `renderCanvas()` calls
-`joinGame()` for friend games and hides Restart, and the Home button calls `leaveGame()`. If
+`joinGame()` for friend games (also when a rematch loads), and the Home button calls `leaveGame()`. If
 the server turns the socket away because the access token expired, the client
 re-ups the session once and reconnects.
+
+Every game response has the result fields:
+
+| Field | Values |
+| --- | --- |
+| `state` | `OPEN` or `CLOSED` |
+| `winner` | `w`, `b`, `draw`, or `null` while open |
+| `reason` | `checkmate`, `stalemate`, `insufficient material`, `fifty-move rule`, `forfeit`, or `null` |
+
+Closing a game moves its id from `open_games` to `closed_games` on both
+players' `user_db` rows. A finished friend game loses its `expireAt`, so TTL
+never deletes it. AI games keep it and are deleted 25 days after the last
+move. Threefold repetition isn't detected, because only the board (FEN) is
+stored and the client works from the FEN too.
 
 The move rules (`server/utils/validate.js`) are a copy of the lambda's
 `validate/validate.js`. `chess.js` is pinned to the client's version
@@ -184,8 +208,9 @@ The move rules (`server/utils/validate.js`) are a copy of the lambda's
 - CloudFront distribution with the S3 website endpoint as origin, HTTP →
   HTTPS redirect, and TTL 0 so a new deploy shows up right away
 - Route 53 `A` alias record pointing the subdomain at the distribution
-- DynamoDB tables (us-east-1): `chess_db` (key `game_id`, TTL on `expireAt` so
-  abandoned games are deleted after 25 days) and `user_db` (key `user_id`)
+- DynamoDB tables (us-east-1): `chess_db` (key `game_id`, TTL on `expireAt`:
+  open games and finished AI games are deleted 25 days after the last move,
+  finished friend games are kept) and `user_db` (key `user_id`)
 
 ```bash
 cd terraform/aws-enviroment
@@ -248,7 +273,7 @@ leave out `game_id`, the backend creates a new game and generates its id.
 
 ```
 client/
-  index.html                 Menu markup (Resume, Restart, Home, Play AI, Play Friends, Exit)
+  index.html                 Menu markup (Resume, Restart / Forfeit / Rematch, Home, Play AI, Play Friends, Exit)
   webpack.config.js          Entry, HTML template, PWA manifest, dotenv, dev proxy (/api + /socket.io)
   src-sw.js                  Workbox service worker (not registered at the moment)
   src/css/style.css          Menu, game list, and layout styles

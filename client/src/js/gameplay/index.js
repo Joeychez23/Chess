@@ -16,7 +16,7 @@
 import "../../css/style.css";
 
 const { Chess } = require("chess.js");
-const { validate } = require("./validate/index.js");
+const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/index.js");
 const { playerMove } = require("./user/index.js");
 const { playAi } = require("./ai/index.js");
 const { setTiles } = require("./utils/index.js");
@@ -138,7 +138,8 @@ export function preloadImages() {
  * @description Renders canvas to main, and holds all associating canvas functions
  */
 export async function renderCanvas(playerData) {
-	const { GAME_URL, GAME_ID, PLAYER_ID, TV_BOOL } = playerData; // SETS CONSTANT GAME VARIABLES
+	const { GAME_URL, PLAYER_ID, TV_BOOL } = playerData; // SETS CONSTANT GAME VARIABLES
+	let GAME_ID = playerData.GAME_ID; // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
 
 	optBtn.style.display = "flex";
 
@@ -190,6 +191,9 @@ export async function renderCanvas(playerData) {
 	let mouseDownCount = 0;
 	let opposingMove = false;
 	let boardReset = false;
+	let gameOver = false; // THE SERVER CLOSED THE GAME (CHECKMATE, DRAW OR FORFEIT)
+	let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
+	let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
 	let availableMoves;
 	let initialAnimation = true;
 	// let initialRender = true;
@@ -349,9 +353,10 @@ export async function renderCanvas(playerData) {
 
 		await setInitialData(); // SETS INITIAL DATA
 		handleInitialData(); // HANDLES INITIAL DATA
+		const socketHandlers = { move: checkOpponentMove, gameOver: showGameOver, rematch: loadRematch };
 		if (!ai && response?.status == 200) { // FRIEND GAME
-			joinGame(GAME_ID, PLAYER_ID, checkOpponentMove); // THE SERVER PUSHES THE OPPONENT'S MOVES (server/socket.js)
-			optRestartBtn.parentElement.style.display = "none"; // FRIEND GAMES CAN'T BE RESTARTED
+			joinGame(GAME_ID, PLAYER_ID, socketHandlers); // THE SERVER PUSHES MOVES, FORFEITS & REMATCHES (server/socket.js)
+			if (!gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // RESTART IS FORFEIT IN FRIEND GAMES
 		}
 
 
@@ -628,14 +633,9 @@ export async function renderCanvas(playerData) {
 			if (response.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
 				opponentColor = response?.opponent_color || false;
 				chessInst.load(response.game_board);
-				if (chessInst.isGameOver()) {
-					menuToggled = true;
-					menu.style.display = "flex"
-					optResumeBtn.parentElement.style.display = 'none';
-					if (playerColor == 'w') { resultDisplay.innerText = "White Wins!" }
-					else if (playerColor == 'b') { resultDisplay.innerText = "Black Wins!" }
-
-					handleRemoteMenuEnter(optRestartBtn);
+				if (response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
+					ai = response.ai;
+					showGameOver(response);
 					return;
 				}
 
@@ -1897,15 +1897,7 @@ export async function renderCanvas(playerData) {
 
 				if (response.status == 200) {
 					currSlide = false;
-					if (chessInst.isGameOver()) {
-						menuToggled = true;
-						menu.style.display = "flex"
-						optResumeBtn.parentElement.style.display = 'none';
-						if (playerColor == 'w') { resultDisplay.innerText = "White Wins!" }
-						else if (playerColor == 'b') { resultDisplay.innerText = "Black Wins!" }
-						handleRemoteMenuEnter(optRestartBtn);
-						return;
-					}
+					if (response.state == "CLOSED") { showGameOver(response); return; } // CHECKMATE OR DRAW
 
 					if (ai) {
 						tiles = await setTiles();
@@ -1969,17 +1961,9 @@ export async function renderCanvas(playerData) {
 					tiles[index].x = tiles[index].xSlideTo;
 					tiles[index].y = tiles[index].ySlideTo;
 
-					if (chessInst.isGameOver()) {
-						menuToggled = true;
-						menu.style.display = "flex"
-						optResumeBtn.parentElement.style.display = 'none';
-						if (opponentColor == 'w') { resultDisplay.innerText = "White Wins!" }
-						else if (opponentColor == 'b') { resultDisplay.innerText = "Black Wins!" }
-
-						handleRemoteMenuEnter(optRestartBtn);
-					}
 					opposingMove = false;
 					refreshData(response);
+					if (response.state == "CLOSED") { showGameOver(response); } // CHECKMATE OR DRAW
 				} else { opposingMove = true; return refreshData(revert); } // IF VALIDATION FAILS REVERT BACK TO PREVIOUS BOARD
 			} catch (err) { currSlide = false; console.log(err); return refreshData(response); }
 		}
@@ -2547,13 +2531,14 @@ export async function renderCanvas(playerData) {
 		// Restart Button (Menu)
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Restart current game & render a new board
+		 * @description AI games: a game that's still going is forfeited, then a new game starts.
+		 * Friend games: the same button is Forfeit, then Rematch once the game is over
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
 		async function handleRestart(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			if (!ai) { return; } // FRIEND GAMES CAN'T BE RESTARTED (TV REMOTE CAN STILL REACH THE HIDDEN BUTTON)
+			if (!ai) { return await handleFriendBtn(); } // FORFEIT / REMATCH
 			boardReset = true;
 			ctx.clearRect(0, 0, cw, ch);
 			refresh = false;
@@ -2562,7 +2547,7 @@ export async function renderCanvas(playerData) {
 			menu.style.display = "none"
 			// THE RESTART PARAM IS THE AI'S COLOR (THE BACKEND STORES PLAYER_ID_1 AS WHITE), GIVING THE AI THE PLAYER'S COLOR FLIPS SIDES EACH RESTART
 			const aiColor = playerColor;
-			const restartResponse = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, aiColor); // RESETS THE GAME IN THE DATABASE
+			const restartResponse = await restartGame(GAME_URL, GAME_ID, aiColor); // FORFEITS IF STILL GOING, THEN A NEW GAME IN THE DATABASE
 			if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME
 				// console.log(restartResponse);
 				optBtn.style.display = "flex";
@@ -2570,6 +2555,16 @@ export async function renderCanvas(playerData) {
 				refresh = true;
 				return;
 			}
+			GAME_ID = restartResponse.game_id; // NEW GAME ID (GUESTS KEEP THEIRS)
+			await loadNewBoard();
+			return
+		}
+
+		/**
+		 * @description Loads GAME_ID's board in place (restart & rematch)
+		 */
+		async function loadNewBoard() {
+			gameOver = false;
 			drawScreen = function () { return };
 			await setInitialData(); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
 			handleInitialData();
@@ -2580,7 +2575,79 @@ export async function renderCanvas(playerData) {
 			opposingMove = chessInst.turn() != playerColor;
 			boardReset = false;
 			refresh = true;
-			return
+		}
+
+		/* ---------------------------------------------------------------- */
+		// Forfeit / Rematch Button (Menu, friend games)
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Game going: Forfeit -> "Are you sure?" -> forfeits. Game over: Rematch, starts when both players press it within 1 minute
+		 */
+		async function handleFriendBtn() {
+			if (!gameOver) {
+				if (!confirmForfeit) { // FIRST PRESS ASKS, THE QUESTION GOES AWAY AFTER 5 SECONDS
+					confirmForfeit = true;
+					optRestartBtn.innerHTML = "Are you sure?";
+					setTimeout(function () { if (confirmForfeit && !gameOver) { confirmForfeit = false; optRestartBtn.innerHTML = "Forfeit"; } }, 5000);
+					return;
+				}
+				confirmForfeit = false;
+				const forfeitResponse = await forfeitGame(GAME_URL, GAME_ID);
+				if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
+				optRestartBtn.innerHTML = "Forfeit"; // FORFEIT FAILED, KEEP PLAYING
+				return;
+			}
+			if (rematchWaiting) { return; }
+			const rematchResponse = await rematchGame(GAME_URL, GAME_ID);
+			if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
+			if (rematchResponse?.waiting) { // WAIT 1 MINUTE FOR THE OPPONENT
+				optRestartBtn.innerHTML = "Waiting...";
+				rematchWaiting = setTimeout(function () { rematchWaiting = false; optRestartBtn.innerHTML = "Rematch"; }, rematchResponse.expires_in);
+			}
+		}
+
+		/* ---------------------------------------------------------------- */
+		// Game Over
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Locks the board & opens the menu with the server's result. AI games offer Restart, friend games offer Rematch
+		 * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
+		 */
+		function showGameOver(result) {
+			if (gameOver) { return; } // ALREADY SHOWN
+			gameOver = true;
+			opposingMove = true; // NO MORE MOVES
+			menuToggled = true;
+			menu.style.display = "flex"
+			optResumeBtn.parentElement.style.display = 'none';
+			if (result?.reason == "forfeit") { resultDisplay.innerText = result.winner == 'w' ? "Black Forfeits" : "White Forfeits" } // THE TITLE ONLY FITS ONE LINE
+			else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
+			else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }
+			else { resultDisplay.innerText = "Draw" }
+			if (!ai) { optRestartBtn.innerHTML = "Rematch"; } // FRIEND GAME
+			handleRemoteMenuEnter(optRestartBtn);
+		}
+
+		/* ---------------------------------------------------------------- */
+		// Load Rematch
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Both players asked for a rematch: loads the new game in place (the server picked the sides)
+		 * @param  {[string]} newGameId [rematch game id, from the request or the socket]
+		 */
+		async function loadRematch(newGameId) {
+			if (!newGameId || `${newGameId}` == `${GAME_ID}`) { return; } // ALREADY LOADED (THE REQUEST & THE SOCKET BOTH SEND IT)
+			GAME_ID = newGameId;
+			clearTimeout(rematchWaiting);
+			rematchWaiting = false;
+			boardReset = true;
+			ctx.clearRect(0, 0, cw, ch);
+			refresh = false;
+			menuToggled = false;
+			menu.style.display = "none"
+			optRestartBtn.innerHTML = "Forfeit";
+			joinGame(GAME_ID, PLAYER_ID, socketHandlers); // NEW GAME'S ROOM
+			await loadNewBoard();
 		}
 
 		/* ---------------------------------------------------------------- */

@@ -128,4 +128,23 @@ async function validateMove(playerData, gameData) {
 }
 
 
-module.exports = { validateMove }
+/* ---------------------------------------------------------------- */
+// Game Result
+/* ---------------------------------------------------------------- */
+/**
+ * @description Checks a board for the end of the game. Only the board (FEN) is stored, so threefold repetition
+ * isn't seen, same as the client (it also loads the FEN)
+ * @param  {[string]} fen [game board]
+ * @return {[object]} result [{ winner: "w" | "b" | "draw", reason } | null while the game is still going]
+ */
+function gameResult(fen) {
+	const Module_chess = new Chess(fen);
+	if (Module_chess.isCheckmate()) { return { winner: Module_chess.turn() == "w" ? "b" : "w", reason: "checkmate" }; } // THE SIDE TO MOVE IS MATED
+	if (Module_chess.isStalemate()) { return { winner: "draw", reason: "stalemate" }; }
+	if (Module_chess.isInsufficientMaterial()) { return { winner: "draw", reason: "insufficient material" }; }
+	if (Module_chess.isDraw()) { return { winner: "draw", reason: "fifty-move rule" }; }
+	return null;
+}
+
+
+module.exports = { validateMove, gameResult }
