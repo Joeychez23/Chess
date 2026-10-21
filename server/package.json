@@ -19,6 +19,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
+    "js-chess-engine": "^1.0.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.10.3",
     "socket.io": "^4.8.4"

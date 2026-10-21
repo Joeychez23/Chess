@@ -5,13 +5,14 @@
  * @description Conditionalize user request of GET Game, PUT move, or POST restart, validated by the chess routes on the express server (server/controllers/chessController.js)
  * @param  {[string]} gameUrl [chess api, "/api/chess"]
  * @param  {[string]} gameId [game id]
- * @param  {[object]} _id [player id, the server plays as the signed in session instead ("CHESS_AI" still marks the AI's move)]
+ * @param  {[object]} _id [player id, the server plays as the signed in session instead]
  * @param  {[object]} move [move array]
  * @param  {[string]} promotion [promotion piece]
  * @param  {[string]} restart [AI color 'w' or 'b' to restart the game]
+ * @param  {[number]} aiLevel [new games: the AI's level from Home's dropdown, left out = the server's default]
  * @return {[object]} response.json() = backend server response object of request data
  */
-export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
+export async function validate(gameUrl, gameId, _id, move, promotion, restart, aiLevel) {
 	if (restart) { // RESTART GAME (POST /game, OVERWRITES game_id WITH A NEW BOARD)
 		let options;
 		if (restart == 'w') {
@@ -22,6 +23,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 					game_id: gameId,
 					player_id_1: "CHESS_AI",
 					player_id_2: _id,
+					ai_level: aiLevel,
 				})
 			};
 		} else if (restart == 'b') {
@@ -32,6 +34,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 					game_id: gameId,
 					player_id_1: _id,
 					player_id_2: "CHESS_AI",
+					ai_level: aiLevel,
 				})
 			};
 		}
@@ -46,7 +49,6 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				player_id: _id,
 				move,
 				promotion
 			})
@@ -153,6 +155,36 @@ export async function rematchGame(gameUrl, gameId) {
 }
 
 /**
+ * @description AI games: the server picks the AI's move at the game's level & saves it (POST /game/:gameId/ai-move)
+ * @return {[object]} response [{ status, game_board, w_knight, b_knight, state, ..., ai_move: { from, to, promotion } }]
+ */
+export async function aiMove(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/ai-move`, options)
+	} catch (err) {
+		return
+	}
+}
+
+/**
+ * @description AI levels & their approx Elo for Home's dropdown (GET /levels)
+ * @return {[object]} response [{ status, levels: [{ level, elo }], default_level }]
+ */
+export async function getLevels(gameUrl) {
+	const options = {
+		method: "GET"
+	};
+	try {
+		return await request(`${gameUrl}/levels`, options)
+	} catch (err) {
+		return
+	}
+}
+
+/**
  * @description fetch() for the chess routes. The server takes the player from the session cookie,
  * so a 401 means the access token expired mid game: re-up the session once & try again
  */
@@ -164,16 +196,3 @@ async function request(url, options) {
 	}
 	return res.json();
 }
-
-export async function stockfishAPI(data = {}) {
-	const response = await fetch("https://engine.aws-prac-route53.com/v1", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json"
-		},
-		body: JSON.stringify(data),
-		signal: AbortSignal.timeout(2500), // ENGINE UNREACHABLE -> playAi() FALLS BACK TO js-chess-engine AFTER 2 SECONDS
-	});
-	return response.json();
-}
-// await stockfishAPI({ fen: `${chessInst.fen()}`, depth: 1 }).then((data) => { console.log(data); });

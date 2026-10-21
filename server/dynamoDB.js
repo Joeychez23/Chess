@@ -39,9 +39,10 @@ function expireTime() {
  * @param  {[string]} existingGameId [game id to use, false to generate one]
  * @param  {[string]} playerId1 [white player id]
  * @param  {[string]} playerId2 [black player id]
+ * @param  {[number]} aiLevel [AI games: the AI's level, saved with the game so it can't change mid game]
  * @return {[object]} response [{ status, game_data, message }]
  */
-async function initalizeGame(existingGameId, playerId1, playerId2) {
+async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
 	const board = new Chess().fen();
 
 	let gameId;
@@ -63,6 +64,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2) {
 			expireAt: { N: expireTime() } // TTL, PUSHED BACK ON EVERY MOVE IN updateGame
 		}
 	};
+	if (aiLevel) { params.Item.ai_level = { N: String(aiLevel) }; } // FRIEND GAMES HAVE NO LEVEL
 
 	await connection.putItem(params); // POST REQUEST FOR GAME CREATION TO DYNAMODB
 
@@ -141,9 +143,10 @@ async function retrieveGame(gameId) {
 /**
  * @description Saves a validated move, then reads the game back to check it saved
  * @param  {[object]} gameData [Validated server data, modified by a successful client request]
+ * @param  {[string]} prevBoard [board the move was made on, the save fails if the board changed since (two requests at once)]
  * @return {[object]} response [{ status, game_data, message }]
  */
-async function updateGame(gameData) {
+async function updateGame(gameData, prevBoard) {
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
@@ -159,8 +162,17 @@ async function updateGame(gameData) {
 			":expireAt": { N: expireTime() } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
 		}
 	}
+	if (prevBoard) {
+		params.ConditionExpression = 'game_board = :prev_board'; // ONLY ONE MOVE PER BOARD
+		params.ExpressionAttributeValues[":prev_board"] = { S: prevBoard };
+	}
 
-	await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Board changed before the move saved: ${gameData.game_id.S}` }; }
+		throw err;
+	}
 
 	let response = await retrieveGame(gameData.game_id.S); // GET GAME BY ID
 

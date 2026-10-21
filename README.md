@@ -12,8 +12,10 @@ DynamoDB before it counts. (This used to be the chess lambda in
 
 Built with vanilla JavaScript, HTML5 Canvas, Webpack 5, Socket.IO,
 [chess.js](https://github.com/jhlywa/chess.js) (rules, legal moves, check),
-and [js-chess-engine](https://github.com/josefjadrny/js-chess-engine) (the
-computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
+and [Stockfish](https://stockfishchess.org/) (the computer opponent, through
+the [chess-engine-api](../chess-engine-api) service, with
+[js-chess-engine](https://github.com/josefjadrny/js-chess-engine) as the
+backup). Hosted on S3 + CloudFront, provisioned with Terraform.
 
 ## Features
 
@@ -22,7 +24,7 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
 | **Canvas rendering** | Board, table, and pieces are sprites drawn in layers (reflection, shadow, piece). Knights face the direction they last moved; the backend tracks each knight's last move so this survives a reload. |
 | **Moving** | Drag and drop, or click a piece and then a square. Legal moves are highlighted, and a king in check is highlighted. Moves slide into place with a sound. |
 | **Promotion** | When a pawn reaches the last rank, you pick the new piece by clicking one of your captured pieces beside the board. |
-| **Play AI** | The computer opponent (js-chess-engine, level 1) runs in the browser. Your color is random. Restart flips your color and starts a new game. Restarting a game that's still going counts as a forfeit. |
+| **Play AI** | The computer opponent is Stockfish at the level picked in the dropdown next to Play AI on Home (8 levels, each shown with its approximate Elo, see [AI levels](#ai-levels)). The server picks and saves the AI's moves, so the level can't change mid game and the browser can't move for the AI. Your color is random. Restart flips your color and starts a new game at the same level. Restarting a game that's still going counts as a forfeit. |
 | **Play Friends** | Enter your opponent's email. The backend looks up their Auth0 account and creates the game. While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. The menu's Restart button is **Forfeit** here (it asks "Are you sure?" first). |
 | **Game over** | The server ends a game on checkmate, stalemate, insufficient material, the fifty-move rule, or a forfeit, and saves who won and why. Both boards open the menu with the result. Finished games leave Home. |
 | **Rematch** | After a friend game ends, both players get a Rematch button. If both press it within 1 minute, a new game starts with the sides picked at random and both boards load it. |
@@ -49,13 +51,15 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
    hover, a drag, a slide in progress, or new data.
 4. **Your move.** chess.js plays the move locally, which throws on an illegal
    move. If it's legal, the move is sent as `PUT /api/chess/game/:gameId`
-   with `{ player_id, move: [from, to], promotion }`. If the server rejects
+   with `{ move: [from, to], promotion }`. If the server rejects
    it, the board reverts to the last state the server confirmed. If the move
    ends the game, the response has `state: "CLOSED"` with the `winner` and
    `reason`, and the menu opens with the result.
-5. **AI move.** js-chess-engine picks a move from the current FEN. The move is
-   animated and then submitted under the player id `CHESS_AI`, so the server
-   validates it like any other move.
+5. **AI move.** The client asks `POST /api/chess/game/:gameId/ai-move`. The
+   server asks Stockfish for a move at the game's saved level, validates it
+   like any other move, saves it, and returns it with the new board. The
+   client only animates it. Asking again after the AI moved returns the same
+   saved move, so a reload or a repeat request never makes a second move.
 6. **Friend's move.** A friend game opens a Socket.IO connection and joins
    the game's room. When the server saves a move it emits `move` to the room,
    and the other player's client fetches the game and animates the server's
@@ -83,6 +87,7 @@ cd server && npm install
 | `JWT_SECRET` | Signs the session tokens |
 | `AUTH0_CALLBACK_URL` | Optional. Defaults to `http://localhost:API_PORT/api/auth/callback` |
 | `CLIENT_URL` | Optional. Where the browser goes after login/logout. Defaults to `http://localhost:API_PORT/` |
+| `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` |
 
 In the Auth0 app's settings, add `AUTH0_CALLBACK_URL` to **Allowed Callback
 URLs** and `CLIENT_URL` to **Allowed Logout URLs**.
@@ -145,8 +150,8 @@ and a rejected move or missing game still comes back as HTTP 200 with
 `status: 500` in the body, so the client checks them the same way as before.
 
 The player is whoever is signed in. The server reads it from the session
-cookie and ignores the player ids the client sends, except `CHESS_AI`, which
-marks the AI's move in an AI game. Guests (no session) can only play an AI
+cookie and ignores the player ids the client sends. Nobody can move for the AI:
+its moves only come from `/ai-move`. Guests (no session) can only play an AI
 game whose `game_id` equals their player id, which is what `client/.env` sets
 up. A request for a game you're not in gets `401` when signed out (the client
 then calls `/api/auth/refresh` once and retries, in case the access token
@@ -154,10 +159,12 @@ expired mid game) or `403` when signed in.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |
-| `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, and the result (`state`, `winner`, `reason`) |
-| `POST /api/chess/game` | `{ game_id, player_id_1, player_id_2 }` | New game vs. the AI, or restart: an existing `game_id` is overwritten with a new board. One side must be `CHESS_AI`, and the other side is always you. `player_id_1` plays white. Leave out `game_id` to generate one. Only a player in the game can restart it, and friend games can't be restarted |
-| `PUT /api/chess/game/:gameId` | `{ player_id, move: [from, to], promotion }` | Validates the move against the stored board and saves it. Closes the game on checkmate or a draw. Refused once the game is closed |
-| `POST /api/chess/game/:gameId/restart` | `{ ai_color }` | AI games. Forfeits the game if it's still going, then starts a new game with a new id. `ai_color` is the AI's color in the new game. Guests' one game is overwritten instead |
+| `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), and the result (`state`, `winner`, `reason`) |
+| `POST /api/chess/game` | `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). One side must be `CHESS_AI`, and the other side is always you. `player_id_1` plays white. Leave out `game_id` to generate one. A guest's existing `game_id` is overwritten with a new board (restart, the level is kept unless `ai_level` is sent). Signed-in players can't overwrite a game here, they restart with `/restart` |
+| `PUT /api/chess/game/:gameId` | `{ move: [from, to], promotion }` | Your move. Validates it against the stored board and saves it. Closes the game on checkmate or a draw. Refused once the game is closed, and refused if the board changed first (two moves at once) |
+| `POST /api/chess/game/:gameId/ai-move` | | AI games, on the AI's turn. The server picks the AI's move at the game's level, saves it, and returns the game with `ai_move: { from, to, promotion }`. After the AI moved, it returns that saved move instead of a new one |
+| `POST /api/chess/game/:gameId/restart` | `{ ai_color }` | AI games. Forfeits the game if it's still going, then starts a new game with a new id at the same level. `ai_color` is the AI's color in the new game. Guests' one game is overwritten instead |
+| `GET /api/chess/levels` | | The AI levels for Home's dropdown: `{ levels: [{ level, elo }], default_level }` |
 | `POST /api/chess/game/:gameId/forfeit` | | Signed in, friend games. Closes the game, and the other side wins. Emits `game-over` |
 | `POST /api/chess/game/:gameId/rematch` | | Signed in, finished friend games. The first press waits 1 minute (`{ waiting, expires_in }`). If the other player presses in time, a new game starts with random sides (`{ new_game_id }`) and `rematch` is emitted |
 | `POST /api/chess/invite` | `{ game_id, opponent_email }` | Signed in only. New game vs. a friend. Finds their Auth0 account by email (`getAuth0User`). You play white. `game_id` must not exist yet |
@@ -197,6 +204,46 @@ stored and the client works from the FEN too.
 The move rules (`server/utils/validate.js`) are a copy of the lambda's
 `validate/validate.js`. `chess.js` is pinned to the client's version
 (`1.0.0-beta.6`) so the browser and the server agree on what's legal.
+
+### AI levels
+
+The levels live in `server/utils/ai.js`. A new AI game saves its level as
+`ai_level` on its `chess_db` item. The level can't change until you start a new
+game from Home (Restart keeps it). AI games made before levels existed get the
+default, level 3.
+
+| Level | Shown | Stockfish settings | Measured |
+| --- | --- | --- | --- |
+| 1 | ≈750 | Skill 0, and a random legal move 40% of the time | −619 vs. level 3, −301 vs. level 2 |
+| 2 | ≈1100 | Skill 0, and a random legal move 15% of the time | −241 vs. level 3 |
+| 3 | ≈1320 | `UCI_Elo` 1320, depth 1 | −305 vs. level 4 (Stockfish's ratings say −280) |
+| 4 | ≈1600 | `UCI_Elo` 1600, depth 3 | −228 vs. level 5 (−300) |
+| 5 | ≈1900 | `UCI_Elo` 1900, depth 4 | |
+| 6 | ≈2200 | `UCI_Elo` 2200, depth 6 | −413 vs. level 7 (−400) |
+| 7 | ≈2600 | `UCI_Elo` 2600, depth 8 | |
+| 8 | ≈3300 | Full strength, depth 20, 2 seconds | +137 vs. `UCI_Elo` 3190 (+16 =23 −1), played at depth 17, about what EC2 reaches in 2 seconds |
+
+- **The ratings are Stockfish's.** `UCI_Elo` is anchored to the CCRL engine
+  rating list, not to chess.com or FIDE ratings, so the numbers are
+  approximate. Levels 1, 2 and 8 have no Stockfish rating, so they were
+  measured with games against the other levels.
+- **How they were measured:** a local Stockfish 17.1 build played the levels
+  against each other through `chess-engine-api`: 200 games per pair (40 for
+  level 8), 20 openings, each played with both colors.
+- **Depth:** Stockfish picks a `UCI_Elo` / skill move at depth
+  `1 + skill level`, so the search stops there instead of using the whole
+  time limit. That saves CPU on the engine's EC2 instance. Only level 8
+  searches to depth 20.
+- **Before levels:** the old AI was full-strength Stockfish at depth 1. It
+  measured about 1900, the same as level 5 (+166 vs. level 4, +38 vs. level 5,
+  −147 vs. level 6).
+- **Limits on EC2:** the instance runs 2 engines. A level 8 move takes about
+  2.3 seconds, and with more than 2 of them at once the extras wait their turn
+  (4 at once: two took 2.3 seconds, two took 4.4 seconds). Levels 1-7 answer in
+  milliseconds. All AI moves now come from the chess server's IP, so they share
+  the engine's nginx limit of 5 requests per second per IP.
+- **If the engine is down**, js-chess-engine (level 1) plays the move on the
+  server instead.
 
 ## Deploy
 
@@ -277,13 +324,13 @@ client/
   webpack.config.js          Entry, HTML template, PWA manifest, dotenv, dev proxy (/api + /socket.io)
   src-sw.js                  Workbox service worker (not registered at the moment)
   src/css/style.css          Menu, game list, and layout styles
-  src/js/main.js             Menu, postMessage handling, new solo/multiplayer games
+  src/js/main.js             Menu, postMessage handling, new solo/multiplayer games, AI level dropdown
   src/js/auth/clientSideAuth.js  login() / logout() / getUser() / refresh() → server auth routes
   src/js/socket/index.js     joinGame() / leaveGame(): friend game socket
   src/js/gameplay/
     index.js                 renderCanvas(): sprite loading, render loop, input, animation
-    validate/index.js        Backend calls: get game, move, reset, user games, invite
-    ai/index.js              Computer move via js-chess-engine (+ promotion)
+    validate/index.js        Backend calls: get game, move, reset, AI move, levels, user games, invite
+    ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move
     utils/index.js           Per-square tile state
 server/
@@ -295,9 +342,10 @@ server/
   controllers/
     authController.js        login, callback, logout, refresh
     userController.js        getUser
-    chessController.js       get game, new game, move, invite, user games (was the chess lambda)
+    chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, user games (was the chess lambda)
   middleware/auth.js         JWT session cookies, requireAuth, optionalAuth
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
+  utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
 terraform/
   aws-enviroment/            Root module: bucket, domain names, table names

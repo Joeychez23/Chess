@@ -29,6 +29,9 @@ const config = {
   jwtSecret: required("JWT_SECRET"),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "15m",
   jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
+
+  // STOCKFISH ENGINE API (chess-engine-api), THE SERVER ASKS IT FOR THE AI'S MOVES
+  engineUrl: process.env.ENGINE_URL || "https://engine.aws-prac-route53.com/v1",
 };
 
 module.exports = config;
