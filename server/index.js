@@ -1,10 +1,12 @@
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const config = require("./config");
 const dynamoDB = require("./dynamoDB.js");
 const routes = require("./routes")
+const { initSocket } = require("./socket.js");
 
 const app = express();
 const buildDir = path.join(`${__dirname}/../client/dist/`);
@@ -28,7 +30,10 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: "Something went wrong on our side." });
 });
 
-    app.listen(config.port, () => {
+const server = http.createServer(app); // SOCKET.IO SHARES THE PORT WITH EXPRESS
+initSocket(server);
+
+    server.listen(config.port, () => {
         console.log(`Listening on http://localhost:${config.port}`);
     });
 

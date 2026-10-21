@@ -5,7 +5,7 @@
  * @description Conditionalize user request of GET Game, PUT move, or POST restart, validated by the chess routes on the express server (server/controllers/chessController.js)
  * @param  {[string]} gameUrl [chess api, "/api/chess"]
  * @param  {[string]} gameId [game id]
- * @param  {[object]} _id [player id]
+ * @param  {[object]} _id [player id, the server plays as the signed in session instead ("CHESS_AI" still marks the AI's move)]
  * @param  {[object]} move [move array]
  * @param  {[string]} promotion [promotion piece]
  * @param  {[string]} restart [AI color 'w' or 'b' to restart the game]
@@ -37,7 +37,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 		}
 		try {
 
-			return await fetch(`${gameUrl}/game`, options).then(res => res.json())
+			return await request(`${gameUrl}/game`, options)
 		} catch (err) {
 			return
 		}
@@ -53,7 +53,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 		};
 		try {
 
-			return await fetch(`${gameUrl}/game/${encodeURIComponent(gameId)}`, options).then(res => res.json())
+			return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}`, options)
 		} catch (err) {
 			return
 		}
@@ -62,7 +62,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 			method: "GET"
 		};
 		try {
-			return await fetch(`${gameUrl}/game/${encodeURIComponent(gameId)}?player_id=${encodeURIComponent(_id)}`, options).then(res => res.json())
+			return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}?player_id=${encodeURIComponent(_id)}`, options)
 		} catch (err) {
 			return;
 		}
@@ -78,7 +78,7 @@ export async function getUserGameData(gameUrl, userId) {
 		method: "GET"
 	};
 	try {
-		return await fetch(`${gameUrl}/user/${encodeURIComponent(userId)}`, options).then(res => res.json())
+		return await request(`${gameUrl}/user/${encodeURIComponent(userId)}`, options)
 	} catch (err) {
 		return;
 	}
@@ -98,10 +98,23 @@ export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail) {
 		})
 	};
 	try {
-		return await fetch(`${gameUrl}/invite`, options).then(res => res.json())
+		return await request(`${gameUrl}/invite`, options)
 	} catch (err) {
 		return
 	}
+}
+
+/**
+ * @description fetch() for the chess routes. The server takes the player from the session cookie,
+ * so a 401 means the access token expired mid game: re-up the session once & try again
+ */
+async function request(url, options) {
+	let res = await fetch(url, options);
+	if (res.status == 401) {
+		const refresh = await fetch("/api/auth/refresh", { method: "POST" });
+		if (refresh.ok) { res = await fetch(url, options); }
+	}
+	return res.json();
 }
 
 export async function stockfishAPI(data = {}) {

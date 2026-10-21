@@ -105,6 +105,35 @@ function requireAuth(req, res, next) {
 }
 
 /* ---------------------------------------------------------------- */
+// Optional Auth
+/* ---------------------------------------------------------------- */
+/**
+ * @description Guests (no access token) pass with req.user = null, signed in users get req.user.
+ * An expired or invalid token gets a 401 so the client re-ups the session & tries again
+ */
+function optionalAuth(req, res, next) {
+	const payload = readToken(req.cookies?.[ACCESS_COOKIE], "access");
+	if (payload === undefined) {
+		return res.status(401).json({ status: 401, message: "SESSION EXPIRED" });
+	}
+	req.user = payload ? payload.user : null;
+	next();
+}
+
+/* ---------------------------------------------------------------- */
+// Read Access Token
+/* ---------------------------------------------------------------- */
+/**
+ * @description Returns the user from the access cookie, or null when it's missing / expired (Socket.IO handshake)
+ * @param  {[object]} req [request with req.cookies]
+ * @return {[object]} user
+ */
+function readSessionUser(req) {
+	const payload = readToken(req.cookies?.[ACCESS_COOKIE], "access");
+	return payload ? payload.user : null;
+}
+
+/* ---------------------------------------------------------------- */
 // Read Refresh Token
 /* ---------------------------------------------------------------- */
 /**
@@ -118,4 +147,4 @@ function readRefreshUser(req) {
 }
 
 
-module.exports = { setSessionCookies, clearSessionCookies, requireAuth, readRefreshUser };
+module.exports = { setSessionCookies, clearSessionCookies, requireAuth, optionalAuth, readSessionUser, readRefreshUser };
