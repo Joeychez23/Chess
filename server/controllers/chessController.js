@@ -13,38 +13,26 @@
 const { validateMove } = require("../utils/validate.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { initalizeGame, retrieveGame, updateGame, retrieveUser, pruneOpenGames } = require("../dynamoDB.js");
+const { emitToGame } = require("../socket.js");
 
 /* ---------------------------------------------------------------- */
 // Get Game (GET)
 /* ---------------------------------------------------------------- */
 /**
- * @description Returns the board & the player's color. Used to load a game and by the 2 second opponent check
+ * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @param  {[string]} req.query.player_id [player id, picks the color]
  * @return {[object]} response [{ status, game_id, game_board, ai, player_color, opponent_color, moves, prev_move, w_knight, b_knight, message }]
  */
 async function getGame(req, res) {
-	const gameId = req.params.gameId;
-	const playerId = req.query.player_id;
-	if (!playerId) { return res.json({ status: 500, message: "Missing player_id" }); }
-
-	const response = await retrieveGame(gameId);
+	const response = await retrieveGame(req.params.gameId);
 	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
-	let playerColor;
-	let opponentColor;
+	const playerId = playerInGame(req, gameData); // PICKS THE COLOR
+	if (!playerId) { return notInGame(req, res); }
 
-	if (playerId == gameData.white_player_id.S) {
-		playerColor = "w";
-		opponentColor = "b";
-	}
-	else if (playerId == gameData.black_player_id.S) {
-		playerColor = "b";
-		opponentColor = "w";
-	}
-
-	if (!playerColor) { return res.json({ status: 500, message: "Player is not in this game" }); }
+	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
+	const opponentColor = playerColor == "w" ? "b" : "w";
 
 	return res.json({
 		status: response.status,
@@ -65,15 +53,27 @@ async function getGame(req, res) {
 // New Game (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Creates a game, or restarts one: an existing game_id is overwritten with a new board
- * @param  {[object]} req.body [{ game_id (optional, generated when left out), player_id_1 (white), player_id_2 (black) }]
+ * @description Creates a game vs the AI, or restarts one: an existing game_id is overwritten with a new board (AI games only)
+ * @param  {[object]} req.body [{ game_id (optional, generated when left out), player_id_1 (white), player_id_2 (black) }, one side is "CHESS_AI", the other side is always the requester]
  * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, message }]
  */
 async function newGame(req, res) {
 	const { game_id, player_id_1, player_id_2 } = req.body || {};
-	if (!player_id_1 || !player_id_2) { return res.json({ status: 500, message: "Missing player_id_1 or player_id_2" }); }
+	if ((player_id_1 == "CHESS_AI") == (player_id_2 == "CHESS_AI")) { return res.json({ status: 500, message: "One player must be CHESS_AI, friend games start from /invite" }); }
 
-	const response = await initalizeGame(game_id || false, player_id_1, player_id_2); // CREATE NEW GAME
+	if (game_id) { // RESTART: ONLY A PLAYER IN THE GAME CAN WIPE IT
+		const existing = await retrieveGame(game_id);
+		if (existing.game_data && !playerInGame(req, existing.game_data)) { return notInGame(req, res); }
+		if (existing.game_data && !isAiGame(existing.game_data)) { return res.json({ status: 500, message: "Friend games can't be restarted" }); } // WOULD TURN IT INTO AN AI GAME & LOCK THE FRIEND OUT
+	}
+
+	const playerId = req.user ? userPlayerId(req.user) : game_id; // A GUEST'S PLAYER ID IS THEIR GAME ID
+	if (!playerId) { return res.status(401).json({ status: 401, message: "NOT SIGNED IN" }); }
+
+	const whiteId = player_id_1 == "CHESS_AI" ? "CHESS_AI" : playerId;
+	const blackId = player_id_2 == "CHESS_AI" ? "CHESS_AI" : playerId;
+
+	const response = await initalizeGame(game_id || false, whiteId, blackId); // CREATE NEW GAME
 	return res.json(gameResponse(response));
 }
 
@@ -81,23 +81,30 @@ async function newGame(req, res) {
 // Move (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Processes player move: GET -> VALIDATE -> PUT
+ * @description Processes player move: GET -> VALIDATE -> PUT, then tells the game's room so a friend sees it
  * @param  {[string]} req.params.gameId [game id]
- * @param  {[object]} req.body [{ player_id, move: [from, to], promotion }]
+ * @param  {[object]} req.body [{ player_id ("CHESS_AI" for the AI's moves, otherwise the requester moves), move: [from, to], promotion }]
  * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, message }]
  */
 async function moveGame(req, res) {
 	const { player_id, move, promotion } = req.body || {};
-	if (!player_id || !Array.isArray(move) || move.length != 2) { return res.json({ status: 500, message: "Invalid piece movement" }); }
+	if (!Array.isArray(move) || move.length != 2) { return res.json({ status: 500, message: "Invalid piece movement" }); }
 
-	const playerData = { game_id: req.params.gameId, player_id, move, promotion };
+	let response = await retrieveGame(req.params.gameId); // GET GAME DATA BY ID
+	if (response.status != 200) { return res.json(gameResponse(response)); }
 
-	let response = await retrieveGame(playerData.game_id); // GET GAME DATA BY ID
+	const playerId = playerInGame(req, response.game_data);
+	if (!playerId) { return notInGame(req, res); }
+
+	const moverId = (player_id == "CHESS_AI" && isAiGame(response.game_data)) ? "CHESS_AI" : playerId; // THE AI RUNS IN THE BROWSER, SO ITS OPPONENT SENDS ITS MOVES
+	const playerData = { game_id: req.params.gameId, player_id: moverId, move, promotion };
+
+	response = await validateMove(playerData, response.game_data); // VALIDATE MOVE WITH EXISTING BOARD
 	if (response.status == 200) {
-		response = await validateMove(playerData, response.game_data); // VALIDATE MOVE WITH EXISTING BOARD
+		response = await updateGame(response.game_data); // PUT VALIDATED MOVE
 		if (response.status == 200) {
-			response = await updateGame(response.game_data); // PUT VALIDATED MOVE
-			if (response.status == 200) { response.message = "Validation Successful"; }
+			response.message = "Validation Successful";
+			emitToGame(playerData.game_id, "move", { game_id: playerData.game_id, player_id: moverId }); // THE OPPONENT'S CLIENT LOADS THE NEW BOARD
 		}
 	}
 	return res.json(gameResponse(response));
@@ -107,19 +114,25 @@ async function moveGame(req, res) {
 // Invite (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description New game vs a friend: looks up the opponent's Auth0 account by email. The challenger plays white
- * @param  {[object]} req.body [{ game_id (optional), challenger_id, opponent_email }]
+ * @description New game vs a friend: looks up the opponent's Auth0 account by email. The challenger (signed in user) plays white
+ * @param  {[object]} req.body [{ game_id (optional, must be new), opponent_email }]
  * @return {[object]} response [{ status, game_id, message }]
  */
 async function inviteGame(req, res) {
-	const { game_id, challenger_id, opponent_email } = req.body || {};
-	if (!challenger_id || !opponent_email) { return res.json({ status: 500, message: "Missing challenger_id or opponent_email" }); }
+	const { game_id, opponent_email } = req.body || {};
+	if (!opponent_email) { return res.json({ status: 500, message: "Missing opponent_email" }); }
+	const challengerId = userPlayerId(req.user); // requireAuth SETS req.user
+
+	if (game_id) { // INVITES ONLY START NEW GAMES, NEVER OVERWRITE ONE
+		const existing = await retrieveGame(game_id);
+		if (existing.game_data) { return res.json({ status: 500, message: "Game id already in use" }); }
+	}
 
 	const opponentData = await getAuth0User(opponent_email); // WAS auth0UserByEmail IN THE LAMBDA
 	if (!opponentData) { return res.json({ status: 500, message: "Opponent not found" }); }
 	const opponentId = opponentData.user_id.split("auth0|")[1]; // PLAYER IDS DROP THE "auth0|", SAME AS THE CLIENT
 
-	const response = await initalizeGame(game_id || false, challenger_id, opponentId); // CREATE NEW GAME
+	const response = await initalizeGame(game_id || false, challengerId, opponentId); // CREATE NEW GAME
 	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); }
 
 	return res.json({
@@ -138,6 +151,8 @@ async function inviteGame(req, res) {
  * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, message }]
  */
 async function getUserGames(req, res) {
+	if (req.params.userId != userPlayerId(req.user)) { return res.status(403).json({ status: 403, message: "Not your game list" }); }
+
 	let response = await retrieveUser(req.params.userId);
 	if (!response.user_data) { return res.json({ status: response.status, message: response.message }); } // NO GAMES YET
 
@@ -171,6 +186,38 @@ function gameResponse(response) {
 		b_knight: response.game_data.b_knight.S,
 		message: response.message,
 	};
+}
+
+/**
+ * @description The requester's player id in this game. Signed in players use their session,
+ * a guest's player id is the game id (client/.env sets PLAYER_ID equal to GAME_ID) & guests only get AI games
+ * @param  {[object]} req [express request, req.user is null for guests]
+ * @param  {[object]} gameData [game item]
+ * @return {[string]} playerId [null when the requester isn't in the game]
+ */
+function playerInGame(req, gameData) {
+	if (!req.user && !isAiGame(gameData)) { return null; }
+	const playerId = req.user ? userPlayerId(req.user) : gameData.game_id.S;
+	if (playerId == gameData.white_player_id.S || playerId == gameData.black_player_id.S) { return playerId; }
+	return null;
+}
+
+/**
+ * @description Answers a request for a game the requester isn't in. A signed in player whose access token
+ * expired looks like a guest, so guests get a 401 & the client re-ups the session and tries again
+ */
+function notInGame(req, res) {
+	if (!req.user) { return res.status(401).json({ status: 401, message: "NOT SIGNED IN" }); }
+	return res.status(403).json({ status: 403, message: "Player is not in this game" });
+}
+
+/**
+ * @description Player id for a signed in user
+ * @param  {[object]} user [session user]
+ * @return {[string]} playerId [auth0 user id without "auth0|", same as the client]
+ */
+function userPlayerId(user) {
+	return user.user_id.split("auth0|")[1];
 }
 
 /**

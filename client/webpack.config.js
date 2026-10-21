@@ -71,7 +71,10 @@ module.exports = () => {
 			fallback: { crypto: false },
 		},
 		devServer: {
-			proxy: { '/api': 'http://localhost:3001' }, // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
+			proxy: {
+				'/api': 'http://localhost:3001', // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
+				'/socket.io': { target: 'http://localhost:3001', ws: true }, // FRIEND GAME SOCKET (server/socket.js)
+			},
 		}
 	};
 };

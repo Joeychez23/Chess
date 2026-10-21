@@ -20,6 +20,7 @@ const { validate } = require("./validate/index.js");
 const { playerMove } = require("./user/index.js");
 const { playAi } = require("./ai/index.js");
 const { setTiles } = require("./utils/index.js");
+const { joinGame, leaveGame } = require("../socket/index.js");
 const main = document.querySelector("#main");
 const optBtn = document.getElementById("optBtn");
 const menu = document.getElementById("menuContainer");
@@ -348,6 +349,10 @@ export async function renderCanvas(playerData) {
 
 		await setInitialData(); // SETS INITIAL DATA
 		handleInitialData(); // HANDLES INITIAL DATA
+		if (!ai && response?.status == 200) { // FRIEND GAME
+			joinGame(GAME_ID, PLAYER_ID, checkOpponentMove); // THE SERVER PUSHES THE OPPONENT'S MOVES (server/socket.js)
+			optRestartBtn.parentElement.style.display = "none"; // FRIEND GAMES CAN'T BE RESTARTED
+		}
 
 
 		canvas.style.backgroundRepeat = "repeat-y";
@@ -2548,6 +2553,7 @@ export async function renderCanvas(playerData) {
 		async function handleRestart(e) {
 			e.preventDefault();
 			e.stopPropagation();
+			if (!ai) { return; } // FRIEND GAMES CAN'T BE RESTARTED (TV REMOTE CAN STILL REACH THE HIDDEN BUTTON)
 			boardReset = true;
 			ctx.clearRect(0, 0, cw, ch);
 			refresh = false;
@@ -2589,6 +2595,7 @@ export async function renderCanvas(playerData) {
 			e.stopPropagation();
 
 			window.clearInterval(drawInterval);
+			leaveGame();
 			if (PLAYER_ID != "GUEST_USER") {
 				menu.style.display = "none"
 				if (document.getElementById("loadingDiv")) { document.getElementById("loadingDiv").remove(); }

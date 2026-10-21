@@ -1,0 +1,92 @@
+/*
+ *  socket.js  --  chess server
+ *	Socket.IO
+ *  Friend games get the opponent's move pushed to them instead of asking the server every 2 seconds.
+ *  Each game is a room ("game:<game_id>"). moveGame() emits "move" to the room after a move is saved,
+ *  then the client loads the new board with GET /api/chess/game/:gameId like before.
+ *
+ */
+
+/* ---------------------------------------------------------------- */
+// Global
+/* ---------------------------------------------------------------- */
+
+const { Server } = require("socket.io");
+const cookieParser = require("cookie-parser");
+const { readSessionUser } = require("./middleware/auth.js");
+const { retrieveGame } = require("./dynamoDB.js");
+
+let io = null;
+
+/* ---------------------------------------------------------------- */
+// Init Socket
+/* ---------------------------------------------------------------- */
+/**
+ * @description Starts Socket.IO on the same http server as express
+ * @param  {[object]} server [http server]
+ * @return {[object]} io [Socket.IO server]
+ */
+function initSocket(server) {
+	io = new Server(server); // SAME ORIGIN AS THE GAME, NO CORS NEEDED
+	io.engine.use(cookieParser()); // SESSION TOKENS ARE READ FROM COOKIES (socket.request.cookies)
+
+	io.use((socket, next) => { // SIGNED IN USERS ONLY, GUESTS ONLY PLAY THE AI
+		const user = readSessionUser(socket.request);
+		if (!user) { return next(new Error("NOT SIGNED IN")); }
+		socket.data.playerId = user.user_id.split("auth0|")[1]; // PLAYER IDS DROP THE "auth0|", SAME AS THE CLIENT
+		next();
+	});
+
+	io.on("connection", (socket) => {
+		socket.on("join-game", (gameId, ack) => joinGame(socket, gameId, ack));
+	});
+
+	return io;
+}
+
+/* ---------------------------------------------------------------- */
+// Join Game
+/* ---------------------------------------------------------------- */
+/**
+ * @description Puts the socket in a game's room, only if the player is in that game
+ * @param  {[object]} socket [player's socket]
+ * @param  {[string]} gameId [game id]
+ * @param  {[function]} ack [answers the client: { status, message }]
+ */
+async function joinGame(socket, gameId, ack) {
+	if (typeof ack != "function") { return; }
+	if (typeof gameId != "string" || !gameId) { return ack({ status: 400, message: "Invalid game id" }); }
+
+	try {
+		const response = await retrieveGame(gameId);
+		if (!response.game_data) { return ack({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+		const { white_player_id, black_player_id } = response.game_data;
+		if (socket.data.playerId != white_player_id.S && socket.data.playerId != black_player_id.S) {
+			return ack({ status: 403, message: "Player is not in this game" });
+		}
+
+		for (const room of socket.rooms) { if (room.startsWith("game:")) { socket.leave(room); } } // ONE GAME AT A TIME PER TAB
+		socket.join(`game:${gameId}`);
+		return ack({ status: 200, message: `Joined game id: ${gameId}` });
+	} catch (err) {
+		console.log(err);
+		return ack({ status: 500, message: "Join failed" });
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Emit To Game
+/* ---------------------------------------------------------------- */
+/**
+ * @description Sends an event to everyone watching a game
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} event [event name, "move"]
+ * @param  {[object]} data [event data]
+ */
+function emitToGame(gameId, event, data) {
+	if (io) { io.to(`game:${gameId}`).emit(event, data); }
+}
+
+
+module.exports = { initSocket, emitToGame };

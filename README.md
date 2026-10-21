@@ -10,7 +10,7 @@ DynamoDB before it counts. (This used to be the chess lambda in
 [chess-validation](https://github.com/Joeychez23/Lambdas); see
 [Chess API](#chess-api).)
 
-Built with vanilla JavaScript, HTML5 Canvas, Webpack 5,
+Built with vanilla JavaScript, HTML5 Canvas, Webpack 5, Socket.IO,
 [chess.js](https://github.com/jhlywa/chess.js) (rules, legal moves, check),
 and [js-chess-engine](https://github.com/josefjadrny/js-chess-engine) (the
 computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
@@ -23,7 +23,7 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
 | **Moving** | Drag and drop, or click a piece and then a square. Legal moves are highlighted, and a king in check is highlighted. Moves slide into place with a sound. |
 | **Promotion** | When a pawn reaches the last rank, you pick the new piece by clicking one of your captured pieces beside the board. |
 | **Play AI** | The computer opponent (js-chess-engine, level 1) runs in the browser. Your color is random. |
-| **Play Friends** | Enter your opponent's email. The backend looks up their Auth0 account and creates the game. Their moves are picked up by polling every 2 seconds and animated when they arrive. |
+| **Play Friends** | Enter your opponent's email. The backend looks up their Auth0 account and creates the game. While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. |
 | **Home** | Signed-in players only: a list of their open games. Hidden for guests. |
 | **Login / Logout** | The menu's Exit button logs guests in and signed-in players out. Auth0 runs on the Express server (see [Auth](#auth)). |
 | **Mobile** | Portrait and landscape layouts and touch input. iOS audio is unlocked on the first tap so the opponent's move sounds play. |
@@ -52,8 +52,11 @@ computer opponent). Hosted on S3 + CloudFront, provisioned with Terraform.
 5. **AI move.** js-chess-engine picks a move from the current FEN. The move is
    animated and then submitted under the player id `CHESS_AI`, so the server
    validates it like any other move.
-6. **Friend's move.** Every 2 seconds the client fetches the game, and if the
-   board changed it animates the server's `prev_move`.
+6. **Friend's move.** A friend game opens a Socket.IO connection and joins
+   the game's room. When the server saves a move it emits `move` to the room,
+   and the other player's client fetches the game and animates the server's
+   `prev_move`. Going Home closes the socket. After a reconnect the client
+   joins again and fetches the game once in case a move was missed.
 
 ## Setup
 
@@ -101,7 +104,7 @@ serves them. The game waits for every sprite to load before it starts.
 
 ```bash
 npm start       # builds client/dist and serves it + the auth routes on http://localhost:3001
-npm run dev     # webpack-dev-server on http://localhost:3002, /api is proxied to :3001 (run the server too)
+npm run dev     # webpack-dev-server on http://localhost:3002, /api and /socket.io are proxied to :3001 (run the server too)
 npm run build   # bundles into client/dist
 ```
 
@@ -133,16 +136,39 @@ The chess lambda now runs on the Express server. Each branch of the lambda's
 handler is its own route under `/api/chess`. The client calls them from
 `client/src/js/gameplay/validate/index.js`, with `GAME_URL` set to `/api/chess`
 in `main.js`. Responses keep the lambda's body (`{ status, ..., message }`),
-and a rejected request still comes back as HTTP 200 with `status: 500` in the
-body, so the client checks them the same way as before.
+and a rejected move or missing game still comes back as HTTP 200 with
+`status: 500` in the body, so the client checks them the same way as before.
+
+The player is whoever is signed in. The server reads it from the session
+cookie and ignores the player ids the client sends, except `CHESS_AI`, which
+marks the AI's move in an AI game. Guests (no session) can only play an AI
+game whose `game_id` equals their player id, which is what `client/.env` sets
+up. A request for a game you're not in gets `401` when signed out (the client
+then calls `/api/auth/refresh` once and retries, in case the access token
+expired mid game) or `403` when signed in.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |
-| `GET /api/chess/game/:gameId` | `?player_id=` | The board, the player's color, and whether the opponent is the AI |
-| `POST /api/chess/game` | `{ game_id, player_id_1, player_id_2 }` | New game, or restart: an existing `game_id` is overwritten with a new board. `player_id_1` plays white. Leave out `game_id` to generate one |
+| `GET /api/chess/game/:gameId` | | The board, the player's color, and whether the opponent is the AI |
+| `POST /api/chess/game` | `{ game_id, player_id_1, player_id_2 }` | New game vs. the AI, or restart: an existing `game_id` is overwritten with a new board. One side must be `CHESS_AI`, and the other side is always you. `player_id_1` plays white. Leave out `game_id` to generate one. Only a player in the game can restart it, and friend games can't be restarted |
 | `PUT /api/chess/game/:gameId` | `{ player_id, move: [from, to], promotion }` | Validates the move against the stored board and saves it |
-| `POST /api/chess/invite` | `{ game_id, challenger_id, opponent_email }` | New game vs. a friend. Finds their Auth0 account by email (`getAuth0User`). The challenger plays white |
-| `GET /api/chess/user/:userId` | | The user's game lists for Home. Ids of games TTL already deleted are pruned first |
+| `POST /api/chess/invite` | `{ game_id, opponent_email }` | Signed in only. New game vs. a friend. Finds their Auth0 account by email (`getAuth0User`). You play white. `game_id` must not exist yet |
+| `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home. Ids of games TTL already deleted are pruned first |
+
+### Socket.IO
+
+`server/socket.js` runs Socket.IO on the same port as Express. Only signed-in
+players can connect (the handshake reads the same access-token cookie).
+
+| Event | Direction | Meaning |
+| --- | --- | --- |
+| `join-game` | client → server | `gameId`, answered with `{ status, message }`. Joins the game's room if you're a player in it. One game per socket |
+| `move` | server → client | `{ game_id, player_id }`. Sent to the room after a move is saved. The client skips its own moves |
+
+The client side is `client/src/js/socket/index.js`. `renderCanvas()` calls
+`joinGame()` for friend games and hides Restart, and the Home button calls `leaveGame()`. If
+the server turns the socket away because the access token expired, the client
+re-ups the session once and reconnects.
 
 The move rules (`server/utils/validate.js`) are a copy of the lambda's
 `validate/validate.js`. `chess.js` is pinned to the client's version
@@ -204,7 +230,8 @@ game against the AI on each load.
 ## Resetting a game for testing
 
 Send a `POST` to `http://localhost:3001/api/chess/game` from Postman,
-Insomnia, or curl. `player_id_1` plays white:
+Insomnia, or curl. Signed out, this only works for a guest game, so
+`game_id` and the player's id must match. `player_id_1` plays white:
 
 ```json
 {
@@ -222,11 +249,12 @@ leave out `game_id`, the backend creates a new game and generates its id.
 ```
 client/
   index.html                 Menu markup (Resume, Restart, Home, Play AI, Play Friends, Exit)
-  webpack.config.js          Entry, HTML template, PWA manifest, dotenv, dev proxy
+  webpack.config.js          Entry, HTML template, PWA manifest, dotenv, dev proxy (/api + /socket.io)
   src-sw.js                  Workbox service worker (not registered at the moment)
   src/css/style.css          Menu, game list, and layout styles
   src/js/main.js             Menu, postMessage handling, new solo/multiplayer games
   src/js/auth/clientSideAuth.js  login() / logout() / getUser() / refresh() → server auth routes
+  src/js/socket/index.js     joinGame() / leaveGame(): friend game socket
   src/js/gameplay/
     index.js                 renderCanvas(): sprite loading, render loop, input, animation
     validate/index.js        Backend calls: get game, move, reset, user games, invite
@@ -234,7 +262,8 @@ client/
     user/index.js            Converts a dropped tile into a { from, to, promotion } move
     utils/index.js           Per-square tile state
 server/
-  index.js                   Express: serves client/dist + /api routes
+  index.js                   Express: serves client/dist + /api routes, starts Socket.IO
+  socket.js                  Socket.IO: session check, game rooms, emitToGame()
   config.js                  Reads server/.env
   dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js)
   routes/api/                /api/auth/*, /api/user, /api/chess/*
@@ -242,7 +271,7 @@ server/
     authController.js        login, callback, logout, refresh
     userController.js        getUser
     chessController.js       get game, new game, move, invite, user games (was the chess lambda)
-  middleware/auth.js         JWT session cookies, requireAuth
+  middleware/auth.js         JWT session cookies, requireAuth, optionalAuth
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
 terraform/
