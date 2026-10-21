@@ -205,6 +205,46 @@ The move rules (`server/utils/validate.js`) are a copy of the lambda's
 `validate/validate.js`. `chess.js` is pinned to the client's version
 (`1.0.0-beta.6`) so the browser and the server agree on what's legal.
 
+### AI levels
+
+The levels live in `server/utils/ai.js`. A new AI game saves its level as
+`ai_level` on its `chess_db` item. The level can't change until you start a new
+game from Home (Restart keeps it). AI games made before levels existed get the
+default, level 3.
+
+| Level | Shown | Stockfish settings | Measured |
+| --- | --- | --- | --- |
+| 1 | ≈750 | Skill 0, and a random legal move 40% of the time | −619 vs. level 3, −301 vs. level 2 |
+| 2 | ≈1100 | Skill 0, and a random legal move 15% of the time | −241 vs. level 3 |
+| 3 | ≈1320 | `UCI_Elo` 1320, depth 1 | −305 vs. level 4 (Stockfish's ratings say −280) |
+| 4 | ≈1600 | `UCI_Elo` 1600, depth 3 | −228 vs. level 5 (−300) |
+| 5 | ≈1900 | `UCI_Elo` 1900, depth 4 | |
+| 6 | ≈2200 | `UCI_Elo` 2200, depth 6 | −413 vs. level 7 (−400) |
+| 7 | ≈2600 | `UCI_Elo` 2600, depth 8 | |
+| 8 | ≈3300 | Full strength, depth 20, 2 seconds | +137 vs. `UCI_Elo` 3190 (+16 =23 −1), played at depth 17, about what EC2 reaches in 2 seconds |
+
+- **The ratings are Stockfish's.** `UCI_Elo` is anchored to the CCRL engine
+  rating list, not to chess.com or FIDE ratings, so the numbers are
+  approximate. Levels 1, 2 and 8 have no Stockfish rating, so they were
+  measured with games against the other levels.
+- **How they were measured:** a local Stockfish 17.1 build played the levels
+  against each other through `chess-engine-api`: 200 games per pair (40 for
+  level 8), 20 openings, each played with both colors.
+- **Depth:** Stockfish picks a `UCI_Elo` / skill move at depth
+  `1 + skill level`, so the search stops there instead of using the whole
+  time limit. That saves CPU on the engine's EC2 instance. Only level 8
+  searches to depth 20.
+- **Before levels:** the old AI was full-strength Stockfish at depth 1. It
+  measured about 1900, the same as level 5 (+166 vs. level 4, +38 vs. level 5,
+  −147 vs. level 6).
+- **Limits on EC2:** the instance runs 2 engines. A level 8 move takes about
+  2.3 seconds, and with more than 2 of them at once the extras wait their turn
+  (4 at once: two took 2.3 seconds, two took 4.4 seconds). Levels 1-7 answer in
+  milliseconds. All AI moves now come from the chess server's IP, so they share
+  the engine's nginx limit of 5 requests per second per IP.
+- **If the engine is down**, js-chess-engine (level 1) plays the move on the
+  server instead.
+
 ## Deploy
 
 `client/dist` is uploaded to an S3 static-website bucket. The Terraform in

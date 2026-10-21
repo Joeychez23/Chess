@@ -1949,7 +1949,7 @@ export async function renderCanvas(playerData) {
 				}
 
 				revert = response;
-				if (ai) { response = moveObj.response; } // ALREADY SAVED BY THE SERVER, NO PUT
+				if (ai) { response = await new Promise((resolve) => setTimeout(() => resolve(moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS LIKE THE OLD PUT SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
 				else { response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false); }
 				chessInst.load(response.game_board); // UPDATE BOARD
 				if (response.status == 200) { // IF VALIDATED UPDATE BOARD STATE

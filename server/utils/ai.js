@@ -29,7 +29,7 @@ const LEVELS = [
 	{ level: 5, elo: "≈1900", uci_elo: 1900, depth: 4, time: 1000 },
 	{ level: 6, elo: "≈2200", uci_elo: 2200, depth: 6, time: 1000 },
 	{ level: 7, elo: "≈2600", uci_elo: 2600, depth: 8, time: 1000 },
-	{ level: 8, elo: "≈?", depth: 20, time: 2000 }, // FULL STRENGTH
+	{ level: 8, elo: "≈3300", depth: 20, time: 2000 }, // FULL STRENGTH
 ];
 const DEFAULT_LEVEL = 3;
 
