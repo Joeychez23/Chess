@@ -352,3 +352,23 @@ terraform/
   modules/cloudfront/        ACM cert, DNS validation, CloudFront, Route 53 alias
   modules/dynamodb/          Chess (games) and user tables
 ```
+
+## Stockfish license
+
+The AI plays with [Stockfish](https://stockfishchess.org/), free software by
+the Stockfish developers, distributed under the
+[GNU General Public License version 3](https://github.com/official-stockfish/Stockfish/blob/sf_17.1/Copying.txt)
+(GPL v3). Whenever Stockfish is distributed, the license and the full source
+code (or a link to it) for that exact binary have to go with it, and any
+changes to its source have to be released under GPL v3 too.
+
+- **This repo doesn't include or ship Stockfish.** The chess server asks the
+  [chess-engine-api](../chess-engine-api) service for moves, and the browser
+  never downloads an engine. That service runs Stockfish built, unmodified,
+  from the official
+  [`sf_17.1` source](https://github.com/official-stockfish/Stockfish/tree/sf_17.1)
+  (see the Stockfish license section in its README).
+- **The local `stockfish/` folder** (the unmodified Stockfish 17.1 source and
+  the build used to measure the [AI levels](#ai-levels)) is in `.gitignore`,
+  so it's never committed. If you share it, or a binary built from it, keep
+  its `Copying.txt` and source with it.
