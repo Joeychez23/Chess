@@ -213,95 +213,95 @@ export async function renderCanvas(playerData) {
 	let endTime = new Date();
 	let timeElapsed = endTime - startTime;
 
+
 	let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false }
 
 	// !NOTE: IMAGE NUMBERS EQUALS INDEX USED TO CHECK IF ALL IMAGES ARE LOADING IN THE BACKGROUND
-	// ! I NEED TO DELETE THE LOAD IMAGES FUNCTIONS HERE
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`);
-	const tableShdw = 1; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table-shdw.png`);
+	// TABLE = 0
+	const tableShdw = 1;
 
-	const boardImg = 2; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board.png`);
-	const boardShdw = 3; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board-shdw.webp`)
-	const rawBoardImg = 4; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/raw-board.png`);
+	const boardImg = 2;
+	const boardShdw = 3;
+	const rawBoardImg = 4;
 
 	const xBoardShadowRatio = 0.985;
 
 	// WHITE IMAGES
-	const wKingImg = 5; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-e1.png`);
-	const wQueenImg = 6; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-d1.png`);
-	const wBishopBlackSqImg = 7; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-c1.png`);
-	const wBishopWhiteSqImg = 8; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-f1.png`);
+	const wKingImg = 5;
+	const wQueenImg = 6;
+	const wBishopBlackSqImg = 7;
+	const wBishopWhiteSqImg = 8;
 	let wKnightImg;
-	const wRightKnightImg = 9; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1.png`);
-	const wLeftKnightImg = 10; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1.png`);
-	const wRookImg = 11; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-h1.png`);
-	const wPawnImg = 12; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-a2.png`);
+	const wRightKnightImg = 9;
+	const wLeftKnightImg = 10;
+	const wRookImg = 11;
+	const wPawnImg = 12;
 
 	// WHITE SHADOW
-	const wKingShdw = 13; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-shdw.png`);
-	const wQueenShdw = 14; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-shdw.png`);
-	const wBishopShdw = 15; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-shdw.png`);
+	const wKingShdw = 13;
+	const wQueenShdw = 14;
+	const wBishopShdw = 15;
 	let wKnightShdw
-	const wRightKnightShdw = 16; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1-shdw.png`);
-	const wLeftKnightShdw = 17; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-shdw.png`);
-	const wRookShdw = 18; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-shdw.png`);
-	const wPawnShdw = 19; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-shdw.png`);
+	const wRightKnightShdw = 16;
+	const wLeftKnightShdw = 17;
+	const wRookShdw = 18;
+	const wPawnShdw = 19;
 
 	// WHITE REFLECT
-	const wKingRefl = 20; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-refl.png`);
-	const wQueenRefl = 21; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-refl.png`);
-	const wBishopRefl = 22; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-refl.png`);
+	const wKingRefl = 20;
+	const wQueenRefl = 21;
+	const wBishopRefl = 22;
 	let wKnightRefl
-	const wRightKnightRefl = 23; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1-refl.png`);
-	const wLeftKnightRefl = 24; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-refl.png`);
-	const wRookRefl = 25; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-refl.png`);
-	const wPawnRefl = 26; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-refl.png`);
+	const wRightKnightRefl = 23;
+	const wLeftKnightRefl = 24;
+	const wRookRefl = 25;
+	const wPawnRefl = 26;
 
 	// BLACK IMAGES
-	const bKingImg = 27; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-e8.png`);
-	const bQueenImg = 28; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-d8.png`);
-	const bBishopBlackSqImg = 29; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-f8.png`);
-	const bBishopWhiteSqImg = 30; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-c8.png`);
+	const bKingImg = 27;
+	const bQueenImg = 28;
+	const bBishopBlackSqImg = 29;
+	const bBishopWhiteSqImg = 30;
 	let bKnightImg;
-	const bRightKnightImg = 31; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8.png`);
-	const bLeftKnightImg = 32; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8.png`);
-	const bRookImg = 33; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-h8.png`);
-	const bPawnImg = 34; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-a7.png`);
+	const bRightKnightImg = 31;
+	const bLeftKnightImg = 32;
+	const bRookImg = 33;
+	const bPawnImg = 34;
 
 	// BLACK SHADOW
-	const bKingShdw = 35; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-shdw.png`);
-	const bQueenShdw = 36; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-shdw.png`);
-	const bBishopShdw = 37; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-shdw.png`);
+	const bKingShdw = 35;
+	const bQueenShdw = 36;
+	const bBishopShdw = 37;
 
 	let bKnightShdw;
-	const bRightKnightShdw = 38; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8-shdw.png`);
-	const bLeftKnightShdw = 39; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-shdw.png`);
-	const bRookShdw = 40; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-shdw.png`);
-	const bPawnShdw = 41; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-shdw.png`);
+	const bRightKnightShdw = 38;
+	const bLeftKnightShdw = 39;
+	const bRookShdw = 40;
+	const bPawnShdw = 41;
 
 	// BLACK REFLECT
-	const bKingRefl = 42; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-refl.png`);
-	const bQueenRefl = 43; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-refl.png`);
-	const bBishopRefl = 44; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-refl.png`);
+	const bKingRefl = 42;
+	const bQueenRefl = 43;
+	const bBishopRefl = 44;
 	let bKnightRefl;
-	const bRightKnightRefl = 45; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8-refl.png`);
-	const bLeftKnightRefl = 46; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-refl.png`);
-	const bRookRefl = 47; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-refl.png`);
-	const bPawnRefl = 48; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-refl.png`);
+	const bRightKnightRefl = 45;
+	const bLeftKnightRefl = 46;
+	const bRookRefl = 47;
+	const bPawnRefl = 48;
 
 	// UI
-	const moveHighlight = 49; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/move-highlight.png`);
-	const takeableHighlight = 50; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/takeable-highlight.png`);
-	const checkHighlight = 51; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/check-highlight.png`);
+	const moveHighlight = 49;
+	const takeableHighlight = 50;
+	const checkHighlight = 51;
 
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee.png`); // 52
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee-shdw.png`); // 53
+	// COFFEE = 52
+	// COFFEE SHDW = 53
 
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards.png`); // 54
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards-shdw.png`); // 55
+	// CARDS = 54
+	// CARDS SHDW = 55
 
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle.png`); // 56
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle-shdw.png`) // 57
+	// CANDLE = 56
+	// CANDLE SHDW = 57
 
 	let coffeeObj = { img: [], img2: 52, shdw: 53, x: null, y: null, width: null, height: null }
 	let deckObj = { img: [], img2: 54, shdw: 55, x: null, y: null, width: null, height: null }
