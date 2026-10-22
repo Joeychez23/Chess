@@ -102,13 +102,28 @@ It needs read/write access to `chess_db` and `user_db` in us-east-1.
 | --- | --- |
 | `PLAYER_ID` | Player id used when the page isn't embedded |
 | `GAME_ID` | Game to open. Set it equal to `PLAYER_ID` to get a personal game vs. the AI that's created on first load. |
+| `CHESS_ASSESTS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com` (CloudFront), or `.` to use local copies. It's built into the bundle, so rebuild after changing it. |
 
 **Images and audio aren't in the repo.** `client/src/images` and
-`client/src/audio` are git-ignored and uploaded to the S3 bucket separately
-(the deploy job leaves `images/*` and `audio/*` in place when it clears the
-bucket). To run locally, put them back in `client/src/` and un-comment the
-`CopyWebpackPlugin` block in `client/webpack.config.js` so the dev server
-serves them. The game waits for every sprite to load before it starts.
+`client/src/audio` are git-ignored. They're uploaded to the `aws-prac-chess-s3`
+bucket under `images/` and `audio/` (the deploy job leaves `images/*` and
+`audio/*` in place when it clears the bucket), and CloudFront serves them at
+`https://assets.chess.aws-prac-route53.com`. Every sprite, the move sound, the
+table background, and the favicon start with `CHESS_ASSESTS_URL`, e.g.
+`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`, so with the
+CloudFront URL set the browser downloads them from CloudFront, not from this
+server. To use local copies instead, put them back in `client/src/`, set
+`CHESS_ASSESTS_URL=.`, and turn on the `CopyWebpackPlugin` block in
+`client/webpack.config.js` so they're copied into `client/dist`. The game waits
+for every sprite to load before it starts.
+
+To upload new or changed images:
+
+```bash
+aws s3 sync client/src/images s3://aws-prac-chess-s3/images --exclude "*.DS_Store"
+```
+
+CloudFront's TTL is 0, so the new files show up right away.
 
 ## Run
 

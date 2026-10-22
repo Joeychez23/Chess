@@ -330,7 +330,7 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		main.height = window.innerHeight;
 
 		main.style.backgroundRepeat = "repeat-y";
-		main.style.backgroundImage = 'url("./images/board/table.webp")';
+		main.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
 		main.style.backgroundSize = "cover";
 		main.style.backgroundPosition = "center";
 	}
