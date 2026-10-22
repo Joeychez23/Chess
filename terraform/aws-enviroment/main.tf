@@ -24,6 +24,19 @@ module "dynamodb_module" {
   user_table_name  = local.user_table_name
 }
 
+module "server_module" {
+  source              = "../modules/server"
+  root_domain_name    = local.root_domain_name
+  server_ip           = local.server_ip
+  server_domain_names = local.server_domain_names
+  role_name           = local.server_role_name
+  table_arns          = module.dynamodb_module.table_arns
+}
+
+output "instance_profile_name" {
+  value = module.server_module.instance_profile_name
+}
+
 
 
 

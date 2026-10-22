@@ -1,0 +1,21 @@
+# systemd unit for the chess server (Express + Socket.IO, serves client/dist)
+# Install: sudo cp deploy/chess.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now chess
+
+[Unit]
+Description=Chess server (Express + Socket.IO)
+After=network.target chess-engine-api.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/chess-frontend/server
+ExecStart=/usr/local/bin/node24 index.js
+Restart=always
+RestartSec=5
+
+# HTTPS-only session cookies. The rest (API_PORT=8080, Auth0, JWT_SECRET, ENGINE_URL) is in server/.env
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
