@@ -15,7 +15,9 @@ Built with vanilla JavaScript, HTML5 Canvas, Webpack 5, Socket.IO,
 and [Stockfish](https://stockfishchess.org/) (the computer opponent, through
 the [chess-engine-api](../chess-engine-api) service, with
 [js-chess-engine](https://github.com/josefjadrny/js-chess-engine) as the
-backup). Hosted on S3 + CloudFront, provisioned with Terraform.
+backup). The server and the engine share one EC2 instance behind nginx, the
+images and audio come from S3 through CloudFront, and Terraform sets up the
+AWS side (see [Deploy](#deploy)).
 
 ## Features
 
@@ -80,14 +82,14 @@ cd server && npm install
 
 | Variable | Purpose |
 | --- | --- |
-| `API_PORT` | Server port, e.g. `3001` |
+| `API_PORT` | Server port: `3001` on your Mac (`npm run dev` proxies to it), `8080` on the EC2 instance |
 | `AUTH0_ISSUER_BASE_URL_ORIGIN` | Auth0 tenant domain |
 | `AUTH0_CONNECTION` | Database connection players log in with (`auth0-default-connection`) |
 | `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`) |
 | `JWT_SECRET` | Signs the session tokens |
 | `AUTH0_CALLBACK_URL` | Optional. Defaults to `http://localhost:API_PORT/api/auth/callback` |
 | `CLIENT_URL` | Optional. Where the browser goes after login/logout. Defaults to `http://localhost:API_PORT/` |
-| `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` |
+| `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
 
 In the Auth0 app's settings, add `AUTH0_CALLBACK_URL` to **Allowed Callback
 URLs** and `CLIENT_URL` to **Allowed Logout URLs**.
@@ -106,8 +108,7 @@ It needs read/write access to `chess_db` and `user_db` in us-east-1.
 
 **Images and audio aren't in the repo.** `client/src/images` and
 `client/src/audio` are git-ignored. They're uploaded to the `aws-prac-chess-s3`
-bucket under `images/` and `audio/` (the deploy job leaves `images/*` and
-`audio/*` in place when it clears the bucket), and CloudFront serves them at
+bucket under `images/` and `audio/`, and CloudFront serves them at
 `https://assets.chess.aws-prac-route53.com`. Every sprite, the move sound, the
 table background, and the favicon start with `CHESS_ASSESTS_URL`, e.g.
 `${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`, so with the
@@ -245,6 +246,10 @@ default, level 3.
 - **How they were measured:** a local Stockfish 17.1 build played the levels
   against each other through `chess-engine-api`: 200 games per pair (40 for
   level 8), 20 openings, each played with both colors.
+- **Stockfish 19:** the engine now runs Stockfish 19, and the table hasn't
+  been re-measured with it yet. 19 keeps 17.1's `UCI_Elo` range (1320-3190)
+  and picks skill-level moves at the same depth, so the settings work
+  unchanged, but the Elo of each level may have moved.
 - **Depth:** Stockfish picks a `UCI_Elo` / skill move at depth
   `1 + skill level`, so the search stops there instead of using the whole
   time limit. That saves CPU on the engine's EC2 instance. Only level 8
@@ -255,38 +260,74 @@ default, level 3.
 - **Limits on EC2:** the instance runs 2 engines. A level 8 move takes about
   2.3 seconds, and with more than 2 of them at once the extras wait their turn
   (4 at once: two took 2.3 seconds, two took 4.4 seconds). Levels 1-7 answer in
-  milliseconds. All AI moves now come from the chess server's IP, so they share
-  the engine's nginx limit of 5 requests per second per IP.
+  milliseconds. The engine runs on the same instance as this server, at a
+  lower CPU priority (`Nice=10`), and the server calls it on `127.0.0.1`, so
+  the engine's nginx rate limit doesn't apply to games.
 - **If the engine is down**, js-chess-engine (level 1) plays the move on the
   server instead.
 
 ## Deploy
 
-`client/dist` is uploaded to an S3 static-website bucket. The Terraform in
-`terraform/` puts CloudFront in front of it:
+```
+browser ──HTTPS──> nginx ──> chess server :8080 ──http://127.0.0.1:3001──> chess-engine-api ──> Stockfish 19
+   │                         (Express + Socket.IO,
+   │                          serves client/dist)
+   └──HTTPS──> CloudFront (assets.chess.aws-prac-route53.com) ──> S3: images/, audio/
+```
 
-- ACM certificate for `chess.aws-prac-route53.com` (us-east-1, as CloudFront
-  requires), validated through a Route 53 DNS record
-- CloudFront distribution with the S3 website endpoint as origin, HTTP →
-  HTTPS redirect, and TTL 0 so a new deploy shows up right away
-- Route 53 `A` alias record pointing the subdomain at the distribution
-- DynamoDB tables (us-east-1): `chess_db` (key `game_id`, TTL on `expireAt`:
-  open games and finished AI games are deleted 25 days after the last move,
-  finished friend games are kept) and `user_db` (key `user_id`)
+One EC2 instance runs the chess server and
+[chess-engine-api](../chess-engine-api). The browser loads the page and calls
+`/api` and `/socket.io` on `chess.aws-prac-route53.com`. The session cookies
+only work on that domain, so the same Express server serves the client (not
+S3). CloudFront only serves the images and audio.
+
+In order:
+
+1. [Terraform](#terraform): the IAM role, the DNS records, CloudFront for the
+   assets, and the DynamoDB tables.
+2. chess-engine-api's
+   [Deploy to EC2](../chess-engine-api/README.md#deploy-to-ec2): launches the
+   instance, moves the Elastic IP, builds Stockfish 19, and starts the engine.
+3. [The chess server](#1-before-you-start) on the same instance.
+
+### Terraform
+
+`terraform/aws-enviroment` sets up:
+
+- **Server** (`modules/server`): the `chess-server` IAM role and instance
+  profile, allowed only `GetItem`, `PutItem`, `UpdateItem` and `BatchGetItem`
+  on the two tables (the calls `server/dynamoDB.js` makes), and Route 53 `A`
+  records for `chess` and `engine` pointing at the instance's Elastic IP
+  (`server_ip` in `locals.tf`). The `engine` record was made in the console;
+  `allow_overwrite` lets Terraform take it over.
+- **Assets** (`modules/cloudfront`): ACM certificate for
+  `assets.chess.aws-prac-route53.com` (us-east-1, as CloudFront requires),
+  validated through a Route 53 DNS record, a CloudFront distribution in front
+  of the `aws-prac-chess-s3` bucket's website endpoint (HTTP → HTTPS redirect,
+  TTL 0 so new files show up right away), and the Route 53 alias record.
+- **DynamoDB** (`modules/dynamodb`, us-east-1): `chess_db` (key `game_id`,
+  TTL on `expireAt`: open games and finished AI games are deleted 25 days
+  after the last move, finished friend games are kept) and `user_db` (key
+  `user_id`).
 
 ```bash
 cd terraform/aws-enviroment
 terraform init
+terraform plan
 terraform apply
 ```
 
-The Route 53 hosted zone for `aws-prac-route53.com` and the S3 bucket
-(`aws-prac-chess-s3`, us-west-2) must already exist. Names are set in
-`terraform/aws-enviroment/locals.tf`.
+Run `terraform init` again whenever a module is added. The apply prints
+`instance_profile_name` (`chess-server`), which you pick when launching the
+instance.
+
+The Route 53 hosted zone for `aws-prac-route53.com`, the S3 bucket
+(`aws-prac-chess-s3`, us-west-2) and the Elastic IP must already exist. Names
+and the IP are set in `terraform/aws-enviroment/locals.tf`.
 
 The two DynamoDB tables were created in the AWS console before they were added
-to Terraform. Import them once, before the first `apply`; otherwise `apply`
-tries to create them and fails with "table already exists":
+to Terraform. With a new state, import them once, before the first `apply`;
+otherwise `apply` tries to create them and fails with "table already exists":
 
 ```bash
 terraform import module.dynamodb_module.aws_dynamodb_table.chess_table chess_db
@@ -296,6 +337,146 @@ terraform import module.dynamodb_module.aws_dynamodb_table.user_table user_db
 `terraform plan` should then show no changes for either table. Both tables have
 `prevent_destroy` set, so Terraform refuses any plan that would delete or
 replace them.
+
+### 1. Before you start
+
+- The engine is running on the instance (chess-engine-api's steps 1–7).
+- The instance has the `chess-server` instance profile. To add it to an
+  instance that's already running: **EC2 → Actions → Security → Modify IAM
+  role**.
+- `dig +short chess.aws-prac-route53.com` prints the Elastic IP. certbot checks
+  it in step 7.
+
+### 2. Auth0
+
+In the Auth0 app's settings, add
+`https://chess.aws-prac-route53.com/api/auth/callback` to **Allowed Callback
+URLs** and `https://chess.aws-prac-route53.com/` to **Allowed Logout URLs**.
+Both fields take comma-separated lists, so keep the `localhost` entries for
+development.
+
+### 3. Copy the code
+
+From your Mac, in this folder:
+
+```bash
+ssh -i ~/path/to/key.pem ubuntu@<elastic-ip> 'sudo mkdir -p /opt/chess-frontend && sudo chown ubuntu: /opt/chess-frontend'
+rsync -av --exclude node_modules --exclude .env --exclude dist --exclude .DS_Store \
+  --exclude /.git --exclude /stockfish --exclude /terraform \
+  --exclude /client/src/images --exclude /client/src/audio \
+  -e "ssh -i ~/path/to/key.pem" ./ ubuntu@<elastic-ip>:/opt/chess-frontend/
+```
+
+That leaves out your `.env` files (the instance gets its own in step 4), the
+local Stockfish build, the Terraform state, and the images and audio
+(CloudFront serves them). `package-lock.json` is git-ignored but copied on
+purpose, so `npm ci` installs the same versions as your Mac.
+
+### 4. `.env` files
+
+Copy both from your Mac, then change what's different on the instance:
+
+```bash
+scp -i ~/path/to/key.pem client/.env ubuntu@<elastic-ip>:/opt/chess-frontend/client/.env
+scp -i ~/path/to/key.pem server/.env ubuntu@<elastic-ip>:/opt/chess-frontend/server/.env
+```
+
+`client/.env` is read when the client is built. Check that
+`CHESS_ASSESTS_URL` is `https://assets.chess.aws-prac-route53.com`, not `.`:
+every sprite, sound, and the favicon load from it.
+
+`server/.env`, on the instance (`nano /opt/chess-frontend/server/.env`):
+
+| Variable | On the instance |
+| --- | --- |
+| `API_PORT` | `8080`. chess-engine-api has 3001, and `deploy/nginx.conf` forwards to 8080 |
+| `AUTH0_CALLBACK_URL` | `https://chess.aws-prac-route53.com/api/auth/callback` |
+| `CLIENT_URL` | `https://chess.aws-prac-route53.com/` |
+| `ENGINE_URL` | `http://127.0.0.1:3001/v1` |
+| `JWT_SECRET` | A new one (the command is in `server/.env.example`), so a session made on your Mac can't be used on the live site |
+
+The Auth0 values stay the same. Then lock the file to your user:
+`chmod 600 /opt/chess-frontend/server/.env`.
+
+### 5. Install and build
+
+On the instance:
+
+```bash
+cd /opt/chess-frontend
+npm ci
+npm run build
+cd server && npm ci --omit=dev
+```
+
+`npm run build` bundles the client into `client/dist`. The service only runs
+the server (not `npm start`), so restarting it doesn't rebuild the client:
+build again after copying new client code.
+
+### 6. Start the server
+
+```bash
+cd /opt/chess-frontend
+sudo cp deploy/chess.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now chess
+curl -s localhost:8080/api/chess/levels
+```
+
+`/api/chess/levels` answers without DynamoDB or Auth0, so it only checks that
+the server is up. The service runs as `ubuntu` with `NODE_ENV=production`,
+which makes the session cookies HTTPS-only: logging in only works through
+`https://`, after step 7.
+
+### 7. nginx and HTTPS
+
+```bash
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/chess
+sudo ln -s /etc/nginx/sites-available/chess /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d chess.aws-prac-route53.com
+```
+
+`deploy/nginx.conf` forwards everything to the server on 8080, passes
+Socket.IO's WebSocket upgrade through, and allows 10 requests per second per
+IP (bursts of 40). Its upgrade variable is named `$chess_connection_upgrade`
+because chess-engine-api's site on the same instance already defines
+`$connection_upgrade`, and nginx won't start with two.
+
+### 8. Check it
+
+- Open `https://chess.aws-prac-route53.com`, log in, and play a level 8 game.
+  `journalctl -u chess -f` should show no `STOCKFISH FAILED` line. If it
+  does, check `curl -s localhost:3001/health`.
+- Play a friend game in two browsers (or one private window) to check that
+  moves arrive over Socket.IO.
+- `sudo systemctl status chess chess-engine-api nginx` shows all three running.
+
+### 9. Make an AMI
+
+Once everything works: **EC2 → Instances**, select it, **Actions → Image and
+templates → Create image**. If the instance is ever lost, launch from that AMI
+with the `chess-server` instance profile and move the Elastic IP
+(chess-engine-api's step 2). Both services start on boot. Keep the AMI private:
+it has your `.env` secrets and a Stockfish binary in it (see
+[Stockfish license](#stockfish-license)).
+
+### Updating and logs
+
+```bash
+# from your Mac: the rsync from step 3
+
+# on the instance
+cd /opt/chess-frontend && npm ci && npm run build
+cd server && npm ci --omit=dev && sudo systemctl restart chess
+journalctl -u chess -f
+```
+
+Changed `deploy/chess.service`? Copy it again and run
+`sudo systemctl daemon-reload` before the restart. Changed `deploy/nginx.conf`?
+Copy it again and run `sudo nginx -t && sudo systemctl reload nginx`. certbot's
+HTTPS block lives in the copy in `/etc/nginx/sites-available/chess`, so copying
+over it removes HTTPS until you run the certbot line again.
 
 ## Embedding
 
@@ -362,9 +543,13 @@ server/
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
+deploy/
+  chess.service              systemd unit for the server
+  nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
 terraform/
-  aws-enviroment/            Root module: bucket, domain names, table names
-  modules/cloudfront/        ACM cert, DNS validation, CloudFront, Route 53 alias
+  aws-enviroment/            Root module: bucket, domain names, table names, the server's Elastic IP
+  modules/server/            IAM role + instance profile, chess + engine DNS records
+  modules/cloudfront/        Assets: ACM cert, DNS validation, CloudFront, Route 53 alias
   modules/dynamodb/          Chess (games) and user tables
 ```
 
@@ -372,7 +557,7 @@ terraform/
 
 The AI plays with [Stockfish](https://stockfishchess.org/), free software by
 the Stockfish developers, distributed under the
-[GNU General Public License version 3](https://github.com/official-stockfish/Stockfish/blob/sf_17.1/Copying.txt)
+[GNU General Public License version 3](https://github.com/official-stockfish/Stockfish/blob/sf_19/Copying.txt)
 (GPL v3). Whenever Stockfish is distributed, the license and the full source
 code (or a link to it) for that exact binary have to go with it, and any
 changes to its source have to be released under GPL v3 too.
@@ -381,8 +566,11 @@ changes to its source have to be released under GPL v3 too.
   [chess-engine-api](../chess-engine-api) service for moves, and the browser
   never downloads an engine. That service runs Stockfish built, unmodified,
   from the official
-  [`sf_17.1` source](https://github.com/official-stockfish/Stockfish/tree/sf_17.1)
+  [`sf_19` source](https://github.com/official-stockfish/Stockfish/tree/sf_19)
   (see the Stockfish license section in its README).
+- **The EC2 instance's AMI has a Stockfish binary in it.** Keep it private.
+  Sharing it, or making it public, distributes Stockfish, and then
+  `Copying.txt` and a link to the `sf_19` source have to go with it.
 - **The local `stockfish/` folder** (the unmodified Stockfish 17.1 source and
   the build used to measure the [AI levels](#ai-levels)) is in `.gitignore`,
   so it's never committed. If you share it, or a binary built from it, keep
