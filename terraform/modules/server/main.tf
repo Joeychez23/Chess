@@ -23,8 +23,10 @@ resource "aws_route53_record" "server_A_records" {
 # ---------------------------------------------------------------- #
 # IAM Role (the chess server reads and writes DynamoDB with it)
 # ---------------------------------------------------------------- #
+# THE ROLE, POLICY AND PROFILE WERE MADE IN THE CONSOLE, IMPORT THEM BEFORE THE FIRST apply (README -> Terraform)
 resource "aws_iam_role" "server_role" {
-  name = var.role_name
+  name        = var.role_name
+  description = "Allows EC2 instances to call AWS services on your behalf." # THE CONSOLE'S DEFAULT, KEPT SO plan SHOWS NO CHANGE
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -37,7 +39,7 @@ resource "aws_iam_role" "server_role" {
 
 # ONLY THE CALLS server/dynamoDB.js MAKES, ONLY ON chess_db AND user_db
 resource "aws_iam_role_policy" "dynamodb_policy" {
-  name = "${var.role_name}-dynamodb"
+  name = "${var.role_name}Policy" # EC2_Chess_DynamoDBPolicy, THE CONSOLE'S NAME
   role = aws_iam_role.server_role.id
   policy = jsonencode({
     Version = "2012-10-17"

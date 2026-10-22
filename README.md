@@ -39,16 +39,17 @@ AWS side (see [Deploy](#deploy)).
 
 1. **Startup.** If the page is opened directly (not in an iframe), it asks the
    server who is signed in (`GET /api/user`) while the page loads. A signed-in
-   player opens their latest game (or a new one vs. the AI). A guest gets
-   `PLAYER_ID` and `GAME_ID` from `client/.env`, which `dotenv-webpack`
-   inlines at build time. Inside an
+   player opens their latest game (or a new one vs. the AI). A guest opens
+   their own game vs. the AI: its id is saved in the browser's localStorage
+   (`GUEST_GAME_ID`), and a new id is made when none is saved. The guest's
+   player id is the same as the game id. Inside an
    iframe, it waits for the host page to send `userinfo` and `start` messages
    (see [Embedding](#embedding)).
 2. **Load.** `renderCanvas()` preloads every sprite, then asks the server for
    the game (`GET /api/chess/game/:gameId?player_id=`). The server returns the board
-   (FEN), your color, and whether the opponent is the AI. If `PLAYER_ID`
-   equals `GAME_ID` and no game exists yet, a new game against the AI is
-   created first (`POST /api/chess/game`).
+   (FEN), your color, and whether the opponent is the AI. For a guest, if no
+   game exists for their id yet (a new guest, or the game expired), a new game
+   against the AI is created first (`POST /api/chess/game`).
 3. **Render loop.** A ~33 fps loop redraws only when something changed: a
    hover, a drag, a slide in progress, or new data.
 4. **Your move.** chess.js plays the move locally, which throws on an illegal
@@ -102,8 +103,6 @@ It needs read/write access to `chess_db` and `user_db` in us-east-1.
 
 | Variable | Purpose |
 | --- | --- |
-| `PLAYER_ID` | Player id used when the page isn't embedded |
-| `GAME_ID` | Game to open. Set it equal to `PLAYER_ID` to get a personal game vs. the AI that's created on first load. |
 | `CHESS_ASSESTS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com` (CloudFront), or `.` to use local copies. It's built into the bundle, so rebuild after changing it. |
 
 **Images and audio aren't in the repo.** `client/src/images` and
@@ -168,8 +167,8 @@ and a rejected move or missing game still comes back as HTTP 200 with
 The player is whoever is signed in. The server reads it from the session
 cookie and ignores the player ids the client sends. Nobody can move for the AI:
 its moves only come from `/ai-move`. Guests (no session) can only play an AI
-game whose `game_id` equals their player id, which is what `client/.env` sets
-up. A request for a game you're not in gets `401` when signed out (the client
+game whose `game_id` equals their player id, which is how the client sets up
+each guest. Guests aren't added to `user_db`. A request for a game you're not in gets `401` when signed out (the client
 then calls `/api/auth/refresh` once and retries, in case the access token
 expired mid game) or `403` when signed in.
 
@@ -294,8 +293,8 @@ In order:
 
 `terraform/aws-enviroment` sets up:
 
-- **Server** (`modules/server`): the `chess-server` IAM role and instance
-  profile, allowed only `GetItem`, `PutItem`, `UpdateItem` and `BatchGetItem`
+- **Server** (`modules/server`): the `EC2_Chess_DynamoDB` IAM role and
+  instance profile (made in the console, imported below), allowed only `GetItem`, `PutItem`, `UpdateItem` and `BatchGetItem`
   on the two tables (the calls `server/dynamoDB.js` makes), and Route 53 `A`
   records for `chess` and `engine` pointing at the instance's Elastic IP
   (`server_ip` in `locals.tf`). The `engine` record was made in the console;
@@ -318,30 +317,36 @@ terraform apply
 ```
 
 Run `terraform init` again whenever a module is added. The apply prints
-`instance_profile_name` (`chess-server`), which you pick when launching the
-instance.
+`instance_profile_name` (`EC2_Chess_DynamoDB`), which you pick when launching
+the instance.
 
 The Route 53 hosted zone for `aws-prac-route53.com`, the S3 bucket
 (`aws-prac-chess-s3`, us-west-2) and the Elastic IP must already exist. Names
 and the IP are set in `terraform/aws-enviroment/locals.tf`.
 
-The two DynamoDB tables were created in the AWS console before they were added
-to Terraform. With a new state, import them once, before the first `apply`;
-otherwise `apply` tries to create them and fails with "table already exists":
+The two DynamoDB tables and the IAM role were created in the AWS console before
+they were added to Terraform. Import each one that isn't in the state yet
+(`terraform state list` shows what is) before the next `apply`; otherwise
+`apply` tries to create them and fails with "table already exists" or
+`EntityAlreadyExists`. Importing one that's already there only fails with
+"Resource already managed by Terraform":
 
 ```bash
 terraform import module.dynamodb_module.aws_dynamodb_table.chess_table chess_db
 terraform import module.dynamodb_module.aws_dynamodb_table.user_table user_db
+terraform import module.server_module.aws_iam_role.server_role EC2_Chess_DynamoDB
+terraform import module.server_module.aws_iam_role_policy.dynamodb_policy EC2_Chess_DynamoDB:EC2_Chess_DynamoDBPolicy
+terraform import module.server_module.aws_iam_instance_profile.server_profile EC2_Chess_DynamoDB
 ```
 
-`terraform plan` should then show no changes for either table. Both tables have
-`prevent_destroy` set, so Terraform refuses any plan that would delete or
-replace them.
+`terraform plan` should then show no changes for the tables or the role. Both
+tables have `prevent_destroy` set, so Terraform refuses any plan that would
+delete or replace them.
 
 ### 1. Before you start
 
 - The engine is running on the instance (chess-engine-api's steps 1–7).
-- The instance has the `chess-server` instance profile. To add it to an
+- The instance has the `EC2_Chess_DynamoDB` instance profile. To add it to an
   instance that's already running: **EC2 → Actions → Security → Modify IAM
   role**.
 - `dig +short chess.aws-prac-route53.com` prints the Elastic IP. certbot checks
@@ -456,7 +461,7 @@ because chess-engine-api's site on the same instance already defines
 
 Once everything works: **EC2 → Instances**, select it, **Actions → Image and
 templates → Create image**. If the instance is ever lost, launch from that AMI
-with the `chess-server` instance profile and move the Elastic IP
+with the `EC2_Chess_DynamoDB` instance profile and move the Elastic IP
 (chess-engine-api's step 2). Both services start on boot. Keep the AMI private:
 it has your `.env` secrets and a Stockfish binary in it (see
 [Stockfish license](#stockfish-license)).

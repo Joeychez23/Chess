@@ -69,7 +69,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
 	await connection.putItem(params); // POST REQUEST FOR GAME CREATION TO DYNAMODB
 
 	async function handleUser(userId) {
-		if (userId != "CHESS_AI" && userId != "GUEST_USER") { // GUESTS HAVE NO GAME LIST, SKIP THEM LIKE THE AI
+		if (userId != "CHESS_AI" && userId != "GUEST_USER" && userId != gameId) { // GUESTS HAVE NO GAME LIST, SKIP THEM LIKE THE AI (A GUEST'S PLAYER ID IS THEIR GAME ID)
 			response = await retrieveUser(userId);
 			if (response.status == 500) { response = await initalizeUser(userId); }
 
@@ -254,7 +254,7 @@ async function closeGame(gameData, winner, reason) {
  * @param  {[string]} gameId [closed game]
  */
 async function closeUserGame(userId, gameId) {
-	if (userId == "CHESS_AI" || userId == "GUEST_USER") { return; }
+	if (userId == "CHESS_AI" || userId == "GUEST_USER" || userId == gameId) { return; } // A GUEST'S PLAYER ID IS THEIR GAME ID
 	const response = await retrieveUser(userId);
 	if (!response.user_data) { return; }
 

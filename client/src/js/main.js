@@ -62,7 +62,7 @@ preloadImages();
 //  */
 window.addEventListener("load", function () {
 	if (ancestorOrigins.length == 0) {
-		playerData = { GAME_URL: CHESS_URL, GAME_ID: process.env.GAME_ID, PLAYER_ID: process.env.PLAYER_ID }
+		playerData = { GAME_URL: CHESS_URL } // THE PLAYER & GAME COME FROM "auth" (SIGNED IN -> THEIR GAMES, GUEST -> localStorage)
 		// window.postMessage({
 		// 	action: "start",          // Action key.
 		// 	receiptToken: "{receipt-token}", // Receipt validation token.
@@ -123,6 +123,8 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		if (sessionUser) {
 			window.postMessage({ action: "auth-result", receiptToken: `${"auth-result"}-${"token"}`, userData: sessionUser }, window.location.origin)
 		} else {
+			const guestId = guestGameId(); // A GUEST'S PLAYER ID IS THEIR GAME ID
+			playerData = { GAME_URL: playerData.GAME_URL, GAME_ID: guestId, PLAYER_ID: guestId }
 			window.postMessage({
 				action: "start",          // Action key.
 				receiptToken: "{receipt-token}", // Receipt validation token.
@@ -335,6 +337,25 @@ const gameCenterActionsIn = { // An interface to match expected actions.
 		main.style.backgroundPosition = "center";
 	}
 };
+
+
+/* ---------------------------------------------------------------- */
+// Guest Game
+/* ---------------------------------------------------------------- */
+/**
+ * @description Each guest gets their own game vs the AI, its id is saved in localStorage so a reload opens it again.
+ * None saved -> a new id. The server has no game for a new id (or an expired one), so setInitialData creates it (gameplay/index.js)
+ * @return {[string]} gameId [also the guest's player id]
+ */
+function guestGameId() {
+	let gameId;
+	try { gameId = localStorage.getItem("GUEST_GAME_ID"); } catch (err) { } // STORAGE BLOCKED (PRIVATE MODE, IFRAME)
+	if (!gameId) {
+		gameId = `${new ObjectId()}`; // NEW GAME
+		try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch (err) { } // NOT SAVED -> A NEW GAME EACH LOAD
+	}
+	return gameId;
+}
 
 
 /* ---------------------------------------------------------------- */

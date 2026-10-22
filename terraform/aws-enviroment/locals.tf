@@ -8,5 +8,5 @@ locals {
 	# EC2 INSTANCE THAT RUNS THE CHESS SERVER AND chess-engine-api
 	server_ip = "52.11.177.148" # ITS ELASTIC IP
 	server_domain_names = ["chess.aws-prac-route53.com", "engine.aws-prac-route53.com"]
-	server_role_name = "chess-server"
+	server_role_name = "EC2_Chess_DynamoDB" # ROLE + INSTANCE PROFILE, MADE IN THE CONSOLE AND IMPORTED
 }
