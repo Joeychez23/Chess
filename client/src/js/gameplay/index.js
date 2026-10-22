@@ -819,19 +819,20 @@ export async function renderCanvas(playerData) {
 			bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF TAKEN PIECES ON THE BOARD FOR BLACK
 
 			if (widthOverHeight) {
-				coffeeObj.height = tileHeight * 3.5;
-				coffeeObj.width = (9 * coffeeObj.height) / 10;
-				coffeeObj.x = ((cw - xBoardStart) + coffeeObj.width / 8);
-				coffeeObj.y = ((ch - yBoardStart) - (tileHeight * 3) - coffeeObj.height);
+				/* Board Extras */
+				// coffeeObj.height = tileHeight * 3.5;
+				// coffeeObj.width = (9 * coffeeObj.height) / 10;
+				// coffeeObj.x = ((cw - xBoardStart) + coffeeObj.width / 8);
+				// coffeeObj.y = ((ch - yBoardStart) - (tileHeight * 3) - coffeeObj.height);
 
-				deckObj.height = tileHeight * 2.5;
-				deckObj.width = (9 * deckObj.height) / 10;
-				deckObj.x = (xBoardStart - (deckObj.width + tileWidth));
-				deckObj.y = ((ch - yBoardStart) - (tileHeight * 3) - deckObj.height);
+				// deckObj.height = tileHeight * 2.5;
+				// deckObj.width = (9 * deckObj.height) / 10;
+				// deckObj.x = (xBoardStart - (deckObj.width + tileWidth));
+				// deckObj.y = ((ch - yBoardStart) - (tileHeight * 3) - deckObj.height);
 
-				candleObj.width = tileWidth * 2.5;
-				candleObj.height = (9 * candleObj.width) / 10;
-				candleObj.x = (xBoardStart - (candleObj.width + (tileWidth * .75)));
+				// candleObj.width = tileWidth * 2.5;
+				// candleObj.height = (9 * candleObj.width) / 10;
+				// candleObj.x = (xBoardStart - (candleObj.width + (tileWidth * .75)));
 				candleObj.y = (yBoardStart);
 				if (smBoard) { // Small Board
 					boardPadding = 1.4;
@@ -2570,7 +2571,7 @@ export async function renderCanvas(playerData) {
 			handleInitialData();
 			optBtn.style.display = "flex";
 			optResumeBtn.parentElement.style.display = 'flex';
-			resultDisplay.innerText = "Lakeside Chess"
+			resultDisplay.innerText = "Chess"
 			await refreshData(response);
 			opposingMove = chessInst.turn() != playerColor;
 			boardReset = false;
