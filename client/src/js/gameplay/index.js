@@ -71,64 +71,64 @@ async function loadImage(path) {
  * @description Loads image
  */
 export function preloadImages() {
-	loadImage("./images/board/table.webp");
-	loadImage("./images/board/table-shdw.png");
-	loadImage("./images/board/chess-board.png");
-	loadImage("./images/board/chess-board-shdw.webp")
-	loadImage("./images/board/raw-board.png");
-	loadImage("./images/white-pieces/wk-e1.png");
-	loadImage("./images/white-pieces/wq-d1.png");
-	loadImage("./images/white-pieces/wb-c1.png");
-	loadImage("./images/white-pieces/wb-f1.png");
-	loadImage("./images/white-pieces/wn-b1.png");
-	loadImage("./images/white-pieces/wn-g1.png");
-	loadImage("./images/white-pieces/wr-h1.png");
-	loadImage("./images/white-pieces/wp-a2.png");
-	loadImage("./images/white-pieces/wk-shdw.png");
-	loadImage("./images/white-pieces/wq-shdw.png");
-	loadImage("./images/white-pieces/wb-shdw.png");
-	loadImage("./images/white-pieces/wn-b1-shdw.png");
-	loadImage("./images/white-pieces/wn-g1-shdw.png");
-	loadImage("./images/white-pieces/wr-shdw.png");
-	loadImage("./images/white-pieces/wp-shdw.png");
-	loadImage("./images/white-pieces/wk-refl.png");
-	loadImage("./images/white-pieces/wq-refl.png");
-	loadImage("./images/white-pieces/wb-refl.png");
-	loadImage("./images/white-pieces/wn-b1-refl.png");
-	loadImage("./images/white-pieces/wn-g1-refl.png");
-	loadImage("./images/white-pieces/wr-refl.png");
-	loadImage("./images/white-pieces/wp-refl.png");
-	loadImage("./images/black-pieces/bk-e8.png");
-	loadImage("./images/black-pieces/bq-d8.png");
-	loadImage("./images/black-pieces/bb-f8.png");
-	loadImage("./images/black-pieces/bb-c8.png");
-	loadImage("./images/black-pieces/bn-b8.png");
-	loadImage("./images/black-pieces/bn-g8.png");
-	loadImage("./images/black-pieces/br-h8.png");
-	loadImage("./images/black-pieces/bp-a7.png");
-	loadImage("./images/black-pieces/bk-shdw.png");
-	loadImage("./images/black-pieces/bq-shdw.png");
-	loadImage("./images/black-pieces/bb-shdw.png");
-	loadImage("./images/black-pieces/bn-b8-shdw.png");
-	loadImage("./images/black-pieces/bn-g8-shdw.png");
-	loadImage("./images/black-pieces/br-shdw.png");
-	loadImage("./images/black-pieces/bp-shdw.png");
-	loadImage("./images/black-pieces/bk-refl.png");
-	loadImage("./images/black-pieces/bq-refl.png");
-	loadImage("./images/black-pieces/bb-refl.png");
-	loadImage("./images/black-pieces/bn-b8-refl.png");
-	loadImage("./images/black-pieces/bn-g8-refl.png");
-	loadImage("./images/black-pieces/br-refl.png");
-	loadImage("./images/black-pieces/bp-refl.png");
-	loadImage("./images/chess-ui/move-highlight.png");
-	loadImage("./images/chess-ui/takeable-highlight.png");
-	loadImage("./images/chess-ui/check-highlight.png");
-	loadImage("./images/board/coffee.png"); 
-	loadImage("./images/board/coffee-shdw.png");
-	loadImage("./images/board/cards.png");
-	loadImage("./images/board/cards-shdw.png");
-	loadImage("./images/board/candle.png"); 
-	loadImage("./images/board/candle-shdw.png")
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board-shdw.webp`)
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/raw-board.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-e1.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-d1.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-c1.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-f1.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-h1.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-a2.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-e8.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-d8.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-f8.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-c8.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-h8.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-a7.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/move-highlight.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/takeable-highlight.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/check-highlight.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee.png`); 
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle.png`); 
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle-shdw.png`)
 }
 
 /* ---------------------------------------------------------------- */
@@ -207,7 +207,7 @@ export async function renderCanvas(playerData) {
 	// const images = [];
 	// imagememory = 0;
 	// loadedImages = 0;
-	const moveAudio = new Audio('./audio/piece-jump.mp4');
+	const moveAudio = new Audio(`${process.env.CHESS_ASSESTS_URL}/audio/piece-jump.mp4`);
 
 	let startTime = new Date();
 	let endTime = new Date();
@@ -217,91 +217,91 @@ export async function renderCanvas(playerData) {
 
 	// !NOTE: IMAGE NUMBERS EQUALS INDEX USED TO CHECK IF ALL IMAGES ARE LOADING IN THE BACKGROUND
 	// ! I NEED TO DELETE THE LOAD IMAGES FUNCTIONS HERE
-	loadImage("./images/board/table.webp");
-	const tableShdw = 1; loadImage("./images/board/table-shdw.png");
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`);
+	const tableShdw = 1; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table-shdw.png`);
 
-	const boardImg = 2; loadImage("./images/board/chess-board.png");
-	const boardShdw = 3; loadImage("./images/board/chess-board-shdw.webp")
-	const rawBoardImg = 4; loadImage("./images/board/raw-board.png");
+	const boardImg = 2; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board.png`);
+	const boardShdw = 3; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board-shdw.webp`)
+	const rawBoardImg = 4; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/raw-board.png`);
 
 	const xBoardShadowRatio = 0.985;
 
 	// WHITE IMAGES
-	const wKingImg = 5; loadImage("./images/white-pieces/wk-e1.png");
-	const wQueenImg = 6; loadImage("./images/white-pieces/wq-d1.png");
-	const wBishopBlackSqImg = 7; loadImage("./images/white-pieces/wb-c1.png");
-	const wBishopWhiteSqImg = 8; loadImage("./images/white-pieces/wb-f1.png");
+	const wKingImg = 5; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-e1.png`);
+	const wQueenImg = 6; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-d1.png`);
+	const wBishopBlackSqImg = 7; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-c1.png`);
+	const wBishopWhiteSqImg = 8; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-f1.png`);
 	let wKnightImg;
-	const wRightKnightImg = 9; loadImage("./images/white-pieces/wn-b1.png");
-	const wLeftKnightImg = 10; loadImage("./images/white-pieces/wn-g1.png");
-	const wRookImg = 11; loadImage("./images/white-pieces/wr-h1.png");
-	const wPawnImg = 12; loadImage("./images/white-pieces/wp-a2.png");
+	const wRightKnightImg = 9; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1.png`);
+	const wLeftKnightImg = 10; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1.png`);
+	const wRookImg = 11; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-h1.png`);
+	const wPawnImg = 12; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-a2.png`);
 
 	// WHITE SHADOW
-	const wKingShdw = 13; loadImage("./images/white-pieces/wk-shdw.png");
-	const wQueenShdw = 14; loadImage("./images/white-pieces/wq-shdw.png");
-	const wBishopShdw = 15; loadImage("./images/white-pieces/wb-shdw.png");
+	const wKingShdw = 13; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-shdw.png`);
+	const wQueenShdw = 14; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-shdw.png`);
+	const wBishopShdw = 15; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-shdw.png`);
 	let wKnightShdw
-	const wRightKnightShdw = 16; loadImage("./images/white-pieces/wn-b1-shdw.png");
-	const wLeftKnightShdw = 17; loadImage("./images/white-pieces/wn-g1-shdw.png");
-	const wRookShdw = 18; loadImage("./images/white-pieces/wr-shdw.png");
-	const wPawnShdw = 19; loadImage("./images/white-pieces/wp-shdw.png");
+	const wRightKnightShdw = 16; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1-shdw.png`);
+	const wLeftKnightShdw = 17; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-shdw.png`);
+	const wRookShdw = 18; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-shdw.png`);
+	const wPawnShdw = 19; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-shdw.png`);
 
 	// WHITE REFLECT
-	const wKingRefl = 20; loadImage("./images/white-pieces/wk-refl.png");
-	const wQueenRefl = 21; loadImage("./images/white-pieces/wq-refl.png");
-	const wBishopRefl = 22; loadImage("./images/white-pieces/wb-refl.png");
+	const wKingRefl = 20; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-refl.png`);
+	const wQueenRefl = 21; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-refl.png`);
+	const wBishopRefl = 22; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-refl.png`);
 	let wKnightRefl
-	const wRightKnightRefl = 23; loadImage("./images/white-pieces/wn-b1-refl.png");
-	const wLeftKnightRefl = 24; loadImage("./images/white-pieces/wn-g1-refl.png");
-	const wRookRefl = 25; loadImage("./images/white-pieces/wr-refl.png");
-	const wPawnRefl = 26; loadImage("./images/white-pieces/wp-refl.png");
+	const wRightKnightRefl = 23; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1-refl.png`);
+	const wLeftKnightRefl = 24; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-refl.png`);
+	const wRookRefl = 25; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-refl.png`);
+	const wPawnRefl = 26; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-refl.png`);
 
 	// BLACK IMAGES
-	const bKingImg = 27; loadImage("./images/black-pieces/bk-e8.png");
-	const bQueenImg = 28; loadImage("./images/black-pieces/bq-d8.png");
-	const bBishopBlackSqImg = 29; loadImage("./images/black-pieces/bb-f8.png");
-	const bBishopWhiteSqImg = 30; loadImage("./images/black-pieces/bb-c8.png");
+	const bKingImg = 27; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-e8.png`);
+	const bQueenImg = 28; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-d8.png`);
+	const bBishopBlackSqImg = 29; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-f8.png`);
+	const bBishopWhiteSqImg = 30; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-c8.png`);
 	let bKnightImg;
-	const bRightKnightImg = 31; loadImage("./images/black-pieces/bn-b8.png");
-	const bLeftKnightImg = 32; loadImage("./images/black-pieces/bn-g8.png");
-	const bRookImg = 33; loadImage("./images/black-pieces/br-h8.png");
-	const bPawnImg = 34; loadImage("./images/black-pieces/bp-a7.png");
+	const bRightKnightImg = 31; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8.png`);
+	const bLeftKnightImg = 32; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8.png`);
+	const bRookImg = 33; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-h8.png`);
+	const bPawnImg = 34; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-a7.png`);
 
 	// BLACK SHADOW
-	const bKingShdw = 35; loadImage("./images/black-pieces/bk-shdw.png");
-	const bQueenShdw = 36; loadImage("./images/black-pieces/bq-shdw.png");
-	const bBishopShdw = 37; loadImage("./images/black-pieces/bb-shdw.png");
+	const bKingShdw = 35; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-shdw.png`);
+	const bQueenShdw = 36; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-shdw.png`);
+	const bBishopShdw = 37; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-shdw.png`);
 
 	let bKnightShdw;
-	const bRightKnightShdw = 38; loadImage("./images/black-pieces/bn-b8-shdw.png");
-	const bLeftKnightShdw = 39; loadImage("./images/black-pieces/bn-g8-shdw.png");
-	const bRookShdw = 40; loadImage("./images/black-pieces/br-shdw.png");
-	const bPawnShdw = 41; loadImage("./images/black-pieces/bp-shdw.png");
+	const bRightKnightShdw = 38; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8-shdw.png`);
+	const bLeftKnightShdw = 39; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-shdw.png`);
+	const bRookShdw = 40; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-shdw.png`);
+	const bPawnShdw = 41; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-shdw.png`);
 
 	// BLACK REFLECT
-	const bKingRefl = 42; loadImage("./images/black-pieces/bk-refl.png");
-	const bQueenRefl = 43; loadImage("./images/black-pieces/bq-refl.png");
-	const bBishopRefl = 44; loadImage("./images/black-pieces/bb-refl.png");
+	const bKingRefl = 42; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-refl.png`);
+	const bQueenRefl = 43; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-refl.png`);
+	const bBishopRefl = 44; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-refl.png`);
 	let bKnightRefl;
-	const bRightKnightRefl = 45; loadImage("./images/black-pieces/bn-b8-refl.png");
-	const bLeftKnightRefl = 46; loadImage("./images/black-pieces/bn-g8-refl.png");
-	const bRookRefl = 47; loadImage("./images/black-pieces/br-refl.png");
-	const bPawnRefl = 48; loadImage("./images/black-pieces/bp-refl.png");
+	const bRightKnightRefl = 45; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8-refl.png`);
+	const bLeftKnightRefl = 46; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-refl.png`);
+	const bRookRefl = 47; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-refl.png`);
+	const bPawnRefl = 48; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-refl.png`);
 
 	// UI
-	const moveHighlight = 49; loadImage("./images/chess-ui/move-highlight.png");
-	const takeableHighlight = 50; loadImage("./images/chess-ui/takeable-highlight.png");
-	const checkHighlight = 51; loadImage("./images/chess-ui/check-highlight.png");
+	const moveHighlight = 49; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/move-highlight.png`);
+	const takeableHighlight = 50; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/takeable-highlight.png`);
+	const checkHighlight = 51; loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/check-highlight.png`);
 
-	loadImage("./images/board/coffee.png"); // 52
-	loadImage("./images/board/coffee-shdw.png"); // 53
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee.png`); // 52
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee-shdw.png`); // 53
 
-	loadImage("./images/board/cards.png"); // 54
-	loadImage("./images/board/cards-shdw.png"); // 55
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards.png`); // 54
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards-shdw.png`); // 55
 
-	loadImage("./images/board/candle.png"); // 56
-	loadImage("./images/board/candle-shdw.png") // 57
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle.png`); // 56
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle-shdw.png`) // 57
 
 	let coffeeObj = { img: [], img2: 52, shdw: 53, x: null, y: null, width: null, height: null }
 	let deckObj = { img: [], img2: 54, shdw: 55, x: null, y: null, width: null, height: null }
@@ -361,7 +361,7 @@ export async function renderCanvas(playerData) {
 
 
 		canvas.style.backgroundRepeat = "repeat-y";
-		canvas.style.backgroundImage = 'url("./images/board/table.webp")';
+		canvas.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
 		canvas.style.backgroundSize = "cover";
 		canvas.style.backgroundPosition = "center";
 		window.postMessage({
