@@ -525,7 +525,7 @@ export async function renderCanvas(playerData) {
 										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg]); }
 									} else if (pieceColor == "b") {
 										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg]); }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, bBishopShdw, bBishopBlackSqImg]); }
+										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg]); }
 									}
 								} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 									/* ---------------------------------------------------------------- */
@@ -588,13 +588,14 @@ export async function renderCanvas(playerData) {
 												}
 												handleKnightDirectionB(xFrom, xTo);
 												drawKnight();
+												break;
 											} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) {
 												if (playerColor == 'w') {
-													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); }
-													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); }
+													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 												} else if (playerColor == 'b') {
-													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); }
-													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); }
+													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 												}
 											}
 										}
@@ -1024,10 +1025,10 @@ export async function renderCanvas(playerData) {
 					// /**
 					//  * @description Draws active piece to canvas
 					//  */
-					async function drawActivePiece(imgArr, x, y, opacitiy) {
+					async function drawActivePiece(imgArr, x, y, opacity) {
 						let completeSlide = false;
 						for (let w = 0; w < imgArr.length; w++) {
-							if ((tiles[index].isMousedown || tiles[index].isClicked || tiles[index].isHovering) && opacitiy && !tiles[index].isSliding) { ctx.globalAlpha = 0.85 }
+							if ((tiles[index].isMousedown || tiles[index].isClicked || tiles[index].isHovering) && opacity && !tiles[index].isSliding) { ctx.globalAlpha = 0.85 }
 							if (w == 0) { ctx.globalAlpha = 0.30 }
 							else if (w == 1) { ctx.globalAlpha = 0.75 }
 							if (tiles[index].isSliding) { // IF TILE IS SLIDING
@@ -1283,7 +1284,7 @@ export async function renderCanvas(playerData) {
 									ctx.drawImage(images[imgArr[w]].image, x - xPieceOffset / 2, y - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 								}
 							} // DRAWING IMAGE WITH SLIDING FALSE
-							if (((tiles[index]?.isMousedown || null || tiles[index]?.isClicked || null || tiles[index]?.isHovering || null) && opacitiy && !tiles[index]?.isSliding || null) || w == 0 || w == 1) { ctx.globalAlpha = 1 }
+							if (((tiles[index]?.isMousedown || null || tiles[index]?.isClicked || null || tiles[index]?.isHovering || null) && opacity && !tiles[index]?.isSliding || null) || w == 0 || w == 1) { ctx.globalAlpha = 1 }
 						}
 					}
 
@@ -1294,8 +1295,8 @@ export async function renderCanvas(playerData) {
 						const pieceColor = inst[i][j].color;
 						if (!currPromotion) {
 							if (!(mousedownTile.xAvailInt == tiles[index].x && mousedownTile.yAvailInt == tiles[index].y)) { // IF A MOUSE DOWN TILE IS ON AVAILABLE MOVE TILE RENDERING OF THE PIECE FALLS ON THE RESPONSIBILITY OF "checkAvailableMoves()"
-								let opacitiy = true
-								if (tiles[index].isClicked && (tiles[index].x == tiles[index].originX && tiles[index].y == tiles[index].originY)) { opacitiy = false } // IF TILE IS IN ORIGINAL POSITION SET OPACITIY TO FALSE
+								let opacity = true
+								if (tiles[index].isClicked && (tiles[index].x == tiles[index].originX && tiles[index].y == tiles[index].originY)) { opacity = false } // IF TILE IS IN ORIGINAL POSITION SET OPACITY TO FALSE
 								if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
 									if (pieceColor == "w") {
 										if (chessInst.isCheck() && pieceColor == chessInst.turn()) {
@@ -1303,7 +1304,7 @@ export async function renderCanvas(playerData) {
 											ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
 											ctx.globalAlpha = 1.00;
 										}
-										drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, opacitiy);
+										drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, opacity);
 										wPieceCount.king++;
 									}
 									else if (pieceColor == "b") {
@@ -1312,19 +1313,19 @@ export async function renderCanvas(playerData) {
 											ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
 											ctx.globalAlpha = 1.00;
 										}
-										drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, opacitiy);
+										drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, opacity);
 										bPieceCount.king++;
 									}
 								} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-									if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, opacitiy); wPieceCount.queen++; }
-									else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, opacitiy); bPieceCount.queen++; }
+									if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, opacity); wPieceCount.queen++; }
+									else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, opacity); bPieceCount.queen++; }
 								} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
 									if (pieceColor == "w") {
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, opacitiy); wPieceCount.bishop++; }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, opacitiy); wPieceCount.bishop++; }
+										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, opacity); wPieceCount.bishop++; }
+										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, opacity); wPieceCount.bishop++; }
 									} else if (pieceColor == "b") {
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, opacitiy); bPieceCount.bishop++; }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, opacitiy); bPieceCount.bishop++; }
+										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, opacity); bPieceCount.bishop++; }
+										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, opacity); bPieceCount.bishop++; }
 									}
 								} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 									/* ---------------------------------------------------------------- */
@@ -1336,16 +1337,16 @@ export async function renderCanvas(playerData) {
 									function drawKnight() {
 										if (pieceColor == 'w') {
 											if (tiles[index].isMousedown) {
-												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacitiy); }
-												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacitiy); }
-												else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacitiy); }
-											} else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacitiy); }
+												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
+												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
+												else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
+											} else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
 										} else if (pieceColor == 'b') {
 											if (tiles[index].isMousedown) {
-												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacitiy); }
-												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacitiy); }
-												else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacitiy); }
-											} else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacitiy); }
+												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
+												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
+												else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
+											} else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
 										}
 									}
 									if (pieceColor == "w") {
@@ -1361,7 +1362,7 @@ export async function renderCanvas(playerData) {
 													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 												}
 												handleKnightDirectionW(xFrom, xTo);
-												drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacitiy);
+												drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity);
 												break;
 											} else if (JSON.parse(response.w_knight)[n].from && (JSON.parse(response.w_knight)[n].to == tiles[index].square)) {
 												if (playerColor == 'w') {
@@ -1398,7 +1399,7 @@ export async function renderCanvas(playerData) {
 													xTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
 												}
 												handleKnightDirectionB(xFrom, xTo);
-												drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacitiy);
+												drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity);
 												break;
 											} else if (JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == tiles[index].square) {
 												if (playerColor == 'w') {
@@ -1413,22 +1414,22 @@ export async function renderCanvas(playerData) {
 												break;
 											} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) {
 												if (playerColor == 'w') {
-													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); }
-													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); }
+													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 												} else if (playerColor == 'b') {
-													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); }
-													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); }
+													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 												}
 											}
 										}
 										bPieceCount.knight++;
 									}
 								} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-									if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, opacitiy); wPieceCount.rook++; }
-									else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, opacitiy); bPieceCount.rook++; }
+									if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, opacity); wPieceCount.rook++; }
+									else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, opacity); bPieceCount.rook++; }
 								} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
-									if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, opacitiy); wPieceCount.pawn++; }
-									else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, opacitiy); bPieceCount.pawn++; }
+									if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, opacity); wPieceCount.pawn++; }
+									else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, opacity); bPieceCount.pawn++; }
 								}
 							}
 						}
@@ -1544,6 +1545,7 @@ export async function renderCanvas(playerData) {
 								} else {
 									ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 								}
+								break;
 							} else if (JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == pieceObj.square) {
 								if (playerColor == 'w') {
 									xFrom = JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
@@ -1554,13 +1556,14 @@ export async function renderCanvas(playerData) {
 								}
 								handleKnightDirectionB(xFrom, xTo);
 								drawKnight();
+								break;
 							} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) {
 								if (playerColor == 'w') {
-									if (JSON.parse(response.b_knight)[n].to == 'b8' && pieceObj.square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); }
-									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); }
+									if (JSON.parse(response.b_knight)[n].to == 'b8' && pieceObj.square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 								} else if (playerColor == 'b') {
-									if (JSON.parse(response.b_knight)[n].to == 'b8' && pieceObj.square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); }
-									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); }
+									if (JSON.parse(response.b_knight)[n].to == 'b8' && pieceObj.square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 								}
 							}
 						}
