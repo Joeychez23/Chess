@@ -1,6 +1,9 @@
 /*
- *  main.js  --  chess frontend
- *	Chess Frontend
+ *  index.js  --  chess frontend
+ *	Gameplay
+ *	Draws the game to a canvas (table, board, pieces, shadows & reflections), handles moves by
+ *	click, drag, touch & TV remote, slides the AI's / opponent's moves in & runs the in game menu.
+ *	Moves are checked locally with chess.js, then saved by the chess server (validate/index.js)
  *
  */
 
@@ -13,36 +16,38 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-import "../../css/style.css";
+import "../../css/style.css"; // PAGE & MENU STYLES
 
-const { Chess } = require("chess.js");
-const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/index.js");
-const { playerMove } = require("./user/index.js");
-const { playAi } = require("./ai/index.js");
-const { setTiles } = require("./utils/index.js");
-const { joinGame, leaveGame } = require("../socket/index.js");
-const main = document.querySelector("#main");
-const optBtn = document.getElementById("optBtn");
-const menu = document.getElementById("menuContainer");
-const optResumeBtn = document.getElementById("optResume");
-const optRestartBtn = document.getElementById("optRestart");
-const optHomepageBtn = document.getElementById("optSettings");
-const optExitBtn = document.getElementById("optExit");
-const canvas = document.createElement("canvas");
-const resultDisplay = document.getElementById("resultDisplay");
-const newGameInput = document.getElementsByClassName("newGameInput");
+const { Chess } = require("chess.js"); // RULES, LEGAL MOVES & FEN (SAME VERSION AS THE SERVER)
+const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { playerMove } = require("./user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
+const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
+const { setTiles } = require("./utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES
+const { joinGame, leaveGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
+const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
+const optBtn = document.getElementById("optBtn"); // GEAR BUTTON, OPENS THE MENU
+const menu = document.getElementById("menuContainer"); // IN GAME MENU
+const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
+const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
+const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
+const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
+const canvas = document.createElement("canvas"); // THE WHOLE GAME IS DRAWN ON THIS
+const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
+const newGameInput = document.getElementsByClassName("newGameInput"); // HOME SCREEN INPUTS, SIZED WITH THE MENU
 
-const OVERRIDE_TV = false;
+const OVERRIDE_TV = false; // TRUE TURNS ON THE TV REMOTE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
 
 const imagePaths = [];			// This will hold array of all loaded image resources
-const images = [];
-let imagememory = 0;
-let loadedImages = 0;
+const images = [];				// { path, image } IN LOAD ORDER, THE INDEX IS THE IMAGE NUMBER USED TO DRAW IT (SEE IMAGE NUMBERS IN renderCanvas)
+let imagememory = 0;			// BYTES OF ALL LOADED IMAGES (LOGGED)
+let loadedImages = 0;			// IMAGES FINISHED LOADING, THE GAME STARTS WHEN THIS MATCHES images.length
 /* ---------------------------------------------------------------- */
 // Load Image
 /* ---------------------------------------------------------------- */
 /**
- * @description Loads image
+ * @description Loads an image once. It's added to images[] before it finishes loading, so its index is the order loadImage() was called in
+ * @param  {[string]} path [image url, ".png" is added when there's no extension]
+ * @return {[object]} img [Promise of the loaded Image, or the saved one if this path was already loaded]
  */
 async function loadImage(path) {
 	return new Promise(function (resolve) {
@@ -68,14 +73,18 @@ async function loadImage(path) {
 // Preload Images
 /* ---------------------------------------------------------------- */
 /**
- * @description Loads image
+ * @description Loads every image the game draws, from CHESS_ASSESTS_URL (S3 / CloudFront).
+ * !NOTE: THE ORDER MATTERS. EACH IMAGE'S INDEX IN images[] IS ITS IMAGE NUMBER IN renderCanvas (wKingImg = 5, ...),
+ * SO NEW IMAGES GO AT THE END OR EVERY NUMBER AFTER THEM HAS TO CHANGE
  */
 export function preloadImages() {
+	// BOARD (0 - 4)
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board-shdw.webp`)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/raw-board.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/raw-board.png`); // BOARD WITHOUT THE WOOD BORDER, ONLY ITS SIZE IS USED (TO FIND THE SQUARES)
+	// WHITE PIECES (5 - 12), BISHOPS ARE NAMED BY SQUARE COLOR (c1 DARK, f1 LIGHT), KNIGHTS BY FACING (b1 RIGHT, g1 LEFT)
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-e1.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-d1.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-c1.png`);
@@ -84,6 +93,7 @@ export function preloadImages() {
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-h1.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-a2.png`);
+	// WHITE SHADOWS (13 - 19)
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-shdw.png`);
@@ -91,6 +101,7 @@ export function preloadImages() {
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-shdw.png`);
+	// WHITE REFLECTIONS (20 - 26)
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-refl.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-refl.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-refl.png`);
@@ -98,6 +109,7 @@ export function preloadImages() {
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-refl.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-refl.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-refl.png`);
+	// BLACK PIECES (27 - 34), f8 IS THE DARK SQUARE BISHOP, b8 KNIGHT FACES RIGHT, g8 LEFT
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-e8.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-d8.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-f8.png`);
@@ -106,6 +118,7 @@ export function preloadImages() {
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-h8.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-a7.png`);
+	// BLACK SHADOWS (35 - 41)
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-shdw.png`);
@@ -113,6 +126,7 @@ export function preloadImages() {
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-shdw.png`);
+	// BLACK REFLECTIONS (42 - 48)
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-refl.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-refl.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-refl.png`);
@@ -120,10 +134,12 @@ export function preloadImages() {
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-refl.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-refl.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-refl.png`);
+	// UI (49 - 51)
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/move-highlight.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/takeable-highlight.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/check-highlight.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee.png`); 
+	// TABLE PROPS (52 - 57)
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards-shdw.png`);
@@ -135,164 +151,168 @@ export function preloadImages() {
 // Render Canvas
 /* ---------------------------------------------------------------- */
 /**
- * @description Renders canvas to main, and holds all associating canvas functions
+ * @description Starts a game: adds the canvas to main, loads the game from the server & runs the render loop.
+ * Holds all of the game's state & every function that uses it
+ * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, TV_BOOL }, TV_BOOL = TV REMOTE CONTROLS INSTEAD OF THE MOUSE]
  */
 export async function renderCanvas(playerData) {
 	const { GAME_URL, PLAYER_ID, TV_BOOL } = playerData; // SETS CONSTANT GAME VARIABLES
 	let GAME_ID = playerData.GAME_ID; // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
 
-	optBtn.style.display = "flex";
+	optBtn.style.display = "flex"; // SHOW THE GEAR BUTTON
 
-	const ctx = canvas.getContext("2d");
+	const ctx = canvas.getContext("2d"); // EVERYTHING IS DRAWN WITH THIS
 	canvas.id = "canvas";
 
-	const chessInst = new Chess();
-	const validateState = new Chess();
-	let cw = (canvas.width = window.innerWidth);
-	let ch = (canvas.height = window.innerHeight);
-	let bw;
-	let bh;
-	let drawScreen;
-	let refresh = true;
-	let tileWidth;
-	let tileHeight;
-	let tileX;
-	let tileY;
-	let clientX;
-	let clientY;
-	let clickX;
-	let clickY;
-	let opponentColor;
-	let ai
-	let aiTurn = false;
-	let response;
-	let revert;
-	let playerColor;
-	let moveObj = [null, null]
-	let tiles = setTiles();
-	let boardWidth;
-	let boardHeight;
-	let xBoardStart;
-	let yBoardStart;
-	let xBoardOff;
-	let yBoardOff;
-	let offBoardRefresh = true;
-	let wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 };
-	let bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 };
-	let wTakenPieces;
-	let bTakenPieces;
-	let clickedTile = false;
-	let mousedownTile = false;
-	let currPromotion = false;
-	let currSlide = false;
-	let slidePos;
-	let slideStart = false;
-	let menuToggled = false;
-	let mouseDownCount = 0;
-	let opposingMove = false;
-	let boardReset = false;
+	const chessInst = new Chess(); // THE BOARD THAT'S DRAWN, LOADED FROM THE SERVER'S FEN
+	const validateState = new Chess(); // SCRATCH BOARD, TESTS A MOVE WITHOUT CHANGING chessInst
+	let cw = (canvas.width = window.innerWidth); // CANVAS WIDTH (CSS PIXELS)
+	let ch = (canvas.height = window.innerHeight); // CANVAS HEIGHT (CSS PIXELS)
+	let bw; // WIDTH OF THE 64 SQUARES (BOARD WITHOUT ITS WOOD BORDER)
+	let bh; // HEIGHT OF THE 64 SQUARES
+	let drawScreen; // DRAWS ONE FRAME, SET BY handleInitialData() FOR THE PLAYER'S COLOR
+	let refresh = true; // TRUE DRAWS A FRAME ON THE NEXT TICK OF THE RENDER LOOP
+	let tileWidth; // WIDTH OF ONE SQUARE
+	let tileHeight; // HEIGHT OF ONE SQUARE
+	let tileX; // SCREEN COLUMN UNDER THE MOUSE (0 - 7 ON THE BOARD)
+	let tileY; // SCREEN ROW UNDER THE MOUSE (0 - 7 ON THE BOARD)
+	let clientX; // MOUSE X ON THE CANVAS
+	let clientY; // MOUSE Y ON THE CANVAS
+	let clickX; // PIXEL X OF tileX, A HELD PIECE IS DRAWN THERE
+	let clickY; // PIXEL Y OF tileY
+	let opponentColor; // 'w' OR 'b'
+	let ai // TRUE IN AI GAMES
+	let aiTurn = false; // TRUE WHEN THE RENDER LOOP SHOULD ASK THE SERVER FOR THE AI'S MOVE
+	let response; // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, player_color, state, ... }
+	let revert; // GAME TO GO BACK TO IF A MOVE FAILS
+	let playerColor; // 'w' OR 'b', BLACK FLIPS THE BOARD SO THE PLAYER IS ALWAYS AT THE BOTTOM
+	let moveObj = [null, null] // MOVE BEING PLAYED { from, to, promotion }, THE AI'S ALSO HAS response
+	let tiles = setTiles(); // 64 TILE STATES IN SCREEN ORDER (ROW * 8 + COLUMN), FILLED WITH THE PIECE ON EACH SQUARE WHILE DRAWING
+	let boardWidth; // BOARD IMAGE WIDTH (WITH THE WOOD BORDER)
+	let boardHeight; // BOARD IMAGE HEIGHT
+	let xBoardStart; // LEFT OF THE BOARD IMAGE
+	let yBoardStart; // TOP OF THE BOARD IMAGE
+	let xBoardOff; // LEFT OF THE SQUARES (SCREEN COLUMN 0)
+	let yBoardOff; // TOP OF THE SQUARES (SCREEN ROW 0)
+	let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
+	let wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // WHITE PIECES DRAWN THIS FRAME, TAKEN PIECES = START COUNT - THIS
+	let bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // BLACK PIECES DRAWN THIS FRAME
+	let wTakenPieces; // WHITE PIECES THAT WERE TAKEN [{ color, type, x, y }]
+	let bTakenPieces; // BLACK PIECES THAT WERE TAKEN
+	let clickedTile = false; // TILE PICKED UP BY A CLICK (OR A FINISHED DRAG)
+	let mousedownTile = false; // TILE BEING DRAGGED
+	let currPromotion = false; // TRUE WHILE THE PLAYER PICKS THEIR PROMOTION PIECE
+	let currSlide = false; // TRUE WHILE A PIECE SLIDES TO ITS NEW SQUARE
+	let slidePos; // SQUARE THE SLIDING PIECE IS CROSSING (trackSlidePosition)
+	let slideStart = false; // FIRST FRAME OF A SLIDE, A KNIGHT STOPS FOR 100MS BEFORE ITS HOP
+	let menuToggled = false; // MENU IS OPEN
+	let mouseDownCount = 0; // FRAMES THE MOUSE HAS BEEN HELD ON A PIECE, MORE THAN 3 MAKES IT A DRAG
+	let opposingMove = false; // TRUE WHILE IT'S NOT THE PLAYER'S TURN, LOCKS THE BOARD
+	let boardReset = false; // TRUE WHILE A NEW BOARD LOADS (RESTART & REMATCH), STOPS DRAWING
 	let gameOver = false; // THE SERVER CLOSED THE GAME (CHECKMATE, DRAW OR FORFEIT)
 	let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 	let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
-	let availableMoves;
-	let initialAnimation = true;
+	let availableMoves; // LEGAL MOVES OF THE SELECTED PIECE (chess.js VERBOSE MOVES)
+	let initialAnimation = true; // START ANIMATION (renderBoardAnimation), NOT USED: renderLoop() SETS IT TO FALSE FIRST
 	// let initialRender = true;
-	let currInst;
-	let availableMovesData = { piece: null, square: null }
-	let widthGreater;
-	let portraitBoard = false;
+	let currInst; // 8 x 8 BOARD FROM chessInst.board(), FLIPPED WHEN PLAYING BLACK
+	let availableMovesData = { piece: null, square: null } // PIECE & SQUARE availableMoves IS FOR, SO THE MOVES ARE ONLY FOUND ONCE
+	let widthGreater; // WIDE SCREEN: TAKEN PIECES GO TO THE RIGHT OF THE BOARD
+	let portraitBoard = false; // TALL SCREEN (MOBILE)
 	let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
-	const frameRate = 1000 / 33;
+	const frameRate = 1000 / 33; // MS BETWEEN FRAMES (ABOUT 33 A SECOND)
 	// const imagePaths = [];			// This will hold array of all loaded image resources
 	// const images = [];
 	// imagememory = 0;
 	// loadedImages = 0;
-	const moveAudio = new Audio(`${process.env.CHESS_ASSESTS_URL}/audio/piece-jump.mp4`);
+	const moveAudio = new Audio(`${process.env.CHESS_ASSESTS_URL}/audio/piece-jump.mp4`); // MOVE SOUND
 
-	let startTime = new Date();
-	let endTime = new Date();
-	let timeElapsed = endTime - startTime;
+	let startTime = new Date(); // WHEN THE LAST SLIDE STARTED
+	let endTime = new Date(); // WHEN THE LAST SLIDE FINISHED
+	let timeElapsed = endTime - startTime; // HOW LONG THE LAST SLIDE TOOK (MS)
 
 
-	let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false }
+	let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // TV REMOTE SELECT BOX: SQUARE (x, y), ON THE GEAR BUTTON (menuHover) & THE SELECTED MENU BUTTON
 
 	// !NOTE: IMAGE NUMBERS EQUALS INDEX USED TO CHECK IF ALL IMAGES ARE LOADING IN THE BACKGROUND
+	// EACH NUMBER IS THE IMAGE'S INDEX IN images[], SO IT HAS TO MATCH THE ORDER OF preloadImages()
+	// PIECES ARE DRAWN AS 3 LAYERS: REFLECTION (ON THE BOARD BELOW THE PIECE), SHADOW, THEN THE PIECE
 	// TABLE = 0
-	const tableShdw = 1;
+	const tableShdw = 1; // table-shdw.png
 
-	const boardImg = 2;
-	const boardShdw = 3;
-	const rawBoardImg = 4;
+	const boardImg = 2; // chess-board.png
+	const boardShdw = 3; // chess-board-shdw.webp
+	const rawBoardImg = 4; // raw-board.png, ITS SIZE GIVES THE WOOD BORDER'S WIDTH
 
-	const xBoardShadowRatio = 0.985;
+	const xBoardShadowRatio = 0.985; // NUDGES THE SQUARES RIGHT A LITTLE TO LINE UP WITH THE BOARD IMAGE
 
 	// WHITE IMAGES
-	const wKingImg = 5;
-	const wQueenImg = 6;
-	const wBishopBlackSqImg = 7;
-	const wBishopWhiteSqImg = 8;
-	let wKnightImg;
-	const wRightKnightImg = 9;
-	const wLeftKnightImg = 10;
-	const wRookImg = 11;
-	const wPawnImg = 12;
+	const wKingImg = 5; // wk-e1.png
+	const wQueenImg = 6; // wq-d1.png
+	const wBishopBlackSqImg = 7; // wb-c1.png, BISHOP ON A DARK SQUARE
+	const wBishopWhiteSqImg = 8; // wb-f1.png, BISHOP ON A LIGHT SQUARE
+	let wKnightImg; // KNIGHT IMAGE BEING DRAWN, SET TO THE RIGHT OR LEFT ONE BEFORE EACH DRAW (BOTH WHITE KNIGHTS SHARE IT)
+	const wRightKnightImg = 9; // wn-b1.png, FACES RIGHT
+	const wLeftKnightImg = 10; // wn-g1.png, FACES LEFT
+	const wRookImg = 11; // wr-h1.png
+	const wPawnImg = 12; // wp-a2.png
 
 	// WHITE SHADOW
-	const wKingShdw = 13;
-	const wQueenShdw = 14;
-	const wBishopShdw = 15;
-	let wKnightShdw
-	const wRightKnightShdw = 16;
-	const wLeftKnightShdw = 17;
-	const wRookShdw = 18;
-	const wPawnShdw = 19;
+	const wKingShdw = 13; // wk-shdw.png
+	const wQueenShdw = 14; // wq-shdw.png
+	const wBishopShdw = 15; // wb-shdw.png (BOTH BISHOPS)
+	let wKnightShdw // SET WITH wKnightImg
+	const wRightKnightShdw = 16; // wn-b1-shdw.png
+	const wLeftKnightShdw = 17; // wn-g1-shdw.png
+	const wRookShdw = 18; // wr-shdw.png
+	const wPawnShdw = 19; // wp-shdw.png
 
 	// WHITE REFLECT
-	const wKingRefl = 20;
-	const wQueenRefl = 21;
-	const wBishopRefl = 22;
-	let wKnightRefl
-	const wRightKnightRefl = 23;
-	const wLeftKnightRefl = 24;
-	const wRookRefl = 25;
-	const wPawnRefl = 26;
+	const wKingRefl = 20; // wk-refl.png
+	const wQueenRefl = 21; // wq-refl.png
+	const wBishopRefl = 22; // wb-refl.png (BOTH BISHOPS)
+	let wKnightRefl // SET WITH wKnightImg
+	const wRightKnightRefl = 23; // wn-b1-refl.png
+	const wLeftKnightRefl = 24; // wn-g1-refl.png
+	const wRookRefl = 25; // wr-refl.png
+	const wPawnRefl = 26; // wp-refl.png
 
 	// BLACK IMAGES
-	const bKingImg = 27;
-	const bQueenImg = 28;
-	const bBishopBlackSqImg = 29;
-	const bBishopWhiteSqImg = 30;
-	let bKnightImg;
-	const bRightKnightImg = 31;
-	const bLeftKnightImg = 32;
-	const bRookImg = 33;
-	const bPawnImg = 34;
+	const bKingImg = 27; // bk-e8.png
+	const bQueenImg = 28; // bq-d8.png
+	const bBishopBlackSqImg = 29; // bb-f8.png, BISHOP ON A DARK SQUARE
+	const bBishopWhiteSqImg = 30; // bb-c8.png, BISHOP ON A LIGHT SQUARE
+	let bKnightImg; // KNIGHT IMAGE BEING DRAWN, SET TO THE RIGHT OR LEFT ONE BEFORE EACH DRAW (BOTH BLACK KNIGHTS SHARE IT)
+	const bRightKnightImg = 31; // bn-b8.png, FACES RIGHT
+	const bLeftKnightImg = 32; // bn-g8.png, FACES LEFT
+	const bRookImg = 33; // br-h8.png
+	const bPawnImg = 34; // bp-a7.png
 
 	// BLACK SHADOW
-	const bKingShdw = 35;
-	const bQueenShdw = 36;
-	const bBishopShdw = 37;
+	const bKingShdw = 35; // bk-shdw.png
+	const bQueenShdw = 36; // bq-shdw.png
+	const bBishopShdw = 37; // bb-shdw.png (BOTH BISHOPS)
 
-	let bKnightShdw;
-	const bRightKnightShdw = 38;
-	const bLeftKnightShdw = 39;
-	const bRookShdw = 40;
-	const bPawnShdw = 41;
+	let bKnightShdw; // SET WITH bKnightImg
+	const bRightKnightShdw = 38; // bn-b8-shdw.png
+	const bLeftKnightShdw = 39; // bn-g8-shdw.png
+	const bRookShdw = 40; // br-shdw.png
+	const bPawnShdw = 41; // bp-shdw.png
 
 	// BLACK REFLECT
-	const bKingRefl = 42;
-	const bQueenRefl = 43;
-	const bBishopRefl = 44;
-	let bKnightRefl;
-	const bRightKnightRefl = 45;
-	const bLeftKnightRefl = 46;
-	const bRookRefl = 47;
-	const bPawnRefl = 48;
+	const bKingRefl = 42; // bk-refl.png
+	const bQueenRefl = 43; // bq-refl.png
+	const bBishopRefl = 44; // bb-refl.png (BOTH BISHOPS)
+	let bKnightRefl; // SET WITH bKnightImg
+	const bRightKnightRefl = 45; // bn-b8-refl.png
+	const bLeftKnightRefl = 46; // bn-g8-refl.png
+	const bRookRefl = 47; // br-refl.png
+	const bPawnRefl = 48; // bp-refl.png
 
 	// UI
-	const moveHighlight = 49;
-	const takeableHighlight = 50;
-	const checkHighlight = 51;
+	const moveHighlight = 49; // move-highlight.png, A SQUARE THE SELECTED PIECE CAN MOVE TO
+	const takeableHighlight = 50; // takeable-highlight.png, A MOVE THAT TAKES A PIECE
+	const checkHighlight = 51; // check-highlight.png, UNDER A KING IN CHECK
 
 	// COFFEE = 52
 	// COFFEE SHDW = 53
@@ -303,6 +323,8 @@ export async function renderCanvas(playerData) {
 	// CANDLE = 56
 	// CANDLE SHDW = 57
 
+	// TABLE PROPS: img2 = IMAGE, shdw = SHADOW, img = OLD STEAM ANIMATION FRAMES (EMPTY)
+	// !NOTE: THE PROP SIZES ARE COMMENTED OUT IN renderBoard(), SO THEY DRAW AT 0 x 0 (HIDDEN) RIGHT NOW
 	let coffeeObj = { img: [], img2: 52, shdw: 53, x: null, y: null, width: null, height: null }
 	let deckObj = { img: [], img2: 54, shdw: 55, x: null, y: null, width: null, height: null }
 	let candleObj = { img: [], img2: 56, shdw: 57, x: null, y: null, width: null, height: null }
@@ -312,9 +334,9 @@ export async function renderCanvas(playerData) {
 	// Check Image Loaded
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description If all images are loaded start game
+	 * @description If all images are loaded start game. Checks once a second, then removes the loading screen (gameContainer)
 	 */
-	const startGameCheck = setInterval(async function () { if (loadedImages == images.length) { 
+	const startGameCheck = setInterval(async function () { if (loadedImages == images.length) {
 		if(document.getElementById('gameContainer')) {document.getElementById('gameContainer').remove();}
 		startGame(); 
 		clearInterval(startGameCheck);
@@ -324,47 +346,48 @@ export async function renderCanvas(playerData) {
 	// Start Game
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description Starts the core game interval loop
+	 * @description Starts the core game interval loop. Loads the game, joins a friend game's socket room, adds the canvas
+	 * to main & runs renderLoop() every frameRate ms. Every game function below lives in here
 	 */
 	async function startGame() {
-		let refreshDataStartTime = Date.now();
-		let coffeeStartTime = Date.now();
-		let renderCoffeeImg = false;
+		let refreshDataStartTime = Date.now(); // LAST TIME THE OPPONENT'S MOVE WAS CHECKED (THE OLD POLLING, THE SOCKET PUSHES MOVES NOW)
+		let coffeeStartTime = Date.now(); // CLOCK OF THE COFFEE STEAM ANIMATION
+		let renderCoffeeImg = false; // THE SCREEN IS WIDE ENOUGH FOR THE TABLE PROPS
 
 		wTakenPieces = setTakenPieceArr("b");
 		bTakenPieces = setTakenPieceArr("w");
 
-		let xPieceOffset; // Width of the tile proportionality to the board width
-		let yPieceOffset; // Height of the tile proportionality to the board height
+		let xPieceOffset; // Width of the tile proportionality to the board width (PIECE IMAGES ARE THIS MUCH WIDER THAN A SQUARE, THEY OVERHANG IT)
+		let yPieceOffset; // Height of the tile proportionality to the board height (PIECES ARE TALLER THAN A SQUARE)
 
-		let xPos;
-		let yPos;
+		let xPos; // TAKEN PIECE TRAY COLUMN (renderTakenPieces)
+		let yPos; // TAKEN PIECE TRAY ROW
 
 		refreshDataStartTime = Date.now();
 		coffeeStartTime = Date.now();
 
-		let overlapSlideObj = null;
+		let overlapSlideObj = null; // THE 3 x 3 SQUARES AROUND A SLIDING PIECE, SO THE PIECES IT PASSES BEHIND ARE DRAWN ON TOP (drawSlideBox)
 
-		let yPositive = false;
-		let xPositive = false;
+		let yPositive = false; // THE SLIDING PIECE IS GOING DOWN THE SCREEN
+		let xPositive = false; // THE SLIDING PIECE IS GOING RIGHT
 
-		cw = 0;
+		cw = 0; // SET BY renderBoard()
 		ch = 0;
 
 		await setInitialData(); // SETS INITIAL DATA
 		handleInitialData(); // HANDLES INITIAL DATA
-		const socketHandlers = { move: checkOpponentMove, gameOver: showGameOver, rematch: loadRematch };
+		const socketHandlers = { move: checkOpponentMove, gameOver: showGameOver, rematch: loadRematch }; // SOCKET EVENT -> HANDLER
 		if (!ai && response?.status == 200) { // FRIEND GAME
 			joinGame(GAME_ID, PLAYER_ID, socketHandlers); // THE SERVER PUSHES MOVES, FORFEITS & REMATCHES (server/socket.js)
 			if (!gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // RESTART IS FORFEIT IN FRIEND GAMES
 		}
 
 
-		canvas.style.backgroundRepeat = "repeat-y";
+		canvas.style.backgroundRepeat = "repeat-y"; // THE TABLE BEHIND THE BOARD
 		canvas.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
 		canvas.style.backgroundSize = "cover";
 		canvas.style.backgroundPosition = "center";
-		window.postMessage({
+		window.postMessage({ // FOR AN APP THAT EMBEDS THE GAME, main.js DOESN'T USE "ready"
 			action: "ready",          		 // Action key.
 			receiptToken: "{receipt-token}", // Receipt validation token.
 		})
@@ -376,34 +399,38 @@ export async function renderCanvas(playerData) {
 		/* ################################################################ */
 		/* ################################################################ */
 
+		/**
+		 * @description Runs every frame (drawInterval). On the AI's turn it asks the server for the AI's move & starts its slide,
+		 * otherwise it draws a frame when something changed (refresh) or a piece is sliding (currSlide)
+		 */
 		async function renderLoop() {
-			const endTime = Date.now();
-			initialAnimation = false;
+			const endTime = Date.now(); // USED BY THE OLD POLLING CHECK AT THE BOTTOM
+			initialAnimation = false; // THE START ANIMATION IS OFF
 			if ((refresh || currSlide) && !boardReset) {
 				try {
 					if (initialAnimation) { renderBoardAnimation(currInst); refresh = true; }
 					else {
 						if (ai && chessInst.turn() != playerColor && aiTurn) { // IF AI
-							revert = response;
-							clearInterval(drawInterval)
+							revert = response; // GO BACK TO THIS IF THE AI MOVE FAILS
+							clearInterval(drawInterval) // NO FRAMES WHILE THE SERVER PICKS THE MOVE
 							moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
 
-							validateState.load(response.game_board);
+							validateState.load(response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
 							validateState.move(moveObj);
-							for (let i = 0; i < tiles.length; i++) {
+							for (let i = 0; i < tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
 								if (tiles[i].square == moveObj.from) {
 									slideStart = true;
 									tiles[i].isSliding = true;
-									if (playerColor == 'w') {
+									if (playerColor == 'w') { // SCREEN COLUMN & ROW OF moveObj.to (a8 IS 0, 0)
 										tiles[i].xSlideTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 										tiles[i].ySlideTo = 8 - moveObj.to.split("")[1];
-									} else if (playerColor == 'b') {
+									} else if (playerColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
 										tiles[i].xSlideTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
 										tiles[i].ySlideTo = moveObj.to.split("")[1] - 1;
 									}
-									tiles[i].xDiff = 0;
+									tiles[i].xDiff = 0; // PIXELS MOVED SO FAR
 									tiles[i].yDiff = 0;
-								} else if (tiles[i].isSliding) {
+								} else if (tiles[i].isSliding) { // STOP ANY OTHER SLIDE
 									tiles[i].isSliding = false;
 									tiles[i].xDiff = 0;
 									tiles[i].yDiff = 0;
@@ -412,10 +439,10 @@ export async function renderCanvas(playerData) {
 							aiTurn = false;
 							currSlide = true;
 							startTime = new Date();
-							drawInterval = setInterval(async function () { await renderLoop() }, frameRate);
+							drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // FRAMES AGAIN, THE SLIDE PLAYS
 							return;
 						}
-						drawScreen();
+						drawScreen(); // DRAW ONE FRAME
 						refresh = false;
 					}
 				} catch (err) { console.log(err); }
@@ -423,7 +450,7 @@ export async function renderCanvas(playerData) {
 			// if ((endTime - refreshDataStartTime > 2000) && !ai) { await checkOpponentMove(); } // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
 		}
 
-		let drawInterval = setInterval(async function () { await renderLoop() }, frameRate);
+		let drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // THE RENDER LOOP, ABOUT 33 FRAMES A SECOND
 
 		/*____________________________________________________________________________________________________________________________*/
 
@@ -437,36 +464,39 @@ export async function renderCanvas(playerData) {
 		// Start Animation
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Animates board from a position
+		 * @description Animates board from a position: every piece slides in from the top left corner to its square.
+		 * !NOTE: NOT USED, renderLoop() SETS initialAnimation TO FALSE BEFORE IT CHECKS IT
+		 * @param  {[array]} inst [8 x 8 board from chessInst.board(), flipped when playing black]
 		 */
 		function renderBoardAnimation(inst) {
 			renderBoard();
 			let index = 0;
-			let totalSlide = 0;
-			let completedSlide = 0;
+			let totalSlide = 0; // PIECES SLIDING IN
+			let completedSlide = 0; // PIECES THAT REACHED THEIR SQUARE
 			for (let i = 0; i < inst.length; i++) { // ROW
 				for (let j = 0; j < inst[i].length; j++, index++) { // COLUMN
 					tiles[index] = { ...inst[i][j], ...tiles[index], x: -1, y: -1 }; // TILE[INDEX] = DECONSTRUCTED ARRAY OF CHESS BOARD ROW/COLUMN, TILE[INDEX] INIT VALUES, X, Y
 					if (inst[i][j]) {
 						tiles[index].isSliding = true;
 						totalSlide += 1;
-						tiles[index].xSlideTo = j;
+						tiles[index].xSlideTo = j; // SLIDES FROM -1, -1 TO ITS SQUARE
 						tiles[index].ySlideTo = i;
 
 						/* ---------------------------------------------------------------- */
 						// Draw image
 						/* ---------------------------------------------------------------- */
 						/**
-						 * @description Draws active piece to canvas
+						 * @description Draws active piece to canvas (start animation): reflection, shadow, then the piece, a step closer to its square each frame
+						 * @param  {[array]} imgArr [image numbers: reflection, shadow, piece]
 						 */
 						async function drawActivePiece(imgArr) {
 							for (let w = 0; w < imgArr.length; w++) {
-								if (w == 0) { ctx.globalAlpha = 0.30; }
-								else if (w == 1) { ctx.globalAlpha = 0.75; }
-								else if (w == 2) { ctx.globalAlpha = 1; }
+								if (w == 0) { ctx.globalAlpha = 0.30; } // REFLECTION
+								else if (w == 1) { ctx.globalAlpha = 0.75; } // SHADOW
+								else if (w == 2) { ctx.globalAlpha = 1; } // PIECE
 
 								if (tiles[index].isSliding) { // IF TILE IS SLIDING
-									const xChange = (frameRate / tileHeight) * 5;
+									const xChange = (frameRate / tileHeight) * 5; // PIXELS MOVED PER FRAME
 									const yChange = (frameRate / tileWidth) * 5;
 									let endTileX;
 									let endTileY;
@@ -495,7 +525,7 @@ export async function renderCanvas(playerData) {
 										else { tiles[index].yDiff = tiles[index].yDiff + yChange }
 									} else { yBool = true } // Y: Zero
 									try {
-										if (xBool && yBool) {
+										if (xBool && yBool) { // ARRIVED: DRAW IT ON ITS SQUARE
 											tiles[index].isSliding = false;
 											ctx.drawImage(images[imgArr[w]].image, ((tiles[index].xSlideTo * tileWidth) + xBoardOff) - xPieceOffset / 2, ((tiles[index].ySlideTo * tileHeight) - yPieceOffset / 2) - ((tileHeight / 10) - yBoardOff), tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 											completedSlide += 1;
@@ -532,7 +562,7 @@ export async function renderCanvas(playerData) {
 									// Draw Knight (Board Animation)
 									/* ---------------------------------------------------------------- */
 									/**
-									 * @description Draws the knight to the board
+									 * @description Draws the knight to the board (start animation), same as Draw Knight (Draw Screen) below
 									 */
 									function drawKnight() {
 										if (pieceColor == 'w') {
@@ -612,7 +642,7 @@ export async function renderCanvas(playerData) {
 					}
 				}
 			}
-			if (completedSlide == totalSlide) { initialAnimation = false; tiles = setTiles(); }
+			if (completedSlide == totalSlide) { initialAnimation = false; tiles = setTiles(); } // EVERY PIECE ARRIVED, THE ANIMATION IS DONE
 		}
 
 
@@ -620,20 +650,22 @@ export async function renderCanvas(playerData) {
 		// Set Initial Board Data
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Sets initial data
+		 * @description Sets initial data. Gets the game from the server & sets the player's color & the board.
+		 * Guests get a new AI game first if they don't have one. If it's the AI's turn its move is asked for here & slid in by renderLoop()
+		 * @return {[boolean]} false [the game couldn't be loaded]
 		 */
 		async function setInitialData() {
-			if (PLAYER_ID == "GUEST_USER") {
+			if (PLAYER_ID == "GUEST_USER") { // OLD GUEST ID: ALWAYS A NEW GAME, THE GUEST IS WHITE ('b' = THE AI'S COLOR)
 				await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, 'b');
-			} else if (PLAYER_ID === GAME_ID && PLAYER_ID && GAME_ID) {
+			} else if (PLAYER_ID === GAME_ID && PLAYER_ID && GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
 				response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false);
-				if (!response?.game_board) { response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, 'b'); }
+				if (!response?.game_board) { response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, 'b'); } // NO GAME YET: NEW GAME VS THE AI
 			}
-			response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false);
+			response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false); // GET THE GAME
 			playerColor = response?.player_color || null;
 			if (response.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
 				opponentColor = response?.opponent_color || false;
-				chessInst.load(response.game_board);
+				chessInst.load(response.game_board); // THE BOARD TO DRAW
 				if (response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 					ai = response.ai;
 					showGameOver(response);
@@ -643,11 +675,11 @@ export async function renderCanvas(playerData) {
 				// NOTE : CONDITONALIZE BACK END TO SUPPORT DETIRMINING AI COLOR OR REAL OPPONENT COLOR
 				// THEN : CONDITIONALIZE BOARD ACCORDINGLY
 
-				if (chessInst.turn() == playerColor) { opposingMove = false; } else { opposingMove = true; }
+				if (chessInst.turn() == playerColor) { opposingMove = false; } else { opposingMove = true; } // LOCK THE BOARD ON THE OPPONENT'S TURN
 				if (response.ai) {
 					ai = true;
 					if (opponentColor == chessInst.turn()) { //PLAY AI MOVE
-						moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
+						moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE (renderLoop ASKS AGAIN, GETS THE SAME MOVE & SLIDES IT IN)
 						tiles = await setTiles();
 						aiTurn = true;
 						refresh = true;
@@ -665,11 +697,13 @@ export async function renderCanvas(playerData) {
 		// Handle Initial Data Response
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Sets drawScreen & gamedata based on player color
+		 * @description Sets drawScreen & gamedata based on player color. Each frame drawScreen() draws the table & board,
+		 * the pieces, the taken piece trays (the promotion picker while promoting), then a light table shadow over everything.
+		 * Black's board is flipped (rows & columns reversed) so the player is always at the bottom
 		 */
 		function handleInitialData() {
 			if (playerColor == "w") { // DRAW SCREEN W
-				currInst = chessInst.board();
+				currInst = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
 				drawScreen = async function () {
 					const boardData = renderBoard();
 					clickX = boardData.clickX;
@@ -680,7 +714,7 @@ export async function renderCanvas(playerData) {
 					if (currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
 						if (playerColor == 'w') { bTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(bTakenPieces, opponentColor); }
 						else if (playerColor == 'b') { wTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(wTakenPieces, opponentColor); }
-					} else {
+					} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
 						wTakenPieces = setTakenPieceArr(playerColor);
 						bTakenPieces = setTakenPieceArr(opponentColor);
 						renderTakenPieces(wTakenPieces, opponentColor);
@@ -691,9 +725,9 @@ export async function renderCanvas(playerData) {
 					ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
 					ctx.globalAlpha = 1;
 				}
-			} else if (playerColor == "b") { // DRAW SCREEN W
-				currInst = chessInst.board().reverse();
-				for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); }
+			} else if (playerColor == "b") { // DRAW SCREEN B
+				currInst = chessInst.board().reverse(); // ROW 0 IS RANK 1
+				for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); } // COLUMN 0 IS THE h FILE
 				drawScreen = async function () {
 					const boardData = renderBoard();
 					clickX = boardData.clickX;
@@ -705,7 +739,7 @@ export async function renderCanvas(playerData) {
 					if (currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
 						if (playerColor == 'w') { bTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(bTakenPieces, opponentColor); }
 						else if (playerColor == 'b') { wTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(wTakenPieces, opponentColor); }
-					} else {
+					} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
 						wTakenPieces = setTakenPieceArr(opponentColor);
 						bTakenPieces = setTakenPieceArr(playerColor);
 						renderTakenPieces(wTakenPieces, playerColor);
@@ -723,7 +757,10 @@ export async function renderCanvas(playerData) {
 		// Draw Board / Set Variables Accordingly
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Initializes draw data which sets positions onto the board
+		 * @description Initializes draw data which sets positions onto the board. Sizes the canvas to the window, picks the
+		 * board size for the screen shape (large, medium, small or portrait), sizes the menu, draws the table shadow & board,
+		 * then works out the squares (bw, bh, xBoardOff, yBoardOff, tileWidth, tileHeight). Resets the piece counts for the frame
+		 * @return {[object]} { clickX, clickY } [pixel position of the square under the mouse, from the board's top left]
 		 */
 		function renderBoard() {
 			cw = window.innerWidth;
@@ -735,17 +772,17 @@ export async function renderCanvas(playerData) {
 			canvas.style.height = `${ch}px`;
 			ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // ALL DRAWING STAYS IN CSS PIXELS
 			portraitBoard = cw < ch;
-			let boardPadding = 1.4;
+			let boardPadding = 1.4; // SCREEN SIZE / BOARD SIZE, BIGGER = SMALLER BOARD
 			boardWidth = cw / boardPadding;
-			boardHeight = (9 * (cw / boardPadding)) / 11;
+			boardHeight = (9 * (cw / boardPadding)) / 11; // THE BOARD IMAGE IS 11:9 (WIDE)
 			// SET MENU ELEMENT SIZING
 
 			const resultDisplay = document.getElementById("resultDisplay");
 			const menuBox = document.getElementById("menuBox");
 			const menuButtons = document.getElementsByClassName("menuButton");
 
-			if ((ch / cw) > .225) {
-				let menuSize = ((ch) * .90);
+			if ((ch / cw) > .225) { // NOT A VERY SHORT, WIDE WINDOW
+				let menuSize = ((ch) * .90); // MENU IS 16:9, SIZED FROM THE SCREEN HEIGHT
 				if (Math.min(cw, ch) < 600) { menuSize = Math.min(ch * 1.9, cw * 2.2); } // SMALL (MOBILE) SCREENS: GROW MENU TO FIT THE SCREEN SO BUTTONS ARE TAPPABLE
 				menu.style.width = `${Math.min(menuSize, cw)}px`; // CONTAINER NEVER WIDER / TALLER THAN THE SCREEN, MOBILE BROWSERS ZOOM OUT TO FIT OVERFLOW
 				menu.style.height = `${Math.min(9 * (menuSize) / 16, ch)}px`;
@@ -763,7 +800,7 @@ export async function renderCanvas(playerData) {
 
 			let widthOverHeight, smBoard = false;
 			if (canvas.width) { // ASPECT RATIO OF BOARD WITH MARBLE IF CANVAS WIDTH > HEIGHT
-				if (cw > ch * (boardPadding - 0.2)) {
+				if (cw > ch * (boardPadding - 0.2)) { // LANDSCAPE: THE HEIGHT SIZES THE BOARD
 					widthOverHeight = true;
 					boardHeight = ch / boardPadding;
 					boardWidth = (11 * (ch / boardPadding)) / 9;
@@ -787,7 +824,7 @@ export async function renderCanvas(playerData) {
 						boardHeight = ch / boardPadding;
 						boardWidth = (11 * (ch / boardPadding)) / 9;
 					}
-				} else {
+				} else { // NARROW: THE WIDTH SIZES THE BOARD, TAKEN PIECES GO ABOVE & BELOW IT
 					renderCoffeeImg = false;
 					widthGreater = false;
 					if (portraitBoard) { // PORTRAIT (MOBILE) BOARD: FILL THE WIDTH, LEAVING HEIGHT FOR THE TAKEN PIECE ROWS ABOVE & BELOW
@@ -811,16 +848,17 @@ export async function renderCanvas(playerData) {
 			tileWidth = bw / 8;
 			tileHeight = bh / 8;
 
-			xPieceOffset = bw / 5.75;
+			xPieceOffset = bw / 5.75; // PIECE IMAGES ARE A SQUARE PLUS THIS, CENTERED ON THE SQUARE
 			yPieceOffset = bh / 4.25;
 
-			let clickX = tileX * tileWidth;
+			let clickX = tileX * tileWidth; // SQUARE UNDER THE MOUSE IN PIXELS
 			let clickY = tileY * tileHeight;
-			wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF TAKEN PIECES ON THE BOARD FOR WHITE
-			bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF TAKEN PIECES ON THE BOARD FOR BLACK
+			wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF THE PIECES ON THE BOARD FOR WHITE, COUNTED AS THEY'RE DRAWN (TAKEN = START COUNT - THIS)
+			bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF THE PIECES ON THE BOARD FOR BLACK
 
 			if (widthOverHeight) {
 				/* Board Extras */
+				// !NOTE: THE PROP SIZES & POSITIONS ARE COMMENTED OUT, SO THE COFFEE, CARDS & CANDLE DRAW AT 0 x 0 (HIDDEN)
 				// coffeeObj.height = tileHeight * 3.5;
 				// coffeeObj.width = (9 * coffeeObj.height) / 10;
 				// coffeeObj.x = ((cw - xBoardStart) + coffeeObj.width / 8);
@@ -846,7 +884,7 @@ export async function renderCanvas(playerData) {
 				}
 			}
 
-			if (renderCoffeeImg) {
+			if (renderCoffeeImg) { // TABLE PROPS ON WIDE SCREENS
 				renderCoffee();
 				ctx.drawImage(images[deckObj.shdw].image, deckObj.x, deckObj.y, deckObj.width, deckObj.height);
 				ctx.drawImage(images[deckObj.img2].image, deckObj.x, deckObj.y, deckObj.width, deckObj.height);
@@ -861,13 +899,20 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @param [inst] A object array which reperesents the current game board to be rendered
-		 * @description Renders game data based on input params
+		 * @description Renders game data based on input params. Goes through the board one square at a time (row by row,
+		 * index = row * 8 + column) & draws its piece: a held piece follows the mouse, a clicked piece sits lifted where it was
+		 * dropped, the rest sit on their square. Also draws the selected piece's legal moves, slides a moving piece toward its
+		 * new square & draws the pieces it passes behind again on top (drawSlideBox)
+		 * @param  {[number]} clickX [pixel x of the square under the mouse, from renderBoard()]
+		 * @param  {[number]} clickY [pixel y of the square under the mouse]
+		 * @param  {[boolean]} lightObstruction [true draws the reflections & shadows]
 		 */
 		function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
-			let x, y;
-			let index = 0;
+			let x, y; // WHERE THIS SQUARE'S PIECE IS DRAWN (PIXELS)
+			let index = 0; // TILE BEING DRAWN, COUNTS UP WITH THE LOOP (THE FUNCTIONS BELOW READ IT)
 
 			/* ################################################################ */
+			// TV REMOTE SELECT BOX (TURNED OFF)
 			// if (!remoteNavBox.menuHover && !menuToggled && TV_BOOL || OVERRIDE_TV) {  ctx.drawImage(images[checkHighlight].image, remoteNavBox.x * tileWidth + xBoardOff, (remoteNavBox.y * tileHeight - tileHeight / 10 + yBoardOff), tileWidth, tileHeight);  }
 			/* ################################################################ */
 
@@ -876,17 +921,17 @@ export async function renderCanvas(playerData) {
 					tiles[index] = { ...inst[i][j], ...tiles[index], x: j, y: i }; // TILE[INDEX] = DECONSTRUCTED ARRAY OF CHESS BOARD ROW/COLUMN, TILE[INDEX] INIT VALUES, X, Y
 					if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
 						if (tiles[index].isMousedown) { // IF MOUSEDOWN SET PIECE TO MOUSE POSITION
-							if (mouseDownCount > 3) { tiles[index].isClicked = true; } else { mouseDownCount += 1; }
+							if (mouseDownCount > 3) { tiles[index].isClicked = true; } else { mouseDownCount += 1; } // HELD FOR MORE THAN 3 FRAMES = A DRAG, THE CLICK HANDLER DROPS IT
 							tiles[index].x = tileX;
 							tiles[index].y = tileY;
 							x = clickX + xBoardOff;
-							y = clickY - tileHeight / 5 + yBoardOff;
+							y = clickY - tileHeight / 5 + yBoardOff; // LIFTED (A FIFTH OF A SQUARE UP)
 						} else if (tiles[index].isClicked) { // IF CLICKED
 							x = tiles[index].x * tileWidth + xBoardOff;
-							y = tiles[index].y * tileHeight - tileHeight / 5 + yBoardOff;
+							y = tiles[index].y * tileHeight - tileHeight / 5 + yBoardOff; // LIFTED
 						} else { // IF CLICKED IS FALSE SET PIECE BASED ON POSITION DEFINED BY FEN
 							x = tiles[index].x * tileWidth + xBoardOff;
-							y = tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff;
+							y = tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff; // RESTING PIECES SIT A TENTH OF A SQUARE UP SO THEIR BASE IS ON THE SQUARE
 						}
 					}
 
@@ -894,14 +939,22 @@ export async function renderCanvas(playerData) {
 					// Check & Render Available Moves
 					/* ---------------------------------------------------------------- */
 					/**
-					 * @description Renders Emply possible pieces moves & pressured piece moves
+					 * @description Renders Emply possible pieces moves & pressured piece moves. When this square is a legal move of the
+					 * selected piece it gets a move highlight (a takeable highlight if the move takes a piece). If the held piece is over
+					 * this square, the piece is drawn here as a preview
 					 */
 					function checkAvailableMoves() {
 						/* ---------------------------------------------------------------- */
 						// Draw Tiles (Available Moves)
 						/* ---------------------------------------------------------------- */
 						/**
-						 * @description Draws Tiles to Canvas
+						 * @description Draws Tiles to Canvas. Draws the held piece on the legal square under the mouse (the drop preview),
+						 * knights face left while the mouse moves left. Counts the piece, the main loop skips it
+						 * @param  {[object]} tile [the held tile]
+						 * @param  {[string]} pieceType [chess.js type 'k', 'q', 'b', 'n', 'r', 'p']
+						 * @param  {[string]} pieceColor ['w' | 'b']
+						 * @param  {[number]} x [pixel x]
+						 * @param  {[number]} y [pixel y]
 						 */
 						function drawTiles(tile, pieceType, pieceColor, x, y) {
 							if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
@@ -939,26 +992,26 @@ export async function renderCanvas(playerData) {
 
 						if ((clickedTile || mousedownTile) && !currSlide) { // MOVES FOR PIECE TOGGLED BY USER
 							let xLet;
-							let piecePos;
+							let piecePos; // THIS SQUARE'S NAME (e4)
 							if (playerColor == 'w') {
 								xLet = String.fromCharCode(97 + j);
 								piecePos = `${xLet}${8 - i}`
-							} else if (playerColor == 'b') {
+							} else if (playerColor == 'b') { // FLIPPED BOARD
 								xLet = String.fromCharCode(96 + (8 - j));
 								piecePos = `${xLet}${i + 1}`
 							}
-							let tile;
+							let tile; // THE SELECTED PIECE, A HELD PIECE COMES FIRST
 							if (mousedownTile) { tile = mousedownTile }
 							else if (clickedTile) { tile = clickedTile }
 
-							if (availableMovesData.piece == tile.type && availableMovesData.square == tile.square) { }
+							if (availableMovesData.piece == tile.type && availableMovesData.square == tile.square) { } // SAME PIECE AS BEFORE, KEEP ITS MOVES
 							else {
 								availableMovesData = { piece: tile.type, square: tile.square }
 								availableMoves = chessInst.moves({ piece: tile.type, square: tile.square, verbose: true });
 							}
-							for (let r = 0; r < availableMoves.length; r++) { // RENDER ALL POSSIBLE MOVES 
-								if (availableMoves[r].to == piecePos) {
-									let xAvailInt;
+							for (let r = 0; r < availableMoves.length; r++) { // RENDER ALL POSSIBLE MOVES
+								if (availableMoves[r].to == piecePos) { // THIS SQUARE IS A LEGAL MOVE
+									let xAvailInt; // SCREEN COLUMN & ROW OF THE MOVE
 									let yAvailInt;
 
 									if (playerColor == 'w') {
@@ -971,7 +1024,7 @@ export async function renderCanvas(playerData) {
 
 									let availX = xAvailInt * tileWidth + xBoardOff;
 									let availY = yAvailInt * tileHeight - tileHeight / 10 + yBoardOff;
-									for (let a = 0; a < availableMoves.length; a++) {
+									for (let a = 0; a < availableMoves.length; a++) { // CLEARS THE HELD PIECE'S PREVIEW SQUARE WHEN THE MOUSE ISN'T ON ANY LEGAL MOVE
 										let xAvailInt;
 										let yAvailInt;
 										if (playerColor == 'w') {
@@ -988,7 +1041,7 @@ export async function renderCanvas(playerData) {
 										ctx.globalAlpha = 0.50;
 										ctx.drawImage(images[takeableHighlight].image, availX, availY, tileWidth, tileHeight);
 										ctx.globalAlpha = 1.00;
-										if (tileX == xAvailInt && tileY == yAvailInt && mousedownTile) {
+										if (tileX == xAvailInt && tileY == yAvailInt && mousedownTile) { // THE HELD PIECE IS OVER THIS MOVE: DRAW IT HERE (PREVIEW)
 											tile.xAvailInt = xAvailInt;
 											tile.yAvailInt = yAvailInt;
 											const pieceType = tile.type
@@ -997,11 +1050,11 @@ export async function renderCanvas(playerData) {
 											let y = yAvailInt * tileHeight - tileHeight / 6 + yBoardOff;
 											drawTiles(tile, pieceType, pieceColor, x, y);
 										}
-									} else {
+									} else { // RENDERS TILE WHICH CAN BE MOVED TO
 										ctx.globalAlpha = 0.50;
 										ctx.drawImage(images[moveHighlight].image, availX, availY, tileWidth, tileHeight);
 										ctx.globalAlpha = 1.00;
-										if (tileX == xAvailInt && tileY == yAvailInt && mousedownTile) {
+										if (tileX == xAvailInt && tileY == yAvailInt && mousedownTile) { // THE HELD PIECE IS OVER THIS MOVE: DRAW IT HERE (PREVIEW)
 											tile.xAvailInt = xAvailInt;
 											tile.yAvailInt = yAvailInt;
 											const pieceType = tile.type
@@ -1016,7 +1069,7 @@ export async function renderCanvas(playerData) {
 						}
 					}
 
-					if (!currPromotion && !opposingMove) { checkAvailableMoves() }
+					if (!currPromotion && !opposingMove) { checkAvailableMoves() } // ONLY ON THE PLAYER'S TURN
 
 
 					// /* ---------------------------------------------------------------- */
@@ -1025,9 +1078,19 @@ export async function renderCanvas(playerData) {
 					// /**
 					//  * @description Draws active piece to canvas
 					//  */
+					/**
+					 * @description Draws active piece to canvas: the reflection (30%), shadow (75%) & piece, in that order. Held, clicked
+					 * & hovered pieces are a little see through. A sliding piece moves a step toward its new square each frame & when it
+					 * arrives the move is sent (the player's) or finished (the opponent's). Knights hop over the board while they slide.
+					 * !NOTE: IT'S ASYNC & READS tiles[index], SO AFTER AN AWAIT index HAS MOVED ON & tiles MAY BE A NEW ARRAY (refreshData)
+					 * @param  {[array]} imgArr [image numbers: reflection, shadow, piece]
+					 * @param  {[number]} x [pixel x, when not sliding]
+					 * @param  {[number]} y [pixel y, when not sliding]
+					 * @param  {[boolean]} opacity [false = always solid (a clicked piece back on its own square, the drop preview)]
+					 */
 					async function drawActivePiece(imgArr, x, y, opacity) {
-						let completeSlide = false;
-						for (let w = 0; w < imgArr.length; w++) {
+						let completeSlide = false; // THE SLIDE REACHED ITS SQUARE THIS FRAME
+						for (let w = 0; w < imgArr.length; w++) { // w: 0 REFLECTION, 1 SHADOW, 2 PIECE
 							if ((tiles[index].isMousedown || tiles[index].isClicked || tiles[index].isHovering) && opacity && !tiles[index].isSliding) { ctx.globalAlpha = 0.85 }
 							if (w == 0) { ctx.globalAlpha = 0.30 }
 							else if (w == 1) { ctx.globalAlpha = 0.75 }
@@ -1042,13 +1105,18 @@ export async function renderCanvas(playerData) {
 								// /**
 								//  * @description Tracks the position of the piece that's sliding which allows for a rerender once all the pieces are rendered to the board
 								//  */
+								/**
+								 * @description Tracks the position of the piece that's sliding which allows for a rerender once all the pieces are rendered
+								 * to the board. Sets slidePos (the square it's crossing, in white's file letters) & its direction (xPositive = right,
+								 * yPositive = down). Only diagonal slides overlap other pieces, straight slides & rooks turn slideOverlap off
+								 */
 								function trackSlidePosition() {
 									let xLet;
-									let xChange = 0;
-									let yChange = 0;
+									let xChange = 0; // SCREEN COLUMN BEING CROSSED
+									let yChange = 0; // SCREEN ROW BEING CROSSED
 									yPositive = false
 									xPositive = false
-									if (tiles[index].type == 'r') {
+									if (tiles[index].type == 'r') { // ROOKS SKIP THE OVERLAP REDRAW
 										slideOverlap = false;
 									} else if (tiles[index].xSlideTo > tiles[index].x) {
 										xPositive = true;
@@ -1104,23 +1172,26 @@ export async function renderCanvas(playerData) {
 
 								trackSlidePosition();
 
-								let xChange = (tileWidth / frameRate) * 3.48513659;
+								let xChange = (tileWidth / frameRate) * 3.48513659; // PIXELS MOVED PER FRAME, ABOUT 9 FRAMES PER SQUARE
 								let yChange = (tileHeight / frameRate) * 3.48513659;
 
-								let endTileX;
-								let endTileY;
-								let xBool = false;
-								let yBool = false;
+								let endTileX; // SQUARES TO GO ACROSS
+								let endTileY; // SQUARES TO GO UP OR DOWN
+								let xBool = false; // ARRIVED ACROSS
+								let yBool = false; // ARRIVED UP OR DOWN
+								// THE SLIDE MOVES ON THE REFLECTION LAYER (w == 0), THE SHADOW & PIECE ARE DRAWN AT THE SAME SPOT
 								// X
 
 								if (tiles[index].xSlideTo > tiles[index].x && w == 0) { // X: Greater
 									endTileX = tiles[index].xSlideTo - tiles[index].x;
-									if (Math.floor((tiles[index].x * tileWidth) + tiles[index].xDiff) == Math.floor((tiles[index].x * tileWidth) + (tileWidth * endTileX))) {
+									if (Math.floor((tiles[index].x * tileWidth) + tiles[index].xDiff) == Math.floor((tiles[index].x * tileWidth) + (tileWidth * endTileX))) { // ARRIVED
 										xBool = true
-									} else if (((tiles[index].x * tileWidth) + (tiles[index].xDiff + xChange)) >= ((tiles[index].x * tileWidth) + (tileWidth * endTileX))) {
+									} else if (((tiles[index].x * tileWidth) + (tiles[index].xDiff + xChange)) >= ((tiles[index].x * tileWidth) + (tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
 										const remainder = (tiles[index].x * tileWidth) + tiles[index].xDiff - ((tiles[index].x * tileWidth) + (tileWidth * endTileX));
 										tiles[index].xDiff = tiles[index].xDiff - remainder;
 									} else {
+										// KNIGHTS MOVE TWICE AS FAST ALONG THEIR LONG SIDE SO BOTH SIDES FINISH TOGETHER
+										// !NOTE: endTileY IS SET BELOW (Y), SO HERE IT'S STILL UNDEFINED & ONLY THE Y SIDE EVER DOUBLES
 										if (tiles[index].type.match(/[n]/) && (endTileX > endTileY)) {
 											tiles[index].xDiff = tiles[index].xDiff + (xChange * 2);
 										} // KNIGHT SLIDE
@@ -1128,9 +1199,9 @@ export async function renderCanvas(playerData) {
 									}
 								} else if (tiles[index].xSlideTo < tiles[index].x && w == 0) { // X: Less
 									endTileX = tiles[index].x - tiles[index].xSlideTo;
-									if (Math.floor((tiles[index].x * tileWidth) + tiles[index].xDiff) == Math.floor((tiles[index].x * tileWidth) - (tileWidth * endTileX))) {
+									if (Math.floor((tiles[index].x * tileWidth) + tiles[index].xDiff) == Math.floor((tiles[index].x * tileWidth) - (tileWidth * endTileX))) { // ARRIVED
 										xBool = true
-									} else if (((tiles[index].x * tileWidth) + (tiles[index].xDiff - xChange)) <= ((tiles[index].x * tileWidth) - (tileWidth * endTileX))) {
+									} else if (((tiles[index].x * tileWidth) + (tiles[index].xDiff - xChange)) <= ((tiles[index].x * tileWidth) - (tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
 										const remainder = (((tiles[index].x * tileWidth) + tiles[index].xDiff) - ((tiles[index].x * tileWidth) - (tileWidth * endTileX)));
 										tiles[index].xDiff = tiles[index].xDiff - remainder;
 									} else {
@@ -1140,12 +1211,12 @@ export async function renderCanvas(playerData) {
 										else { tiles[index].xDiff = tiles[index].xDiff - xChange; }
 									}
 								} else if (w == 0) { xBool = true } // X: Zero
-								// Y
+								// Y (yDiff IS SUBTRACTED, SO GOING DOWN THE SCREEN MAKES IT NEGATIVE)
 								if (tiles[index].ySlideTo > tiles[index].y && w == 0) { // Y: Greater
 									endTileY = tiles[index].ySlideTo - tiles[index].y;
-									if (Math.floor((tiles[index].y * tileHeight) - tiles[index].yDiff) == Math.floor((tiles[index].y * tileHeight) + (tileHeight * endTileY))) {
+									if (Math.floor((tiles[index].y * tileHeight) - tiles[index].yDiff) == Math.floor((tiles[index].y * tileHeight) + (tileHeight * endTileY))) { // ARRIVED
 										yBool = true;
-									} else if (((tiles[index].y * tileHeight) - (tiles[index].yDiff - yChange)) >= ((tiles[index].y * tileHeight) + (tileHeight * endTileY))) {
+									} else if (((tiles[index].y * tileHeight) - (tiles[index].yDiff - yChange)) >= ((tiles[index].y * tileHeight) + (tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
 										const remainder = (((tiles[index].y * tileHeight) + (tileHeight * endTileY)) - ((tiles[index].y * tileHeight) - tiles[index].yDiff));
 										tiles[index].yDiff = tiles[index].yDiff - remainder;
 									} else {
@@ -1156,9 +1227,9 @@ export async function renderCanvas(playerData) {
 									}
 								} else if (tiles[index].ySlideTo < tiles[index].y && w == 0) { // Y: Less
 									endTileY = tiles[index].y - tiles[index].ySlideTo;
-									if (Math.floor((tiles[index].y * tileHeight) - tiles[index].yDiff) == Math.floor((tiles[index].y * tileHeight) - (tileHeight * endTileY))) {
+									if (Math.floor((tiles[index].y * tileHeight) - tiles[index].yDiff) == Math.floor((tiles[index].y * tileHeight) - (tileHeight * endTileY))) { // ARRIVED
 										yBool = true
-									} else if (((tiles[index].y * tileHeight) - (tiles[index].yDiff + yChange)) <= ((tiles[index].y * tileHeight) - (tileHeight * endTileY))) {
+									} else if (((tiles[index].y * tileHeight) - (tiles[index].yDiff + yChange)) <= ((tiles[index].y * tileHeight) - (tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
 										const remainder = (((tiles[index].y * tileHeight) - (tileHeight * endTileY)) - ((tiles[index].y * tileHeight) - tiles[index].yDiff));
 										tiles[index].yDiff = tiles[index].yDiff - remainder;
 									} else {
@@ -1172,9 +1243,11 @@ export async function renderCanvas(playerData) {
 
 								try {
 									// GET BOTH PIECES IN THE TILES ARRAY
+									// overlapSlideObj = THE NAMES OF THE 3 x 3 SQUARES AROUND slidePos (y2x2 IS THE SLIDING PIECE'S OWN SQUARE),
+									// drawSlideBox() REDRAWS THE PIECES ON THEM THAT SHOULD BE IN FRONT OF THE SLIDING PIECE
 									if (slideOverlap && slidePos) {
-										let xPos;
-										let yPos;
+										let xPos; // FILE NUMBER OF slidePos (a = 0)
+										let yPos; // RANK OF slidePos
 										let y1x1, y1x2, y1x3, y2x1, y2x2, y2x3, y3x1, y3x2, y3x3 = null;
 
 										if (playerColor == 'w') {
@@ -1202,7 +1275,7 @@ export async function renderCanvas(playerData) {
 											overlapSlideObj = { y1x1, y1x2, y1x3, y2x1, y2x2, y2x3, y3x1, y3x2, y3x3 }
 										}
 
-										else if (playerColor == 'b') {
+										else if (playerColor == 'b') { // FLIPPED BOARD: TURN slidePos (WHITE'S LETTERS) INTO BLACK'S SQUARE NAMES
 											xPos = (8 - (slidePos.split("")[0].charCodeAt(0) - 97))
 											yPos = 9 - Number(slidePos.split("")[1])
 
@@ -1229,30 +1302,30 @@ export async function renderCanvas(playerData) {
 										}
 									}
 
-									if (xBool && yBool) { completeSlide = true; }
+									if (xBool && yBool) { completeSlide = true; } // ARRIVED BOTH WAYS
 
 									if (tiles[index].type.match(/[n]/)) { // KNIGHT SLIDE
-										if ((w == 0 || w == 1) && lightObstruction) {
+										if ((w == 0 || w == 1) && lightObstruction) { // REFLECTION & SHADOW STAY ON THE BOARD, SHIFTED A FIFTH OF A SQUARE LEFT
 											ctx.drawImage(images[imgArr[w]].image, ((((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2) - tileWidth / 5, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2), tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 										} // DRAW SHADOW OF KNIGHT
-										else if (w == 2) { // DRAW PIECE
-											if (slideStart == true) {
+										else if (w == 2) { // DRAW PIECE, HALF A SQUARE UP WHILE IT HOPS
+											if (slideStart == true) { // FIRST FRAME: LIFT THE KNIGHT & PAUSE 100MS
 												ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset); // DRAW KNIGHT AS WITH STOP
 												currSlide = false; // SO THE TIMEOUT STOPS THE ANIMATION
 												slideStart = false;
 												setTimeout(function () { currSlide = true; }, 100) // SO THE TIMEOUT RESTARTS THE ANIMATION
 												slideStart = false;
 											} else {
-												if (completeSlide) {
+												if (completeSlide) { // LANDED: DRAW IT ON THE SQUARE & FINISH THE MOVE
 													tiles[index].isSliding = null;
 													ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2), tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 													if (tiles[index].color == playerColor) {
-														await updateUserStateSlide(index);
+														await updateUserStateSlide(index); // SENDS THE PLAYER'S MOVE
 													}
 													else if (tiles[index].color == opponentColor) {
-														await updateOpponentStateSlide(index);
+														await updateOpponentStateSlide(index); // FINISHES THE OPPONENT'S MOVE
 													}
-												} else {
+												} else { // IN THE AIR
 													ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 												}
 											} // DRAW KNIGHT AS USUAL
@@ -1262,14 +1335,14 @@ export async function renderCanvas(playerData) {
 											ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, ((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 										} else if (w == 2) {
 											ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, ((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
-											if (completeSlide) {
+											if (completeSlide) { // ARRIVED: FINISH THE MOVE
 												tiles[index].isSliding = null;
 												if (tiles[index].color == playerColor) {
 													setTimeout(function () { })
-													await updateUserStateSlide(index);
+													await updateUserStateSlide(index); // SENDS THE PLAYER'S MOVE
 												}
 												else if (tiles[index].color == opponentColor) {
-													await updateOpponentStateSlide(index);
+													await updateOpponentStateSlide(index); // FINISHES THE OPPONENT'S MOVE
 												}
 											}
 										}
@@ -1284,22 +1357,22 @@ export async function renderCanvas(playerData) {
 									ctx.drawImage(images[imgArr[w]].image, x - xPieceOffset / 2, y - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 								}
 							} // DRAWING IMAGE WITH SLIDING FALSE
-							if (((tiles[index]?.isMousedown || null || tiles[index]?.isClicked || null || tiles[index]?.isHovering || null) && opacity && !tiles[index]?.isSliding || null) || w == 0 || w == 1) { ctx.globalAlpha = 1 }
+							if (((tiles[index]?.isMousedown || null || tiles[index]?.isClicked || null || tiles[index]?.isHovering || null) && opacity && !tiles[index]?.isSliding || null) || w == 0 || w == 1) { ctx.globalAlpha = 1 } // BACK TO SOLID FOR THE NEXT LAYER
 						}
 					}
 
 					if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
-						tiles[index].originX = j;
+						tiles[index].originX = j; // THE PIECE'S OWN SQUARE (x, y FOLLOW THE MOUSE WHILE IT'S HELD)
 						tiles[index].originY = i;
 						const pieceType = inst[i][j].type;
 						const pieceColor = inst[i][j].color;
-						if (!currPromotion) {
+						if (!currPromotion) { // NO PIECES ON THE BOARD WHILE THE PROMOTION PICKER IS UP
 							if (!(mousedownTile.xAvailInt == tiles[index].x && mousedownTile.yAvailInt == tiles[index].y)) { // IF A MOUSE DOWN TILE IS ON AVAILABLE MOVE TILE RENDERING OF THE PIECE FALLS ON THE RESPONSIBILITY OF "checkAvailableMoves()"
 								let opacity = true
 								if (tiles[index].isClicked && (tiles[index].x == tiles[index].originX && tiles[index].y == tiles[index].originY)) { opacity = false } // IF TILE IS IN ORIGINAL POSITION SET OPACITY TO FALSE
 								if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
 									if (pieceColor == "w") {
-										if (chessInst.isCheck() && pieceColor == chessInst.turn()) {
+										if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
 											ctx.globalAlpha = 0.70;
 											ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
 											ctx.globalAlpha = 1.00;
@@ -1308,7 +1381,7 @@ export async function renderCanvas(playerData) {
 										wPieceCount.king++;
 									}
 									else if (pieceColor == "b") {
-										if (chessInst.isCheck() && pieceColor == chessInst.turn()) {
+										if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
 											ctx.globalAlpha = 0.70;
 											ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
 											ctx.globalAlpha = 1.00;
@@ -1320,7 +1393,7 @@ export async function renderCanvas(playerData) {
 									if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, opacity); wPieceCount.queen++; }
 									else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, opacity); bPieceCount.queen++; }
 								} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
-									if (pieceColor == "w") {
+									if (pieceColor == "w") { // THE IMAGE GOES BY THE COLOR OF THE BISHOP'S SQUARE
 										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, opacity); wPieceCount.bishop++; }
 										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, opacity); wPieceCount.bishop++; }
 									} else if (pieceColor == "b") {
@@ -1332,11 +1405,12 @@ export async function renderCanvas(playerData) {
 									// Draw Knight (Draw Screen)
 									/* ---------------------------------------------------------------- */
 									/**
-									 * @description Draws the knight to the board
+									 * @description Draws the knight to the board with the image the loops below picked (wKnightImg / bKnightImg).
+									 * While the player holds their knight it faces the way it's dragged (left or right of its square)
 									 */
 									function drawKnight() {
 										if (pieceColor == 'w') {
-											if (tiles[index].isMousedown) {
+											if (tiles[index].isMousedown) { // HELD: FACE THE WAY IT'S DRAGGED
 												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
 												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
 												else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
@@ -1349,22 +1423,24 @@ export async function renderCanvas(playerData) {
 											} else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
 										}
 									}
+									// WHICH WAY A KNIGHT FACES COMES FROM THE SERVER'S KNIGHT LIST (w_knight / b_knight):
+									// { from, to } OF EACH KNIGHT'S LAST MOVE, from IS null BEFORE IT MOVES & BOTH ARE null ONCE IT'S TAKEN
 									if (pieceColor == "w") {
-										let xFrom;
-										let xTo;
+										let xFrom; // FILE IT CAME FROM (a = 0)
+										let xTo; // FILE IT WENT TO
 										for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
-											if (tiles[index].isSliding) {
+											if (tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
 												if (playerColor == 'w') {
 													xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-												} else if (playerColor == 'b') {
+												} else if (playerColor == 'b') { // SAME AS WHITE, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
 													xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 												}
 												handleKnightDirectionW(xFrom, xTo);
 												drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity);
 												break;
-											} else if (JSON.parse(response.w_knight)[n].from && (JSON.parse(response.w_knight)[n].to == tiles[index].square)) {
+											} else if (JSON.parse(response.w_knight)[n].from && (JSON.parse(response.w_knight)[n].to == tiles[index].square)) { // THIS KNIGHT HAS MOVED: FACE THE WAY ITS LAST MOVE WENT
 												if (playerColor == 'w') {
 													xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 													xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
@@ -1375,7 +1451,7 @@ export async function renderCanvas(playerData) {
 												handleKnightDirectionW(xFrom, xTo);
 												drawKnight();
 												break;
-											} else if (JSON.parse(response.w_knight)[n].from == null && JSON.parse(response.w_knight)[n].to) {
+											} else if (JSON.parse(response.w_knight)[n].from == null && JSON.parse(response.w_knight)[n].to) { // HASN'T MOVED: b1 FACES RIGHT & g1 LEFT (TOWARD THE MIDDLE), FLIPPED WHEN PLAYING BLACK
 												if (playerColor == 'w') {
 													if (JSON.parse(response.w_knight)[n].to == 'b1' && tiles[index].square == 'b1') { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 													else if (JSON.parse(response.w_knight)[n].to == tiles[index].square) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
@@ -1387,21 +1463,21 @@ export async function renderCanvas(playerData) {
 										}
 										wPieceCount.knight++;
 									} else if (pieceColor == "b") {
-										let xFrom;
-										let xTo;
+										let xFrom; // SCREEN COLUMN IT CAME FROM
+										let xTo; // SCREEN COLUMN IT WENT TO
 										for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
-											if (tiles[index].isSliding) {
+											if (tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
 												if (playerColor == 'w') {
 													xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-												} else if (playerColor == 'b') {
+												} else if (playerColor == 'b') { // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
 													xFrom = 8 - (moveObj.from.split("")[0].charCodeAt(0) - 96);
 													xTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
 												}
 												handleKnightDirectionB(xFrom, xTo);
 												drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity);
 												break;
-											} else if (JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == tiles[index].square) {
+											} else if (JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == tiles[index].square) { // THIS KNIGHT HAS MOVED: FACE THE WAY ITS LAST MOVE WENT
 												if (playerColor == 'w') {
 													xFrom = JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 													xTo = JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
@@ -1412,7 +1488,7 @@ export async function renderCanvas(playerData) {
 												handleKnightDirectionB(xFrom, xTo);
 												drawKnight();
 												break;
-											} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) {
+											} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) { // HASN'T MOVED: b8 FACES RIGHT & g8 LEFT FROM WHITE'S SIDE, FLIPPED WHEN PLAYING BLACK
 												if (playerColor == 'w') {
 													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
@@ -1442,7 +1518,10 @@ export async function renderCanvas(playerData) {
 			// Draw Slide Box
 			/* ---------------------------------------------------------------- */
 			/**
-			 * @description Handles pieceObj which draws piece over board render
+			 * @description Handles pieceObj which draws piece over board render. Draws a piece's image again on top of the frame
+			 * (no shadow or reflection), so a sliding piece looks like it passes behind the pieces in front of it.
+			 * A sliding knight is drawn on top of everything (it hops over them)
+			 * @param  {[object]} pieceObj [tile of the piece to draw again]
 			 */
 			function drawSlideBox(pieceObj) {
 				// CHECK ABOVE OR BELOW FIRST
@@ -1470,11 +1549,12 @@ export async function renderCanvas(playerData) {
 					// Draw Knight (Draw Slide Box)
 					/* ---------------------------------------------------------------- */
 					/**
-					 * @description Draws the knight to the board
+					 * @description Draws the knight to the board (image only), half a square up while it's hopping.
+					 * The loops below pick its facing the same way as Draw Knight (Draw Screen)
 					 */
 					function drawKnight() {
 						if (pieceColor == 'w') {
-							if (pieceObj.isSliding) {
+							if (pieceObj.isSliding) { // HOPPING
 								ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 							} else {
 								ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
@@ -1487,7 +1567,7 @@ export async function renderCanvas(playerData) {
 							}
 						}
 					}
-					if (pieceColor == "w") {
+					if (pieceColor == "w") { // SAME FACING RULES AS THE BOARD: THIS MOVE WHILE SLIDING, ELSE ITS LAST MOVE, ELSE ITS START SQUARE
 						let xFrom;
 						let xTo;
 						for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
@@ -1577,8 +1657,8 @@ export async function renderCanvas(playerData) {
 				}
 			}
 
-			if (currSlide && overlapSlideObj) {
-				for (let q = 0; q < tiles.length; q++) {
+			if (currSlide && overlapSlideObj) { // A SLIDE IS PASSING OTHER PIECES: DRAW THE ONES IN FRONT OF IT AGAIN
+				for (let q = 0; q < tiles.length; q++) { // SWAP EACH SQUARE NAME FOR THE TILE ON IT (SQUARES WITH NO PIECE STAY A NAME)
 					if (tiles[q].square == overlapSlideObj.y1x1 && tiles[q].type) { overlapSlideObj.y1x1 = tiles[q] }
 					else if (tiles[q].square == overlapSlideObj.y1x2 && tiles[q].type) { overlapSlideObj.y1x2 = tiles[q] }
 					else if (tiles[q].square == overlapSlideObj.y1x3 && tiles[q].type) { overlapSlideObj.y1x3 = tiles[q] }
@@ -1590,6 +1670,11 @@ export async function renderCanvas(playerData) {
 					else if (tiles[q].square == overlapSlideObj.y3x3 && tiles[q].type) { overlapSlideObj.y3x3 = tiles[q] }
 				}
 
+				/**
+				 * @description Draws the pieces below a square on screen again, one square at a time down the column
+				 * (lower pieces are closer to the player, so they're in front)
+				 * @param  {[string]} square [square name]
+				 */
 				function drawPieceBelow(square) {
 					if (square && overlapSlideObj.y2x2?.square || false) {
 						let sq = square.split("");
@@ -1605,9 +1690,9 @@ export async function renderCanvas(playerData) {
 				}
 
 				if (playerColor == 'w') {
-					if (overlapSlideObj.y2x2?.type == "n") {
+					if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
 						drawSlideBox(overlapSlideObj.y2x2);
-					} else {
+					} else { // DRAW THE PIECES BESIDE & BELOW THE SLIDE (IN FRONT OF IT) AGAIN, BY DIRECTION
 						if (!yPositive && !xPositive) { // UP TO LEFT
 							if (overlapSlideObj.y2x1 && typeof overlapSlideObj.y2x1 == "object") { drawSlideBox(overlapSlideObj.y2x1); drawPieceBelow(overlapSlideObj.y2x1.square); }
 							if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
@@ -1634,9 +1719,9 @@ export async function renderCanvas(playerData) {
 						}
 					}
 				} else if (playerColor == 'b') {
-					if (overlapSlideObj.y2x2?.type == "n") {
+					if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
 						drawSlideBox(overlapSlideObj.y2x2);
-					} else {
+					} else { // DRAW THE PIECES BESIDE & BELOW THE SLIDE (IN FRONT OF IT) AGAIN, BY DIRECTION
 						if (!yPositive && !xPositive) { // UP TO LEFT
 							if (overlapSlideObj.y2x1 && typeof overlapSlideObj.y2x1 == "object") { drawSlideBox(overlapSlideObj.y2x1); drawPieceBelow(overlapSlideObj.y2x1.square); }
 							if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "object") { drawSlideBox(overlapSlideObj.y3x2); drawPieceBelow(overlapSlideObj.y3x2.square); }
@@ -1665,21 +1750,28 @@ export async function renderCanvas(playerData) {
 				}
 				overlapSlideObj = null
 			}
-			if (!currSlide) { refresh = true; overlapSlideObj = null; }
+			if (!currSlide) { refresh = true; overlapSlideObj = null; } // NOTHING SLIDING, CLEAR THE OVERLAP
 		}
 
 		/* ---------------------------------------------------------------- */
 		// Set Taken Pieces Array
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Sets Object array with all taken pieces
+		 * @description Sets Object array with all taken pieces of one color: the starting count of each piece minus the ones drawn
+		 * on the board this frame (wPieceCount / bPieceCount). Pawns aren't listed. While promoting it lists one queen, bishop,
+		 * knight & rook instead, the promotion picker
+		 * @param  {[string]} paramColor ['w' | 'b']
+		 * @return {[array]} takenArr [{ color, type }]
 		 */
 		function setTakenPieceArr(paramColor) { // DRAW ALL TAKEN PIECES
 			let takenArr = new Array();
-			let currPieces;
+			let currPieces; // HOW MANY OF EACH ARE ON THE BOARD
 			if (currPromotion) { currPieces = { king: 1, queen: 0, bishop: 1, knight: 1, rook: 1, pawn: 8 } } // SETS TAKEN PIECES ARRAY TO ONLY CONTAIN ONE OF EACH UNIQUE PIECE THAT ISN'T A KING
 			else { if (paramColor == "w") { currPieces = wPieceCount } else if (paramColor == "b") { currPieces = bPieceCount } }
 
+			/**
+			 * @description Adds (maxCount - amountOnBoard) pieces of one type to takenArr
+			 */
 			function countToObj(amountOnBoard, type, maxCount) {
 				let takenCount;
 				takenCount = maxCount - amountOnBoard;
@@ -1699,24 +1791,30 @@ export async function renderCanvas(playerData) {
 		// Renders Taken Pieces
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Draw a single taken piece
+		 * @description Draw a single taken piece, for each piece in a tray next to the board, in squares off the board:
+		 * to the right on wide screens (3 to a row), above & below it otherwise. While promoting this is the promotion picker
+		 * & the piece under the mouse is see through. Tray knights always face right
+		 * @param  {[array]} takenPieces [from setTakenPieceArr(), each one gets its tray square (x, y) so it can be clicked]
+		 * @param  {[string]} paramColor [the color that took them, its tray is on its side of the board]
 		 */
 		function renderTakenPieces(takenPieces, paramColor) {
 			/* ---------------------------------------------------------------- */
 			// Draw taken pieces
 			/* ---------------------------------------------------------------- */
 			/**
-			 * @description Draws taken piece images to canvas
+			 * @description Draws taken piece images to canvas (shadow & piece, no reflection) at xPos, yPos
+			 * @param  {[object]} takenPiece [{ color, type, x, y }]
+			 * @param  {[array]} imgArr [image numbers: shadow, piece]
 			 */
 			function drawTakenPiece(takenPiece, imgArr) {
 				for (let i = 0; i < imgArr.length; i++) { // DRAW TAKEN PIECE IMAGES
-					if (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color))) && currPromotion) { ctx.globalAlpha = 0.8; }
+					if (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color))) && currPromotion) { ctx.globalAlpha = 0.8; } // HOVERED PROMOTION CHOICE
 					ctx.drawImage(images[imgArr[i]].image, xPos * tileWidth + xBoardOff - xPieceOffset / 2, yPos * tileHeight + yBoardOff - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 					if (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color))) && currPromotion) { ctx.globalAlpha = 1; }
 				}
 			}
 
-			if (widthGreater) {
+			if (widthGreater) { // WIDE SCREEN: TRAYS TO THE RIGHT OF THE BOARD (COLUMN 9), THE PLAYER'S AT THE BOTTOM (ROW 6), THE OPPONENT'S AT THE TOP (ROW -1)
 				if (playerColor == 'w') {
 					if (paramColor == "w") { xPos = 9; yPos = 6; }
 					else { xPos = 9; yPos = -1; }
@@ -1748,7 +1846,7 @@ export async function renderCanvas(playerData) {
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bPawnShdw, bPawnImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 					}
 				}
-			} else {
+			} else { // NARROW SCREEN: ONE ROW BELOW THE BOARD (ROW 9) FOR THE PLAYER, ONE ABOVE (ROW -2) FOR THE OPPONENT
 				const xStart = portraitBoard ? 0 : -1; // PORTRAIT BOARD FILLS THE WIDTH, SO KEEP TAKEN PIECES ON SCREEN
 				if (playerColor == 'w') {
 					if (paramColor == "w") { xPos = xStart; yPos = 9; }
@@ -1789,15 +1887,17 @@ export async function renderCanvas(playerData) {
 		// Check Opponent Move
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Checks if opponent made a new move [No AI]
+		 * @description Checks if opponent made a new move [No AI]. The socket calls this when the friend moved: it gets the game,
+		 * works out their move from prev_move (a pawn that became another piece was a promotion) & starts its slide.
+		 * The move is finished by updateOpponentStateSlide() when the slide lands
 		 */
 		async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
 			try {
 				refreshDataStartTime = Date.now();
 				revert = response
-				const updatedResponse = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false);
-				if (updatedResponse.game_board != revert.game_board && opposingMove) {
-					if (chessInst.isGameOver()) {
+				const updatedResponse = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false); // GET THE GAME
+				if (updatedResponse.game_board != revert.game_board && opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
+					if (chessInst.isGameOver()) { // THIS BOARD WAS ALREADY OVER
 						menuToggled = true;
 						menu.style.display = "flex"
 						optResumeBtn.parentElement.style.display = 'none';
@@ -1812,14 +1912,14 @@ export async function renderCanvas(playerData) {
 					validateState.load(revert.game_board);
 					const clientPiece = validateState.get(updatedResponse.prev_move[0]); // PIECE RETURNED FROM LOCAL/CLIENT GAME BOARD
 
-					if ((serverPiece.color == clientPiece.color) && (serverPiece.type != 'p' && clientPiece.type == 'p')) {
+					if ((serverPiece.color == clientPiece.color) && (serverPiece.type != 'p' && clientPiece.type == 'p')) { // PROMOTION
 						moveObj = { from: updatedResponse.prev_move[0], to: updatedResponse.prev_move[1], promotion: serverPiece.type }
 					} else {
 						moveObj = { from: updatedResponse.prev_move[0], to: updatedResponse.prev_move[1] }
 					}
 
-					validateState.move(moveObj);
-					for (let i = 0; i < tiles.length; i++) {
+					validateState.move(moveObj); // CHECK IT ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
+					for (let i = 0; i < tiles.length; i++) { // START THE SLIDE (SAME AS THE AI'S IN renderLoop)
 						if (tiles[i].square == moveObj.from) {
 							slideStart = true;
 							tiles[i].isSliding = true
@@ -1844,14 +1944,16 @@ export async function renderCanvas(playerData) {
 		// On User Slide Complete
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Updates data for user slide completion, starts ai slide if ai is active
+		 * @description Updates data for user slide completion, starts ai slide if ai is active. A pawn reaching the last rank opens
+		 * the promotion picker instead (the move is sent once a piece is picked in handleCanvasClick), any other move is sent now
+		 * @param  {[number]} index [tile that slid]
 		 */
 		async function updateUserStateSlide(index) {
 			try {
 				tiles[index].xSlideTo = 0;
 				tiles[index].ySlideTo = 0;
-				if (moveObj.promotion) { currPromotion = true; refresh = true; return; }
-				await validateMove();
+				if (moveObj.promotion) { currPromotion = true; refresh = true; return; } // OPEN THE PROMOTION PICKER
+				await validateMove(); // SEND THE MOVE
 				tiles[index].isSliding = null;
 			} catch (err) { console.log(err); currSlide = false; return refreshData(response); }
 		}
@@ -1860,7 +1962,9 @@ export async function renderCanvas(playerData) {
 		// Validates User Move
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Validates user move post slide or drag/drop then starts ai slide
+		 * @description Validates user move post slide or drag/drop then starts ai slide. Plays the move sound, moves the piece on
+		 * the local board & the local knight list, sends the move (PUT) & loads the server's board. AI games give the AI its turn
+		 * half a second later, friend games wait for the socket. A move the server turns down goes back to revert
 		 */
 		async function validateMove() {
 			try {
@@ -1869,10 +1973,10 @@ export async function renderCanvas(playerData) {
 
 				moveAudio.load();
 				moveAudio.play().catch((err) => { console.log(err) });
-				revert = response;
-				opposingMove = true;
-				chessInst.move(moveObj);
-				if (playerColor == 'w') {
+				revert = response; // GO BACK TO THIS IF THE SERVER SAYS NO
+				opposingMove = true; // LOCK THE BOARD
+				chessInst.move(moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
+				if (playerColor == 'w') { // KEEP THE LOCAL KNIGHT LIST IN STEP UNTIL THE SERVER'S COMES BACK
 					for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
 						if (moveObj.from == JSON.parse(response.w_knight)[n].to) {
 							let w_knight = JSON.parse(response.w_knight)
@@ -1895,9 +1999,9 @@ export async function renderCanvas(playerData) {
 				}
 
 
-				response = await validate(GAME_URL, GAME_ID, PLAYER_ID, [moveObj.from, moveObj.to], moveObj.promotion, false);
-				
-				chessInst.load(response.game_board);
+				response = await validate(GAME_URL, GAME_ID, PLAYER_ID, [moveObj.from, moveObj.to], moveObj.promotion, false); // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
+
+				chessInst.load(response.game_board); // THE SERVER'S BOARD
 
 				if (response.status == 200) {
 					currSlide = false;
@@ -1906,12 +2010,12 @@ export async function renderCanvas(playerData) {
 					if (ai) {
 						tiles = await setTiles();
 						refresh = true;
-						setTimeout(function () { aiTurn = true; refresh = true; }, 500);
+						setTimeout(function () { aiTurn = true; refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
 						return;
 					}
-					else { return refreshData(response); }
+					else { return refreshData(response); } // FRIEND GAME: THE SOCKET SAYS WHEN THEY MOVE
 
-				} else { opposingMove = false; return refreshData(revert); }
+				} else { opposingMove = false; return refreshData(revert); } // TURNED DOWN: BACK TO THE OLD BOARD
 			} catch (err) { console.log(err); opposingMove = false; mousedownTile = false; clickedTile = false; return refreshData(revert); }
 		}
 
@@ -1919,7 +2023,12 @@ export async function renderCanvas(playerData) {
 		// On Opponent Slide Complete
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Updates board data on slide completion for opposing player
+		 * @description Updates board data on slide completion for opposing player (AI or friend). Plays the move sound, moves the
+		 * piece on the local board & knight list, then loads the saved game (the AI's came with its move, a friend game is fetched)
+		 * & gives the turn back to the player
+		 * !NOTE: KEEP THE AWAIT ON THE AI LINE, WITHOUT IT refreshData() RESETS THE TILES WHILE THE FRAME IS STILL DRAWING
+		 * & A TAKEN PIECE CAN BE LEFT ON THE BOARD
+		 * @param  {[number]} index [tile that slid]
 		 */
 		async function updateOpponentStateSlide(index) {
 			try {
@@ -1930,9 +2039,9 @@ export async function renderCanvas(playerData) {
 				moveAudio.play().catch((err) => { console.log(err) });
 				tiles[index].xSlideTo = 0;
 				tiles[index].ySlideTo = 0;
-				chessInst.move(moveObj);
+				chessInst.move(moveObj); // LOCAL BOARD
 
-				if (opponentColor == 'w') {
+				if (opponentColor == 'w') { // KEEP THE LOCAL KNIGHT LIST IN STEP
 					for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
 						if (moveObj.from == JSON.parse(response.w_knight)[n].to) {
 							let w_knight = JSON.parse(response.w_knight)
@@ -1976,12 +2085,15 @@ export async function renderCanvas(playerData) {
 		// Refresh Game Data
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Refreshes data based on passed in response
+		 * @description Refreshes data based on passed in response. Loads its board, clears every tile (selection, drag, slide),
+		 * closes the promotion picker & the menu & draws the next frame
+		 * @param  {[object]} response [game from the server]
+		 * @return {[object]} response
 		 */
 		function refreshData(response) {
 			try {
 				chessInst.load(response.game_board);
-				tiles = setTiles();
+				tiles = setTiles(); // NEW TILE ARRAY, THE OLD ONE IS DROPPED
 				clickedTile = false;
 				mousedownTile = false;
 				currPromotion = false;
@@ -2008,14 +2120,18 @@ export async function renderCanvas(playerData) {
 		// Handle Knight Direction White
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Check the previous x pos & the curr x pos to determine orientation
+		 * @description Check the previous x pos & the curr x pos to determine orientation. Points the white knight images
+		 * (wKnightImg, wKnightShdw, wKnightRefl) right when the knight moved right on screen, left when it moved left.
+		 * The files aren't flipped for black, so the test is flipped here instead
+		 * @param  {[number]} xFrom [file it came from, a = 0]
+		 * @param  {[number]} xTo [file it went to]
 		 */
 		function handleKnightDirectionW(xFrom, xTo) {
 			if (playerColor == 'w') {
-				if (xFrom < xTo) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; }
-				else if (xFrom > xTo) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; }
-				else { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; }
-			} else if (playerColor == 'b') {
+				if (xFrom < xTo) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; } // MOVED RIGHT
+				else if (xFrom > xTo) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; } // MOVED LEFT
+				else { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; } // SAME FILE (A KNIGHT ALWAYS CHANGES FILE, SO THIS DOESN'T HAPPEN)
+			} else if (playerColor == 'b') { // FLIPPED BOARD: A HIGHER FILE IS FURTHER LEFT ON SCREEN
 				if (xFrom > xTo) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; }
 				else if (xFrom < xTo) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; }
 				else { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; }
@@ -2027,13 +2143,17 @@ export async function renderCanvas(playerData) {
 		// Handle Knight Direction Black
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Check the previous x pos & the curr x pos to determine orientation
+		 * @description Check the previous x pos & the curr x pos to determine orientation. Points the black knight images
+		 * (bKnightImg, bKnightShdw, bKnightRefl) right when the knight moved right on screen, left when it moved left.
+		 * The callers already flip the columns for black, so both colors use the same test
+		 * @param  {[number]} xFrom [screen column it came from]
+		 * @param  {[number]} xTo [screen column it went to]
 		 */
 		function handleKnightDirectionB(xFrom, xTo) {
 			if (playerColor == 'w') {
-				if (xFrom < xTo) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
-				else if (xFrom > xTo) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; }
-				else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
+				if (xFrom < xTo) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; } // MOVED RIGHT
+				else if (xFrom > xTo) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; } // MOVED LEFT
+				else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; } // SAME COLUMN (DOESN'T HAPPEN FOR A KNIGHT)
 			} else if (playerColor == 'b') {
 				if (xFrom < xTo) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
 				else if (xFrom > xTo) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; }
@@ -2046,10 +2166,12 @@ export async function renderCanvas(playerData) {
 		// Handle Remote Nav Button Hover
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Changes current button effect when keydown is handled
+		 * @description Changes current button effect when keydown is handled. TV remote: moves the menu highlight from the
+		 * selected button to btn, hidden buttons are skipped
+		 * @param  {[object]} btn [menu button element]
 		 */
 		function handleRemoteNavBtnHover(btn) {
-			if (btn.parentElement.style.display != "none") {
+			if (btn.parentElement.style.display != "none") { // SKIP HIDDEN BUTTONS (RESUME IS HIDDEN WHEN THE GAME IS OVER)
 				remoteNavBox.menuBtn.style.transition = "ease-out 375ms";
 				remoteNavBox.menuBtn.style.backgroundColor = "#CD853F";
 				remoteNavBox.menuBtn = btn;
@@ -2062,7 +2184,9 @@ export async function renderCanvas(playerData) {
 		// Handle Remote Menu Enter
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Handles menu button style when clicked with remote select box
+		 * @description Handles menu button style when clicked with remote select box. TV remote: the menu opened, so btn
+		 * becomes the selected (highlighted) menu button & the gear button goes back to its normal color
+		 * @param  {[object]} btn [menu button element]
 		 */
 		function handleRemoteMenuEnter(btn) {
 			if (TV_BOOL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
@@ -2074,10 +2198,11 @@ export async function renderCanvas(playerData) {
 		// Render Coffee
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Renders steaming coffee to the table 
+		 * @description Renders steaming coffee to the table. Draws the cup & its shadow, the steam frames (coffeeObj.img) are empty
+		 * so there's no steam right now
 		 */
 		async function renderCoffee() {
-			const coffeeAnimateTime = 2000; // 1 sec to display all the images
+			const coffeeAnimateTime = 2000; // 2 sec to display all the images
 			const eachCoffeeImgTime = coffeeAnimateTime / coffeeObj.img.length // amount of time per image
 			const currCoffeeImgIndex = Math.floor(((Date.now() - coffeeStartTime) % coffeeAnimateTime) / eachCoffeeImgTime);
 			// ctx.clearRect(coffeeObj.x, coffeeObj.y, coffeeObj.width, coffeeObj.height);
@@ -2098,7 +2223,7 @@ export async function renderCanvas(playerData) {
 		// Resize Window
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Sets tile object, which is set by chess.js (npm) on render
+		 * @description Redraws the game at the new window size (renderBoard() resizes everything from the window)
 		 */
 		window.addEventListener("resize", handleWindowResize);
 		function handleWindowResize(e) {
@@ -2114,13 +2239,18 @@ export async function renderCanvas(playerData) {
 		// Handle Keydown
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Handles Keydown events
+		 * @description Handles Keydown events. TV remote: the arrows move the select box (remoteNavBox) around the board, right
+		 * from the last column moves it onto the gear button & up / down move between menu buttons. Enter clicks the square
+		 * (handleCanvasClick), opens the menu or presses the selected menu button
 		 */
 		if (TV_BOOL || OVERRIDE_TV) { window.addEventListener("keydown", handleKeyPress) }
 		async function handleKeyPress(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			if (!e?.repeat && e?.keyCode) {
+			if (!e?.repeat && e?.keyCode) { // HOLDING A KEY DOESN'T REPEAT
+				/**
+				 * @description Hovers the player's piece under the select box (the remote's version of handleMouseMove)
+				 */
 				function checkBoxOverPiece() {
 					for (let i = 0; i < tiles.length; i++) {
 						let tile = tiles[i];
@@ -2148,7 +2278,7 @@ export async function renderCanvas(playerData) {
 						remoteNavBox.x += 1;
 						refresh = true;
 					}
-					else if (remoteNavBox.x == 7 && !menuToggled) {
+					else if (remoteNavBox.x == 7 && !menuToggled) { // PAST THE LAST COLUMN: SELECT THE GEAR BUTTON
 						remoteNavBox.y = 0;
 						remoteNavBox.menuHover = true;
 						if (TV_BOOL) { optBtn.style.transition = "ease-in 375ms"; optBtn.style.color = "white"; }
@@ -2179,9 +2309,9 @@ export async function renderCanvas(playerData) {
 					checkBoxOverPiece();
 				}
 				if (e.keyCode == 13) { // ENTER
-					if (!remoteNavBox.menuHover && !menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); }
-					else if (remoteNavBox.menuHover && !menuToggled) { handleMenuBtn(e); handleRemoteMenuEnter(optResumeBtn); }
-					else if (menuToggled && remoteNavBox.menuBtn) {
+					if (!remoteNavBox.menuHover && !menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
+					else if (remoteNavBox.menuHover && !menuToggled) { handleMenuBtn(e); handleRemoteMenuEnter(optResumeBtn); } // OPEN THE MENU ON RESUME
+					else if (menuToggled && remoteNavBox.menuBtn) { // PRESS THE SELECTED MENU BUTTON, THEN THE SELECT BOX GOES BACK TO THE TOP RIGHT
 						remoteNavBox.menuBtn.style.backgroundColor = "#CD853F"
 						if (remoteNavBox.menuBtn == optResumeBtn) { handleResume(e); }
 						else if (remoteNavBox.menuBtn == optRestartBtn) { handleRestart(e); }
@@ -2191,13 +2321,26 @@ export async function renderCanvas(playerData) {
 					}
 				}
 				// if (e.keyCode == 10009) { // BACK
-				if (e.keyCode == 49) { // BACK
+				if (e.keyCode == 49) { // BACK ("1" KEY STANDS IN FOR THE REMOTE'S BACK BUTTON, NOTHING YET)
 				}
 				// if (e.keyCode == 10182) { // EXIT
-				if (e.keyCode == 50) { // EXIT
+				if (e.keyCode == 50) { // EXIT ("2" KEY STANDS IN FOR THE REMOTE'S EXIT BUTTON, NOTHING YET)
 				}
 				refresh = true
 			}
+		}
+
+		/* ---------------------------------------------------------------- */
+		// Get Canvas Point
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Converts viewport coordinates to canvas coordinates (mobile browser toolbars can offset the canvas)
+		 * @param  {[object]} e [mouse event, or a touch made to look like one]
+		 * @return {[object]} { x, y } [position on the canvas]
+		 */
+		function getCanvasPoint(e) {
+			const rect = canvas.getBoundingClientRect();
+			return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 		}
 
 		/* ---------------------------------------------------------------- */
@@ -2205,18 +2348,10 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @description If piece is clicked, based on new positions or if piece is set back in original position, etc...
+		 * While promoting, a click on a piece in the picker finishes the move. Otherwise a click on the player's piece picks it up
+		 * (or puts it back down on its own square), a click on another square slides the picked up piece there & a dragged piece
+		 * is dropped where it's let go. Mouse up, touch end & the TV remote's enter all end up here
 		 */
-		/* ---------------------------------------------------------------- */
-		// Get Canvas Point
-		/* ---------------------------------------------------------------- */
-		/**
-		 * @description Converts viewport coordinates to canvas coordinates (mobile browser toolbars can offset the canvas)
-		 */
-		function getCanvasPoint(e) {
-			const rect = canvas.getBoundingClientRect();
-			return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-		}
-
 		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("click", handleCanvasClick); }
 		async function handleCanvasClick(e) {
 			e.preventDefault();
@@ -2224,8 +2359,8 @@ export async function renderCanvas(playerData) {
 			const point = getCanvasPoint(e);
 			clientX = point.x;
 			clientY = point.y;
-			tileX = Math.floor((point.x - xBoardOff) / tileWidth);
-			tileY = Math.floor((point.y - yBoardOff) / tileHeight);
+			tileX = Math.floor((point.x - xBoardOff) / tileWidth); // SCREEN COLUMN CLICKED
+			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // SCREEN ROW CLICKED
 
 			if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (TV REMOTE) ENTER HAS NO POINTER POSITION
 				tileX = remoteNavBox.x; tileY = remoteNavBox.y;
@@ -2233,12 +2368,12 @@ export async function renderCanvas(playerData) {
 
 			if (currPromotion) { // IF PROMOTION IS TRUE LOOK FOR USER TO CLICK ON TAKEN PIECES TO UPDATE BOARD
 				revert = response;
-				let takenPieces
+				let takenPieces // THE PICKER (drawScreen PUTS IT IN THIS LIST WHILE PROMOTING)
 				if (playerColor == 'w') { takenPieces = bTakenPieces }
 				else if (playerColor == 'b') { takenPieces = wTakenPieces }
 				for (let i = 0; i < takenPieces.length; i++) {
 					let takenPiece = takenPieces[i];
-					if (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color))) && takenPiece.type && takenPiece.color == playerColor) {
+					if (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color))) && takenPiece.type && takenPiece.color == playerColor) { // CLICKED THIS PIECE IN THE PICKER
 						const promotion = takenPiece.type;
 						try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
 							moveObj.promotion = promotion;
@@ -2262,12 +2397,12 @@ export async function renderCanvas(playerData) {
 
 						if (tile.isClicked && tile.color == playerColor && (tileX != tile.originX || tileY != tile.originY)) { // IF PIECE IS CLICKED AND SET IN A NEW POSITION
 							try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
-								moveObj = playerMove(playerColor, tile);
-								if (moveObj.promotion) { currPromotion = true; refresh = true; return; }
+								moveObj = playerMove(playerColor, tile); // { from, to } FROM WHERE IT WAS DROPPED
+								if (moveObj.promotion) { currPromotion = true; refresh = true; return; } // PAWN ON THE LAST RANK: OPEN THE PICKER
 								tile.isClicked = false;
 								clickedTile = false;
 								mousedownTile = false;
-								return await validateMove();
+								return await validateMove(); // DROPPED, SO NO SLIDE: SEND IT NOW
 							} catch (err) {
 								console.log(err);
 								opposingMove = false;
@@ -2275,13 +2410,13 @@ export async function renderCanvas(playerData) {
 							}
 						}
 
-						tile.isClicked = true;
+						tile.isClicked = true; // PICK IT UP
 						clickedTile = tile;
 						refresh = true;
 					} else if (!tile.isHovering && (tile.isClicked && tile.color == playerColor && (tileX != tile.originX || tileY != tile.originY))) { // CLICK PIECE WHILE MAINTAINING POSITION
 						try {
 							for (let z = 0; z < tiles.length; z++) { tiles[z].isClicked = false; clickedTile = false; }
-							for (let j = 0; j < tiles.length; j++) {
+							for (let j = 0; j < tiles.length; j++) { // CLICKED ANOTHER OF THE PLAYER'S PIECES: PICK THAT ONE UP INSTEAD
 								if ((tiles[j].isHovering && tiles[j].x == tileX && tiles[j].y == tileY) && tiles[j].color == playerColor) {
 									tiles[j].isClicked = true
 									clickedTile = tiles[j];
@@ -2289,7 +2424,7 @@ export async function renderCanvas(playerData) {
 									return;
 								}
 							}
-							tile.x = tileX;
+							tile.x = tileX; // CLICKED A SQUARE: SLIDE THE PICKED UP PIECE THERE (THE MOVE IS SENT WHEN IT LANDS)
 							tile.y = tileY;
 							moveObj = playerMove(playerColor, tile);
 							validateState.load(response.game_board);
@@ -2320,7 +2455,9 @@ export async function renderCanvas(playerData) {
 		// On Mouse Move (hover)
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Conditializes hover of piece based on color
+		 * @description Conditializes hover of piece based on color. Tracks the square under the mouse (tileX, tileY, a held piece
+		 * follows it) & sets isHovering on the player's piece under it, or on the promotion picker while promoting.
+		 * Asks for a new frame when the hover changes
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousemove", handleMouseMove); }
 		function handleMouseMove(e) {
@@ -2330,11 +2467,11 @@ export async function renderCanvas(playerData) {
 			const point = getCanvasPoint(e);
 			clientX = point.x
 			clientY = point.y
-			tileX = Math.floor((point.x - xBoardOff) / tileWidth);
-			tileY = Math.floor((point.y - yBoardOff) / tileHeight);
+			tileX = Math.floor((point.x - xBoardOff) / tileWidth); // SCREEN COLUMN (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
+			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // SCREEN ROW
 			// remoteNavBox.isClicked = false;
-			if (!((tileX < 0 || tileX > 7) && (tileY < 0 || tileY > 7))) { // MOUSE INSIDE THE BOARD
-				if (currPromotion) {
+			if (!((tileX < 0 || tileX > 7) && (tileY < 0 || tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
+				if (currPromotion) { // HOVER THE PICKER
 					let takenPieces
 					if (playerColor == 'w') { takenPieces = bTakenPieces }
 					else if (playerColor == 'b') { takenPieces = wTakenPieces }
@@ -2344,7 +2481,7 @@ export async function renderCanvas(playerData) {
 						if (takenPiece.isHovering || takenPiece.isClicked) { refresh = true; offBoardRefresh = true; }
 						if (takenPiece.color != playerColor && takenPiece.color) { refresh = true }
 					}
-				} else {
+				} else { // HOVER THE PLAYER'S PIECE UNDER THE MOUSE (ONLY ON THEIR TURN, WITH THE MENU CLOSED)
 					for (let i = 0; i < tiles.length; i++) {
 						let tile = tiles[i];
 						tile.isHovering =
@@ -2366,7 +2503,8 @@ export async function renderCanvas(playerData) {
 		// Mouse Down
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Sets positions / tracks user mousedown drag
+		 * @description Sets positions / tracks user mousedown drag. Starts a drag on the player's hovered piece (the render loop
+		 * makes it a drag after 3 frames). If another piece was picked up by a click, that one is put down instead
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousedown", handleMouseDown); }
 		async function handleMouseDown(e) {
@@ -2377,11 +2515,11 @@ export async function renderCanvas(playerData) {
 			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // IF HOVER IS TRUE
 			for (let i = 0; i < tiles.length; i++) {
 				let tile = tiles[i];
-				if ((tile.isHovering && tile.type && tile.color == playerColor)) {
+				if ((tile.isHovering && tile.type && tile.color == playerColor)) { // GRAB THE HOVERED PIECE
 					tile.isMousedown = true;
 					mousedownTile = tile;
 					mouseDownCount = 0;
-					for (let j = 0; j < tiles.length; j++) {
+					for (let j = 0; j < tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
 						if (tiles[j].isClicked && (tiles[j].x != tileX || tiles[j].y != tileY) && tiles[j].color == playerColor) {
 							tiles[j].isClicked = false
 							clickedTile = false;
@@ -2397,7 +2535,8 @@ export async function renderCanvas(playerData) {
 		// Mouse Up
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Sets positions based on mouse up event position
+		 * @description Sets positions based on mouse up event position. Lets go of the held piece. The click event comes right
+		 * after & handleCanvasClick() drops it on the square (a drag) or keeps it picked up (a quick click)
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mouseup", handleMouseUp); }
 		async function handleMouseUp(e) {
@@ -2408,7 +2547,7 @@ export async function renderCanvas(playerData) {
 			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // IF HOVER IS TRUE
 			for (let i = 0; i < tiles.length; i++) {
 				let tile = tiles[i];
-				if (tile.isMousedown && tile.isHovering && tile.type && tile.color == playerColor) {
+				if (tile.isMousedown && tile.isHovering && tile.type && tile.color == playerColor) { // LET GO OF THE HELD PIECE
 					tile.isMousedown = false;
 					mousedownTile = false;
 					tileX = tile.originX
@@ -2426,13 +2565,13 @@ export async function renderCanvas(playerData) {
 		 * @description Maps touch input onto the mouse handlers so pieces can be tapped or dragged on mobile browsers
 		 */
 		const touchDragThreshold = 10; // PX A FINGER MUST MOVE BEFORE A TAP BECOMES A DRAG
-		let audioUnlocked = false;
+		let audioUnlocked = false; // THE MOVE SOUND WAS UNLOCKED BY A TAP (IOS)
 
-		function touchToMouseEvent(touch) {
+		function touchToMouseEvent(touch) { // A TOUCH WITH THE FIELDS THE MOUSE HANDLERS USE
 			return { clientX: touch.clientX, clientY: touch.clientY, preventDefault() { }, stopPropagation() { } };
 		}
 
-		function findActiveTouch(touchList) {
+		function findActiveTouch(touchList) { // THE FINGER THAT STARTED (touchState.id), OTHER FINGERS ARE IGNORED
 			for (let i = 0; i < touchList.length; i++) { if (touchList[i].identifier == touchState.id) { return touchList[i]; } }
 			return null;
 		}
@@ -2451,7 +2590,7 @@ export async function renderCanvas(playerData) {
 			canvas.addEventListener("touchcancel", handleTouchCancel, { passive: false });
 		}
 
-		function handleTouchStart(e) {
+		function handleTouchStart(e) { // FINGER DOWN = HOVER + MOUSE DOWN
 			e.preventDefault(); // STOPS SCROLL / ZOOM & THE BROWSER'S EMULATED MOUSE EVENTS
 			if (touchState) { return; } // IGNORE EXTRA FINGERS
 			const touch = e.changedTouches[0];
@@ -2461,7 +2600,7 @@ export async function renderCanvas(playerData) {
 			handleMouseDown(point);
 		}
 
-		function handleTouchMove(e) {
+		function handleTouchMove(e) { // FINGER MOVES = MOUSE MOVE, ONCE IT'S MOVED FAR ENOUGH TO BE A DRAG
 			e.preventDefault();
 			if (!touchState) { return; }
 			const touch = findActiveTouch(e.changedTouches);
@@ -2472,7 +2611,7 @@ export async function renderCanvas(playerData) {
 			handleMouseMove(touchState.point);
 		}
 
-		function handleTouchEnd(e) {
+		function handleTouchEnd(e) { // FINGER UP = MOUSE UP + CLICK
 			e.preventDefault();
 			if (!touchState) { return; }
 			const touch = findActiveTouch(e.changedTouches);
@@ -2492,7 +2631,7 @@ export async function renderCanvas(playerData) {
 			handleCanvasClick(point);
 		}
 
-		function handleTouchCancel(e) {
+		function handleTouchCancel(e) { // THE BROWSER TOOK THE TOUCH (A SYSTEM GESTURE): LET GO WITHOUT A CLICK
 			if (!touchState) { return; }
 			handleMouseUp(touchState.point);
 			touchState = null;
@@ -2503,14 +2642,14 @@ export async function renderCanvas(playerData) {
 		// Options (Menu) Button
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Toggles menu based on menu state
+		 * @description Toggles menu based on menu state. The gear button opens or closes the menu
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optBtn.addEventListener("click", handleMenuBtn); }
 		function handleMenuBtn(e) {
 			e.preventDefault();
 			e.stopPropagation();
 			menuToggled = !menuToggled;
-			refresh = false;
+			refresh = false; // THE BOARD STAYS AS IT IS UNDER THE MENU
 			if (menuToggled) { menu.style.display = "flex" }
 			else { menu.style.display = "none" }
 		}
@@ -2519,7 +2658,7 @@ export async function renderCanvas(playerData) {
 		// Resume Button (Menu)
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Opens or closes menu based on menu state
+		 * @description Opens or closes menu based on menu state. Resume is only seen while the menu is open, so it closes it
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optResumeBtn.addEventListener("click", handleResume); }
 		function handleResume(e) {
@@ -2543,7 +2682,7 @@ export async function renderCanvas(playerData) {
 			e.preventDefault();
 			e.stopPropagation();
 			if (!ai) { return await handleFriendBtn(); } // FORFEIT / REMATCH
-			boardReset = true;
+			boardReset = true; // STOP DRAWING WHILE THE NEW BOARD LOADS
 			ctx.clearRect(0, 0, cw, ch);
 			refresh = false;
 			menuToggled = false;
@@ -2565,18 +2704,18 @@ export async function renderCanvas(playerData) {
 		}
 
 		/**
-		 * @description Loads GAME_ID's board in place (restart & rematch)
+		 * @description Loads GAME_ID's board in place (restart & rematch), the canvas, listeners & render loop stay the same
 		 */
 		async function loadNewBoard() {
 			gameOver = false;
-			drawScreen = function () { return };
+			drawScreen = function () { return }; // DRAW NOTHING UNTIL THE NEW BOARD IS IN
 			await setInitialData(); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
-			handleInitialData();
+			handleInitialData(); // NEW drawScreen FOR THE (MAYBE NEW) PLAYER COLOR
 			optBtn.style.display = "flex";
-			optResumeBtn.parentElement.style.display = 'flex';
+			optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 			resultDisplay.innerText = "Chess"
 			await refreshData(response);
-			opposingMove = chessInst.turn() != playerColor;
+			opposingMove = chessInst.turn() != playerColor; // LOCKED IF THE OPPONENT GOES FIRST
 			boardReset = false;
 			refresh = true;
 		}
@@ -2601,7 +2740,7 @@ export async function renderCanvas(playerData) {
 				optRestartBtn.innerHTML = "Forfeit"; // FORFEIT FAILED, KEEP PLAYING
 				return;
 			}
-			if (rematchWaiting) { return; }
+			if (rematchWaiting) { return; } // ALREADY ASKED, STILL WAITING
 			const rematchResponse = await rematchGame(GAME_URL, GAME_ID);
 			if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
 			if (rematchResponse?.waiting) { // WAIT 1 MINUTE FOR THE OPPONENT
@@ -2629,7 +2768,7 @@ export async function renderCanvas(playerData) {
 			else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }
 			else { resultDisplay.innerText = "Draw" }
 			if (!ai) { optRestartBtn.innerHTML = "Rematch"; } // FRIEND GAME
-			handleRemoteMenuEnter(optRestartBtn);
+			handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
 		}
 
 		/* ---------------------------------------------------------------- */
@@ -2642,9 +2781,9 @@ export async function renderCanvas(playerData) {
 		async function loadRematch(newGameId) {
 			if (!newGameId || `${newGameId}` == `${GAME_ID}`) { return; } // ALREADY LOADED (THE REQUEST & THE SOCKET BOTH SEND IT)
 			GAME_ID = newGameId;
-			clearTimeout(rematchWaiting);
+			clearTimeout(rematchWaiting); // STOP THE 1 MINUTE WAIT
 			rematchWaiting = false;
-			boardReset = true;
+			boardReset = true; // STOP DRAWING WHILE THE NEW BOARD LOADS
 			ctx.clearRect(0, 0, cw, ch);
 			refresh = false;
 			menuToggled = false;
@@ -2658,16 +2797,17 @@ export async function renderCanvas(playerData) {
 		// Homepage Button (Menu)
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Renders homepage & removes event listeners
+		 * @description Renders homepage & removes event listeners. Stops the render loop, leaves the friend game's socket room &
+		 * tells main.js to show the homepage ("home" message, guests are sent to the login)
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
 		function handleHomepage(e) {
 			e.preventDefault();
 			e.stopPropagation();
 
-			window.clearInterval(drawInterval);
+			window.clearInterval(drawInterval); // STOP THE RENDER LOOP
 			leaveGame();
-			if (PLAYER_ID != "GUEST_USER") {
+			if (PLAYER_ID != "GUEST_USER") { // REMOVE THIS GAME'S LISTENERS, THE NEXT GAME ADDS ITS OWN (THE OLD GUEST_USER ID KEEPS THEM)
 				menu.style.display = "none"
 				if (document.getElementById("loadingDiv")) { document.getElementById("loadingDiv").remove(); }
 
@@ -2690,7 +2830,7 @@ export async function renderCanvas(playerData) {
 			}
 			menu.style.display = 'none';
 
-			window.postMessage({
+			window.postMessage({ // main.js (gameCenterActionsIn.home) SHOWS THE HOMEPAGE
 				action: "home",          // Action key.
 				receiptToken: "{receipt-token}", // Receipt validation token.
 			})
@@ -2700,7 +2840,8 @@ export async function renderCanvas(playerData) {
 		// Exit Button (Menu)
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Exits game
+		 * @description Exits game. Sends the "exit" message, main.js (gameCenterActionsIn.exit) logs a signed in player out
+		 * & sends a guest to the login, or passes it up to the app that embeds the game
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
 		function handleExit(e) {
