@@ -1,7 +1,8 @@
 /*
  *  index.js  --  chess frontend
  *	Guest Page (/, signed out)
- *	For now only a Sign in button, the guest homepage comes later. The guest game (/play) still works, nothing links to it yet
+ *	The homepage for guests: Play as guest (/play) & Sign in. The links are plain <a>s, so this only runs the menu,
+ *	preloads the play page's sprites & checks for a session that can be renewed
  *
  */
 
@@ -9,27 +10,16 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-import "../../../css/style.css"; // PAGE & MENU STYLES
+import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
+import "../../../css/home.css"; // HOME PAGE STYLES
 const { InternalAuth } = require("../../auth/index.js");
-const { SPRITES } = require("../../gameplay/sprites/index.js");
-const { sizeMenu, showTable, warmImages } = require("../utils/index.js");
-
-const menu = document.getElementById("menuContainer");
-const optLoginBtn = document.getElementById("optLogin"); // MENU: SIGN IN
+const { preloadImages } = require("../../gameplay/index.js");
+const { startNav } = require("../utils/index.js");
 
 const auth = new InternalAuth;
 
-showTable();
-menu.style.display = "flex"; // THE MENU IS THE WHOLE PAGE FOR NOW
-sizeMenu();
-window.addEventListener("resize", sizeMenu);
-
-optLoginBtn.addEventListener("click", function (e) {
-	e.preventDefault();
-	e.stopPropagation();
-	auth.login();
-});
-
+startNav();
+preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO Play as guest OPENS FROM THE BROWSER CACHE
 checkSession();
 
 /* ---------------------------------------------------------------- */
@@ -42,5 +32,4 @@ checkSession();
 async function checkSession() {
 	const sessionUser = await auth.getUser();
 	if (sessionUser) { return window.location.replace("/"); } // THE NEW ACCESS TOKEN IS SET, THE SERVER SENDS HOME NOW
-	warmImages(SPRITES); // THE PLAY PAGE'S SPRITES, SO THE FIRST GAME AFTER SIGNING IN OPENS FROM THE BROWSER CACHE
 }

@@ -1,0 +1,338 @@
+/*
+ *  home.css  --  chess frontend
+ *	Home Page (/, guest & signed in)
+ *	Text & boxes only: a serif title, wide uppercase labels & mono spec text on the table's green, with rounded walnut,
+ *	green & cream boxes. The colors & fonts are in nav.css
+ *
+ */
+
+* {
+	box-sizing: border-box;
+	padding: 0;
+	margin: 0;
+}
+
+html {
+	color-scheme: dark; /* NATIVE SELECT & INPUT POPUPS ARE DARK TOO */
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
+body {
+	min-height: 100vh;
+	min-height: 100dvh;
+	background-color: var(--baize);
+	color: var(--maple);
+	font-family: var(--font-mono);
+	font-size: 14px;
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	-webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+	background-color: var(--gold);
+	color: var(--walnut);
+}
+
+:focus-visible {
+	outline: 2px solid var(--gold);
+	outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Text */
+/* ---------------------------------------------------------------- */
+
+.spec { /* TINY MONO LABELS: No. 01, SIGNED IN AS ... */
+	font-family: var(--font-mono);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	line-height: 1.4;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+
+.label { /* WIDE UPPERCASE HEADINGS */
+	font-family: var(--font-label);
+	font-stretch: 112%;
+	font-weight: 700;
+	letter-spacing: 0.01em;
+	line-height: 1.05;
+	text-transform: uppercase;
+}
+
+.title {
+	font-family: var(--font-title);
+	font-size: clamp(56px, 9vw, 104px);
+	font-weight: 400;
+	letter-spacing: -0.01em;
+	line-height: 0.92;
+}
+
+.lead {
+	max-width: 34ch;
+	font-family: var(--font-label);
+	font-size: clamp(19px, 2vw, 24px);
+	font-stretch: 105%;
+	font-weight: 500;
+	line-height: 1.25;
+}
+
+/* ---------------------------------------------------------------- */
+/* Layout */
+/* ---------------------------------------------------------------- */
+
+.page {
+	width: 100%;
+	max-width: 1180px;
+	margin: 0 auto;
+	padding: calc(env(safe-area-inset-top, 0px) + 88px) max(16px, env(safe-area-inset-right, 0px)) 56px max(16px, env(safe-area-inset-left, 0px)); /* TOP CLEARS THE MENU BUTTON */
+}
+
+.hero {
+	display: grid;
+	gap: 28px;
+	padding-bottom: 36px;
+}
+
+.heroText {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 20px;
+}
+
+.heroImage {
+	overflow: hidden;
+	border: 1px solid rgba(201, 163, 90, 0.35);
+	border-radius: 22px;
+	background-color: var(--walnut);
+	box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.heroImage img {
+	display: block;
+	width: 100%;
+	height: auto;
+	aspect-ratio: 1300 / 1080;
+}
+
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	padding-top: 4px;
+}
+
+.boxes {
+	display: grid;
+	gap: 12px;
+}
+
+@media (min-width: 900px) {
+	.page {
+		padding-left: 32px;
+		padding-right: 32px;
+	}
+	.hero {
+		grid-template-columns: 5fr 6fr;
+		align-items: center;
+		gap: 56px;
+		padding: 24px 0 64px;
+	}
+	.boxes {
+		grid-template-columns: repeat(3, minmax(0, 1fr)); /* EQUAL WIDTHS, THE SELECT & INPUT DON'T WIDEN THEIR BOX */
+	}
+	.box {
+		min-height: 190px; /* SIDE BY SIDE, THE SAME HEIGHT */
+	}
+}
+
+/* ---------------------------------------------------------------- */
+/* Boxes */
+/* ---------------------------------------------------------------- */
+
+.box {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 22px;
+	border-radius: 20px;
+}
+
+.boxHead {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 12px;
+}
+
+.boxHead .label {
+	font-size: 18px;
+}
+
+.box p {
+	font-size: 13.5px;
+	line-height: 1.6;
+}
+
+.boxBaize {
+	background-color: var(--baize-2);
+	border: 1px solid rgba(236, 217, 180, 0.1);
+}
+
+.boxWalnut {
+	background-color: var(--walnut);
+	border: 1px solid rgba(201, 163, 90, 0.25);
+}
+
+.boxMaple {
+	background-color: var(--maple);
+	color: var(--walnut);
+}
+
+.boxMaple .spec {
+	color: #7a6648;
+}
+
+.boxBottom { /* PUSHES THE BOX'S CONTROLS TO THE BOTTOM */
+	margin-top: auto;
+}
+
+/* ---------------------------------------------------------------- */
+/* Buttons & Inputs */
+/* ---------------------------------------------------------------- */
+
+.btn {
+	display: inline-flex;
+	justify-content: center;
+	align-items: center;
+	gap: 10px;
+	min-height: 48px;
+	padding: 0 22px;
+	border: 1px solid transparent;
+	border-radius: 12px;
+	font-family: var(--font-label);
+	font-size: 12px;
+	font-stretch: 112%;
+	font-weight: 700;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	text-decoration: none;
+	white-space: nowrap;
+	cursor: pointer;
+	touch-action: manipulation;
+	transition: ease-out 125ms;
+}
+
+.btn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.btnCream {
+	background-color: var(--maple);
+	color: var(--walnut);
+}
+
+.btnLine {
+	background-color: transparent;
+	border-color: rgba(236, 217, 180, 0.4);
+	color: var(--maple);
+}
+
+.btnWalnut {
+	background-color: var(--walnut);
+	color: var(--maple);
+}
+
+@media (hover: hover) {
+	.btnCream:hover:enabled, a.btnCream:hover { background-color: var(--maple-2); transition: ease-in 125ms; }
+	.btnLine:hover { background-color: rgba(236, 217, 180, 0.08); border-color: var(--maple); transition: ease-in 125ms; }
+	.btnWalnut:hover:enabled { background-color: var(--walnut-3); transition: ease-in 125ms; }
+}
+
+.field {
+	display: flex;
+	flex-wrap: wrap; /* A NARROW BOX PUTS THE BUTTON UNDER THE SELECT / INPUT */
+	gap: 8px;
+}
+
+.field .btn {
+	flex: 1 0 auto;
+}
+
+.field select,
+.field input {
+	flex: 1 1 190px; /* FITS "Level 8 (≈3300)" */
+	min-width: 0;
+	min-height: 48px;
+	padding: 0 14px;
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	background-color: rgba(0, 0, 0, 0.22);
+	color: var(--maple);
+	font-family: var(--font-mono);
+	font-size: 16px; /* >= 16PX STOPS IOS FROM ZOOMING IN ON FOCUS */
+}
+
+.field input::placeholder {
+	color: var(--muted);
+}
+
+.note { /* WHY AN INVITE DIDN'T GO THROUGH */
+	min-height: 1.4em;
+	color: var(--gold);
+}
+
+/* ---------------------------------------------------------------- */
+/* Your Games */
+/* ---------------------------------------------------------------- */
+
+#gameList {
+	display: flex;
+	flex-direction: column;
+	list-style: none;
+}
+
+#gameList li + li {
+	border-top: 1px solid rgba(35, 22, 14, 0.15);
+}
+
+#gameList a {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-height: 48px;
+	padding: 6px 10px;
+	margin: 0 -10px;
+	border-radius: 10px;
+	color: var(--walnut);
+	text-decoration: none;
+	transition: ease-out 125ms;
+}
+
+@media (hover: hover) {
+	#gameList a:hover { background-color: rgba(35, 22, 14, 0.08); transition: ease-in 125ms; }
+}
+
+#gameList .label {
+	white-space: nowrap;
+}
+
+#gameList .gameId {
+	min-width: 0;
+	text-transform: none; /* IDS ARE LOWERCASE HEX, SHOWN AS THEY ARE */
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: #7a6648;
+}
+
+#gameList .gameOpen {
+	margin-left: auto;
+	font-size: 12px;
+}

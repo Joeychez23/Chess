@@ -2,7 +2,8 @@
  *  index.js  --  chess frontend
  *	Play Page (/play, /play/:gameId)
  *	Starts the game on the canvas. The server picks this page (server/controllers/pageController.js), the game id
- *	comes from the url (signed in) or localStorage (guest). Home & Exit leave the page, so nothing has to be torn down
+ *	comes from the url (signed in) or localStorage (guest). Home & Exit leave the page, so nothing has to be torn down.
+ *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (handleMenuBtn in gameplay/index.js)
  *
  */
 
@@ -10,16 +11,17 @@
 // Global
 /* ---------------------------------------------------------------- */
 
+import "../../../css/style.css"; // PLAY PAGE STYLES (CANVAS LAYOUT)
+import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 const { renderCanvas, preloadImages } = require("../../gameplay/index.js");
 const { validate } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
-const { sizeMenu, showTable } = require("../utils/index.js");
+const { startNav, showTable } = require("../utils/index.js");
 const { ObjectId } = require("bson");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
 const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD OF THE MOUSE
 
-const menu = document.getElementById("menuContainer");
 const resultDisplay = document.getElementById("resultDisplay");
 const optResumeBtn = document.getElementById("optResume");
 const optRestartBtn = document.getElementById("optRestart");
@@ -56,8 +58,7 @@ window.addEventListener("load", async function () {
 	playerData.TV_BOOL = TV_DEV; // TV CONDITIONAL
 	playerData.SIGNED_IN = !!sessionUser; // EXIT: LOGOUT OR LOGIN, A NEW GAME ID GOES IN THE URL
 
-	optHomepageBtn.parentElement.style.display = sessionUser ? "" : "none"; // HOME IS ONLY FOR SIGNED IN USERS
-	optExitBtn.innerHTML = sessionUser ? "Logout" : "Login";
+	optExitBtn.innerHTML = sessionUser ? "Logout" : "Sign in"; // HOME IS FOR EVERYONE, GUESTS HAVE A HOMEPAGE TOO
 
 	renderCanvas(playerData);
 }, false);
@@ -86,7 +87,8 @@ function guestGameId() {
 // Game Not Found
 /* ---------------------------------------------------------------- */
 /**
- * @description The game in the url doesn't exist (expired or a bad link) or isn't the player's: the menu with Home & Logout
+ * @description The game in the url doesn't exist (expired or a bad link) or isn't the player's: the menu with Home & Logout.
+ * The game never starts, so startNav() runs the menu button
  */
 function gameNotFound() {
 	showTable();
@@ -96,7 +98,6 @@ function gameNotFound() {
 	optExitBtn.innerHTML = "Logout";
 	optHomepageBtn.addEventListener("click", function () { window.location.href = "/"; });
 	optExitBtn.addEventListener("click", function () { auth.logout(); });
-	menu.style.display = "flex";
-	sizeMenu();
-	window.addEventListener("resize", sizeMenu);
+	const toggleNav = startNav();
+	toggleNav(true); // OPEN, THE TITLE SAYS WHAT HAPPENED
 }

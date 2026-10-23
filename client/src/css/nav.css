@@ -1,0 +1,180 @@
+/*
+ *  nav.css  --  chess frontend
+ *	Nav & Colors
+ *	The menu on every page: the 3 line button in the top right opens & closes it. On the play page it's also the game's menu
+ *	(Resume, Restart, the result), which the game opens & closes the same way, menu.style.display (gameplay/index.js)
+ *
+ */
+
+/* ---------------------------------------------------------------- */
+/* Colors & Fonts */
+/* ---------------------------------------------------------------- */
+
+:root {
+	--baize: #0c2a1f;        /* PAGE, THE TABLE'S GREEN */
+	--baize-2: #143f2f;      /* GREEN BOX */
+	--baize-3: #1a4d3a;      /* GREEN BOX HOVER */
+	--walnut: #23160e;       /* NAV & BROWN BOX, THE BOARD'S BORDER */
+	--walnut-2: #2f1e13;     /* NAV BUTTONS */
+	--walnut-3: #422b1b;     /* NAV BUTTON HOVER */
+	--maple: #ecd9b4;        /* TEXT & CREAM BOX, THE LIGHT SQUARES */
+	--maple-2: #f6ead2;      /* CREAM HOVER */
+	--muted: #a99a7c;        /* QUIET TEXT */
+	--gold: #c9a35a;         /* TRIM, LIKE THE PIECES' GOLD */
+	--line: rgba(236, 217, 180, 0.16); /* RULES & BORDERS */
+
+	--font-title: "Instrument Serif", Georgia, serif;
+	--font-label: "Archivo", "Helvetica Neue", Arial, sans-serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+
+/* ---------------------------------------------------------------- */
+/* Menu Button (3 Lines) */
+/* ---------------------------------------------------------------- */
+
+#optBtn {
+	position: fixed;
+	z-index: 20;
+	top: calc(env(safe-area-inset-top, 0px) + 14px);
+	right: calc(env(safe-area-inset-right, 0px) + 16px);
+	display: flex; /* THE GAME HIDES IT WHILE A NEW BOARD LOADS & SETS IT BACK TO flex */
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	gap: 5px;
+	width: 48px; /* MOBILE: MINIMUM TOUCH TARGET IS 44 */
+	height: 48px;
+	padding: 0;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 14px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+	cursor: pointer;
+	touch-action: manipulation;
+	transition: ease-out 200ms;
+}
+
+#optBtn span {
+	display: block;
+	width: 20px;
+	height: 2px;
+	border-radius: 2px;
+	background-color: currentColor; /* THE TV REMOTE COLORS THE BUTTON, THE LINES FOLLOW */
+}
+
+@media (hover: hover) {
+	#optBtn:hover {
+		color: var(--gold);
+		border-color: var(--gold);
+		transition: ease-in 200ms;
+	}
+}
+
+#optBtn:active {
+	color: var(--gold);
+}
+
+#optBtn:focus-visible,
+#menuContainer .menuButton:focus-visible {
+	outline: 2px solid var(--gold);
+	outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Menu */
+/* ---------------------------------------------------------------- */
+
+#menuContainer {
+	position: fixed;
+	z-index: 19;
+	top: calc(env(safe-area-inset-top, 0px) + 72px);
+	right: calc(env(safe-area-inset-right, 0px) + 16px);
+	width: min(300px, calc(100vw - 32px));
+	max-height: calc(100dvh - 88px);
+	overflow-y: auto;
+	display: none; /* OPENED WITH menu.style.display = "flex" */
+	flex-direction: column;
+	gap: 14px;
+	padding: 18px;
+	border: 1px solid rgba(201, 163, 90, 0.35);
+	border-radius: 20px;
+	background-color: var(--walnut);
+	box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+#menuContainer #resultDisplay {
+	padding: 2px 4px 0;
+	font-family: var(--font-title);
+	font-size: 30px;
+	font-weight: 400;
+	line-height: 1.05;
+	color: var(--maple);
+}
+
+#menuContainer #menuButtonList {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	list-style: none;
+	counter-reset: nav;
+}
+
+#menuContainer #menuButtonList li {
+	display: flex; /* THE GAME HIDES RESUME WHEN A GAME IS OVER & SETS IT BACK TO flex */
+}
+
+#menuContainer .menuButton {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	min-height: 46px;
+	padding: 0 14px;
+	border: none;
+	border-radius: 12px;
+	background-color: var(--walnut-2);
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 12px;
+	font-stretch: 112%;
+	font-weight: 700;
+	letter-spacing: 0.03em;
+	line-height: 1.1;
+	text-align: left;
+	text-transform: uppercase;
+	text-decoration: none;
+	cursor: pointer;
+	touch-action: manipulation;
+	transition: ease-out 125ms;
+}
+
+#menuContainer .menuButton::before { /* 01, 02, ... HIDDEN BUTTONS AREN'T COUNTED */
+	counter-increment: nav;
+	content: counter(nav, decimal-leading-zero);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	color: var(--muted);
+}
+
+@media (hover: hover) {
+	#menuContainer .menuButton:hover {
+		background-color: var(--walnut-3);
+		transition: ease-in 125ms;
+	}
+}
+
+#menuContainer .menuButton:active {
+	background-color: var(--walnut-3);
+}
+
+#menuContainer .menuButton[aria-current="page"] { /* THE PAGE YOU'RE ON, A CREAM PLATE */
+	background-color: var(--maple);
+	color: var(--walnut);
+}
+
+#menuContainer .menuButton[aria-current="page"]::before {
+	color: #7a6648;
+}

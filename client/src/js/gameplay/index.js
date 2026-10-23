@@ -16,8 +16,6 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-import "../../css/style.css"; // PAGE & MENU STYLES
-
 const { Chess } = require("chess.js"); // RULES, LEGAL MOVES & FEN (SAME VERSION AS THE SERVER)
 const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playerMove } = require("./user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
@@ -26,7 +24,7 @@ const { setTiles } = require("./utils/index.js"); // NEW ARRAY OF 64 BLANK TILE 
 const { SPRITES } = require("./sprites/index.js"); // EVERY SPRITE URL IN IMAGE NUMBER ORDER (HOME & GUEST USE IT TO WARM THE BROWSER CACHE)
 const { joinGame, leaveGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
-const optBtn = document.getElementById("optBtn"); // GEAR BUTTON, OPENS THE MENU
+const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
@@ -34,7 +32,6 @@ const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
 const canvas = document.createElement("canvas"); // THE WHOLE GAME IS DRAWN ON THIS
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
-const newGameInput = document.getElementsByClassName("newGameInput"); // HOME SCREEN INPUTS, SIZED WITH THE MENU
 
 const OVERRIDE_TV = false; // TRUE TURNS ON THE TV REMOTE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
 
@@ -94,7 +91,7 @@ export async function renderCanvas(playerData) {
 	const { GAME_URL, PLAYER_ID, TV_BOOL } = playerData; // SETS CONSTANT GAME VARIABLES
 	let GAME_ID = playerData.GAME_ID; // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
 
-	optBtn.style.display = "flex"; // SHOW THE GEAR BUTTON
+	optBtn.style.display = "flex"; // SHOW THE MENU BUTTON
 
 	const ctx = canvas.getContext("2d"); // EVERYTHING IS DRAWN WITH THIS
 	canvas.id = "canvas";
@@ -166,8 +163,13 @@ export async function renderCanvas(playerData) {
 	let endTime = new Date(); // WHEN THE LAST SLIDE FINISHED
 	let timeElapsed = endTime - startTime; // HOW LONG THE LAST SLIDE TOOK (MS)
 
+	canvas.style.backgroundRepeat = "repeat-y"; // THE TABLE BEHIND THE BOARD
+	canvas.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
+	canvas.style.backgroundSize = "cover";
+	canvas.style.backgroundPosition = "center";
+	main.append(canvas);
 
-	let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // TV REMOTE SELECT BOX: SQUARE (x, y), ON THE GEAR BUTTON (menuHover) & THE SELECTED MENU BUTTON
+	let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // TV REMOTE SELECT BOX: SQUARE (x, y), ON THE MENU BUTTON (menuHover) & THE SELECTED MENU BUTTON
 
 	// !NOTE: IMAGE NUMBERS EQUALS INDEX USED TO CHECK IF ALL IMAGES ARE LOADING IN THE BACKGROUND
 	// EACH NUMBER IS THE IMAGE'S INDEX IN images[], SO IT HAS TO MATCH THE ORDER OF preloadImages()
@@ -335,11 +337,13 @@ export async function renderCanvas(playerData) {
 	/**
 	 * @description If all images are loaded start game. Checks once a second, then removes the loading screen (gameContainer)
 	 */
-	const startGameCheck = setInterval(async function () { if (loadedImages == images.length) {
-		if(document.getElementById('gameContainer')) {document.getElementById('gameContainer').remove();}
-		startGame(); 
-		clearInterval(startGameCheck);
-	} }, 1000);
+	const startGameCheck = setInterval(async function () {
+		if (loadedImages == images.length) {
+			if (document.getElementById('gameContainer')) { document.getElementById('gameContainer').remove(); }
+			startGame();
+			clearInterval(startGameCheck);
+		}
+	}, 1000);
 
 	/* ---------------------------------------------------------------- */
 	// Start Game
@@ -381,12 +385,14 @@ export async function renderCanvas(playerData) {
 			if (!gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // RESTART IS FORFEIT IN FRIEND GAMES
 		}
 
-
+		
+		// JUST IN CASE
 		canvas.style.backgroundRepeat = "repeat-y"; // THE TABLE BEHIND THE BOARD
 		canvas.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
 		canvas.style.backgroundSize = "cover";
 		canvas.style.backgroundPosition = "center";
 		main.append(canvas);
+		//
 
 		/* ################################################################ */
 		/* ################################################################ */
@@ -770,28 +776,7 @@ export async function renderCanvas(playerData) {
 			let boardPadding = 1.4; // SCREEN SIZE / BOARD SIZE, BIGGER = SMALLER BOARD
 			boardWidth = cw / boardPadding;
 			boardHeight = (9 * (cw / boardPadding)) / 11; // THE BOARD IMAGE IS 11:9 (WIDE)
-			// SET MENU ELEMENT SIZING
-
-			const resultDisplay = document.getElementById("resultDisplay");
-			const menuBox = document.getElementById("menuBox");
-			const menuButtons = document.getElementsByClassName("menuButton");
-
-			if ((ch / cw) > .225) { // NOT A VERY SHORT, WIDE WINDOW
-				let menuSize = ((ch) * .90); // MENU IS 16:9, SIZED FROM THE SCREEN HEIGHT
-				if (Math.min(cw, ch) < 600) { menuSize = Math.min(ch * 1.9, cw * 2.2); } // SMALL (MOBILE) SCREENS: GROW MENU TO FIT THE SCREEN SO BUTTONS ARE TAPPABLE
-				menu.style.width = `${Math.min(menuSize, cw)}px`; // CONTAINER NEVER WIDER / TALLER THAN THE SCREEN, MOBILE BROWSERS ZOOM OUT TO FIT OVERFLOW
-				menu.style.height = `${Math.min(9 * (menuSize) / 16, ch)}px`;
-				menuBox.style.width = `${menuSize * .375}px`;
-				menuBox.style.height = `${(9 * (menuSize) / 16) * .7}px`;
-
-				for (let i = 0; i < menuButtons.length; i++) {
-					menuButtons[i].style.fontSize = `${(menuSize) * .035}px`
-					for (let i = 0; i < newGameInput.length; i++) {
-						newGameInput[i].style.fontSize = `${Math.max(16, (menuSize) * .035)}px` // >= 16PX STOPS IOS FROM ZOOMING IN ON INPUT FOCUS
-					}
-				}
-				resultDisplay.style.fontSize = `${(menuSize) * .05}px`
-			}
+			// THE MENU IS SIZED BY CSS (css/nav.css)
 
 			let widthOverHeight, smBoard = false;
 			if (canvas.width) { // ASPECT RATIO OF BOARD WITH MARBLE IF CANVAS WIDTH > HEIGHT
@@ -2580,7 +2565,7 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @description Handles menu button style when clicked with remote select box. TV remote: the menu opened, so btn
-		 * becomes the selected (highlighted) menu button & the gear button goes back to its normal color
+		 * becomes the selected (highlighted) menu button & the menu button goes back to its normal color
 		 * @param  {[object]} btn [menu button element]
 		 */
 		function handleRemoteMenuEnter(btn) {
@@ -2635,7 +2620,7 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @description Handles Keydown events. TV remote: the arrows move the select box (remoteNavBox) around the board, right
-		 * from the last column moves it onto the gear button & up / down move between menu buttons. Enter clicks the square
+		 * from the last column moves it onto the menu button & up / down move between menu buttons. Enter clicks the square
 		 * (handleCanvasClick), opens the menu or presses the selected menu button
 		 */
 		if (TV_BOOL || OVERRIDE_TV) { window.addEventListener("keydown", handleKeyPress) }
@@ -2673,7 +2658,7 @@ export async function renderCanvas(playerData) {
 						remoteNavBox.x += 1;
 						refresh = true;
 					}
-					else if (remoteNavBox.x == 7 && !menuToggled) { // PAST THE LAST COLUMN: SELECT THE GEAR BUTTON
+					else if (remoteNavBox.x == 7 && !menuToggled) { // PAST THE LAST COLUMN: SELECT THE MENU BUTTON
 						remoteNavBox.y = 0;
 						remoteNavBox.menuHover = true;
 						if (TV_BOOL) { optBtn.style.transition = "ease-in 375ms"; optBtn.style.color = "white"; }
@@ -3037,7 +3022,7 @@ export async function renderCanvas(playerData) {
 		// Options (Menu) Button
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Toggles menu based on menu state. The gear button opens or closes the menu
+		 * @description Toggles menu based on menu state. The menu button (3 lines) opens or closes the menu
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optBtn.addEventListener("click", handleMenuBtn); }
 		function handleMenuBtn(e) {
