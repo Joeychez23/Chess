@@ -74,7 +74,7 @@ async function loadImage(path) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Loads every image the game draws, from CHESS_ASSESTS_URL (S3 / CloudFront).
- * !NOTE: THE ORDER MATTERS. EACH IMAGE'S INDEX IN images[] IS ITS IMAGE NUMBER IN renderCanvas (wKingImg = 5, ...),
+ * !NOTE: THE ORDER MATTERS. EACH IMAGE'S INDEX IN images[] IS ITS IMAGE NUMBER IN renderCanvas (wFrontKingImg = 5, ...),
  * SO NEW IMAGES GO AT THE END OR EVERY NUMBER AFTER THEM HAS TO CHANGE
  */
 export function preloadImages() {
@@ -145,6 +145,33 @@ export function preloadImages() {
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle.png`); 
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle-shdw.png`)
+	// BACK VIEWS: KINGS, QUEENS, BISHOPS & ROOKS FACING AWAY FROM THE PLAYER
+	// WHITE BACKS (58 - 61), SHADOWS (62 - 65), REFLECTIONS (66 - 69)
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back-refl.png`);
+	// BLACK BACKS (70 - 73), SHADOWS (74 - 77), REFLECTIONS (78 - 81)
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back-refl.png`);
 }
 
 /* ---------------------------------------------------------------- */
@@ -183,7 +210,7 @@ export async function renderCanvas(playerData) {
 	let opponentColor; // 'w' OR 'b'
 	let ai // TRUE IN AI GAMES
 	let aiTurn = false; // TRUE WHEN THE RENDER LOOP SHOULD ASK THE SERVER FOR THE AI'S MOVE
-	let response; // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, player_color, state, ... }
+	let response; // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
 	let revert; // GAME TO GO BACK TO IF A MOVE FAILS
 	let playerColor; // 'w' OR 'b', BLACK FLIPS THE BOARD SO THE PLAYER IS ALWAYS AT THE BOTTOM
 	let moveObj = [null, null] // MOVE BEING PLAYED { from, to, promotion }, THE AI'S ALSO HAS response
@@ -247,66 +274,116 @@ export async function renderCanvas(playerData) {
 	const xBoardShadowRatio = 0.985; // NUDGES THE SQUARES RIGHT A LITTLE TO LINE UP WITH THE BOARD IMAGE
 
 	// WHITE IMAGES
-	const wKingImg = 5; // wk-e1.png
-	const wQueenImg = 6; // wq-d1.png
-	const wBishopBlackSqImg = 7; // wb-c1.png, BISHOP ON A DARK SQUARE
-	const wBishopWhiteSqImg = 8; // wb-f1.png, BISHOP ON A LIGHT SQUARE
+	let wKingImg; // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionW)
+	const wFrontKingImg = 5; // wk-e1.png, FACES THE PLAYER
+	const wBackKingImg = 58; // wk-back.png, FACES AWAY
+	let wQueenImg; // SET WITH wKingImg
+	const wFrontQueenImg = 6; // wq-d1.png
+	const wBackQueenImg = 59; // wq-back.png
+	let wBishopBlackSqImg; // SET WITH wKingImg
+	let wBishopWhiteSqImg; // SET WITH wKingImg
+	const wFrontBishopBlackSqImg = 7; // wb-c1.png, BISHOP ON A DARK SQUARE
+	const wFrontBishopWhiteSqImg = 8; // wb-f1.png, BISHOP ON A LIGHT SQUARE
+	const wBackBishopImg = 60; // wb-back.png (BOTH SQUARE COLORS)
 	let wKnightImg; // KNIGHT IMAGE BEING DRAWN, SET TO THE RIGHT OR LEFT ONE BEFORE EACH DRAW (BOTH WHITE KNIGHTS SHARE IT)
 	const wRightKnightImg = 9; // wn-b1.png, FACES RIGHT
 	const wLeftKnightImg = 10; // wn-g1.png, FACES LEFT
-	const wRookImg = 11; // wr-h1.png
+	let wRookImg; // SET WITH wKingImg
+	const wFrontRookImg = 11; // wr-h1.png
+	const wBackRookImg = 61; // wr-back.png
 	const wPawnImg = 12; // wp-a2.png
 
 	// WHITE SHADOW
-	const wKingShdw = 13; // wk-shdw.png
-	const wQueenShdw = 14; // wq-shdw.png
-	const wBishopShdw = 15; // wb-shdw.png (BOTH BISHOPS)
+	let wKingShdw; // SET WITH wKingImg
+	const wFrontKingShdw = 13; // wk-shdw.png
+	const wBackKingShdw = 62; // wk-back-shdw.png
+	let wQueenShdw; // SET WITH wKingImg
+	const wFrontQueenShdw = 14; // wq-shdw.png
+	const wBackQueenShdw = 63; // wq-back-shdw.png
+	let wBishopShdw; // SET WITH wKingImg
+	const wFrontBishopShdw = 15; // wb-shdw.png (BOTH BISHOPS)
+	const wBackBishopShdw = 64; // wb-back-shdw.png
 	let wKnightShdw // SET WITH wKnightImg
 	const wRightKnightShdw = 16; // wn-b1-shdw.png
 	const wLeftKnightShdw = 17; // wn-g1-shdw.png
-	const wRookShdw = 18; // wr-shdw.png
+	let wRookShdw; // SET WITH wKingImg
+	const wFrontRookShdw = 18; // wr-shdw.png
+	const wBackRookShdw = 65; // wr-back-shdw.png
 	const wPawnShdw = 19; // wp-shdw.png
 
 	// WHITE REFLECT
-	const wKingRefl = 20; // wk-refl.png
-	const wQueenRefl = 21; // wq-refl.png
-	const wBishopRefl = 22; // wb-refl.png (BOTH BISHOPS)
+	let wKingRefl; // SET WITH wKingImg
+	const wFrontKingRefl = 20; // wk-refl.png
+	const wBackKingRefl = 66; // wk-back-refl.png
+	let wQueenRefl; // SET WITH wKingImg
+	const wFrontQueenRefl = 21; // wq-refl.png
+	const wBackQueenRefl = 67; // wq-back-refl.png
+	let wBishopRefl; // SET WITH wKingImg
+	const wFrontBishopRefl = 22; // wb-refl.png (BOTH BISHOPS)
+	const wBackBishopRefl = 68; // wb-back-refl.png
 	let wKnightRefl // SET WITH wKnightImg
 	const wRightKnightRefl = 23; // wn-b1-refl.png
 	const wLeftKnightRefl = 24; // wn-g1-refl.png
-	const wRookRefl = 25; // wr-refl.png
+	let wRookRefl; // SET WITH wKingImg
+	const wFrontRookRefl = 25; // wr-refl.png
+	const wBackRookRefl = 69; // wr-back-refl.png
 	const wPawnRefl = 26; // wp-refl.png
 
 	// BLACK IMAGES
-	const bKingImg = 27; // bk-e8.png
-	const bQueenImg = 28; // bq-d8.png
-	const bBishopBlackSqImg = 29; // bb-f8.png, BISHOP ON A DARK SQUARE
-	const bBishopWhiteSqImg = 30; // bb-c8.png, BISHOP ON A LIGHT SQUARE
+	let bKingImg; // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionB)
+	const bFrontKingImg = 27; // bk-e8.png, FACES THE PLAYER (WHEN PLAYING WHITE)
+	const bBackKingImg = 70; // bk-back.png, FACES AWAY
+	let bQueenImg; // SET WITH bKingImg
+	const bFrontQueenImg = 28; // bq-d8.png
+	const bBackQueenImg = 71; // bq-back.png
+	let bBishopBlackSqImg; // SET WITH bKingImg
+	let bBishopWhiteSqImg; // SET WITH bKingImg
+	const bFrontBishopBlackSqImg = 29; // bb-f8.png, BISHOP ON A DARK SQUARE
+	const bFrontBishopWhiteSqImg = 30; // bb-c8.png, BISHOP ON A LIGHT SQUARE
+	const bBackBishopImg = 72; // bb-back.png (BOTH SQUARE COLORS)
 	let bKnightImg; // KNIGHT IMAGE BEING DRAWN, SET TO THE RIGHT OR LEFT ONE BEFORE EACH DRAW (BOTH BLACK KNIGHTS SHARE IT)
 	const bRightKnightImg = 31; // bn-b8.png, FACES RIGHT
 	const bLeftKnightImg = 32; // bn-g8.png, FACES LEFT
-	const bRookImg = 33; // br-h8.png
+	let bRookImg; // SET WITH bKingImg
+	const bFrontRookImg = 33; // br-h8.png
+	const bBackRookImg = 73; // br-back.png
 	const bPawnImg = 34; // bp-a7.png
 
 	// BLACK SHADOW
-	const bKingShdw = 35; // bk-shdw.png
-	const bQueenShdw = 36; // bq-shdw.png
-	const bBishopShdw = 37; // bb-shdw.png (BOTH BISHOPS)
+	let bKingShdw; // SET WITH bKingImg
+	const bFrontKingShdw = 35; // bk-shdw.png
+	const bBackKingShdw = 74; // bk-back-shdw.png
+	let bQueenShdw; // SET WITH bKingImg
+	const bFrontQueenShdw = 36; // bq-shdw.png
+	const bBackQueenShdw = 75; // bq-back-shdw.png
+	let bBishopShdw; // SET WITH bKingImg
+	const bFrontBishopShdw = 37; // bb-shdw.png (BOTH BISHOPS)
+	const bBackBishopShdw = 76; // bb-back-shdw.png
 
 	let bKnightShdw; // SET WITH bKnightImg
 	const bRightKnightShdw = 38; // bn-b8-shdw.png
 	const bLeftKnightShdw = 39; // bn-g8-shdw.png
-	const bRookShdw = 40; // br-shdw.png
+	let bRookShdw; // SET WITH bKingImg
+	const bFrontRookShdw = 40; // br-shdw.png
+	const bBackRookShdw = 77; // br-back-shdw.png
 	const bPawnShdw = 41; // bp-shdw.png
 
 	// BLACK REFLECT
-	const bKingRefl = 42; // bk-refl.png
-	const bQueenRefl = 43; // bq-refl.png
-	const bBishopRefl = 44; // bb-refl.png (BOTH BISHOPS)
+	let bKingRefl; // SET WITH bKingImg
+	const bFrontKingRefl = 42; // bk-refl.png
+	const bBackKingRefl = 78; // bk-back-refl.png
+	let bQueenRefl; // SET WITH bKingImg
+	const bFrontQueenRefl = 43; // bq-refl.png
+	const bBackQueenRefl = 79; // bq-back-refl.png
+	let bBishopRefl; // SET WITH bKingImg
+	const bFrontBishopRefl = 44; // bb-refl.png (BOTH BISHOPS)
+	const bBackBishopRefl = 80; // bb-back-refl.png
 	let bKnightRefl; // SET WITH bKnightImg
 	const bRightKnightRefl = 45; // bn-b8-refl.png
 	const bLeftKnightRefl = 46; // bn-g8-refl.png
-	const bRookRefl = 47; // br-refl.png
+	let bRookRefl; // SET WITH bKingImg
+	const bFrontRookRefl = 47; // br-refl.png
+	const bBackRookRefl = 81; // br-back-refl.png
 	const bPawnRefl = 48; // bp-refl.png
 
 	// UI
@@ -322,6 +399,8 @@ export async function renderCanvas(playerData) {
 
 	// CANDLE = 56
 	// CANDLE SHDW = 57
+
+	// BACKS = 58 - 81 (SET UP WITH THE FRONTS ABOVE)
 
 	// TABLE PROPS: img2 = IMAGE, shdw = SHADOW, img = OLD STEAM ANIMATION FRAMES (EMPTY)
 	// !NOTE: THE PROP SIZES ARE COMMENTED OUT IN renderBoard(), SO THEY DRAW AT 0 x 0 (HIDDEN) RIGHT NOW
@@ -544,18 +623,18 @@ export async function renderCanvas(playerData) {
 							const pieceColor = inst[i][j].color;
 							if (!currPromotion) {
 								if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-									if (pieceColor == "w") { drawActivePiece([wKingRefl, wKingShdw, wKingImg]); }
-									else if (pieceColor == "b") { drawActivePiece([bKingRefl, bKingShdw, bKingImg]); }
+									if (pieceColor == "w") { drawActivePiece([wFrontKingRefl, wFrontKingShdw, wFrontKingImg]); }
+									else if (pieceColor == "b") { drawActivePiece([bFrontKingRefl, bFrontKingShdw, bFrontKingImg]); }
 								} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-									if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg]); }
-									else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg]); }
+									if (pieceColor == "w") { drawActivePiece([wFrontQueenRefl, wFrontQueenShdw, wFrontQueenImg]); }
+									else if (pieceColor == "b") { drawActivePiece([bFrontQueenRefl, bFrontQueenShdw, bFrontQueenImg]); }
 								} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
 									if (pieceColor == "w") {
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg]); }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg]); }
+										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wFrontBishopRefl, wFrontBishopShdw, wFrontBishopWhiteSqImg]); }
+										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wFrontBishopRefl, wFrontBishopShdw, wFrontBishopBlackSqImg]); }
 									} else if (pieceColor == "b") {
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg]); }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg]); }
+										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bFrontBishopRefl, bFrontBishopShdw, bFrontBishopWhiteSqImg]); }
+										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bFrontBishopRefl, bFrontBishopShdw, bFrontBishopBlackSqImg]); }
 									}
 								} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 									/* ---------------------------------------------------------------- */
@@ -631,8 +710,8 @@ export async function renderCanvas(playerData) {
 										}
 									}
 								} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-									if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg]); wPieceCount.rook++; }
-									else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg]); bPieceCount.rook++; }
+									if (pieceColor == "w") { drawActivePiece([wFrontRookRefl, wFrontRookShdw, wFrontRookImg]); wPieceCount.rook++; }
+									else if (pieceColor == "b") { drawActivePiece([bFrontRookRefl, bFrontRookShdw, bFrontRookImg]); bPieceCount.rook++; }
 								} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 									if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg]); }
 									else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg]); }
@@ -949,7 +1028,8 @@ export async function renderCanvas(playerData) {
 						/* ---------------------------------------------------------------- */
 						/**
 						 * @description Draws Tiles to Canvas. Draws the held piece on the legal square under the mouse (the drop preview),
-						 * knights face left while the mouse moves left. Counts the piece, the main loop skips it
+						 * knights face left while the mouse moves left, kings, queens, bishops & rooks face up or down the way they'd move.
+						 * Counts the piece, the main loop skips it
 						 * @param  {[object]} tile [the held tile]
 						 * @param  {[string]} pieceType [chess.js type 'k', 'q', 'b', 'n', 'r', 'p']
 						 * @param  {[string]} pieceColor ['w' | 'b']
@@ -957,19 +1037,81 @@ export async function renderCanvas(playerData) {
 						 * @param  {[number]} y [pixel y]
 						 */
 						function drawTiles(tile, pieceType, pieceColor, x, y) {
-							if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-								if (pieceColor == "w") { drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, false); wPieceCount.king++; }
-								else if (pieceColor == "b") { drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, false); bPieceCount.king++; }
-							} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-								if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, false); wPieceCount.queen++; }
-								else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, false); bPieceCount.queen++; }
-							} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
+							if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
+								/* ---------------------------------------------------------------- */
+								// Draw Piece (Draw Tiles)
+								/* ---------------------------------------------------------------- */
+								/**
+								 * @description Draws the held king, queen, bishop or rook on the move under the mouse. The loops below pick the way it faces now,
+								 * a move up or down the board turns it the way it would go
+								 */
+								function drawPiece() {
+									if (tile.yAvailInt != tile.originY) { // UP OR DOWN: FACE THE WAY IT WOULD MOVE (SIDEWAYS FACES ITS LAST WAY)
+										if (pieceColor == 'w') { handlePieceDirectionW(tile.originY, tile.yAvailInt); }
+										else if (pieceColor == 'b') { handlePieceDirectionB(tile.originY, tile.yAvailInt); }
+									}
+									if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
+										if (pieceColor == "w") { drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, false); wPieceCount.king++; }
+										else if (pieceColor == "b") { drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, false); bPieceCount.king++; }
+									} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
+										if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, false); wPieceCount.queen++; }
+										else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, false); bPieceCount.queen++; }
+									} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
+										if (pieceColor == "w") {
+											if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, false); wPieceCount.bishop++; }
+											else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, false); wPieceCount.bishop++; }
+										} else if (pieceColor == "b") {
+											if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, false); bPieceCount.bishop++; }
+											else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, false); bPieceCount.bishop++; }
+										}
+									} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
+										if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, false); wPieceCount.rook++; }
+										else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, false); bPieceCount.rook++; }
+									}
+								}
+								// THE WAY IT FACES NOW, SAME AS THE BOARD (w_piece / b_piece)
 								if (pieceColor == "w") {
-									if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, false); wPieceCount.bishop++; }
-									else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, false); wPieceCount.bishop++; }
+									let yFrom; // SCREEN ROW IT CAME FROM
+									let yTo; // SCREEN ROW IT WENT TO
+									for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
+										if (JSON.parse(response.w_piece)[n].from && JSON.parse(response.w_piece)[n].to == tile.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+											if (playerColor == 'w') {
+												yFrom = 8 - JSON.parse(response.w_piece)[n].from.split("")[1];
+												yTo = 8 - JSON.parse(response.w_piece)[n].to.split("")[1];
+											} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+												yFrom = JSON.parse(response.w_piece)[n].from.split("")[1] - 1;
+												yTo = JSON.parse(response.w_piece)[n].to.split("")[1] - 1;
+											}
+											handlePieceDirectionW(yFrom, yTo);
+											drawPiece();
+											break;
+										} else if (JSON.parse(response.w_piece)[n].from == null && JSON.parse(response.w_piece)[n].to == tile.square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
+											handlePieceDirectionW(null, null);
+											drawPiece();
+											break;
+										}
+									}
 								} else if (pieceColor == "b") {
-									if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, false); bPieceCount.bishop++; }
-									else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, false); bPieceCount.bishop++; }
+									let yFrom; // SCREEN ROW IT CAME FROM
+									let yTo; // SCREEN ROW IT WENT TO
+									for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
+										if (JSON.parse(response.b_piece)[n].from && JSON.parse(response.b_piece)[n].to == tile.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+											if (playerColor == 'w') {
+												yFrom = 8 - JSON.parse(response.b_piece)[n].from.split("")[1];
+												yTo = 8 - JSON.parse(response.b_piece)[n].to.split("")[1];
+											} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+												yFrom = JSON.parse(response.b_piece)[n].from.split("")[1] - 1;
+												yTo = JSON.parse(response.b_piece)[n].to.split("")[1] - 1;
+											}
+											handlePieceDirectionB(yFrom, yTo);
+											drawPiece();
+											break;
+										} else if (JSON.parse(response.b_piece)[n].from == null && JSON.parse(response.b_piece)[n].to == tile.square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
+											handlePieceDirectionB(null, null);
+											drawPiece();
+											break;
+										}
+									}
 								}
 							} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 								if (pieceColor == "w") {
@@ -981,9 +1123,6 @@ export async function renderCanvas(playerData) {
 									else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, false); }
 									bPieceCount.knight++;
 								}
-							} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-								if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, false); wPieceCount.rook++; }
-								else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, false); bPieceCount.rook++; }
 							} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 								if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, false); wPieceCount.pawn++; }
 								else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, false); bPieceCount.pawn++; }
@@ -1370,35 +1509,121 @@ export async function renderCanvas(playerData) {
 							if (!(mousedownTile.xAvailInt == tiles[index].x && mousedownTile.yAvailInt == tiles[index].y)) { // IF A MOUSE DOWN TILE IS ON AVAILABLE MOVE TILE RENDERING OF THE PIECE FALLS ON THE RESPONSIBILITY OF "checkAvailableMoves()"
 								let opacity = true
 								if (tiles[index].isClicked && (tiles[index].x == tiles[index].originX && tiles[index].y == tiles[index].originY)) { opacity = false } // IF TILE IS IN ORIGINAL POSITION SET OPACITY TO FALSE
-								if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
+								if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
+									/* ---------------------------------------------------------------- */
+									// Draw Piece (Draw Screen)
+									/* ---------------------------------------------------------------- */
+									/**
+									 * @description Draws the king, queen, bishop or rook to the board with the images the loops below picked (handlePieceDirectionW / B).
+									 * While the player holds their piece it faces the way it's dragged (up or down from its square)
+									 */
+									function drawPiece() {
+										if (tiles[index].isMousedown && tiles[index].y != tiles[index].originY && playerColor == pieceColor) { // HELD: FACE THE WAY IT'S DRAGGED (UP OR DOWN)
+											if (pieceColor == 'w') { handlePieceDirectionW(tiles[index].originY, tiles[index].y); }
+											else if (pieceColor == 'b') { handlePieceDirectionB(tiles[index].originY, tiles[index].y); }
+										}
+										if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
+											if (pieceColor == "w") {
+												if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
+													ctx.globalAlpha = 0.70;
+													ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
+													ctx.globalAlpha = 1.00;
+												}
+												drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, opacity);
+												wPieceCount.king++;
+											}
+											else if (pieceColor == "b") {
+												if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
+													ctx.globalAlpha = 0.70;
+													ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
+													ctx.globalAlpha = 1.00;
+												}
+												drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, opacity);
+												bPieceCount.king++;
+											}
+										} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
+											if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, opacity); wPieceCount.queen++; }
+											else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, opacity); bPieceCount.queen++; }
+										} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
+											if (pieceColor == "w") { // THE IMAGE GOES BY THE COLOR OF THE BISHOP'S SQUARE
+												if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, opacity); wPieceCount.bishop++; }
+												else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, opacity); wPieceCount.bishop++; }
+											} else if (pieceColor == "b") {
+												if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, opacity); bPieceCount.bishop++; }
+												else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, opacity); bPieceCount.bishop++; }
+											}
+										} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
+											if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, opacity); wPieceCount.rook++; }
+											else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, opacity); bPieceCount.rook++; }
+										}
+									}
+									// WHICH WAY A KING, QUEEN, BISHOP OR ROOK FACES COMES FROM THE SERVER'S PIECE LIST (w_piece / b_piece):
+									// { from, to } OF EACH ONE'S LAST MOVE UP OR DOWN (A SIDEWAYS MOVE ONLY CHANGES to), from IS null BEFORE IT HAS ONE
+									// & BOTH ARE null ONCE IT'S TAKEN
 									if (pieceColor == "w") {
-										if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
-											ctx.globalAlpha = 0.70;
-											ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
-											ctx.globalAlpha = 1.00;
+										let yFrom; // SCREEN ROW IT CAME FROM
+										let yTo; // SCREEN ROW IT WENT TO
+										for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
+											if (tiles[index].isSliding && moveObj.from.split("")[1] != moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+												if (playerColor == 'w') {
+													yFrom = 8 - moveObj.from.split("")[1];
+													yTo = 8 - moveObj.to.split("")[1];
+												} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+													yFrom = moveObj.from.split("")[1] - 1;
+													yTo = moveObj.to.split("")[1] - 1;
+												}
+												handlePieceDirectionW(yFrom, yTo);
+												drawPiece();
+												break;
+											} else if (JSON.parse(response.w_piece)[n].from && JSON.parse(response.w_piece)[n].to == tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+												if (playerColor == 'w') {
+													yFrom = 8 - JSON.parse(response.w_piece)[n].from.split("")[1];
+													yTo = 8 - JSON.parse(response.w_piece)[n].to.split("")[1];
+												} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+													yFrom = JSON.parse(response.w_piece)[n].from.split("")[1] - 1;
+													yTo = JSON.parse(response.w_piece)[n].to.split("")[1] - 1;
+												}
+												handlePieceDirectionW(yFrom, yTo);
+												drawPiece();
+												break;
+											} else if (JSON.parse(response.w_piece)[n].from == null && JSON.parse(response.w_piece)[n].to == tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
+												handlePieceDirectionW(null, null);
+												drawPiece();
+												break;
+											}
 										}
-										drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, opacity);
-										wPieceCount.king++;
-									}
-									else if (pieceColor == "b") {
-										if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
-											ctx.globalAlpha = 0.70;
-											ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
-											ctx.globalAlpha = 1.00;
-										}
-										drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, opacity);
-										bPieceCount.king++;
-									}
-								} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-									if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, opacity); wPieceCount.queen++; }
-									else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, opacity); bPieceCount.queen++; }
-								} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
-									if (pieceColor == "w") { // THE IMAGE GOES BY THE COLOR OF THE BISHOP'S SQUARE
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, opacity); wPieceCount.bishop++; }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, opacity); wPieceCount.bishop++; }
 									} else if (pieceColor == "b") {
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, opacity); bPieceCount.bishop++; }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, opacity); bPieceCount.bishop++; }
+										let yFrom; // SCREEN ROW IT CAME FROM
+										let yTo; // SCREEN ROW IT WENT TO
+										for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
+											if (tiles[index].isSliding && moveObj.from.split("")[1] != moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+												if (playerColor == 'w') {
+													yFrom = 8 - moveObj.from.split("")[1];
+													yTo = 8 - moveObj.to.split("")[1];
+												} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+													yFrom = moveObj.from.split("")[1] - 1;
+													yTo = moveObj.to.split("")[1] - 1;
+												}
+												handlePieceDirectionB(yFrom, yTo);
+												drawPiece();
+												break;
+											} else if (JSON.parse(response.b_piece)[n].from && JSON.parse(response.b_piece)[n].to == tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+												if (playerColor == 'w') {
+													yFrom = 8 - JSON.parse(response.b_piece)[n].from.split("")[1];
+													yTo = 8 - JSON.parse(response.b_piece)[n].to.split("")[1];
+												} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+													yFrom = JSON.parse(response.b_piece)[n].from.split("")[1] - 1;
+													yTo = JSON.parse(response.b_piece)[n].to.split("")[1] - 1;
+												}
+												handlePieceDirectionB(yFrom, yTo);
+												drawPiece();
+												break;
+											} else if (JSON.parse(response.b_piece)[n].from == null && JSON.parse(response.b_piece)[n].to == tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
+												handlePieceDirectionB(null, null);
+												drawPiece();
+												break;
+											}
+										}
 									}
 								} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 									/* ---------------------------------------------------------------- */
@@ -1500,9 +1725,6 @@ export async function renderCanvas(playerData) {
 										}
 										bPieceCount.knight++;
 									}
-								} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-									if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, opacity); wPieceCount.rook++; }
-									else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, opacity); bPieceCount.rook++; }
 								} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 									if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, opacity); wPieceCount.pawn++; }
 									else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, opacity); bPieceCount.pawn++; }
@@ -1530,19 +1752,101 @@ export async function renderCanvas(playerData) {
 				const x = pieceObj.x;
 				const y = pieceObj.y;
 
-				if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-					if (pieceColor == "w") { ctx.drawImage(images[wKingImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-					else if (pieceColor == "b") { ctx.drawImage(images[bKingImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-				} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-					if (pieceColor == "w") { ctx.drawImage(images[wQueenImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-					else if (pieceColor == "b") { ctx.drawImage(images[bQueenImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-				} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
+				if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
+					/* ---------------------------------------------------------------- */
+					// Draw Piece (Draw Slide Box)
+					/* ---------------------------------------------------------------- */
+					/**
+					 * @description Draws the king, queen, bishop or rook to the board again (image only) with the images the loops below picked.
+					 * The loops pick its facing the same way as Draw Piece (Draw Screen)
+					 */
+					function drawPiece() {
+						if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
+							if (pieceColor == "w") { ctx.drawImage(images[wKingImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+							else if (pieceColor == "b") { ctx.drawImage(images[bKingImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
+							if (pieceColor == "w") { ctx.drawImage(images[wQueenImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+							else if (pieceColor == "b") { ctx.drawImage(images[bQueenImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
+							if (pieceColor == "w") {
+								if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[wBishopWhiteSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+								else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[wBishopBlackSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+							} else if (pieceColor == "b") {
+								if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[bBishopWhiteSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+								else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[bBishopBlackSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+							}
+						} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
+							if (pieceColor == "w") { ctx.drawImage(images[wRookImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+							else if (pieceColor == "b") { ctx.drawImage(images[bRookImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						}
+					}
+					// SAME FACING RULES AS THE BOARD: THIS MOVE WHILE SLIDING UP OR DOWN, ELSE ITS LAST MOVE UP OR DOWN, ELSE ITS START SIDE
+					// !NOTE: ON THE FRAME A SLIDE LANDS ITS ENTRY HAS ALREADY MOVED TO THE NEW SQUARE, SO NOTHING MATCHES & IT ISN'T DRAWN
+					// A SECOND TIME (THE BOARD ALREADY DREW IT, SAME AS THE KNIGHT)
 					if (pieceColor == "w") {
-						if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[wBishopWhiteSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-						else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[wBishopBlackSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						let yFrom; // SCREEN ROW IT CAME FROM
+						let yTo; // SCREEN ROW IT WENT TO
+						for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
+							if (pieceObj.isSliding && moveObj.from.split("")[1] != moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+								if (playerColor == 'w') {
+									yFrom = 8 - moveObj.from.split("")[1];
+									yTo = 8 - moveObj.to.split("")[1];
+								} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = moveObj.from.split("")[1] - 1;
+									yTo = moveObj.to.split("")[1] - 1;
+								}
+								handlePieceDirectionW(yFrom, yTo);
+								drawPiece();
+								break;
+							} else if (JSON.parse(response.w_piece)[n].from && JSON.parse(response.w_piece)[n].to == pieceObj.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+								if (playerColor == 'w') {
+									yFrom = 8 - JSON.parse(response.w_piece)[n].from.split("")[1];
+									yTo = 8 - JSON.parse(response.w_piece)[n].to.split("")[1];
+								} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = JSON.parse(response.w_piece)[n].from.split("")[1] - 1;
+									yTo = JSON.parse(response.w_piece)[n].to.split("")[1] - 1;
+								}
+								handlePieceDirectionW(yFrom, yTo);
+								drawPiece();
+								break;
+							} else if (JSON.parse(response.w_piece)[n].from == null && JSON.parse(response.w_piece)[n].to == pieceObj.square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
+								handlePieceDirectionW(null, null);
+								drawPiece();
+								break;
+							}
+						}
 					} else if (pieceColor == "b") {
-						if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[bBishopWhiteSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-						else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[bBishopBlackSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						let yFrom; // SCREEN ROW IT CAME FROM
+						let yTo; // SCREEN ROW IT WENT TO
+						for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
+							if (pieceObj.isSliding && moveObj.from.split("")[1] != moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+								if (playerColor == 'w') {
+									yFrom = 8 - moveObj.from.split("")[1];
+									yTo = 8 - moveObj.to.split("")[1];
+								} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = moveObj.from.split("")[1] - 1;
+									yTo = moveObj.to.split("")[1] - 1;
+								}
+								handlePieceDirectionB(yFrom, yTo);
+								drawPiece();
+								break;
+							} else if (JSON.parse(response.b_piece)[n].from && JSON.parse(response.b_piece)[n].to == pieceObj.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+								if (playerColor == 'w') {
+									yFrom = 8 - JSON.parse(response.b_piece)[n].from.split("")[1];
+									yTo = 8 - JSON.parse(response.b_piece)[n].to.split("")[1];
+								} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = JSON.parse(response.b_piece)[n].from.split("")[1] - 1;
+									yTo = JSON.parse(response.b_piece)[n].to.split("")[1] - 1;
+								}
+								handlePieceDirectionB(yFrom, yTo);
+								drawPiece();
+								break;
+							} else if (JSON.parse(response.b_piece)[n].from == null && JSON.parse(response.b_piece)[n].to == pieceObj.square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
+								handlePieceDirectionB(null, null);
+								drawPiece();
+								break;
+							}
+						}
 					}
 				} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 					/* ---------------------------------------------------------------- */
@@ -1648,9 +1952,6 @@ export async function renderCanvas(playerData) {
 							}
 						}
 					}
-				} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-					if (pieceColor == "w") { ctx.drawImage(images[wRookImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-					else if (pieceColor == "b") { ctx.drawImage(images[bRookImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 				} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 					if (pieceColor == "w") { ctx.drawImage(images[wPawnImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 					else if (pieceColor == "b") { ctx.drawImage(images[bPawnImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
@@ -1827,20 +2128,20 @@ export async function renderCanvas(playerData) {
 					takenPieces[i].x = xPos;
 					takenPieces[i].y = yPos;
 					if (takenPieces[i].type.match(/[k]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR KING
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wKingShdw, wKingImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bKingShdw, bKingImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontKingShdw, wFrontKingImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontKingShdw, bFrontKingImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 					} else if (takenPieces[i].type.match(/[q]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR QUEEN
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wQueenShdw, wQueenImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bQueenShdw, bQueenImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontQueenShdw, wFrontQueenImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontQueenShdw, bFrontQueenImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 					} else if (takenPieces[i].type.match(/[b]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR BISHOP
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wBishopShdw, wBishopBlackSqImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bBishopShdw, bBishopWhiteSqImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontBishopShdw, wFrontBishopBlackSqImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontBishopShdw, bFrontBishopWhiteSqImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 					} else if (takenPieces[i].type.match(/[n]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR KNIGHT
 						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wRightKnightShdw, wRightKnightImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bRightKnightShdw, bRightKnightImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 					} else if (takenPieces[i].type.match(/[r]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR ROOK
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wRookShdw, wRookImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bRookShdw, bRookImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontRookShdw, wFrontRookImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontRookShdw, bFrontRookImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 					} else if (takenPieces[i].type.match(/[p]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR PAWN
 						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wPawnShdw, wPawnImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bPawnShdw, bPawnImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
@@ -1860,20 +2161,20 @@ export async function renderCanvas(playerData) {
 					takenPieces[i].x = xPos;
 					takenPieces[i].y = yPos;
 					if (takenPieces[i].type.match(/[k]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR KING
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wKingShdw, wKingImg]); xPos += 1; }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bKingShdw, bKingImg]); xPos += 1; }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontKingShdw, wFrontKingImg]); xPos += 1; }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontKingShdw, bFrontKingImg]); xPos += 1; }
 					} else if (takenPieces[i].type.match(/[q]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR QUEEN
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wQueenShdw, wQueenImg]); xPos += 1; }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bQueenShdw, bQueenImg]); xPos += 1; }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontQueenShdw, wFrontQueenImg]); xPos += 1; }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontQueenShdw, bFrontQueenImg]); xPos += 1; }
 					} else if (takenPieces[i].type.match(/[b]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR BISHOP
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wBishopShdw, wBishopBlackSqImg]); xPos += 1; }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bBishopShdw, bBishopWhiteSqImg]); xPos += 1; }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontBishopShdw, wFrontBishopBlackSqImg]); xPos += 1; }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontBishopShdw, bFrontBishopWhiteSqImg]); xPos += 1; }
 					} else if (takenPieces[i].type.match(/[n]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR KNIGHT
 						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wRightKnightShdw, wRightKnightImg]); xPos += 1; }
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bRightKnightShdw, bRightKnightImg]); xPos += 1; }
 					} else if (takenPieces[i].type.match(/[r]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR ROOK
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wRookShdw, wRookImg]); xPos += 1; }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bRookShdw, bRookImg]); xPos += 1; }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontRookShdw, wFrontRookImg]); xPos += 1; }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontRookShdw, bFrontRookImg]); xPos += 1; }
 					} else if (takenPieces[i].type.match(/[p]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR PAWN
 						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wPawnShdw, wPawnImg]); xPos += 1; }
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bPawnShdw, bPawnImg]); xPos += 1; }
@@ -1963,7 +2264,7 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @description Validates user move post slide or drag/drop then starts ai slide. Plays the move sound, moves the piece on
-		 * the local board & the local knight list, sends the move (PUT) & loads the server's board. AI games give the AI its turn
+		 * the local board, knight list & piece list, sends the move (PUT) & loads the server's board. AI games give the AI its turn
 		 * half a second later, friend games wait for the socket. A move the server turns down goes back to revert
 		 */
 		async function validateMove() {
@@ -1973,10 +2274,10 @@ export async function renderCanvas(playerData) {
 
 				moveAudio.load();
 				moveAudio.play().catch((err) => { console.log(err) });
-				revert = response; // GO BACK TO THIS IF THE SERVER SAYS NO
+				revert = { ...response }; // GO BACK TO THIS IF THE SERVER SAYS NO (A COPY, THE LISTS BELOW CHANGE response)
 				opposingMove = true; // LOCK THE BOARD
 				chessInst.move(moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
-				if (playerColor == 'w') { // KEEP THE LOCAL KNIGHT LIST IN STEP UNTIL THE SERVER'S COMES BACK
+				if (playerColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP UNTIL THE SERVER'S COMES BACK
 					for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
 						if (moveObj.from == JSON.parse(response.w_knight)[n].to) {
 							let w_knight = JSON.parse(response.w_knight)
@@ -1985,6 +2286,29 @@ export async function renderCanvas(playerData) {
 							response.w_knight = JSON.stringify(w_knight);
 							break;
 						}
+					}
+					for (let n = 0; n < JSON.parse(response.w_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+						if (moveObj.from == JSON.parse(response.w_piece)[n].to) {
+							let w_piece = JSON.parse(response.w_piece)
+							if (moveObj.from.split("")[1] != moveObj.to.split("")[1]) { w_piece[n].from = moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+							w_piece[n].to = moveObj.to;
+							response.w_piece = JSON.stringify(w_piece);
+							break;
+						}
+					}
+					// !NOTE: THE OLD ROOK SQUARE STAYS UNTIL THE SERVER'S LIST COMES BACK. THE MOVE LANDS HALFWAY THROUGH DRAWING A FRAME
+					// & THE REST OF THAT FRAME STILL DRAWS THE OLD BOARD, SO THE ROOK WOULD DISAPPEAR FOR A FRAME IF ITS SQUARE WAS GONE
+					if (chessInst.get(moveObj.to).type == 'k' && moveObj.from == 'e1' && (moveObj.to == 'g1' || moveObj.to == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+						for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
+							let w_piece = JSON.parse(response.w_piece)
+							if (moveObj.to == 'g1' && w_piece[n].to == 'h1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'f1' }; response.w_piece = JSON.stringify(w_piece); break; } // KING SIDE
+							else if (moveObj.to == 'c1' && w_piece[n].to == 'a1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'd1' }; response.w_piece = JSON.stringify(w_piece); break; } // QUEEN SIDE
+						}
+					}
+					if (moveObj.promotion && moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+						let w_piece = JSON.parse(response.w_piece)
+						w_piece[w_piece.length] = { from: moveObj.from, to: moveObj.to };
+						response.w_piece = JSON.stringify(w_piece);
 					}
 				} else if (playerColor == 'b') {
 					for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
@@ -1995,6 +2319,27 @@ export async function renderCanvas(playerData) {
 							response.b_knight = JSON.stringify(b_knight);
 							break;
 						}
+					}
+					for (let n = 0; n < JSON.parse(response.b_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+						if (moveObj.from == JSON.parse(response.b_piece)[n].to) {
+							let b_piece = JSON.parse(response.b_piece)
+							if (moveObj.from.split("")[1] != moveObj.to.split("")[1]) { b_piece[n].from = moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+							b_piece[n].to = moveObj.to;
+							response.b_piece = JSON.stringify(b_piece);
+							break;
+						}
+					}
+					if (chessInst.get(moveObj.to).type == 'k' && moveObj.from == 'e8' && (moveObj.to == 'g8' || moveObj.to == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+						for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
+							let b_piece = JSON.parse(response.b_piece)
+							if (moveObj.to == 'g8' && b_piece[n].to == 'h8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'f8' }; response.b_piece = JSON.stringify(b_piece); break; } // KING SIDE
+							else if (moveObj.to == 'c8' && b_piece[n].to == 'a8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'd8' }; response.b_piece = JSON.stringify(b_piece); break; } // QUEEN SIDE
+						}
+					}
+					if (moveObj.promotion && moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+						let b_piece = JSON.parse(response.b_piece)
+						b_piece[b_piece.length] = { from: moveObj.from, to: moveObj.to };
+						response.b_piece = JSON.stringify(b_piece);
 					}
 				}
 
@@ -2024,7 +2369,7 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @description Updates board data on slide completion for opposing player (AI or friend). Plays the move sound, moves the
-		 * piece on the local board & knight list, then loads the saved game (the AI's came with its move, a friend game is fetched)
+		 * piece on the local board, knight list & piece list, then loads the saved game (the AI's came with its move, a friend game is fetched)
 		 * & gives the turn back to the player
 		 * !NOTE: KEEP THE AWAIT ON THE AI LINE, WITHOUT IT refreshData() RESETS THE TILES WHILE THE FRAME IS STILL DRAWING
 		 * & A TAKEN PIECE CAN BE LEFT ON THE BOARD
@@ -2041,7 +2386,7 @@ export async function renderCanvas(playerData) {
 				tiles[index].ySlideTo = 0;
 				chessInst.move(moveObj); // LOCAL BOARD
 
-				if (opponentColor == 'w') { // KEEP THE LOCAL KNIGHT LIST IN STEP
+				if (opponentColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
 					for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
 						if (moveObj.from == JSON.parse(response.w_knight)[n].to) {
 							let w_knight = JSON.parse(response.w_knight)
@@ -2049,6 +2394,28 @@ export async function renderCanvas(playerData) {
 							w_knight[n].to = moveObj.to;
 							response.w_knight = JSON.stringify(w_knight);
 						}
+					}
+					for (let n = 0; n < JSON.parse(response.w_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+						if (moveObj.from == JSON.parse(response.w_piece)[n].to) {
+							let w_piece = JSON.parse(response.w_piece)
+							if (moveObj.from.split("")[1] != moveObj.to.split("")[1]) { w_piece[n].from = moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+							w_piece[n].to = moveObj.to;
+							response.w_piece = JSON.stringify(w_piece);
+						}
+					}
+					// !NOTE: THE OLD ROOK SQUARE STAYS UNTIL THE SERVER'S LIST COMES BACK. THE MOVE LANDS HALFWAY THROUGH DRAWING A FRAME
+					// & THE REST OF THAT FRAME STILL DRAWS THE OLD BOARD, SO THE ROOK WOULD DISAPPEAR FOR A FRAME IF ITS SQUARE WAS GONE
+					if (chessInst.get(moveObj.to).type == 'k' && moveObj.from == 'e1' && (moveObj.to == 'g1' || moveObj.to == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+						for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
+							let w_piece = JSON.parse(response.w_piece)
+							if (moveObj.to == 'g1' && w_piece[n].to == 'h1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'f1' }; response.w_piece = JSON.stringify(w_piece); break; } // KING SIDE
+							else if (moveObj.to == 'c1' && w_piece[n].to == 'a1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'd1' }; response.w_piece = JSON.stringify(w_piece); break; } // QUEEN SIDE
+						}
+					}
+					if (moveObj.promotion && moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+						let w_piece = JSON.parse(response.w_piece)
+						w_piece[w_piece.length] = { from: moveObj.from, to: moveObj.to };
+						response.w_piece = JSON.stringify(w_piece);
 					}
 				} else if (opponentColor == 'b') {
 					for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
@@ -2058,6 +2425,26 @@ export async function renderCanvas(playerData) {
 							b_knight[n].to = moveObj.to;
 							response.b_knight = JSON.stringify(b_knight);
 						}
+					}
+					for (let n = 0; n < JSON.parse(response.b_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+						if (moveObj.from == JSON.parse(response.b_piece)[n].to) {
+							let b_piece = JSON.parse(response.b_piece)
+							if (moveObj.from.split("")[1] != moveObj.to.split("")[1]) { b_piece[n].from = moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+							b_piece[n].to = moveObj.to;
+							response.b_piece = JSON.stringify(b_piece);
+						}
+					}
+					if (chessInst.get(moveObj.to).type == 'k' && moveObj.from == 'e8' && (moveObj.to == 'g8' || moveObj.to == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+						for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
+							let b_piece = JSON.parse(response.b_piece)
+							if (moveObj.to == 'g8' && b_piece[n].to == 'h8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'f8' }; response.b_piece = JSON.stringify(b_piece); break; } // KING SIDE
+							else if (moveObj.to == 'c8' && b_piece[n].to == 'a8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'd8' }; response.b_piece = JSON.stringify(b_piece); break; } // QUEEN SIDE
+						}
+					}
+					if (moveObj.promotion && moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+						let b_piece = JSON.parse(response.b_piece)
+						b_piece[b_piece.length] = { from: moveObj.from, to: moveObj.to };
+						response.b_piece = JSON.stringify(b_piece);
 					}
 				}
 
@@ -2158,6 +2545,76 @@ export async function renderCanvas(playerData) {
 				if (xFrom < xTo) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
 				else if (xFrom > xTo) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; }
 				else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
+			}
+		}
+
+
+		/* ---------------------------------------------------------------- */
+		// Handle Piece Direction White
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Check the previous y pos & the curr y pos to determine orientation. Points the white king, queen, bishop & rook
+		 * images (wKingImg, wKingShdw, wKingRefl, ...) away from the player (their backs) when the piece moved up the screen,
+		 * toward the player (their fronts) when it moved down. One that hasn't moved up or down faces black's side
+		 * @param  {[number]} yFrom [screen row it came from, null before it has moved up or down]
+		 * @param  {[number]} yTo [screen row it went to, null before it has moved up or down]
+		 */
+		function handlePieceDirectionW(yFrom, yTo) {
+			if (yFrom > yTo) { // MOVED UP: FACES AWAY
+				wKingImg = wBackKingImg; wKingShdw = wBackKingShdw; wKingRefl = wBackKingRefl;
+				wQueenImg = wBackQueenImg; wQueenShdw = wBackQueenShdw; wQueenRefl = wBackQueenRefl;
+				wBishopBlackSqImg = wBackBishopImg; wBishopWhiteSqImg = wBackBishopImg; wBishopShdw = wBackBishopShdw; wBishopRefl = wBackBishopRefl;
+				wRookImg = wBackRookImg; wRookShdw = wBackRookShdw; wRookRefl = wBackRookRefl;
+			} else if (yFrom < yTo) { // MOVED DOWN: FACES THE PLAYER
+				wKingImg = wFrontKingImg; wKingShdw = wFrontKingShdw; wKingRefl = wFrontKingRefl;
+				wQueenImg = wFrontQueenImg; wQueenShdw = wFrontQueenShdw; wQueenRefl = wFrontQueenRefl;
+				wBishopBlackSqImg = wFrontBishopBlackSqImg; wBishopWhiteSqImg = wFrontBishopWhiteSqImg; wBishopShdw = wFrontBishopShdw; wBishopRefl = wFrontBishopRefl;
+				wRookImg = wFrontRookImg; wRookShdw = wFrontRookShdw; wRookRefl = wFrontRookRefl;
+			} else if (playerColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE (THE TOP OF THE BOARD)
+				wKingImg = wBackKingImg; wKingShdw = wBackKingShdw; wKingRefl = wBackKingRefl;
+				wQueenImg = wBackQueenImg; wQueenShdw = wBackQueenShdw; wQueenRefl = wBackQueenRefl;
+				wBishopBlackSqImg = wBackBishopImg; wBishopWhiteSqImg = wBackBishopImg; wBishopShdw = wBackBishopShdw; wBishopRefl = wBackBishopRefl;
+				wRookImg = wBackRookImg; wRookShdw = wBackRookShdw; wRookRefl = wBackRookRefl;
+			} else if (playerColor == 'b') { // FLIPPED BOARD: BLACK'S SIDE IS THE BOTTOM
+				wKingImg = wFrontKingImg; wKingShdw = wFrontKingShdw; wKingRefl = wFrontKingRefl;
+				wQueenImg = wFrontQueenImg; wQueenShdw = wFrontQueenShdw; wQueenRefl = wFrontQueenRefl;
+				wBishopBlackSqImg = wFrontBishopBlackSqImg; wBishopWhiteSqImg = wFrontBishopWhiteSqImg; wBishopShdw = wFrontBishopShdw; wBishopRefl = wFrontBishopRefl;
+				wRookImg = wFrontRookImg; wRookShdw = wFrontRookShdw; wRookRefl = wFrontRookRefl;
+			}
+		}
+
+
+		/* ---------------------------------------------------------------- */
+		// Handle Piece Direction Black
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Check the previous y pos & the curr y pos to determine orientation. Points the black king, queen, bishop & rook
+		 * images (bKingImg, bKingShdw, bKingRefl, ...) away from the player (their backs) when the piece moved up the screen,
+		 * toward the player (their fronts) when it moved down. One that hasn't moved up or down faces white's side
+		 * @param  {[number]} yFrom [screen row it came from, null before it has moved up or down]
+		 * @param  {[number]} yTo [screen row it went to, null before it has moved up or down]
+		 */
+		function handlePieceDirectionB(yFrom, yTo) {
+			if (yFrom > yTo) { // MOVED UP: FACES AWAY
+				bKingImg = bBackKingImg; bKingShdw = bBackKingShdw; bKingRefl = bBackKingRefl;
+				bQueenImg = bBackQueenImg; bQueenShdw = bBackQueenShdw; bQueenRefl = bBackQueenRefl;
+				bBishopBlackSqImg = bBackBishopImg; bBishopWhiteSqImg = bBackBishopImg; bBishopShdw = bBackBishopShdw; bBishopRefl = bBackBishopRefl;
+				bRookImg = bBackRookImg; bRookShdw = bBackRookShdw; bRookRefl = bBackRookRefl;
+			} else if (yFrom < yTo) { // MOVED DOWN: FACES THE PLAYER
+				bKingImg = bFrontKingImg; bKingShdw = bFrontKingShdw; bKingRefl = bFrontKingRefl;
+				bQueenImg = bFrontQueenImg; bQueenShdw = bFrontQueenShdw; bQueenRefl = bFrontQueenRefl;
+				bBishopBlackSqImg = bFrontBishopBlackSqImg; bBishopWhiteSqImg = bFrontBishopWhiteSqImg; bBishopShdw = bFrontBishopShdw; bBishopRefl = bFrontBishopRefl;
+				bRookImg = bFrontRookImg; bRookShdw = bFrontRookShdw; bRookRefl = bFrontRookRefl;
+			} else if (playerColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE (THE BOTTOM OF THE BOARD)
+				bKingImg = bFrontKingImg; bKingShdw = bFrontKingShdw; bKingRefl = bFrontKingRefl;
+				bQueenImg = bFrontQueenImg; bQueenShdw = bFrontQueenShdw; bQueenRefl = bFrontQueenRefl;
+				bBishopBlackSqImg = bFrontBishopBlackSqImg; bBishopWhiteSqImg = bFrontBishopWhiteSqImg; bBishopShdw = bFrontBishopShdw; bBishopRefl = bFrontBishopRefl;
+				bRookImg = bFrontRookImg; bRookShdw = bFrontRookShdw; bRookRefl = bFrontRookRefl;
+			} else if (playerColor == 'b') { // FLIPPED BOARD: WHITE'S SIDE IS THE TOP
+				bKingImg = bBackKingImg; bKingShdw = bBackKingShdw; bKingRefl = bBackKingRefl;
+				bQueenImg = bBackQueenImg; bQueenShdw = bBackQueenShdw; bQueenRefl = bBackQueenRefl;
+				bBishopBlackSqImg = bBackBishopImg; bBishopWhiteSqImg = bBackBishopImg; bBishopShdw = bBackBishopShdw; bBishopRefl = bBackBishopRefl;
+				bRookImg = bBackRookImg; bRookShdw = bBackRookShdw; bRookRefl = bBackRookRefl;
 			}
 		}
 

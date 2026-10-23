@@ -59,6 +59,8 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
 			prev_move: { S: JSON.stringify([]) },
 			w_knight: { S: JSON.stringify([{ from: null, to: 'b1' }, { from: null, to: 'g1' }]) },
 			b_knight: { S: JSON.stringify([{ from: null, to: 'b8' }, { from: null, to: 'g8' }]) },
+			w_piece: { S: JSON.stringify([{ from: null, to: 'a1' }, { from: null, to: 'c1' }, { from: null, to: 'd1' }, { from: null, to: 'e1' }, { from: null, to: 'f1' }, { from: null, to: 'h1' }]) }, // KINGS, QUEENS, BISHOPS & ROOKS (WHICH WAY THEY FACE)
+			b_piece: { S: JSON.stringify([{ from: null, to: 'a8' }, { from: null, to: 'c8' }, { from: null, to: 'd8' }, { from: null, to: 'e8' }, { from: null, to: 'f8' }, { from: null, to: 'h8' }]) },
 			white_player_id: { S: playerId1 },
 			black_player_id: { S: playerId2 },
 			expireAt: { N: expireTime() } // TTL, PUSHED BACK ON EVERY MOVE IN updateGame
@@ -152,13 +154,15 @@ async function updateGame(gameData, prevBoard) {
 		Key: {
 			game_id: { S: gameData.game_id.S }
 		},
-		UpdateExpression: 'SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, expireAt = :expireAt', // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		UpdateExpression: 'SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece, expireAt = :expireAt', // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
 			":moves": { S: JSON.stringify(gameData.moves.S) }, // UPDATED MOVE ARRAY
 			":prev_move": { S: JSON.stringify(gameData.prev_move.S) },
 			":game_board": { S: gameData.game_board.S }, // UPDATED GAME FEN
 			":w_knight": { S: gameData.w_knight.S }, // UPDATED WHITE KNIGHTS
 			":b_knight": { S: gameData.b_knight.S }, // UPDATED BLACK KNIGHTS
+			":w_piece": { S: gameData.w_piece.S }, // UPDATED WHITE KINGS, QUEENS, BISHOPS & ROOKS
+			":b_piece": { S: gameData.b_piece.S }, // UPDATED BLACK KINGS, QUEENS, BISHOPS & ROOKS
 			":expireAt": { N: expireTime() } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
 		}
 	}

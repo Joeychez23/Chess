@@ -156,7 +156,7 @@ export async function rematchGame(gameUrl, gameId) {
 
 /**
  * @description AI games: the server picks the AI's move at the game's level & saves it (POST /game/:gameId/ai-move)
- * @return {[object]} response [{ status, game_board, w_knight, b_knight, state, ..., ai_move: { from, to, promotion } }]
+ * @return {[object]} response [{ status, game_board, w_knight, b_knight, w_piece, b_piece, state, ..., ai_move: { from, to, promotion } }]
  */
 export async function aiMove(gameUrl, gameId) {
 	const options = {
