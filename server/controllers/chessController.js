@@ -415,7 +415,7 @@ function gameOpen(gameData) {
 
 /**
  * @description The requester's player id in this game. Signed in players use their session,
- * a guest's player id is the game id (client/src/js/main.js guestGameId, saved in localStorage) & guests only get AI games
+ * a guest's player id is the game id (client/src/js/pages/play/index.js guestGameId, saved in localStorage) & guests only get AI games
  * @param  {[object]} req [express request, req.user is null for guests]
  * @param  {[object]} gameData [game item]
  * @return {[string]} playerId [null when the requester isn't in the game]

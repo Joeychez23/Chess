@@ -1,5 +1,4 @@
 const path = require("path");
-const fs = require("fs");
 const http = require("http");
 const express = require("express");
 const cookieParser = require("cookie-parser");
@@ -10,15 +9,11 @@ const { initSocket } = require("./socket.js");
 
 const app = express();
 const buildDir = path.join(`${__dirname}/../client/dist/`);
+const serveBuild = express.static(buildDir, { index: false }); // BUNDLES, MANIFEST & LOCAL ASSETS
 app.use(cookieParser()); // SESSION TOKENS ARE READ FROM COOKIES (req.cookies)
 app.use(express.json()); // CHESS ROUTES SEND JSON BODIES (req.body)
-app.use(express.static(buildDir));
+app.use((req, res, next) => path.extname(req.path) == ".html" ? next() : serveBuild(req, res, next)); // PAGES ONLY COME FROM THE PAGE ROUTES (routes/pageRoutes.js), SO THEIR SIGN IN CHECK CAN'T BE SKIPPED
 app.use(routes);
-if (fs.existsSync(buildDir)) {
-    console.log(true);
-    app.use(express.static(buildDir, { index: false, maxAge: "1h" }));
-    app.get("/", (req, res) => {return res.sendFile(path.join(buildDir, "index.html"))});
-}
 
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);

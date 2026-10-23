@@ -1,7 +1,6 @@
 {
 	"scripts": {
 		"dev": "cd client && webpack-dev-server --open --port 3002",
-		"iframe": "cd iframe && webpack-dev-server --open",
 		"build": "cd client && webpack",
 		"start": "npm run build && cd server && npm start"
 	},

@@ -10,17 +10,20 @@ const Dotenv = require('dotenv-webpack');
 module.exports = () => {
 	return {
 		mode: 'development',
-		entry: {
-			main: './src/js/main.js'
+		entry: { // ONE BUNDLE PER PAGE, THE SERVER PICKS THE PAGE (server/routes/pageRoutes.js)
+			home: './src/js/pages/home/index.js',    // /              SIGNED IN
+			guest: './src/js/pages/guest/index.js',  // /              GUEST
+			play: './src/js/pages/play/index.js'     // /play          GUEST GAME, /play/:gameId SIGNED IN GAME
 		},
 		output: {
 			filename: '[name].bundle.js',
 			path: path.resolve(__dirname, 'dist'),
+			publicPath: '/', // BUNDLES LOAD FROM THE ROOT, SO /play/:gameId DOESN'T ASK FOR /play/play.bundle.js
 		},
 		plugins: [
-			new HtmlWebpackPlugin({
-				template: './index.html',
-			}),
+			new HtmlWebpackPlugin({ template: './home.html', filename: 'home.html', chunks: ['home'] }),
+			new HtmlWebpackPlugin({ template: './guest.html', filename: 'guest.html', chunks: ['guest'] }),
+			new HtmlWebpackPlugin({ template: './play.html', filename: 'play.html', chunks: ['play'] }),
 
 			// Configure service worker on production builds
 			
@@ -71,10 +74,14 @@ module.exports = () => {
 			fallback: { crypto: false },
 		},
 		devServer: {
-			proxy: {
-				'/api': 'http://localhost:3001', // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
-				'/socket.io': { target: 'http://localhost:3001', ws: true }, // FRIEND GAME SOCKET (server/socket.js)
+			devMiddleware: {
+				writeToDisk: (filePath) => filePath.endsWith('.html'), // THE SERVER SENDS THE PAGES FROM client/dist, THE BUNDLES STAY IN MEMORY
 			},
+			proxy: [
+				{ context: ['/api'], target: 'http://localhost:3001' }, // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
+				{ context: ['/socket.io'], target: 'http://localhost:3001', ws: true }, // FRIEND GAME SOCKET (server/socket.js)
+				{ context: (pathname) => pathname == '/' || pathname == '/play' || pathname.startsWith('/play/'), target: 'http://localhost:3001' }, // PAGES: THE SERVER PICKS WHICH ONE TO SEND
+			],
 		}
 	};
 };

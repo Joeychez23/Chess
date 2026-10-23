@@ -124,7 +124,7 @@ function optionalAuth(req, res, next) {
 // Read Access Token
 /* ---------------------------------------------------------------- */
 /**
- * @description Returns the user from the access cookie, or null when it's missing / expired (Socket.IO handshake)
+ * @description Returns the user from the access cookie, or null when it's missing / expired (Socket.IO handshake & the page routes)
  * @param  {[object]} req [request with req.cookies]
  * @return {[object]} user
  */

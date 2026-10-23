@@ -23,6 +23,7 @@ const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/
 const { playerMove } = require("./user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
 const { setTiles } = require("./utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES
+const { SPRITES } = require("./sprites/index.js"); // EVERY SPRITE URL IN IMAGE NUMBER ORDER (HOME & GUEST USE IT TO WARM THE BROWSER CACHE)
 const { joinGame, leaveGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // GEAR BUTTON, OPENS THE MENU
@@ -73,105 +74,12 @@ async function loadImage(path) {
 // Preload Images
 /* ---------------------------------------------------------------- */
 /**
- * @description Loads every image the game draws, from CHESS_ASSESTS_URL (S3 / CloudFront).
+ * @description Loads every image the game draws, from CHESS_ASSESTS_URL (S3 / CloudFront). The list is SPRITES (gameplay/sprites/index.js).
  * !NOTE: THE ORDER MATTERS. EACH IMAGE'S INDEX IN images[] IS ITS IMAGE NUMBER IN renderCanvas (wFrontKingImg = 5, ...),
- * SO NEW IMAGES GO AT THE END OR EVERY NUMBER AFTER THEM HAS TO CHANGE
+ * SO NEW IMAGES GO AT THE END OF SPRITES OR EVERY NUMBER AFTER THEM HAS TO CHANGE
  */
 export function preloadImages() {
-	// BOARD (0 - 4)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/table-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/chess-board-shdw.webp`)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/raw-board.png`); // BOARD WITHOUT THE WOOD BORDER, ONLY ITS SIZE IS USED (TO FIND THE SQUARES)
-	// WHITE PIECES (5 - 12), BISHOPS ARE NAMED BY SQUARE COLOR (c1 DARK, f1 LIGHT), KNIGHTS BY FACING (b1 RIGHT, g1 LEFT)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-e1.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-d1.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-c1.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-f1.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-h1.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-a2.png`);
-	// WHITE SHADOWS (13 - 19)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-shdw.png`);
-	// WHITE REFLECTIONS (20 - 26)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-b1-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wn-g1-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wp-refl.png`);
-	// BLACK PIECES (27 - 34), f8 IS THE DARK SQUARE BISHOP, b8 KNIGHT FACES RIGHT, g8 LEFT
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-e8.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-d8.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-f8.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-c8.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-h8.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-a7.png`);
-	// BLACK SHADOWS (35 - 41)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-shdw.png`);
-	// BLACK REFLECTIONS (42 - 48)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-b8-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bn-g8-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bp-refl.png`);
-	// UI (49 - 51)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/move-highlight.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/takeable-highlight.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/chess-ui/check-highlight.png`);
-	// TABLE PROPS (52 - 57)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle.png`); 
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle-shdw.png`)
-	// BACK VIEWS: KINGS, QUEENS, BISHOPS & ROOKS FACING AWAY FROM THE PLAYER
-	// WHITE BACKS (58 - 61), SHADOWS (62 - 65), REFLECTIONS (66 - 69)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back-refl.png`);
-	// BLACK BACKS (70 - 73), SHADOWS (74 - 77), REFLECTIONS (78 - 81)
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back-refl.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back-refl.png`);
+	for (let i = 0; i < SPRITES.length; i++) { loadImage(SPRITES[i]); } // IN ORDER, SO images[i] IS SPRITES[i]
 }
 
 /* ---------------------------------------------------------------- */
@@ -466,10 +374,6 @@ export async function renderCanvas(playerData) {
 		canvas.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
 		canvas.style.backgroundSize = "cover";
 		canvas.style.backgroundPosition = "center";
-		window.postMessage({ // FOR AN APP THAT EMBEDS THE GAME, main.js DOESN'T USE "ready"
-			action: "ready",          		 // Action key.
-			receiptToken: "{receipt-token}", // Receipt validation token.
-		})
 		main.append(canvas);
 
 		/* ################################################################ */
@@ -3156,6 +3060,7 @@ export async function renderCanvas(playerData) {
 				return;
 			}
 			GAME_ID = restartResponse.game_id; // NEW GAME ID (GUESTS KEEP THEIRS)
+			if (playerData.SIGNED_IN) { history.replaceState(null, "", `/play/${GAME_ID}`); } // THE URL FOLLOWS THE NEW GAME, BACK DOESN'T RETURN TO THE OLD ONE (GUESTS STAY ON /play)
 			await loadNewBoard();
 			return
 		}
@@ -3238,6 +3143,7 @@ export async function renderCanvas(playerData) {
 		async function loadRematch(newGameId) {
 			if (!newGameId || `${newGameId}` == `${GAME_ID}`) { return; } // ALREADY LOADED (THE REQUEST & THE SOCKET BOTH SEND IT)
 			GAME_ID = newGameId;
+			history.replaceState(null, "", `/play/${GAME_ID}`); // THE URL FOLLOWS THE REMATCH
 			clearTimeout(rematchWaiting); // STOP THE 1 MINUTE WAIT
 			rematchWaiting = false;
 			boardReset = true; // STOP DRAWING WHILE THE NEW BOARD LOADS
@@ -3254,8 +3160,8 @@ export async function renderCanvas(playerData) {
 		// Homepage Button (Menu)
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Renders homepage & removes event listeners. Stops the render loop, leaves the friend game's socket room &
-		 * tells main.js to show the homepage ("home" message, guests are sent to the login)
+		 * @description Goes to Home (/). Stops the render loop & leaves the friend game's socket room first,
+		 * the page load clears everything else (listeners, canvas)
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
 		function handleHomepage(e) {
@@ -3264,50 +3170,20 @@ export async function renderCanvas(playerData) {
 
 			window.clearInterval(drawInterval); // STOP THE RENDER LOOP
 			leaveGame();
-			if (PLAYER_ID != "GUEST_USER") { // REMOVE THIS GAME'S LISTENERS, THE NEXT GAME ADDS ITS OWN (THE OLD GUEST_USER ID KEEPS THEM)
-				menu.style.display = "none"
-				if (document.getElementById("loadingDiv")) { document.getElementById("loadingDiv").remove(); }
-
-				window.removeEventListener("resize", handleWindowResize);
-				window.removeEventListener("keydown", handleKeyPress);
-				canvas.removeEventListener("click", handleCanvasClick);
-				canvas.removeEventListener("mousemove", handleMouseMove);
-				canvas.removeEventListener("mousedown", handleMouseDown);
-				canvas.removeEventListener("mouseup", handleMouseUp);
-				canvas.removeEventListener("touchstart", handleTouchStart);
-				canvas.removeEventListener("touchmove", handleTouchMove);
-				canvas.removeEventListener("touchend", handleTouchEnd);
-				canvas.removeEventListener("touchcancel", handleTouchCancel);
-
-				optBtn.removeEventListener("click", handleMenuBtn);
-				optResumeBtn.removeEventListener("click", handleResume);
-				optRestartBtn.removeEventListener("click", handleRestart);
-				optHomepageBtn.removeEventListener("click", handleHomepage);
-				optExitBtn.removeEventListener("click", handleExit);
-			}
-			menu.style.display = 'none';
-
-			window.postMessage({ // main.js (gameCenterActionsIn.home) SHOWS THE HOMEPAGE
-				action: "home",          // Action key.
-				receiptToken: "{receipt-token}", // Receipt validation token.
-			})
+			window.location.href = "/"; // HOME (server/routes/pageRoutes.js)
 		}
 
 		/* ---------------------------------------------------------------- */
 		// Exit Button (Menu)
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Exits game. Sends the "exit" message, main.js (gameCenterActionsIn.exit) logs a signed in player out
-		 * & sends a guest to the login, or passes it up to the app that embeds the game
+		 * @description Exits game: a signed in player logs out, a guest logs in (the server's auth routes, server/routes/api/authRoutes.js)
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
 		function handleExit(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			window.postMessage({
-				action: "exit",          // Action key.
-				receiptToken: "{receipt-token}", // Receipt validation token.
-			})
+			window.location.href = playerData.SIGNED_IN ? "/api/auth/logout" : "/api/auth/login";
 		}
 	}
 }
