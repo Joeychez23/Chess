@@ -19,9 +19,10 @@ export class InternalAuth {
 	// Login
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description Server redirects to the Auth0 login page, then back to the game signed in
+	 * @description Server redirects to the Auth0 login page, then back signed in: to returnTo (a page's path) or Home
+	 * @param  {[string]} returnTo [optional, e.g. "/play/:gameId"]
 	 */
-	login() { window.location.href = "/api/auth/login"; }
+	login(returnTo) { window.location.href = returnTo ? `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}` : "/api/auth/login"; }
 
 	/* ---------------------------------------------------------------- */
 	// Logout

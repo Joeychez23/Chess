@@ -30,21 +30,21 @@ AWS side (see [Deploy](#deploy)).
 | **Play Friends** | Enter your opponent's email. The backend looks up their Auth0 account and creates the game. While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. The menu's Restart button is **Forfeit** here (it asks "Are you sure?" first). |
 | **Game over** | The server ends a game on checkmate, stalemate, insufficient material, the fifty-move rule, or a forfeit, and saves who won and why. Both boards open the menu with the result. Finished games leave Home. |
 | **Rematch** | After a friend game ends, both players get a Rematch button. If both press it within 1 minute, a new game starts with the sides picked at random and both boards load it. |
-| **Home** | Signed-in players only: a list of their open games (finished games aren't listed). Hidden for guests. |
-| **Login / Logout** | The menu's Exit button logs guests in and signed-in players out. Auth0 runs on the Express server (see [Auth](#auth)). |
+| **Home** | `/` for signed-in players: their open games (finished games aren't listed), each opening at `/play/:gameId`, and the menu's Play AI and Play Friends. Guests get a Sign in button there for now (see [Pages](#pages)). |
+| **Login / Logout** | The menu's Exit button logs guests in and signed-in players out. A game link opened while signed out logs in, then opens the game. Auth0 runs on the Express server (see [Auth](#auth)). |
 | **Mobile** | Portrait and landscape layouts and touch input. iOS audio is unlocked on the first tap so the opponent's move sounds play. |
-| **TV / remote mode** | Arrow keys move a cursor and Enter picks up and drops pieces and drives the menu. Turn it on with the `TV_DEV` flag in `client/src/js/main.js`. |
+| **TV / remote mode** | Arrow keys move a cursor and Enter picks up and drops pieces and drives the menu. Turn it on with the `TV_DEV` flag in `client/src/js/pages/play/index.js`. |
 
 ## How it works
 
-1. **Startup.** If the page is opened directly (not in an iframe), it asks the
-   server who is signed in (`GET /api/user`) while the page loads. A signed-in
-   player opens their latest game (or a new one vs. the AI). A guest opens
-   their own game vs. the AI: its id is saved in the browser's localStorage
-   (`GUEST_GAME_ID`), and a new id is made when none is saved. The guest's
-   player id is the same as the game id. Inside an
-   iframe, it waits for the host page to send `userinfo` and `start` messages
-   (see [Embedding](#embedding)).
+1. **Pages.** The server picks the page for the url (see [Pages](#pages)).
+   Going between pages is a normal page load (`window.location.href`), so the
+   url, refresh and the back button all work. The play page asks the server
+   who is signed in (`GET /api/user`) while the sprites load. A signed-in
+   player gets the game in the url. A guest (`/play`) gets their own game vs.
+   the AI: its id is saved in the browser's localStorage (`GUEST_GAME_ID`),
+   and a new id is made when none is saved. The guest's player id is the same
+   as the game id, so it never goes in the url.
 2. **Load.** `renderCanvas()` preloads every sprite, then asks the server for
    the game (`GET /api/chess/game/:gameId?player_id=`). The server returns the board
    (FEN), your color, and whether the opponent is the AI. For a guest, if no
@@ -129,12 +129,32 @@ CloudFront's TTL is 0, so the new files show up right away.
 
 ```bash
 npm start       # builds client/dist and serves it + the auth routes on http://localhost:3001
-npm run dev     # webpack-dev-server on http://localhost:3002, /api and /socket.io are proxied to :3001 (run the server too)
+npm run dev     # webpack-dev-server on http://localhost:3002, /api, /socket.io and the pages (/, /play) are proxied to :3001 (run the server too)
 npm run build   # bundles into client/dist
 ```
 
 With `npm run dev`, set `CLIENT_URL=http://localhost:3002/` so login returns
-to the dev server.
+to the dev server. The dev server writes the `.html` pages to `client/dist`
+so the server can pick between them, and keeps the bundles in memory.
+
+## Pages
+
+The server sends the page (`server/routes/pageRoutes.js`). It checks the same
+access-token cookie as the API, so the client never works out which page it
+should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
+
+| Url | Page |
+| --- | --- |
+| `/` | Signed in: `home.html`, the open games plus Play AI and Play Friends in the menu. Signed out: `guest.html`, only a Sign in button for now. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
+| `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. Restart and Rematch swap the url to the new game's id |
+| `/play` | The guest's game. Signed-in players are sent Home |
+
+Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.
+The `.html` files are only sent through these routes, never as static files.
+Home and the guest page warm the browser cache with the play page's sprites
+(`client/src/js/gameplay/sprites/index.js`). That only sticks once the S3
+objects have a `Cache-Control` header: CloudFront's TTL is 0 and nothing sets
+one yet.
 
 ## Auth
 
@@ -143,9 +163,10 @@ client secret.
 
 | Route | What it does |
 | --- | --- |
-| `GET /api/auth/login` | Redirects to the Auth0 login page |
-| `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for the user, looks them up through the Management API (`getAuth0User`, which replaced the `user` lambda), and starts the session |
+| `GET /api/auth/login` | Redirects to the Auth0 login page. `?returnTo=/play/:gameId` is saved in a cookie for the callback (only paths on this site) |
+| `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for the user, looks them up through the Management API (`getAuth0User`, which replaced the `user` lambda), starts the session, and goes to `returnTo` or Home |
 | `POST /api/auth/refresh` | Re-ups the session: a valid refresh token gets a new access + refresh token |
+| `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it logs in first |
 | `GET /api/auth/logout` | Clears the session and logs out of Auth0 |
 | `GET /api/user` | The signed-in user, or `401` |
 
@@ -160,7 +181,7 @@ signature check on the server, so startup doesn't wait on Auth0.
 The chess lambda now runs on the Express server. Each branch of the lambda's
 handler is its own route under `/api/chess`. The client calls them from
 `client/src/js/gameplay/validate/index.js`, with `GAME_URL` set to `/api/chess`
-in `main.js`. Responses keep the lambda's body (`{ status, ..., message }`),
+in the pages (`client/src/js/pages/`). Responses keep the lambda's body (`{ status, ..., message }`),
 and a rejected move or missing game still comes back as HTTP 200 with
 `status: 500` in the body, so the client checks them the same way as before.
 
@@ -483,23 +504,6 @@ Copy it again and run `sudo nginx -t && sudo systemctl reload nginx`. certbot's
 HTTPS block lives in the copy in `/etc/nginx/sites-available/chess`, so copying
 over it removes HTTPS until you run the certbot line again.
 
-## Embedding
-
-The game was built to run in an iframe inside a host "game center" page and
-communicates with it through `postMessage`.
-
-| Direction | Action | Meaning |
-| --- | --- | --- |
-| host → game | `userinfo` | `{ chessUrl, gameId, userId }`: which API, game, and player to use |
-| host → game | `start` | Load and render the game |
-| host → game | `home` | `{ userInfo }`: show the signed-in player's open games |
-| game → host | `ready` | Board is rendered |
-| game → host | `exit` | Player chose Exit from the menu |
-
-Inside an iframe, Exit is passed to the host instead of logging in or out.
-The player id `LAKESIDE_GUEST_USER` is treated as a guest. Guests get a fresh
-game against the AI on each load.
-
 ## Resetting a game for testing
 
 Send a `POST` to `http://localhost:3001/api/chess/game` from Postman,
@@ -521,27 +525,36 @@ leave out `game_id`, the backend creates a new game and generates its id.
 
 ```
 client/
-  index.html                 Menu markup (Resume, Restart / Forfeit / Rematch, Home, Play AI, Play Friends, Exit)
-  webpack.config.js          Entry, HTML template, PWA manifest, dotenv, dev proxy (/api + /socket.io)
+  home.html                  Home menu markup (Play AI + level, Play Friends, Logout) and the game list
+  guest.html                 Guest page markup (Sign in)
+  play.html                  Game menu markup (Resume, Restart / Forfeit / Rematch, Home, Exit)
+  webpack.config.js          One entry + HTML page each (home, guest, play), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src-sw.js                  Workbox service worker (not registered at the moment)
   src/css/style.css          Menu, game list, and layout styles
-  src/js/main.js             Menu, postMessage handling, new solo/multiplayer games, AI level dropdown
-  src/js/auth/clientSideAuth.js  login() / logout() / getUser() / refresh() → server auth routes
+  src/js/pages/
+    home/index.js            Open games, new solo/multiplayer games, AI level dropdown
+    guest/index.js           Sign in, re-ups an expired session
+    play/index.js            Finds the player + game (url or guest localStorage), starts renderCanvas()
+    utils/index.js           Menu sizing, table background, warmImages()
+  src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
   src/js/socket/index.js     joinGame() / leaveGame(): friend game socket
   src/js/gameplay/
     index.js                 renderCanvas(): sprite loading, render loop, input, animation
+    sprites/index.js         Every sprite url in image number order (shared with home + guest for warming)
     validate/index.js        Backend calls: get game, move, reset, AI move, levels, user games, invite
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move
     utils/index.js           Per-square tile state
 server/
-  index.js                   Express: serves client/dist + /api routes, starts Socket.IO
+  index.js                   Express: serves the client/dist bundles + the page and /api routes, starts Socket.IO
   socket.js                  Socket.IO: session check, game rooms, emitToGame()
   config.js                  Reads server/.env
   dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js)
+  routes/pageRoutes.js       /, /play, /play/:gameId
   routes/api/                /api/auth/*, /api/user, /api/chess/*
   controllers/
-    authController.js        login, callback, logout, refresh
+    pageController.js        Picks the page (home, guest, play) from the session cookie
+    authController.js        login, callback, logout, refresh, resume
     userController.js        getUser
     chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, user games (was the chess lambda)
   middleware/auth.js         JWT session cookies, requireAuth, optionalAuth
