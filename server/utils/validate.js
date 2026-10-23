@@ -35,6 +35,7 @@ async function validateMove(playerData, gameData) {
 						}
 					}
 				}
+				moveFacing(Module_chess, gameData, playerData.move, playerData.promotion); // WHICH WAY THE PIECES FACE AFTER THIS MOVE
 
 				//IF WHITE PAWN AT END OF BOARD
 				if (playerData.promotion) { // SET Knight promotion
@@ -77,6 +78,7 @@ async function validateMove(playerData, gameData) {
 						}
 					}
 				}
+				moveFacing(Module_chess, gameData, playerData.move, playerData.promotion); // WHICH WAY THE PIECES FACE AFTER THIS MOVE
 
 				//IF BLACK PAWN AT END OF BOARD
 				if (playerData.promotion) { // SET Knight promotion
@@ -147,4 +149,87 @@ function gameResult(fen) {
 }
 
 
-module.exports = { validateMove, gameResult }
+/* ---------------------------------------------------------------- */
+// Start Facing
+/* ---------------------------------------------------------------- */
+/**
+ * @description Which way each king, queen, bishop & rook faces when a game starts: toward the other side (white faces rank 8,
+ * black faces rank 1). Games made before facing was saved get this for the pieces on their board.
+ * Knights have their own lists (w_knight / b_knight) & pawns always face forward
+ * @param  {[string]} fen [game board]
+ * @return {[object]} facing [{ w_facing, b_facing }, JSON strings of { square: the rank it faces (8 | 1) }]
+ */
+function startFacing(fen) {
+	const Module_chess = new Chess(fen);
+	const board = Module_chess.board();
+	let w_facing = {};
+	let b_facing = {};
+	for (let i = 0; i < board.length; i++) {
+		for (let j = 0; j < board[i].length; j++) {
+			const piece = board[i][j];
+			if (piece && piece.type.match(/[kqbr]/)) {
+				if (piece.color == 'w') { w_facing[piece.square] = 8; } // WHITE FACES BLACK'S SIDE
+				else if (piece.color == 'b') { b_facing[piece.square] = 1; } // BLACK FACES WHITE'S SIDE
+			}
+		}
+	}
+	return { w_facing: JSON.stringify(w_facing), b_facing: JSON.stringify(b_facing) };
+}
+
+
+/* ---------------------------------------------------------------- */
+// Move Facing
+/* ---------------------------------------------------------------- */
+/**
+ * @description Updates which way the pieces face for a move, before it's made on the board. A king, queen, bishop or rook
+ * faces the way it moved up or down the board (a sideways move keeps its facing), castling takes the rook's facing with it,
+ * a taken piece is removed & a pawn promoted to a queen, rook or bishop faces the other side.
+ * The client does the same to keep its board in step (client/src/js/gameplay/utils/index.js)
+ * @param  {[object]} Module_chess [board before the move]
+ * @param  {[object]} gameData [game item, w_facing & b_facing are updated]
+ * @param  {[array]} move [from, to]
+ * @param  {[string]} promotion [promotion piece, false when there isn't one]
+ */
+function moveFacing(Module_chess, gameData, move, promotion) {
+	if (!gameData.w_facing?.S || !gameData.b_facing?.S) { // GAMES MADE BEFORE FACING WAS SAVED START FROM THEIR BOARD
+		const facing = startFacing(Module_chess.fen());
+		gameData.w_facing = { S: facing.w_facing };
+		gameData.b_facing = { S: facing.b_facing };
+	}
+	const piece = Module_chess.get(move[0]);
+	const takenPiece = Module_chess.get(move[1]);
+	if (!piece) { return; } // NO PIECE, THE MOVE FAILS ANYWAY
+
+	let w_facing = JSON.parse(gameData.w_facing.S);
+	let b_facing = JSON.parse(gameData.b_facing.S);
+	let facing = piece.color == 'w' ? w_facing : b_facing; // THE SIDE THAT'S MOVING
+	const forward = piece.color == 'w' ? 8 : 1; // THE OTHER SIDE'S BACK RANK
+
+	if (takenPiece && takenPiece.color == 'w') { delete w_facing[move[1]]; } // TAKEN PIECE
+	else if (takenPiece && takenPiece.color == 'b') { delete b_facing[move[1]]; }
+
+	if (piece.type.match(/[kqbr]/)) {
+		const fromRank = Number(move[0][1]);
+		const toRank = Number(move[1][1]);
+		let faces = facing[move[0]] || forward;
+		if (toRank > fromRank) { faces = 8; } // MOVED TOWARD RANK 8
+		else if (toRank < fromRank) { faces = 1; } // MOVED TOWARD RANK 1
+		delete facing[move[0]];
+		facing[move[1]] = faces;
+
+		if (piece.type == 'k' && Math.abs(move[1].charCodeAt(0) - move[0].charCodeAt(0)) == 2) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, SAME FACING
+			const rookFrom = `${move[1][0] == 'g' ? 'h' : 'a'}${fromRank}`;
+			const rookTo = `${move[1][0] == 'g' ? 'f' : 'd'}${fromRank}`;
+			facing[rookTo] = facing[rookFrom] || forward;
+			delete facing[rookFrom];
+		}
+	} else if (piece.type == 'p' && promotion && promotion.match(/[qbr]/)) { // PROMOTED: FACES THE OTHER SIDE (KNIGHTS GO IN THE KNIGHT LIST)
+		facing[move[1]] = forward;
+	}
+
+	gameData.w_facing.S = JSON.stringify(w_facing);
+	gameData.b_facing.S = JSON.stringify(b_facing);
+}
+
+
+module.exports = { validateMove, gameResult, startFacing }

@@ -12,7 +12,7 @@
 
 const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
-const { validateMove, gameResult } = require("../utils/validate.js");
+const { validateMove, gameResult, startFacing } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { initalizeGame, retrieveGame, updateGame, closeGame, requestRematch, acceptRematch, retrieveUser, pruneOpenGames } = require("../dynamoDB.js");
@@ -26,7 +26,7 @@ const REMATCH_TIME = 60 * 1000; // BOTH PLAYERS MUST PRESS REMATCH WITHIN 1 MINU
 /**
  * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, player_color, opponent_color, moves, prev_move, w_knight, b_knight, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, player_color, opponent_color, moves, prev_move, w_knight, b_knight, w_facing, b_facing, state, winner, reason, message }]
  */
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -51,6 +51,7 @@ async function getGame(req, res) {
 		prev_move: gameData.prev_move.S,
 		w_knight: gameData.w_knight.S,
 		b_knight: gameData.b_knight.S,
+		...facingData(gameData),
 		...gameState(gameData),
 		message: response.message,
 	});
@@ -62,7 +63,7 @@ async function getGame(req, res) {
 /**
  * @description Creates a game vs the AI, or restarts a guest's game: their game_id is overwritten with a new board (signed in users restart with /restart)
  * @param  {[object]} req.body [{ game_id (optional, generated when left out), player_id_1 (white), player_id_2 (black), ai_level (optional, Home's dropdown) }, one side is "CHESS_AI", the other side is always the requester]
- * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, message }]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_facing, b_facing, message }]
  */
 async function newGame(req, res) {
 	const { game_id, player_id_1, player_id_2, ai_level } = req.body || {};
@@ -95,7 +96,7 @@ async function newGame(req, res) {
  * The requester always moves for themself, the AI's moves come from /ai-move
  * @param  {[string]} req.params.gameId [game id]
  * @param  {[object]} req.body [{ move: [from, to], promotion }]
- * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, w_facing, b_facing, state, winner, reason, message }]
  */
 async function moveGame(req, res) {
 	const { move, promotion } = req.body || {};
@@ -135,7 +136,7 @@ async function moveGame(req, res) {
  * (the old one stays closed) at the same level. Guests only have one game, so theirs is overwritten
  * @param  {[string]} req.params.gameId [current game id]
  * @param  {[object]} req.body [{ ai_color: "w" | "b" }]
- * @return {[object]} response [{ status, game_id (the new game), ai, game_board, w_knight, b_knight, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id (the new game), ai, game_board, w_knight, b_knight, w_facing, b_facing, state, winner, reason, message }]
  */
 async function restartGame(req, res) {
 	const { ai_color } = req.body || {};
@@ -170,7 +171,7 @@ async function restartGame(req, res) {
  * @description AI games: the server picks the AI's move at the game's level & saves it. The client only animates it.
  * Asking again after the AI moved returns the saved move instead of a new one
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, state, winner, reason, ai_move: { from, to, promotion }, message }]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_facing, b_facing, state, winner, reason, ai_move: { from, to, promotion }, message }]
  */
 async function aiMoveGame(req, res) {
 	let response = await retrieveGame(req.params.gameId);
@@ -225,7 +226,7 @@ async function getLevels(req, res) {
 /**
  * @description Friend games: closes the game & the other side wins. Both boards open the menu with Rematch
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, w_facing, b_facing, state, winner, reason, message }]
  */
 async function forfeitGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -360,9 +361,21 @@ function gameResponse(response) {
 		game_board: response.game_data.game_board.S,
 		w_knight: response.game_data.w_knight.S,
 		b_knight: response.game_data.b_knight.S,
+		...facingData(response.game_data),
 		...gameState(response.game_data),
 		message: response.message,
 	};
+}
+
+/**
+ * @description Which way the kings, queens, bishops & rooks face, sent with every game response.
+ * Games made before facing was saved get the start facing (every piece faces the other side)
+ * @param  {[object]} gameData [game item]
+ * @return {[object]} facing [{ w_facing, b_facing }, JSON strings of { square: the rank it faces (8 | 1) }]
+ */
+function facingData(gameData) {
+	if (gameData.w_facing?.S && gameData.b_facing?.S) { return { w_facing: gameData.w_facing.S, b_facing: gameData.b_facing.S }; }
+	return startFacing(gameData.game_board.S);
 }
 
 /**

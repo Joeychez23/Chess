@@ -12,6 +12,7 @@
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
+const { startFacing } = require("./utils/validate.js");
 
 const connection = new DynamoDB({ region: "us-east-1" }); // CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE SERVER'S IAM ROLE ON AWS
 
@@ -44,6 +45,7 @@ function expireTime() {
  */
 async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
 	const board = new Chess().fen();
+	const facing = startFacing(board); // EVERY KING, QUEEN, BISHOP & ROOK FACES THE OTHER SIDE
 
 	let gameId;
 	let response;
@@ -59,6 +61,8 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
 			prev_move: { S: JSON.stringify([]) },
 			w_knight: { S: JSON.stringify([{ from: null, to: 'b1' }, { from: null, to: 'g1' }]) },
 			b_knight: { S: JSON.stringify([{ from: null, to: 'b8' }, { from: null, to: 'g8' }]) },
+			w_facing: { S: facing.w_facing }, // { square: RANK IT FACES } FOR WHITE'S KINGS, QUEENS, BISHOPS & ROOKS
+			b_facing: { S: facing.b_facing }, // SAME FOR BLACK
 			white_player_id: { S: playerId1 },
 			black_player_id: { S: playerId2 },
 			expireAt: { N: expireTime() } // TTL, PUSHED BACK ON EVERY MOVE IN updateGame
@@ -152,13 +156,15 @@ async function updateGame(gameData, prevBoard) {
 		Key: {
 			game_id: { S: gameData.game_id.S }
 		},
-		UpdateExpression: 'SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, expireAt = :expireAt', // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		UpdateExpression: 'SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_facing = :w_facing, b_facing = :b_facing, expireAt = :expireAt', // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
 			":moves": { S: JSON.stringify(gameData.moves.S) }, // UPDATED MOVE ARRAY
 			":prev_move": { S: JSON.stringify(gameData.prev_move.S) },
 			":game_board": { S: gameData.game_board.S }, // UPDATED GAME FEN
 			":w_knight": { S: gameData.w_knight.S }, // UPDATED WHITE KNIGHTS
 			":b_knight": { S: gameData.b_knight.S }, // UPDATED BLACK KNIGHTS
+			":w_facing": { S: gameData.w_facing?.S || startFacing(gameData.game_board.S).w_facing }, // UPDATED WHITE FACING (validateMove ALWAYS SETS IT)
+			":b_facing": { S: gameData.b_facing?.S || startFacing(gameData.game_board.S).b_facing }, // UPDATED BLACK FACING
 			":expireAt": { N: expireTime() } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
 		}
 	}

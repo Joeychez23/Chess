@@ -22,7 +22,7 @@ const { Chess } = require("chess.js"); // RULES, LEGAL MOVES & FEN (SAME VERSION
 const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playerMove } = require("./user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
-const { setTiles } = require("./utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES
+const { setTiles, moveFacing } = require("./utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES & THE LOCAL COPY OF THE SERVER'S FACING RULES
 const { joinGame, leaveGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // GEAR BUTTON, OPENS THE MENU
@@ -143,8 +143,35 @@ export function preloadImages() {
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/coffee-shdw.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/cards-shdw.png`);
-	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle.png`); 
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle.png`);
 	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/board/candle-shdw.png`)
+	// BACK VIEWS: KINGS, QUEENS, BISHOPS & ROOKS TURNED AROUND (FACING AWAY FROM THE PLAYER)
+	// WHITE BACKS (58 - 61), SHADOWS (62 - 65), REFLECTIONS (66 - 69)
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wk-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wq-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wb-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/white-pieces/wr-back-refl.png`);
+	// BLACK BACKS (70 - 73), SHADOWS (74 - 77), REFLECTIONS (78 - 81)
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back-shdw.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bk-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bq-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/bb-back-refl.png`);
+	loadImage(`${process.env.CHESS_ASSESTS_URL}/images/black-pieces/br-back-refl.png`);
 }
 
 /* ---------------------------------------------------------------- */
@@ -322,6 +349,34 @@ export async function renderCanvas(playerData) {
 
 	// CANDLE = 56
 	// CANDLE SHDW = 57
+
+	// WHITE BACK (KINGS, QUEENS, BISHOPS & ROOKS FACING AWAY FROM THE PLAYER, PICKED BY pieceFacing())
+	const wKingBackImg = 58; // wk-back.png
+	const wQueenBackImg = 59; // wq-back.png
+	const wBishopBackImg = 60; // wb-back.png (BOTH SQUARE COLORS)
+	const wRookBackImg = 61; // wr-back.png
+	const wKingBackShdw = 62; // wk-back-shdw.png
+	const wQueenBackShdw = 63; // wq-back-shdw.png
+	const wBishopBackShdw = 64; // wb-back-shdw.png
+	const wRookBackShdw = 65; // wr-back-shdw.png
+	const wKingBackRefl = 66; // wk-back-refl.png
+	const wQueenBackRefl = 67; // wq-back-refl.png
+	const wBishopBackRefl = 68; // wb-back-refl.png
+	const wRookBackRefl = 69; // wr-back-refl.png
+
+	// BLACK BACK
+	const bKingBackImg = 70; // bk-back.png
+	const bQueenBackImg = 71; // bq-back.png
+	const bBishopBackImg = 72; // bb-back.png (BOTH SQUARE COLORS)
+	const bRookBackImg = 73; // br-back.png
+	const bKingBackShdw = 74; // bk-back-shdw.png
+	const bQueenBackShdw = 75; // bq-back-shdw.png
+	const bBishopBackShdw = 76; // bb-back-shdw.png
+	const bRookBackShdw = 77; // br-back-shdw.png
+	const bKingBackRefl = 78; // bk-back-refl.png
+	const bQueenBackRefl = 79; // bq-back-refl.png
+	const bBishopBackRefl = 80; // bb-back-refl.png
+	const bRookBackRefl = 81; // br-back-refl.png
 
 	// TABLE PROPS: img2 = IMAGE, shdw = SHADOW, img = OLD STEAM ANIMATION FRAMES (EMPTY)
 	// !NOTE: THE PROP SIZES ARE COMMENTED OUT IN renderBoard(), SO THEY DRAW AT 0 x 0 (HIDDEN) RIGHT NOW
@@ -949,7 +1004,8 @@ export async function renderCanvas(playerData) {
 						/* ---------------------------------------------------------------- */
 						/**
 						 * @description Draws Tiles to Canvas. Draws the held piece on the legal square under the mouse (the drop preview),
-						 * knights face left while the mouse moves left. Counts the piece, the main loop skips it
+						 * knights face left while the mouse moves left, kings, queens, bishops & rooks face the way they'd move (pieceFacing).
+						 * Counts the piece, the main loop skips it
 						 * @param  {[object]} tile [the held tile]
 						 * @param  {[string]} pieceType [chess.js type 'k', 'q', 'b', 'n', 'r', 'p']
 						 * @param  {[string]} pieceColor ['w' | 'b']
@@ -958,18 +1014,18 @@ export async function renderCanvas(playerData) {
 						 */
 						function drawTiles(tile, pieceType, pieceColor, x, y) {
 							if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-								if (pieceColor == "w") { drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, false); wPieceCount.king++; }
-								else if (pieceColor == "b") { drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, false); bPieceCount.king++; }
+								if (pieceColor == "w") { drawActivePiece(pieceFacing(tile, pieceColor, [wKingRefl, wKingShdw, wKingImg], [wKingBackRefl, wKingBackShdw, wKingBackImg], tile.yAvailInt), x, y, false); wPieceCount.king++; }
+								else if (pieceColor == "b") { drawActivePiece(pieceFacing(tile, pieceColor, [bKingRefl, bKingShdw, bKingImg], [bKingBackRefl, bKingBackShdw, bKingBackImg], tile.yAvailInt), x, y, false); bPieceCount.king++; }
 							} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-								if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, false); wPieceCount.queen++; }
-								else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, false); bPieceCount.queen++; }
+								if (pieceColor == "w") { drawActivePiece(pieceFacing(tile, pieceColor, [wQueenRefl, wQueenShdw, wQueenImg], [wQueenBackRefl, wQueenBackShdw, wQueenBackImg], tile.yAvailInt), x, y, false); wPieceCount.queen++; }
+								else if (pieceColor == "b") { drawActivePiece(pieceFacing(tile, pieceColor, [bQueenRefl, bQueenShdw, bQueenImg], [bQueenBackRefl, bQueenBackShdw, bQueenBackImg], tile.yAvailInt), x, y, false); bPieceCount.queen++; }
 							} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
 								if (pieceColor == "w") {
-									if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, false); wPieceCount.bishop++; }
-									else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, false); wPieceCount.bishop++; }
+									if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece(pieceFacing(tile, pieceColor, [wBishopRefl, wBishopShdw, wBishopWhiteSqImg], [wBishopBackRefl, wBishopBackShdw, wBishopBackImg], tile.yAvailInt), x, y, false); wPieceCount.bishop++; }
+									else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece(pieceFacing(tile, pieceColor, [wBishopRefl, wBishopShdw, wBishopBlackSqImg], [wBishopBackRefl, wBishopBackShdw, wBishopBackImg], tile.yAvailInt), x, y, false); wPieceCount.bishop++; }
 								} else if (pieceColor == "b") {
-									if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, false); bPieceCount.bishop++; }
-									else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, false); bPieceCount.bishop++; }
+									if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece(pieceFacing(tile, pieceColor, [bBishopRefl, bBishopShdw, bBishopWhiteSqImg], [bBishopBackRefl, bBishopBackShdw, bBishopBackImg], tile.yAvailInt), x, y, false); bPieceCount.bishop++; }
+									else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece(pieceFacing(tile, pieceColor, [bBishopRefl, bBishopShdw, bBishopBlackSqImg], [bBishopBackRefl, bBishopBackShdw, bBishopBackImg], tile.yAvailInt), x, y, false); bPieceCount.bishop++; }
 								}
 							} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 								if (pieceColor == "w") {
@@ -982,8 +1038,8 @@ export async function renderCanvas(playerData) {
 									bPieceCount.knight++;
 								}
 							} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-								if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, false); wPieceCount.rook++; }
-								else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, false); bPieceCount.rook++; }
+								if (pieceColor == "w") { drawActivePiece(pieceFacing(tile, pieceColor, [wRookRefl, wRookShdw, wRookImg], [wRookBackRefl, wRookBackShdw, wRookBackImg], tile.yAvailInt), x, y, false); wPieceCount.rook++; }
+								else if (pieceColor == "b") { drawActivePiece(pieceFacing(tile, pieceColor, [bRookRefl, bRookShdw, bRookImg], [bRookBackRefl, bRookBackShdw, bRookBackImg], tile.yAvailInt), x, y, false); bPieceCount.rook++; }
 							} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 								if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, false); wPieceCount.pawn++; }
 								else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, false); bPieceCount.pawn++; }
@@ -1377,7 +1433,7 @@ export async function renderCanvas(playerData) {
 											ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
 											ctx.globalAlpha = 1.00;
 										}
-										drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, opacity);
+										drawActivePiece(pieceFacing(tiles[index], pieceColor, [wKingRefl, wKingShdw, wKingImg], [wKingBackRefl, wKingBackShdw, wKingBackImg]), x, y, opacity);
 										wPieceCount.king++;
 									}
 									else if (pieceColor == "b") {
@@ -1386,19 +1442,19 @@ export async function renderCanvas(playerData) {
 											ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
 											ctx.globalAlpha = 1.00;
 										}
-										drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, opacity);
+										drawActivePiece(pieceFacing(tiles[index], pieceColor, [bKingRefl, bKingShdw, bKingImg], [bKingBackRefl, bKingBackShdw, bKingBackImg]), x, y, opacity);
 										bPieceCount.king++;
 									}
 								} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-									if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, opacity); wPieceCount.queen++; }
-									else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, opacity); bPieceCount.queen++; }
+									if (pieceColor == "w") { drawActivePiece(pieceFacing(tiles[index], pieceColor, [wQueenRefl, wQueenShdw, wQueenImg], [wQueenBackRefl, wQueenBackShdw, wQueenBackImg]), x, y, opacity); wPieceCount.queen++; }
+									else if (pieceColor == "b") { drawActivePiece(pieceFacing(tiles[index], pieceColor, [bQueenRefl, bQueenShdw, bQueenImg], [bQueenBackRefl, bQueenBackShdw, bQueenBackImg]), x, y, opacity); bPieceCount.queen++; }
 								} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
 									if (pieceColor == "w") { // THE IMAGE GOES BY THE COLOR OF THE BISHOP'S SQUARE
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, opacity); wPieceCount.bishop++; }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, opacity); wPieceCount.bishop++; }
+										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece(pieceFacing(tiles[index], pieceColor, [wBishopRefl, wBishopShdw, wBishopWhiteSqImg], [wBishopBackRefl, wBishopBackShdw, wBishopBackImg]), x, y, opacity); wPieceCount.bishop++; }
+										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece(pieceFacing(tiles[index], pieceColor, [wBishopRefl, wBishopShdw, wBishopBlackSqImg], [wBishopBackRefl, wBishopBackShdw, wBishopBackImg]), x, y, opacity); wPieceCount.bishop++; }
 									} else if (pieceColor == "b") {
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, opacity); bPieceCount.bishop++; }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, opacity); bPieceCount.bishop++; }
+										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece(pieceFacing(tiles[index], pieceColor, [bBishopRefl, bBishopShdw, bBishopWhiteSqImg], [bBishopBackRefl, bBishopBackShdw, bBishopBackImg]), x, y, opacity); bPieceCount.bishop++; }
+										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece(pieceFacing(tiles[index], pieceColor, [bBishopRefl, bBishopShdw, bBishopBlackSqImg], [bBishopBackRefl, bBishopBackShdw, bBishopBackImg]), x, y, opacity); bPieceCount.bishop++; }
 									}
 								} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 									/* ---------------------------------------------------------------- */
@@ -1501,8 +1557,8 @@ export async function renderCanvas(playerData) {
 										bPieceCount.knight++;
 									}
 								} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-									if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, opacity); wPieceCount.rook++; }
-									else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, opacity); bPieceCount.rook++; }
+									if (pieceColor == "w") { drawActivePiece(pieceFacing(tiles[index], pieceColor, [wRookRefl, wRookShdw, wRookImg], [wRookBackRefl, wRookBackShdw, wRookBackImg]), x, y, opacity); wPieceCount.rook++; }
+									else if (pieceColor == "b") { drawActivePiece(pieceFacing(tiles[index], pieceColor, [bRookRefl, bRookShdw, bRookImg], [bRookBackRefl, bRookBackShdw, bRookBackImg]), x, y, opacity); bPieceCount.rook++; }
 								} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 									if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, opacity); wPieceCount.pawn++; }
 									else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, opacity); bPieceCount.pawn++; }
@@ -1531,18 +1587,18 @@ export async function renderCanvas(playerData) {
 				const y = pieceObj.y;
 
 				if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-					if (pieceColor == "w") { ctx.drawImage(images[wKingImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-					else if (pieceColor == "b") { ctx.drawImage(images[bKingImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+					if (pieceColor == "w") { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [wKingRefl, wKingShdw, wKingImg], [wKingBackRefl, wKingBackShdw, wKingBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+					else if (pieceColor == "b") { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [bKingRefl, bKingShdw, bKingImg], [bKingBackRefl, bKingBackShdw, bKingBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 				} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-					if (pieceColor == "w") { ctx.drawImage(images[wQueenImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-					else if (pieceColor == "b") { ctx.drawImage(images[bQueenImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+					if (pieceColor == "w") { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [wQueenRefl, wQueenShdw, wQueenImg], [wQueenBackRefl, wQueenBackShdw, wQueenBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+					else if (pieceColor == "b") { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [bQueenRefl, bQueenShdw, bQueenImg], [bQueenBackRefl, bQueenBackShdw, bQueenBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 				} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
 					if (pieceColor == "w") {
-						if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[wBishopWhiteSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-						else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[wBishopBlackSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [wBishopRefl, wBishopShdw, wBishopWhiteSqImg], [wBishopBackRefl, wBishopBackShdw, wBishopBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [wBishopRefl, wBishopShdw, wBishopBlackSqImg], [wBishopBackRefl, wBishopBackShdw, wBishopBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 					} else if (pieceColor == "b") {
-						if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[bBishopWhiteSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-						else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[bBishopBlackSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [bBishopRefl, bBishopShdw, bBishopWhiteSqImg], [bBishopBackRefl, bBishopBackShdw, bBishopBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+						else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [bBishopRefl, bBishopShdw, bBishopBlackSqImg], [bBishopBackRefl, bBishopBackShdw, bBishopBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 					}
 				} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 					/* ---------------------------------------------------------------- */
@@ -1649,8 +1705,8 @@ export async function renderCanvas(playerData) {
 						}
 					}
 				} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-					if (pieceColor == "w") { ctx.drawImage(images[wRookImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-					else if (pieceColor == "b") { ctx.drawImage(images[bRookImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+					if (pieceColor == "w") { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [wRookRefl, wRookShdw, wRookImg], [wRookBackRefl, wRookBackShdw, wRookBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+					else if (pieceColor == "b") { ctx.drawImage(images[pieceFacing(pieceObj, pieceColor, [bRookRefl, bRookShdw, bRookImg], [bRookBackRefl, bRookBackShdw, bRookBackImg])[2]].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 				} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 					if (pieceColor == "w") { ctx.drawImage(images[wPawnImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 					else if (pieceColor == "b") { ctx.drawImage(images[bPawnImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
@@ -1963,7 +2019,7 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @description Validates user move post slide or drag/drop then starts ai slide. Plays the move sound, moves the piece on
-		 * the local board & the local knight list, sends the move (PUT) & loads the server's board. AI games give the AI its turn
+		 * the local board, knight list & facing, sends the move (PUT) & loads the server's board. AI games give the AI its turn
 		 * half a second later, friend games wait for the socket. A move the server turns down goes back to revert
 		 */
 		async function validateMove() {
@@ -1975,6 +2031,7 @@ export async function renderCanvas(playerData) {
 				moveAudio.play().catch((err) => { console.log(err) });
 				revert = response; // GO BACK TO THIS IF THE SERVER SAYS NO
 				opposingMove = true; // LOCK THE BOARD
+				const facing = moveFacing(chessInst, response, moveObj); // WHICH WAY THE PIECES FACE AFTER THE MOVE (WORKED OUT ON THE BOARD BEFORE IT)
 				chessInst.move(moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
 				if (playerColor == 'w') { // KEEP THE LOCAL KNIGHT LIST IN STEP UNTIL THE SERVER'S COMES BACK
 					for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
@@ -1997,6 +2054,7 @@ export async function renderCanvas(playerData) {
 						}
 					}
 				}
+				response = { ...response, ...facing }; // KEEP THE LOCAL FACING IN STEP (A NEW OBJECT, SO revert KEEPS THE OLD FACING)
 
 
 				response = await validate(GAME_URL, GAME_ID, PLAYER_ID, [moveObj.from, moveObj.to], moveObj.promotion, false); // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
@@ -2024,7 +2082,7 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @description Updates board data on slide completion for opposing player (AI or friend). Plays the move sound, moves the
-		 * piece on the local board & knight list, then loads the saved game (the AI's came with its move, a friend game is fetched)
+		 * piece on the local board, knight list & facing, then loads the saved game (the AI's came with its move, a friend game is fetched)
 		 * & gives the turn back to the player
 		 * !NOTE: KEEP THE AWAIT ON THE AI LINE, WITHOUT IT refreshData() RESETS THE TILES WHILE THE FRAME IS STILL DRAWING
 		 * & A TAKEN PIECE CAN BE LEFT ON THE BOARD
@@ -2039,6 +2097,7 @@ export async function renderCanvas(playerData) {
 				moveAudio.play().catch((err) => { console.log(err) });
 				tiles[index].xSlideTo = 0;
 				tiles[index].ySlideTo = 0;
+				const facing = moveFacing(chessInst, response, moveObj); // WHICH WAY THE PIECES FACE AFTER THE MOVE (WORKED OUT ON THE BOARD BEFORE IT)
 				chessInst.move(moveObj); // LOCAL BOARD
 
 				if (opponentColor == 'w') { // KEEP THE LOCAL KNIGHT LIST IN STEP
@@ -2060,6 +2119,7 @@ export async function renderCanvas(playerData) {
 						}
 					}
 				}
+				response = { ...response, ...facing }; // KEEP THE LOCAL FACING IN STEP
 
 				revert = response;
 				if (ai) { response = await new Promise((resolve) => setTimeout(() => resolve(moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS LIKE THE OLD PUT SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
@@ -2159,6 +2219,33 @@ export async function renderCanvas(playerData) {
 				else if (xFrom > xTo) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; }
 				else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
 			}
+		}
+
+
+		/* ---------------------------------------------------------------- */
+		// Piece Facing
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Picks the front or back images of a king, queen, bishop or rook. The server saves which rank each one faces
+		 * (response.w_facing / b_facing, { square: 8 | 1 }) & a piece facing away from the player shows its back. Playing black the
+		 * board is flipped, so facing rank 1 is away. While it slides, is held or is previewed on a square, it faces the way it's going
+		 * (up the screen = away, down = toward the player, sideways keeps its facing)
+		 * @param  {[object]} tile [the piece's tile]
+		 * @param  {[string]} color [the piece's color from the board, 'w' | 'b' (right after a take tile.color can still be the taken piece's)]
+		 * @param  {[array]} frontArr [image numbers: reflection, shadow, piece, facing the player]
+		 * @param  {[array]} backArr [image numbers: reflection, shadow, piece, facing away]
+		 * @param  {[number]} yTo [drop preview: the screen row it would move to]
+		 * @return {[array]} imgArr [frontArr or backArr]
+		 */
+		function pieceFacing(tile, color, frontArr, backArr, yTo) {
+			const facing = JSON.parse((color == 'w' ? response?.w_facing : response?.b_facing) || "{}");
+			const faces = facing[tile.square] || (color == 'w' ? 8 : 1); // NO SAVED FACING: TOWARD THE OTHER SIDE
+			let away = (faces == 8) == (playerColor == 'w'); // FACING AWAY FROM THE PLAYER
+			if (yTo != null && yTo != tile.originY) { away = yTo < tile.originY; } // DROP PREVIEW: THE WAY IT WOULD MOVE
+			else if (tile.isSliding && tile.ySlideTo != tile.y) { away = tile.ySlideTo < tile.y; } // SLIDING: THE WAY IT'S MOVING
+			else if (tile.isMousedown && tile.y != tile.originY) { away = tile.y < tile.originY; } // HELD: THE WAY IT'S DRAGGED
+			if (away) { return backArr; }
+			return frontArr;
 		}
 
 
