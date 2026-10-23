@@ -86,7 +86,7 @@ export const SPRITES = [
 	`${ASSETS}/images/board/cards-shdw.png`,
 	`${ASSETS}/images/board/candle.png`,
 	`${ASSETS}/images/board/candle-shdw.png`,
-	// BACK VIEWS: KINGS, QUEENS, BISHOPS & ROOKS FACING AWAY FROM THE PLAYER
+	// BACK VIEWS: KINGS, QUEENS, BISHOPS, ROOKS & PAWNS FACING AWAY FROM THE PLAYER
 	// WHITE BACKS (58 - 61), SHADOWS (62 - 65), REFLECTIONS (66 - 69)
 	`${ASSETS}/images/white-pieces/wk-back.png`,
 	`${ASSETS}/images/white-pieces/wq-back.png`,
@@ -113,4 +113,11 @@ export const SPRITES = [
 	`${ASSETS}/images/black-pieces/bq-back-refl.png`,
 	`${ASSETS}/images/black-pieces/bb-back-refl.png`,
 	`${ASSETS}/images/black-pieces/br-back-refl.png`,
+	// PAWN BACKS: WHITE (82 - 84), BLACK (85 - 87)
+	`${ASSETS}/images/white-pieces/wp-back.png`,
+	`${ASSETS}/images/white-pieces/wp-back-shdw.png`,
+	`${ASSETS}/images/white-pieces/wp-back-refl.png`,
+	`${ASSETS}/images/black-pieces/bp-back.png`,
+	`${ASSETS}/images/black-pieces/bp-back-shdw.png`,
+	`${ASSETS}/images/black-pieces/bp-back-refl.png`,
 ];

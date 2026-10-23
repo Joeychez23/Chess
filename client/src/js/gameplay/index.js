@@ -199,7 +199,9 @@ export async function renderCanvas(playerData) {
 	let wRookImg; // SET WITH wKingImg
 	const wFrontRookImg = 11; // wr-h1.png
 	const wBackRookImg = 61; // wr-back.png
-	const wPawnImg = 12; // wp-a2.png
+	let wPawnImg; // PAWN IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePawnDirection)
+	const wFrontPawnImg = 12; // wp-a2.png, FACES THE PLAYER
+	const wBackPawnImg = 82; // wp-back.png, FACES AWAY
 
 	// WHITE SHADOW
 	let wKingShdw; // SET WITH wKingImg
@@ -217,7 +219,9 @@ export async function renderCanvas(playerData) {
 	let wRookShdw; // SET WITH wKingImg
 	const wFrontRookShdw = 18; // wr-shdw.png
 	const wBackRookShdw = 65; // wr-back-shdw.png
-	const wPawnShdw = 19; // wp-shdw.png
+	let wPawnShdw; // SET WITH wPawnImg
+	const wFrontPawnShdw = 19; // wp-shdw.png
+	const wBackPawnShdw = 83; // wp-back-shdw.png
 
 	// WHITE REFLECT
 	let wKingRefl; // SET WITH wKingImg
@@ -235,7 +239,9 @@ export async function renderCanvas(playerData) {
 	let wRookRefl; // SET WITH wKingImg
 	const wFrontRookRefl = 25; // wr-refl.png
 	const wBackRookRefl = 69; // wr-back-refl.png
-	const wPawnRefl = 26; // wp-refl.png
+	let wPawnRefl; // SET WITH wPawnImg
+	const wFrontPawnRefl = 26; // wp-refl.png
+	const wBackPawnRefl = 84; // wp-back-refl.png
 
 	// BLACK IMAGES
 	let bKingImg; // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionB)
@@ -255,7 +261,9 @@ export async function renderCanvas(playerData) {
 	let bRookImg; // SET WITH bKingImg
 	const bFrontRookImg = 33; // br-h8.png
 	const bBackRookImg = 73; // br-back.png
-	const bPawnImg = 34; // bp-a7.png
+	let bPawnImg; // PAWN IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePawnDirection)
+	const bFrontPawnImg = 34; // bp-a7.png, FACES THE PLAYER (WHEN PLAYING WHITE)
+	const bBackPawnImg = 85; // bp-back.png, FACES AWAY
 
 	// BLACK SHADOW
 	let bKingShdw; // SET WITH bKingImg
@@ -274,7 +282,9 @@ export async function renderCanvas(playerData) {
 	let bRookShdw; // SET WITH bKingImg
 	const bFrontRookShdw = 40; // br-shdw.png
 	const bBackRookShdw = 77; // br-back-shdw.png
-	const bPawnShdw = 41; // bp-shdw.png
+	let bPawnShdw; // SET WITH bPawnImg
+	const bFrontPawnShdw = 41; // bp-shdw.png
+	const bBackPawnShdw = 86; // bp-back-shdw.png
 
 	// BLACK REFLECT
 	let bKingRefl; // SET WITH bKingImg
@@ -292,7 +302,9 @@ export async function renderCanvas(playerData) {
 	let bRookRefl; // SET WITH bKingImg
 	const bFrontRookRefl = 47; // br-refl.png
 	const bBackRookRefl = 81; // br-back-refl.png
-	const bPawnRefl = 48; // bp-refl.png
+	let bPawnRefl; // SET WITH bPawnImg
+	const bFrontPawnRefl = 48; // bp-refl.png
+	const bBackPawnRefl = 87; // bp-back-refl.png
 
 	// UI
 	const moveHighlight = 49; // move-highlight.png, A SQUARE THE SELECTED PIECE CAN MOVE TO
@@ -308,7 +320,7 @@ export async function renderCanvas(playerData) {
 	// CANDLE = 56
 	// CANDLE SHDW = 57
 
-	// BACKS = 58 - 81 (SET UP WITH THE FRONTS ABOVE)
+	// BACKS = 58 - 87 (SET UP WITH THE FRONTS ABOVE)
 
 	// TABLE PROPS: img2 = IMAGE, shdw = SHADOW, img = OLD STEAM ANIMATION FRAMES (EMPTY)
 	// !NOTE: THE PROP SIZES ARE COMMENTED OUT IN renderBoard(), SO THEY DRAW AT 0 x 0 (HIDDEN) RIGHT NOW
@@ -617,8 +629,8 @@ export async function renderCanvas(playerData) {
 									if (pieceColor == "w") { drawActivePiece([wFrontRookRefl, wFrontRookShdw, wFrontRookImg]); wPieceCount.rook++; }
 									else if (pieceColor == "b") { drawActivePiece([bFrontRookRefl, bFrontRookShdw, bFrontRookImg]); bPieceCount.rook++; }
 								} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
-									if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg]); }
-									else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg]); }
+									if (pieceColor == "w") { drawActivePiece([wFrontPawnRefl, wFrontPawnShdw, wFrontPawnImg]); }
+									else if (pieceColor == "b") { drawActivePiece([bFrontPawnRefl, bFrontPawnShdw, bFrontPawnImg]); }
 								}
 							}
 						}
@@ -1028,6 +1040,7 @@ export async function renderCanvas(playerData) {
 									bPieceCount.knight++;
 								}
 							} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
+								handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
 								if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, false); wPieceCount.pawn++; }
 								else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, false); bPieceCount.pawn++; }
 							}
@@ -1630,6 +1643,7 @@ export async function renderCanvas(playerData) {
 										bPieceCount.knight++;
 									}
 								} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
+									handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
 									if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, opacity); wPieceCount.pawn++; }
 									else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, opacity); bPieceCount.pawn++; }
 								}
@@ -1857,6 +1871,7 @@ export async function renderCanvas(playerData) {
 						}
 					}
 				} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
+					handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
 					if (pieceColor == "w") { ctx.drawImage(images[wPawnImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 					else if (pieceColor == "b") { ctx.drawImage(images[bPawnImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
 				}
@@ -2047,8 +2062,8 @@ export async function renderCanvas(playerData) {
 						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontRookShdw, wFrontRookImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontRookShdw, bFrontRookImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 					} else if (takenPieces[i].type.match(/[p]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR PAWN
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wPawnShdw, wPawnImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bPawnShdw, bPawnImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontPawnShdw, wFrontPawnImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontPawnShdw, bFrontPawnImg]); xPos += 1; if (xPos - 9 == 3) { yPos += 1; xPos = 9 } }
 					}
 				}
 			} else { // NARROW SCREEN: ONE ROW BELOW THE BOARD (ROW 9) FOR THE PLAYER, ONE ABOVE (ROW -2) FOR THE OPPONENT
@@ -2080,8 +2095,8 @@ export async function renderCanvas(playerData) {
 						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontRookShdw, wFrontRookImg]); xPos += 1; }
 						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontRookShdw, bFrontRookImg]); xPos += 1; }
 					} else if (takenPieces[i].type.match(/[p]/) && takenPieces[i].color) { // CHECKS CURRENT INDEX FOR PAWN
-						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wPawnShdw, wPawnImg]); xPos += 1; }
-						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bPawnShdw, bPawnImg]); xPos += 1; }
+						if (takenPieces[i].color == "w") { drawTakenPiece(takenPieces[i], [wFrontPawnShdw, wFrontPawnImg]); xPos += 1; }
+						else if (takenPieces[i].color == "b") { drawTakenPiece(takenPieces[i], [bFrontPawnShdw, bFrontPawnImg]); xPos += 1; }
 					}
 				}
 			}
@@ -2519,6 +2534,25 @@ export async function renderCanvas(playerData) {
 				bQueenImg = bBackQueenImg; bQueenShdw = bBackQueenShdw; bQueenRefl = bBackQueenRefl;
 				bBishopBlackSqImg = bBackBishopImg; bBishopWhiteSqImg = bBackBishopImg; bBishopShdw = bBackBishopShdw; bBishopRefl = bBackBishopRefl;
 				bRookImg = bBackRookImg; bRookShdw = bBackRookShdw; bRookRefl = bBackRookRefl;
+			}
+		}
+
+
+		/* ---------------------------------------------------------------- */
+		// Handle Pawn Direction
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Pawns only move forward, so they always face the other side & nothing is saved in the database. Points the
+		 * pawn images (wPawnImg, wPawnShdw, wPawnRefl, bPawnImg, ...) away from the player for the player's own pawns (their backs)
+		 * & toward the player for the opponent's
+		 */
+		function handlePawnDirection() {
+			if (playerColor == 'w') { // WHITE PAWNS FACE BLACK'S SIDE (THE TOP OF THE BOARD), BLACK PAWNS FACE THE PLAYER
+				wPawnImg = wBackPawnImg; wPawnShdw = wBackPawnShdw; wPawnRefl = wBackPawnRefl;
+				bPawnImg = bFrontPawnImg; bPawnShdw = bFrontPawnShdw; bPawnRefl = bFrontPawnRefl;
+			} else if (playerColor == 'b') { // FLIPPED BOARD: BLACK PAWNS FACE WHITE'S SIDE (THE TOP), WHITE PAWNS FACE THE PLAYER
+				wPawnImg = wFrontPawnImg; wPawnShdw = wFrontPawnShdw; wPawnRefl = wFrontPawnRefl;
+				bPawnImg = bBackPawnImg; bPawnShdw = bBackPawnShdw; bPawnRefl = bBackPawnRefl;
 			}
 		}
 
