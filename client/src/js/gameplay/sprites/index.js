@@ -1,8 +1,8 @@
 /*
  *  index.js  --  chess frontend
  *	Sprites
- *	Every image the game draws, in image number order (the same list preloadImages() loads in gameplay/index.js).
- *	Its own file so the pages without the game (home & guest) can warm the browser cache without loading gameplay
+ *	Every image the game draws, in image number order, the list preloadImages() loads in gameplay/index.js.
+ *	Home & guest call preloadImages() too, so the game's images are already in the browser cache when a game opens
  *
  */
 

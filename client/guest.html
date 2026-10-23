@@ -6,24 +6,56 @@
 	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
 	<link rel="icon" href="<%= process.env.CHESS_ASSESTS_URL %>/images/images.png" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-	<meta name="theme-color" content="#220B00" />
-	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Audiowide">
+	<meta name="theme-color" content="#0c2a1f" />
+	<meta name="description" content="A 3D-rendered chess board in your browser. Play the AI as a guest, or sign in to play a friend." />
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..700&family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif&display=swap">
 	<title>Chess</title>
 </head>
 
 <body id="body">
-	<div id="menuContainer">
-		<div id="menuBox">
-			<div id="menuContent">
-				<div id="resultDisplay">Chess</div>
-				<div id="menuButtonList">
-					<li><button class="menuButton" id="optLogin">Sign in</button></li>
+	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
+	<nav id="menuContainer" aria-label="Menu">
+		<div id="resultDisplay">Chess</div>
+		<ul id="menuButtonList">
+			<li><a class="menuButton" href="/" aria-current="page">Home</a></li>
+			<li><a class="menuButton" href="/play">Play as guest</a></li>
+			<li><a class="menuButton" href="/api/auth/login">Sign in</a></li>
+		</ul>
+	</nav>
+
+	<main class="page">
+		<section class="hero">
+			<div class="heroText">
+				<p class="spec">No. 01 // Chess in the browser</p>
+				<h1 class="title">Chess</h1>
+				<p class="lead">A 3D-rendered board in your browser. Play the AI as a guest, or sign in to play a friend and keep your games.</p>
+				<div class="actions">
+					<a class="btn btnCream" href="/play">Play as guest</a>
+					<a class="btn btnLine" href="/api/auth/login">Sign in</a>
 				</div>
 			</div>
-		</div>
-	</div>
+			<figure class="heroImage">
+				<img src="<%= process.env.CHESS_ASSESTS_URL %>/images/home/board.webp" width="1300" height="1080" alt="The chess board at the start of a game: ivory and black pieces with gold trim on a walnut and maple board">
+			</figure>
+		</section>
 
-	<main id="main"></main>
+		<section class="boxes" aria-label="What you can do">
+			<div class="box boxBaize">
+				<div class="boxHead"><h2 class="label">Play the AI</h2><span class="spec">No. 01</span></div>
+				<p>Eight levels, from about 750 Elo up to full-strength Stockfish. Guests play level 3, sign in to pick any level.</p>
+			</div>
+			<div class="box boxWalnut">
+				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>
+				<p>Sign in, then invite a friend by the email they sign in with. Each move shows up on both boards as it's played.</p>
+			</div>
+			<div class="box boxMaple">
+				<div class="boxHead"><h2 class="label">Keep your games</h2><span class="spec">No. 03</span></div>
+				<p>Signed in games are saved to your account for 25 days after the last move. Open any of them from Home, on any device.</p>
+			</div>
+		</section>
+	</main>
 </body>
 
 </html>

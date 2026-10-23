@@ -27,11 +27,12 @@ AWS side (see [Deploy](#deploy)).
 | **Moving** | Drag and drop, or click a piece and then a square. Legal moves are highlighted, and a king in check is highlighted. Moves slide into place with a sound. |
 | **Promotion** | When a pawn reaches the last rank, you pick the new piece by clicking one of your captured pieces beside the board. |
 | **Play AI** | The computer opponent is Stockfish at the level picked in the dropdown next to Play AI on Home (8 levels, each shown with its approximate Elo, see [AI levels](#ai-levels)). The server picks and saves the AI's moves, so the level can't change mid game and the browser can't move for the AI. Your color is random. Restart flips your color and starts a new game at the same level. Restarting a game that's still going counts as a forfeit. |
-| **Play Friends** | Enter your opponent's email. The backend looks up their Auth0 account and creates the game. While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. The menu's Restart button is **Forfeit** here (it asks "Are you sure?" first). |
+| **Play Friends** | Enter your opponent's email in Home's Play a friend box. The backend looks up their Auth0 account and creates the game. While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. The menu's Restart button is **Forfeit** here (it asks "Are you sure?" first). |
 | **Game over** | The server ends a game on checkmate, stalemate, insufficient material, the fifty-move rule, or a forfeit, and saves who won and why. Both boards open the menu with the result. Finished games leave Home. |
 | **Rematch** | After a friend game ends, both players get a Rematch button. If both press it within 1 minute, a new game starts with the sides picked at random and both boards load it. |
-| **Home** | `/` for signed-in players: their open games (finished games aren't listed), each opening at `/play/:gameId`, and the menu's Play AI and Play Friends. Guests get a Sign in button there for now (see [Pages](#pages)). |
-| **Login / Logout** | The menu's Exit button logs guests in and signed-in players out. A game link opened while signed out logs in, then opens the game. Auth0 runs on the Express server (see [Auth](#auth)). |
+| **Home** | `/` for signed-in players: three boxes, Play the AI (level dropdown), Play a friend (email) and Your games (finished games aren't listed), each game opening at `/play/:gameId`. Guests get the homepage: a picture of the board, Play as guest and Sign in (see [Pages](#pages)). |
+| **Menu** | The 3 line button in the top right opens and closes the menu on every page. On Home and the guest page it holds the page links. In a game it's the game's menu (Resume, Restart / Forfeit / Rematch, Home, Logout or Sign in) and it opens with the result when the game ends. |
+| **Login / Logout** | The menu's Sign in / Logout link (Exit in a game) logs guests in and signed-in players out. A game link opened while signed out logs in, then opens the game. Auth0 runs on the Express server (see [Auth](#auth)). |
 | **Mobile** | Portrait and landscape layouts and touch input. iOS audio is unlocked on the first tap so the opponent's move sounds play. |
 | **TV / remote mode** | Arrow keys move a cursor and Enter picks up and drops pieces and drives the menu. Turn it on with the `TV_DEV` flag in `client/src/js/pages/play/index.js`. |
 
@@ -110,7 +111,8 @@ It needs read/write access to `chess_db` and `user_db` in us-east-1.
 bucket under `images/` and `audio/`, and CloudFront serves them at
 `https://assets.chess.aws-prac-route53.com`. Every sprite, the move sound, the
 table background, and the favicon start with `CHESS_ASSESTS_URL`, e.g.
-`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`, so with the
+`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`. The homepage's picture of the board is
+`images/home/board.webp` (rendered with the `preview` job in `images/_ideas/generator`, no props). So with the
 CloudFront URL set the browser downloads them from CloudFront, not from this
 server. To use local copies instead, put them back in `client/src/`, set
 `CHESS_ASSESTS_URL=.`, and turn on the `CopyWebpackPlugin` block in
@@ -145,14 +147,15 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 
 | Url | Page |
 | --- | --- |
-| `/` | Signed in: `home.html`, the open games plus Play AI and Play Friends in the menu. Signed out: `guest.html`, only a Sign in button for now. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
+| `/` | Signed in: `home.html`, the Play the AI, Play a friend and Your games boxes. Signed out: `guest.html`, the homepage with Play as guest and Sign in. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
 
 Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.
 The `.html` files are only sent through these routes, never as static files.
-Home and the guest page warm the browser cache with the play page's sprites
-(`client/src/js/gameplay/sprites/index.js`). That only sticks once the S3
+Home and the guest page call `preloadImages()` (`client/src/js/gameplay/index.js`)
+as soon as they open, so the game's sprites are already in the browser cache
+when a game opens, and each one is logged to the console. That only sticks once the S3
 objects have a `Cache-Control` header: CloudFront's TTL is 0 and nothing sets
 one yet.
 
@@ -525,22 +528,24 @@ leave out `game_id`, the backend creates a new game and generates its id.
 
 ```
 client/
-  home.html                  Home menu markup (Play AI + level, Play Friends, Logout) and the game list
-  guest.html                 Guest page markup (Sign in)
+  home.html                  Home markup: Play the AI (level), Play a friend (email), Your games, menu (Home, Your games, Logout)
+  guest.html                 Guest homepage markup: board picture, Play as guest, Sign in, menu (Home, Play as guest, Sign in)
   play.html                  Game menu markup (Resume, Restart / Forfeit / Rematch, Home, Exit)
   webpack.config.js          One entry + HTML page each (home, guest, play), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src-sw.js                  Workbox service worker (not registered at the moment)
-  src/css/style.css          Menu, game list, and layout styles
+  src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
+  src/css/home.css           Home + guest homepage styles
+  src/css/style.css          Play page layout (canvas), imported by pages/play
   src/js/pages/
     home/index.js            Open games, new solo/multiplayer games, AI level dropdown
-    guest/index.js           Sign in, re-ups an expired session
+    guest/index.js           Guest homepage menu, re-ups an expired session
     play/index.js            Finds the player + game (url or guest localStorage), starts renderCanvas()
-    utils/index.js           Menu sizing, table background, warmImages()
+    utils/index.js           startNav() (the menu on pages without the game), table background
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
   src/js/socket/index.js     joinGame() / leaveGame(): friend game socket
   src/js/gameplay/
     index.js                 renderCanvas(): sprite loading, render loop, input, animation
-    sprites/index.js         Every sprite url in image number order (shared with home + guest for warming)
+    sprites/index.js         Every sprite url in image number order (preloadImages() loads them, also on home + guest)
     validate/index.js        Backend calls: get game, move, reset, AI move, levels, user games, invite
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move

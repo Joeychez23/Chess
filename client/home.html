@@ -6,39 +6,62 @@
 	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
 	<link rel="icon" href="<%= process.env.CHESS_ASSESTS_URL %>/images/images.png" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-	<meta name="theme-color" content="#220B00" />
-	<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Audiowide">
-	<link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+	<meta name="theme-color" content="#0c2a1f" />
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..700&family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif&display=swap">
 	<title>Chess</title>
 </head>
 
 <body id="body">
-	<div id="menuContainer">
-		<div id="menuBox">
-			<div id="menuContent">
-				<div id="resultDisplay">Chess</div>
-				<div id="menuButtonList">
-					<li><button class="menuButton" id="optNewSolo">Play AI</button><select id="aiLevel" aria-label="AI level"></select></li>
-					<li><button class="menuButton" id="optNewMulti">Play Friends</button></li>
+	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
+	<nav id="menuContainer" aria-label="Menu">
+		<div id="resultDisplay">Chess</div>
+		<ul id="menuButtonList">
+			<li><a class="menuButton" href="/" aria-current="page">Home</a></li>
+			<li><a class="menuButton" href="#games">Your games</a></li>
+			<li><a class="menuButton" href="/api/auth/logout">Logout</a></li>
+		</ul>
+	</nav>
 
-					<form id="muliplayerForm">
-						<input class="newGameInput" type="text" inputmode="email" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Opponent Email">
-						<button class="newGameInput" id="enterMultiSubmit">Submit</button>
-						<br>
-					</form>
+	<main class="page">
+		<section class="hero">
+			<div class="heroText">
+				<p class="spec" id="signedInAs">Signed in</p>
+				<h1 class="title" id="welcome">Welcome back</h1>
+				<p class="lead">Start a new game, or pick up one you left.</p>
+			</div>
+			<figure class="heroImage">
+				<img src="<%= process.env.CHESS_ASSESTS_URL %>/images/home/board.webp" width="1300" height="1080" alt="The chess board at the start of a game: ivory and black pieces with gold trim on a walnut and maple board">
+			</figure>
+		</section>
 
-					<li><button class="menuButton" id="optExit">Logout</button></li>
+		<section class="boxes" aria-label="Games">
+			<div class="box boxBaize">
+				<div class="boxHead"><h2 class="label">Play the AI</h2><span class="spec">No. 01</span></div>
+				<p>Eight levels, from about 750 Elo up to full-strength Stockfish. You get a random color.</p>
+				<div class="field boxBottom">
+					<select id="aiLevel" aria-label="AI level"></select>
+					<button class="btn btnCream" id="optNewSolo" type="button">Play AI</button>
 				</div>
 			</div>
-		</div>
-	</div>
-
-	<main id="main">
-		<button id="optBtn" class="material-icons" type="button" aria-label="Menu"> settings </button>
-		<div id="gameContainer">
-			<div id="loadingDiv">Loading...</div>
-			<ul id="gameList"></ul>
-		</div>
+			<div class="box boxWalnut">
+				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>
+				<p>Invite them by the email they sign in with. Each move shows up on both boards.</p>
+				<form id="muliplayerForm" class="boxBottom">
+					<div class="field">
+						<input type="email" inputmode="email" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Their email" aria-label="Friend's email">
+						<button class="btn btnCream" id="enterMultiSubmit" type="submit">Invite</button>
+					</div>
+					<p class="spec note" id="multiNote" role="status"></p>
+				</form>
+			</div>
+			<div class="box boxMaple" id="games">
+				<div class="boxHead"><h2 class="label">Your games</h2><span class="spec">No. 03</span></div>
+				<p id="loadingDiv">Loading...</p>
+				<ul id="gameList"></ul>
+			</div>
+		</section>
 	</main>
 </body>
 
