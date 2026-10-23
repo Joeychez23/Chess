@@ -34,6 +34,14 @@ async function validateMove(playerData, gameData) {
 							gameData.b_knight.S = JSON.stringify(b_knight);
 						}
 					}
+				} else if ((takenPiece.type == 'q' || takenPiece.type == 'b' || takenPiece.type == 'r') && takenPiece.color == 'b') { // TAKEN QUEEN, BISHOP OR ROOK
+					for (let n = 0; n < JSON.parse(gameData.b_piece.S).length; n++) {
+						if (JSON.parse(gameData.b_piece.S)[n].to == playerData.move[1]) {
+							let b_piece = JSON.parse(gameData.b_piece.S);
+							b_piece[n] = { from: null, to: null };
+							gameData.b_piece.S = JSON.stringify(b_piece);
+						}
+					}
 				}
 
 				//IF WHITE PAWN AT END OF BOARD
@@ -42,6 +50,10 @@ async function validateMove(playerData, gameData) {
 						let w_knight = JSON.parse(gameData.w_knight.S);
 						w_knight[w_knight.length] = { from: playerData.move[0], to: playerData.move[1] };
 						gameData.w_knight.S = JSON.stringify(w_knight);
+					} else { // SET QUEEN, BISHOP OR ROOK PROMOTION (FACES BLACK'S SIDE, IT CAME FROM RANK 7)
+						let w_piece = JSON.parse(gameData.w_piece.S);
+						w_piece[w_piece.length] = { from: playerData.move[0], to: playerData.move[1] };
+						gameData.w_piece.S = JSON.stringify(w_piece);
 					}
 					Module_chess.move({ from: playerData.move[0], to: playerData.move[1], promotion: playerData.promotion }); // MOVES THE PIECE
 				} else {
@@ -51,6 +63,22 @@ async function validateMove(playerData, gameData) {
 								let w_knight = JSON.parse(gameData.w_knight.S);
 								w_knight[n] = { from: playerData.move[0], to: playerData.move[1] };
 								gameData.w_knight.S = JSON.stringify(w_knight);
+							}
+						}
+					} else if (Module_chess.get(playerData.move[0]).type.match(/[kqbr]/)) { // KINGS, QUEENS, BISHOPS & ROOKS FACE THE WAY THEY LAST MOVED UP OR DOWN
+						for (let n = 0; n < JSON.parse(gameData.w_piece.S).length; n++) {
+							if (JSON.parse(gameData.w_piece.S)[n].to == playerData.move[0]) {
+								let w_piece = JSON.parse(gameData.w_piece.S);
+								if (playerData.move[0].split("")[1] != playerData.move[1].split("")[1]) { w_piece[n] = { from: playerData.move[0], to: playerData.move[1] }; } // MOVED UP OR DOWN
+								else { w_piece[n].to = playerData.move[1]; } // MOVED SIDEWAYS: KEEPS ITS from SO IT FACES THE SAME WAY
+								gameData.w_piece.S = JSON.stringify(w_piece);
+							}
+						}
+						if (Module_chess.get(playerData.move[0]).type == 'k' && playerData.move[0] == 'e1' && (playerData.move[1] == 'g1' || playerData.move[1] == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO
+							for (let n = 0; n < JSON.parse(gameData.w_piece.S).length; n++) {
+								let w_piece = JSON.parse(gameData.w_piece.S);
+								if (playerData.move[1] == 'g1' && w_piece[n].to == 'h1') { w_piece[n].to = 'f1'; gameData.w_piece.S = JSON.stringify(w_piece); } // KING SIDE
+								else if (playerData.move[1] == 'c1' && w_piece[n].to == 'a1') { w_piece[n].to = 'd1'; gameData.w_piece.S = JSON.stringify(w_piece); } // QUEEN SIDE
 							}
 						}
 					}
@@ -76,6 +104,14 @@ async function validateMove(playerData, gameData) {
 							gameData.w_knight.S = JSON.stringify(w_knight);
 						}
 					}
+				} else if ((takenPiece.type == 'q' || takenPiece.type == 'b' || takenPiece.type == 'r') && takenPiece.color == 'w') { // TAKEN QUEEN, BISHOP OR ROOK
+					for (let n = 0; n < JSON.parse(gameData.w_piece.S).length; n++) {
+						if (JSON.parse(gameData.w_piece.S)[n].to == playerData.move[1]) {
+							let w_piece = JSON.parse(gameData.w_piece.S);
+							w_piece[n] = { from: null, to: null };
+							gameData.w_piece.S = JSON.stringify(w_piece);
+						}
+					}
 				}
 
 				//IF BLACK PAWN AT END OF BOARD
@@ -84,6 +120,10 @@ async function validateMove(playerData, gameData) {
 						let b_knight = JSON.parse(gameData.b_knight.S);
 						b_knight[b_knight.length] = { from: playerData.move[0], to: playerData.move[1] };
 						gameData.b_knight.S = JSON.stringify(b_knight);
+					} else { // SET QUEEN, BISHOP OR ROOK PROMOTION (FACES WHITE'S SIDE, IT CAME FROM RANK 2)
+						let b_piece = JSON.parse(gameData.b_piece.S);
+						b_piece[b_piece.length] = { from: playerData.move[0], to: playerData.move[1] };
+						gameData.b_piece.S = JSON.stringify(b_piece);
 					}
 					Module_chess.move({ from: playerData.move[0], to: playerData.move[1], promotion: playerData.promotion }); // MOVES THE PIECE
 				} else {
@@ -93,6 +133,22 @@ async function validateMove(playerData, gameData) {
 								let b_knight = JSON.parse(gameData.b_knight.S);
 								b_knight[n] = { from: playerData.move[0], to: playerData.move[1] };
 								gameData.b_knight.S = JSON.stringify(b_knight);
+							}
+						}
+					} else if (Module_chess.get(playerData.move[0]).type.match(/[kqbr]/)) { // KINGS, QUEENS, BISHOPS & ROOKS FACE THE WAY THEY LAST MOVED UP OR DOWN
+						for (let n = 0; n < JSON.parse(gameData.b_piece.S).length; n++) {
+							if (JSON.parse(gameData.b_piece.S)[n].to == playerData.move[0]) {
+								let b_piece = JSON.parse(gameData.b_piece.S);
+								if (playerData.move[0].split("")[1] != playerData.move[1].split("")[1]) { b_piece[n] = { from: playerData.move[0], to: playerData.move[1] }; } // MOVED UP OR DOWN
+								else { b_piece[n].to = playerData.move[1]; } // MOVED SIDEWAYS: KEEPS ITS from SO IT FACES THE SAME WAY
+								gameData.b_piece.S = JSON.stringify(b_piece);
+							}
+						}
+						if (Module_chess.get(playerData.move[0]).type == 'k' && playerData.move[0] == 'e8' && (playerData.move[1] == 'g8' || playerData.move[1] == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO
+							for (let n = 0; n < JSON.parse(gameData.b_piece.S).length; n++) {
+								let b_piece = JSON.parse(gameData.b_piece.S);
+								if (playerData.move[1] == 'g8' && b_piece[n].to == 'h8') { b_piece[n].to = 'f8'; gameData.b_piece.S = JSON.stringify(b_piece); } // KING SIDE
+								else if (playerData.move[1] == 'c8' && b_piece[n].to == 'a8') { b_piece[n].to = 'd8'; gameData.b_piece.S = JSON.stringify(b_piece); } // QUEEN SIDE
 							}
 						}
 					}
