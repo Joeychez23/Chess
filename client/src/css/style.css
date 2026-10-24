@@ -22,7 +22,8 @@ body {
 	align-items: center;
 	overflow: hidden;
 	overscroll-behavior: none; /* MOBILE: NO PULL TO REFRESH / RUBBER BANDING */
-	background-color: #220B00;
+	/* background-color: #220B00; */
+	background-color: #0c2a1f;
 	-webkit-tap-highlight-color: transparent;
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
