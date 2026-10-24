@@ -2157,7 +2157,8 @@ export async function renderCanvas(playerData) {
 			try {
 				tiles[index].xSlideTo = 0;
 				tiles[index].ySlideTo = 0;
-				if (moveObj.promotion) { currPromotion = true; refresh = true; return; } // OPEN THE PROMOTION PICKER
+				if (moveObj.promotion) { currPromotion = true; refresh = true; return; } // OPEN THE PROMOTION 
+				
 				await validateMove(); // SEND THE MOVE
 				tiles[index].isSliding = null;
 			} catch (err) { console.log(err); currSlide = false; return refreshData(response); }
@@ -2394,6 +2395,7 @@ export async function renderCanvas(playerData) {
 				availableMoves;
 				availableMovesData = { piece: null, square: null }
 				menuToggled = false;
+				
 				return response;
 			} catch (err) { console.log(err); tiles = setTiles(); refresh = true; return response; }
 		}
@@ -2782,6 +2784,8 @@ export async function renderCanvas(playerData) {
 								tile.isClicked = false;
 								clickedTile = false;
 								mousedownTile = false;
+								opposingMove = true;
+								refresh = true;
 								return await validateMove(); // DROPPED, SO NO SLIDE: SEND IT NOW
 							} catch (err) {
 								console.log(err);
@@ -2811,7 +2815,7 @@ export async function renderCanvas(playerData) {
 							validateState.move(moveObj); // CHECK MOVE WITHOUT UPDATING THE BOARD SO THE DRAWSCREEN FUNCTION CAN OPERATE WITH THE PREVIOUS MOVE WHILE CHECKING IF THE MOVE IS ALLOWED
 							currSlide = true;
 							slideStart = true;
-							tile.isSliding = true
+							tile.isSliding = true;
 							tile.xSlideTo = tileX;
 							tile.ySlideTo = tileY;
 							tile.xDiff = 0;
@@ -2822,7 +2826,7 @@ export async function renderCanvas(playerData) {
 							refresh = true;
 
 							startTime = new Date();
-
+							opposingMove = true;
 
 							return;
 						} catch (err) { console.log(err); clickedTile = false; opposingMove = false; return refreshData(revert); }
