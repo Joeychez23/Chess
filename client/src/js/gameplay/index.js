@@ -1132,7 +1132,7 @@ export async function renderCanvas(playerData) {
 					async function drawActivePiece(imgArr, x, y, opacity) {
 						let completeSlide = false; // THE SLIDE REACHED ITS SQUARE THIS FRAME
 						for (let w = 0; w < imgArr.length; w++) { // w: 0 REFLECTION, 1 SHADOW, 2 PIECE
-							if ((tiles[index].isMousedown || tiles[index].isClicked || tiles[index].isHovering) && opacity && !tiles[index].isSliding) { ctx.globalAlpha = 0.85 }
+							if ((tiles[index].isMousedown || tiles[index].isClicked || tiles[index].isHovering) && opacity && !tiles[index].isSliding && !opposingMove) { ctx.globalAlpha = 0.85 }
 							if (w == 0) { ctx.globalAlpha = 0.30 }
 							else if (w == 1) { ctx.globalAlpha = 0.75 }
 							if (tiles[index].isSliding) { // IF TILE IS SLIDING
