@@ -2823,10 +2823,10 @@ export async function renderCanvas(playerData) {
 							for (let j = 0; j < tiles.length; j++) { tiles[j].isClicked = false; tiles[j].isMousedown = false }
 							clickedTile = false;
 							mousedownTile = false;
+							opposingMove = true;
 							refresh = true;
 
 							startTime = new Date();
-							opposingMove = true;
 
 							return;
 						} catch (err) { console.log(err); clickedTile = false; opposingMove = false; return refreshData(revert); }
