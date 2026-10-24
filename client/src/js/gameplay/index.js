@@ -1176,10 +1176,10 @@ export async function renderCanvas(playerData) {
 										} else if (tiles[index].ySlideTo < tiles[index].y) {
 											// Y GOING UP THE BOARD
 											//console.log("Y UP")
-											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight);
-											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth);
-											xChange = tiles[index].x + xTilesMoved + 1;
-											yChange = tiles[index].y - yTilesMoved - 1;
+											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE (339.99 OF 340)
+											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth + 0.001);
+											xChange = tiles[index].x + xTilesMoved; // THE SQUARE IT'S LEAVING, LIKE UP TO LEFT (WAS + 1 / - 1, THE SQUARE IT'S ENTERING,
+											yChange = tiles[index].y - yTilesMoved; // SO THE PIECE BELOW THE SQUARE IT LEFT WASN'T DRAWN AGAIN & IT SLID OVER IT)
 											xLet = String.fromCharCode(97 + xChange);
 											slidePos = `${xLet}${8 - yChange}`
 										} else { slideOverlap = false; }
@@ -1199,11 +1199,11 @@ export async function renderCanvas(playerData) {
 										} else if (tiles[index].ySlideTo < tiles[index].y) {
 											// Y GOING UP THE BOARD
 											// console.log("Y UP")
-											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight);
-											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth);
+											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE
+											let xTilesMoved = Math.ceil(tiles[index].xDiff / tileWidth - 0.001); // CEIL: ON A SQUARE (FIRST & LANDING FRAME) IT'S THAT SQUARE, NOT THE ONE TO ITS RIGHT
 											xChange = tiles[index].x + xTilesMoved;
 											yChange = tiles[index].y - yTilesMoved;
-											xLet = String.fromCharCode(98 + xChange);
+											xLet = String.fromCharCode(97 + xChange);
 											slidePos = `${xLet}${8 - yChange}`
 										} else {
 											slideOverlap = false;
@@ -1684,8 +1684,8 @@ export async function renderCanvas(playerData) {
 						}
 					}
 					// SAME FACING RULES AS THE BOARD: THIS MOVE WHILE SLIDING UP OR DOWN, ELSE ITS LAST MOVE UP OR DOWN, ELSE ITS START SIDE
-					// !NOTE: ON THE FRAME A SLIDE LANDS ITS ENTRY HAS ALREADY MOVED TO THE NEW SQUARE, SO NOTHING MATCHES & IT ISN'T DRAWN
-					// A SECOND TIME (THE BOARD ALREADY DREW IT, SAME AS THE KNIGHT)
+					// !NOTE: ON THE FRAME A SLIDE LANDS ITS ENTRY HAS ALREADY MOVED TO THE NEW SQUARE (moveObj.to), SO IT'S LOOKED UP THERE & DRAWN
+					// AGAIN. THE BOARD DREW IT IN ITS OLD SQUARE'S TURN, SO WITHOUT THIS THE PIECES DRAWN AGAIN AROUND IT COVERED IT FOR A FRAME
 					if (pieceColor == "w") {
 						let yFrom; // SCREEN ROW IT CAME FROM
 						let yTo; // SCREEN ROW IT WENT TO
@@ -1714,6 +1714,19 @@ export async function renderCanvas(playerData) {
 								break;
 							} else if (JSON.parse(response.w_piece)[n].from == null && JSON.parse(response.w_piece)[n].to == pieceObj.square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
 								handlePieceDirectionW(null, null);
+								drawPiece();
+								break;
+							} else if (pieceObj.square == moveObj.from && JSON.parse(response.w_piece)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY IT LAST WENT UP OR DOWN
+								if (JSON.parse(response.w_piece)[n].from) {
+									if (playerColor == 'w') {
+										yFrom = 8 - JSON.parse(response.w_piece)[n].from.split("")[1];
+										yTo = 8 - JSON.parse(response.w_piece)[n].to.split("")[1];
+									} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+										yFrom = JSON.parse(response.w_piece)[n].from.split("")[1] - 1;
+										yTo = JSON.parse(response.w_piece)[n].to.split("")[1] - 1;
+									}
+								}
+								handlePieceDirectionW(yFrom, yTo);
 								drawPiece();
 								break;
 							}
@@ -1746,6 +1759,19 @@ export async function renderCanvas(playerData) {
 								break;
 							} else if (JSON.parse(response.b_piece)[n].from == null && JSON.parse(response.b_piece)[n].to == pieceObj.square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
 								handlePieceDirectionB(null, null);
+								drawPiece();
+								break;
+							} else if (pieceObj.square == moveObj.from && JSON.parse(response.b_piece)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY IT LAST WENT UP OR DOWN
+								if (JSON.parse(response.b_piece)[n].from) {
+									if (playerColor == 'w') {
+										yFrom = 8 - JSON.parse(response.b_piece)[n].from.split("")[1];
+										yTo = 8 - JSON.parse(response.b_piece)[n].to.split("")[1];
+									} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+										yFrom = JSON.parse(response.b_piece)[n].from.split("")[1] - 1;
+										yTo = JSON.parse(response.b_piece)[n].to.split("")[1] - 1;
+									}
+								}
+								handlePieceDirectionB(yFrom, yTo);
 								drawPiece();
 								break;
 							}
@@ -1862,7 +1888,16 @@ export async function renderCanvas(playerData) {
 				}
 			}
 
-			if (currSlide && overlapSlideObj) { // A SLIDE IS PASSING OTHER PIECES: DRAW THE ONES IN FRONT OF IT AGAIN
+			// LANDED: UNTIL THE MOVE COMES BACK & THE BOARD IS REBUILT, THE PIECE IS STILL ON ITS OLD TILE (MOVED BY xDiff / yDiff),
+			// SO THE BOARD DRAWS IT IN ITS OLD SQUARE'S TURN & NO SLIDE BOX IS MADE. ITS BOX IS JUST ITSELF (drawPieceBelow NEEDS y2x2)
+			let landedTile = null;
+			if (!overlapSlideObj) { // currSlide CAN ALREADY BE false HERE (validateMove TURNS IT OFF BEFORE setTiles() IS DONE)
+				for (let q = 0; q < tiles.length; q++) {
+					if (tiles[q].square == moveObj.from && !tiles[q].isSliding && (tiles[q].xDiff || tiles[q].yDiff) && tiles[q].type && tiles[q].type != 'n') { landedTile = tiles[q]; overlapSlideObj = { y2x2: tiles[q] }; break; } // A LANDED KNIGHT STAYS AS IT WAS
+				}
+			}
+
+			if ((currSlide || landedTile) && overlapSlideObj) { // A SLIDE IS PASSING OTHER PIECES (OR JUST LANDED): DRAW THE ONES IN FRONT OF IT AGAIN
 				for (let q = 0; q < tiles.length; q++) { // SWAP EACH SQUARE NAME FOR THE TILE ON IT (SQUARES WITH NO PIECE STAY A NAME)
 					if (tiles[q].square == overlapSlideObj.y1x1 && tiles[q].type) { overlapSlideObj.y1x1 = tiles[q] }
 					else if (tiles[q].square == overlapSlideObj.y1x2 && tiles[q].type) { overlapSlideObj.y1x2 = tiles[q] }
@@ -1894,7 +1929,17 @@ export async function renderCanvas(playerData) {
 					}
 				}
 
-				if (playerColor == 'w') {
+				if (landedTile) { // LANDED: DRAW IT AGAIN OVER THE PIECES BEHIND IT, THEN THE PIECE TO ITS RIGHT (DRAWN AFTER IT ON THE BOARD) & THE PIECES IN FRONT AGAIN
+					const to = moveObj.to.split("");
+					const right = playerColor == 'w' ? 1 : -1; // SCREEN RIGHT IS THE NEXT FILE (WHITE) OR THE ONE BEFORE IT (BLACK, FLIPPED)
+					drawSlideBox(landedTile);
+					for (let q = 0; q < tiles.length; q++) {
+						if (tiles[q].square == `${String.fromCharCode(to[0].charCodeAt(0) + right)}${to[1]}` && tiles[q].type) { drawSlideBox(tiles[q]); }
+					}
+					drawPieceBelow(moveObj.to);
+					drawPieceBelow(`${String.fromCharCode(to[0].charCodeAt(0) - 1)}${to[1]}`);
+					drawPieceBelow(`${String.fromCharCode(to[0].charCodeAt(0) + 1)}${to[1]}`);
+				} else if (playerColor == 'w') {
 					if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
 						drawSlideBox(overlapSlideObj.y2x2);
 					} else { // DRAW THE PIECES BESIDE & BELOW THE SLIDE (IN FRONT OF IT) AGAIN, BY DIRECTION
@@ -1924,6 +1969,7 @@ export async function renderCanvas(playerData) {
 						}
 					}
 				} else if (playerColor == 'b') {
+					const slideSquare = `${String.fromCharCode(97 + (7 - (slidePos.split("")[0].charCodeAt(0) - 97)))}${9 - Number(slidePos.split("")[1])}`; // slidePos IN BLACK'S SQUARE NAMES (slidePos USES WHITE'S LETTERS)
 					if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
 						drawSlideBox(overlapSlideObj.y2x2);
 					} else { // DRAW THE PIECES BESIDE & BELOW THE SLIDE (IN FRONT OF IT) AGAIN, BY DIRECTION
@@ -1938,7 +1984,7 @@ export async function renderCanvas(playerData) {
 						if (yPositive && !xPositive) { // DOWN TO LEFT
 							if (overlapSlideObj.y2x1 && typeof overlapSlideObj.y2x1 == "object") { drawSlideBox(overlapSlideObj.y2x1); drawPieceBelow(overlapSlideObj.y2x1.square); }
 							if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-							if (overlapSlideObj.y2x2 && typeof overlapSlideObj.y2x2 == "object") { drawSlideBox(overlapSlideObj.y2x2); drawPieceBelow(slidePos); }
+							if (overlapSlideObj.y2x2 && typeof overlapSlideObj.y2x2 == "object") { drawSlideBox(overlapSlideObj.y2x2); drawPieceBelow(slideSquare); }
 							if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "string") { drawPieceBelow(overlapSlideObj.y3x2); }
 							if (overlapSlideObj.y3x1 && typeof overlapSlideObj.y3x1 == "string") { drawPieceBelow(overlapSlideObj.y3x1); }
 							if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "object") { drawSlideBox(overlapSlideObj.y3x2); drawPieceBelow(overlapSlideObj.y3x2.square); }
@@ -1946,7 +1992,7 @@ export async function renderCanvas(playerData) {
 						if (yPositive && xPositive) { // DOWN TO RIGHT
 							if (overlapSlideObj.y2x3 && typeof overlapSlideObj.y2x3 == "object") { drawSlideBox(overlapSlideObj.y2x3); drawPieceBelow(overlapSlideObj.y2x3.square); }
 							if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-							if (overlapSlideObj.y2x2 && typeof overlapSlideObj.y2x2 == "object") { drawSlideBox(overlapSlideObj.y2x2); drawPieceBelow(slidePos); }
+							if (overlapSlideObj.y2x2 && typeof overlapSlideObj.y2x2 == "object") { drawSlideBox(overlapSlideObj.y2x2); drawPieceBelow(slideSquare); }
 							if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "string") { drawPieceBelow(overlapSlideObj.y3x2); }
 							if (overlapSlideObj.y3x3 && typeof overlapSlideObj.y3x3 == "string") { drawPieceBelow(overlapSlideObj.y3x3); }
 							if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "object") { drawSlideBox(overlapSlideObj.y3x2); drawPieceBelow(overlapSlideObj.y3x2.square); }
