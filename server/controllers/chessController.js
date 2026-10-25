@@ -132,7 +132,7 @@ async function moveGame(req, res) {
 	if (response.status == 200) {
 		response = await updateGame(response.game_data, prevBoard); // PUT VALIDATED MOVE
 		if (response.status == 200) {
-			const result = gameResult(response.game_data.game_board.S); // CHECKMATE OR A DRAW ENDS THE GAME
+			const result = gameResult(response.game_data); // CHECKMATE OR A DRAW (THREEFOLD REPETITION TOO) ENDS THE GAME
 			if (result) {
 				const closed = await closeGame(response.game_data, result.winner, result.reason);
 				if (closed.status == 200) { response.game_data = closed.game_data; }
@@ -211,7 +211,7 @@ async function aiMoveGame(req, res) {
 			if (!latest.game_data) { return res.json({ status: latest.status, message: latest.message }); }
 			return res.json(savedAiMove(latest));
 		}
-		const result = gameResult(response.game_data.game_board.S); // CHECKMATE OR A DRAW ENDS THE GAME
+		const result = gameResult(response.game_data); // CHECKMATE OR A DRAW (THREEFOLD REPETITION TOO) ENDS THE GAME
 		if (result) {
 			const closed = await closeGame(response.game_data, result.winner, result.reason);
 			if (closed.status == 200) { response.game_data = closed.game_data; }

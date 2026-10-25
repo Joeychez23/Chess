@@ -43,6 +43,17 @@ async function play(gameData, playerId, from, to, promotion) {
 	return validateMove({ game_id: "game1", player_id: playerId, move: [from, to], promotion }, gameData);
 }
 
+/**
+ * @description Plays SAN moves through validateMove, as the player whose turn it is
+ */
+async function playAll(gameData, ...sans) {
+	for (const san of sans) {
+		const move = new Chess(gameData.game_board.S).move(san);
+		assert.equal((await play(gameData, move.color == "w" ? "white" : "black", move.from, move.to, move.promotion)).status, 200, `${san} should be legal`);
+	}
+	return gameData;
+}
+
 const list = (gameData, name) => JSON.parse(gameData[name].S);
 
 /* ---------------------------------------------------------------- */
@@ -188,23 +199,59 @@ describe("piece facing", () => {
 
 describe("gameResult", () => {
 	test("a game in progress has no result", () => {
-		assert.equal(gameResult(new Chess().fen()), null);
+		assert.equal(gameResult(game()), null);
 	});
 
 	test("checkmate: the side that delivered it wins", () => {
-		assert.deepEqual(gameResult("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"), { winner: "b", reason: "checkmate" });
+		assert.deepEqual(gameResult(game("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")), { winner: "b", reason: "checkmate" });
 	});
 
 	test("stalemate is a draw", () => {
-		assert.deepEqual(gameResult("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"), { winner: "draw", reason: "stalemate" });
+		assert.deepEqual(gameResult(game("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")), { winner: "draw", reason: "stalemate" });
 	});
 
 	test("two bare kings is a draw by insufficient material", () => {
-		assert.deepEqual(gameResult("8/8/8/8/8/8/8/K6k w - - 0 1"), { winner: "draw", reason: "insufficient material" });
+		assert.deepEqual(gameResult(game("8/8/8/8/8/8/8/K6k w - - 0 1")), { winner: "draw", reason: "insufficient material" });
 	});
 
 	test("100 half moves without a capture or pawn move is a draw by the fifty-move rule", () => {
-		assert.deepEqual(gameResult("8/8/8/8/8/8/R7/K6k w - - 100 80"), { winner: "draw", reason: "fifty-move rule" });
+		assert.deepEqual(gameResult(game("8/8/8/8/8/8/R7/K6k w - - 100 80")), { winner: "draw", reason: "fifty-move rule" });
+	});
+
+	test("a position that comes up a third time is a draw by threefold repetition", async () => {
+		const gameData = await playAll(game(), "Nf3", "Nf6", "Ng1", "Ng8"); // THE START POSITION A SECOND TIME
+		assert.equal(gameResult(gameData), null);
+		await playAll(gameData, "Nf3", "Nf6", "Ng1");
+		assert.equal(gameResult(gameData), null);
+		await playAll(gameData, "Ng8"); // A THIRD TIME
+		assert.deepEqual(gameResult(gameData), { winner: "draw", reason: "threefold repetition" });
+	});
+
+	test("a position with other castling rights isn't the same position", async () => {
+		const start = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1";
+		const gameData = await playAll(game(start), "Ke2", "Ke7", "Ke1", "Ke8", "Ke2", "Ke7", "Ke1", "Ke8"); // THE SAME SQUARES 3 TIMES, BUT THE KINGS CAN'T CASTLE NOW
+		gameData.start_params = { S: JSON.stringify({ color: "w", fen: start }) };
+		assert.equal(gameResult(gameData), null);
+		await playAll(gameData, "Ke2", "Ke7", "Ke1", "Ke8");
+		assert.deepEqual(gameResult(gameData), { winner: "draw", reason: "threefold repetition" });
+	});
+
+	test("a game from a set position counts from its start", async () => {
+		const start = "4k3/8/8/8/8/8/8/R3K3 w - - 0 1";
+		const gameData = await playAll(game(start), "Ra2", "Kd8", "Ra1", "Ke8", "Ra2", "Kd8", "Ra1", "Ke8");
+		gameData.start_params = { S: JSON.stringify({ color: "w", fen: start }) };
+		assert.deepEqual(gameResult(gameData), { winner: "draw", reason: "threefold repetition" });
+		delete gameData.start_params; // REPLAYED FROM THE STANDARD POSITION THE MOVES DON'T WORK, SO IT ISN'T COUNTED
+		assert.equal(gameResult(gameData), null);
+	});
+
+	test("saved moves that don't lead to the board don't end the game", async () => {
+		const gameData = await playAll(game(), "Nf3", "Nf6", "Ng1", "Ng8", "Nf3", "Nf6", "Ng1", "Ng8");
+		gameData.game_board.S = "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 8 5"; // THE MOVES REPEAT 3 TIMES, BUT THE BOARD IS ANOTHER POSITION
+		assert.equal(gameResult(gameData), null);
+		gameData.game_board.S = new Chess().fen().replace(" 0 1", " 8 5");
+		gameData.moves.S[7] = "Ke2"; // BLACK CAN'T PLAY THIS
+		assert.equal(gameResult(gameData), null);
 	});
 });
 
