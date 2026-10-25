@@ -16,7 +16,8 @@ const { validateMove, gameResult, checkStartFen } = require("../utils/validate.j
 const { levelList, readLevel, aiMove } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
-const { initalizeGame, retrieveGame, updateGame, closeGame, acceptInvite, deleteInvite, requestRematch, acceptRematch, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { readRating, ratingSummary } = require("../utils/rating.js");
+const { initalizeGame, retrieveGame, retrieveRatings, updateGame, closeGame, acceptInvite, deleteInvite, requestRematch, acceptRematch, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { emitToGame, emitToPlayer } = require("../socket.js");
 
 const REMATCH_TIME = 60 * 1000; // BOTH PLAYERS MUST PRESS REMATCH WITHIN 1 MINUTE
@@ -450,13 +451,14 @@ async function declineGame(req, res) {
  * @param  {[string]} req.params.userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, ai_game_id / friend_game_id (the open AI / friend game or null),
  * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params }], newest last),
- * sent_invite ({ game_id, name, player_color, start_params } or null), received_invites ([{ game_id, name, player_color, start_params }]), message }]
+ * sent_invite ({ game_id, name, player_color, start_params } or null), received_invites ([{ game_id, name, player_color, start_params }]),
+ * rating ({ rating, provisional, rated_games }, Home's "Rating // 1520?"), message }]
  */
 async function getUserGames(req, res) {
 	if (req.params.userId != userPlayerId(req.user)) { return res.status(403).json({ status: 403, message: "Not your game list" }); }
 
 	let response = await retrieveUser(req.params.userId);
-	if (!response.user_data) { return res.json({ status: response.status, message: response.message }); } // NO GAMES YET
+	if (!response.user_data) { return res.json({ status: response.status, rating: ratingSummary(readRating(null)), message: response.message }); } // NO GAMES YET, THE STARTING RATING
 
 	response.user_data = await pruneOpenGames(response.user_data); // DROPS EXPIRED GAMES BEFORE HOME LISTS THEM
 	response.user_data = await pruneInvites(response.user_data);
@@ -476,7 +478,44 @@ async function getUserGames(req, res) {
 		received_invites: userData.received_invites.map(inviteBody), // "BOB INVITED YOU", ACCEPT & DECLINE
 		settings: userSettings(userData), // THE SETTINGS PAGE'S DEFAULT START SETTINGS, HOME'S DROPDOWNS START ON THEM
 		games_finished: JSON.parse(userData.closed_games.S).length, // THE SETTINGS PAGE'S ACCOUNT BOX
+		rating: ratingSummary(readRating(userData)), // FRIEND GAMES CHANGE IT (closeGame IN dynamoDB.js)
 		message: response.message,
+	});
+}
+
+/* ---------------------------------------------------------------- */
+// Ratings (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Both players' ratings for the game menu ("You 1520 // Bob 1480?"), asked for once when the game loads.
+ * GET /game/:gameId doesn't send them, it runs after every move & would read both user rows each time
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, rated (friend games), player_rating, opponent_rating ({ rating, provisional, rated_games }, null in AI games),
+ * opponent_name, rating_change ({ before, after } once a rated game is over, null otherwise), message }]
+ */
+async function getRatings(req, res) {
+	const response = await retrieveGame(req.params.gameId);
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	const playerId = playerInGame(req, gameData);
+	if (!playerId) { return notInGame(req, res); }
+	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
+	const opponentColor = playerColor == "w" ? "b" : "w";
+	const opponentId = opponentColor == "w" ? gameData.white_player_id.S : gameData.black_player_id.S;
+	if (isAiGame(gameData)) { return res.json({ status: 200, rated: false, player_rating: null, opponent_rating: null, opponent_name: null, rating_change: null, message: "AI games aren't rated" }); }
+
+	const ratings = await retrieveRatings([playerId, opponentId]);
+	let change = null;
+	try { change = JSON.parse(gameData.ratings?.S || "{}")[playerColor] || null; } catch { }
+	return res.json({
+		status: 200,
+		rated: true,
+		player_rating: ratingSummary(ratings[playerId]),
+		opponent_rating: ratingSummary(ratings[opponentId]),
+		opponent_name: playerName(gameData, opponentColor),
+		rating_change: change,
+		message: "Ratings",
 	});
 }
 
@@ -770,4 +809,4 @@ function isAiGame(gameData) {
 }
 
 
-module.exports = { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };

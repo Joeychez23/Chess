@@ -112,6 +112,18 @@
 	color: var(--maple);
 }
 
+#menuContainer #ratingDisplay { /* FRIEND GAMES: "YOU 1520 // BOB 1480?" UNDER THE TITLE (pages/play/index.js) */
+	margin-top: -4px;
+	padding: 0 4px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	line-height: 1.4;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+
 #menuContainer #menuButtonList {
 	display: flex;
 	flex-direction: column;

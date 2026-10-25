@@ -13,6 +13,7 @@ const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
+const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
 
 const connection = new DynamoDB({ region: "us-east-1" }); // CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE SERVER'S IAM ROLE ON AWS
 
@@ -198,8 +199,8 @@ async function updateGame(gameData, prevBoard) {
 // Close game (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Ends a game: saves the result & moves it from open_games to closed_games for both players.
- * Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
+ * @description Ends a game: saves the result & moves it from open_games to closed_games for both players, then rates it (rateGame,
+ * friend games once both sides moved). Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
  * @param  {[object]} gameData [game item from retrieveGame]
  * @param  {[string]} winner ["w", "b" or "draw"]
  * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition" or "forfeit"]
@@ -233,6 +234,14 @@ async function closeGame(gameData, winner, reason) {
 	await moveUserGame(gameData.white_player_id.S, gameId, "open_games", "closed_games");
 	await moveUserGame(gameData.black_player_id.S, gameId, "open_games", "closed_games");
 
+	if (isRated(gameData)) { // ONLY ONE CLOSE GETS HERE, SO A GAME IS RATED ONCE
+		try {
+			gameData.ratings = { S: JSON.stringify(await rateGame(gameData, winner)) };
+		} catch (err) {
+			console.log(`Rating failed: ${gameId}: ${err.message}`); // THE GAME STILL CLOSES
+		}
+	}
+
 	gameData.state = { S: "CLOSED" };
 	gameData.winner = { S: winner };
 	gameData.reason = { S: reason };
@@ -242,6 +251,79 @@ async function closeGame(gameData, winner, reason) {
 		game_data: gameData,
 		message: `Closed game id: ${gameId}`
 	}
+}
+
+/* ---------------------------------------------------------------- */
+// Rate game (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Changes both players' ratings after a finished game (utils/rating.js) & saves what changed on the game, where it stays:
+ * rated friend games are never deleted, so a player's closed_games are their rating history (profiles, #81)
+ * @param  {[object]} gameData [the closed game item]
+ * @param  {[string]} winner ["w", "b" or "draw"]
+ * @return {[object]} ratings [{ w: { before, after }, b: { before, after }, at (epoch ms) }, null for a player without a row]
+ */
+async function rateGame(gameData, winner) {
+	const players = { w: gameData.white_player_id.S, b: gameData.black_player_id.S };
+	let before = {};
+	for (const color of ["w", "b"]) { before[color] = readRating((await retrieveUser(players[color], true)).user_data); } // EACH SIDE IS RATED AGAINST THE OTHER'S RATING FROM BEFORE THE GAME
+
+	let ratings = { at: Date.now() };
+	for (const color of ["w", "b"]) {
+		const opponent = before[color == "w" ? "b" : "w"];
+		ratings[color] = await saveRating(players[color], (rating) => newRating(rating, opponent, scoreFor(winner, color)));
+	}
+
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameData.game_id.S }
+		},
+		UpdateExpression: 'SET ratings = :ratings',
+		ExpressionAttributeValues: {
+			":ratings": { S: JSON.stringify(ratings) }
+		}
+	}
+	await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	return ratings;
+}
+
+/**
+ * @description Saves a player's new rating. Two of their games can end at once, so it only saves if rated_games is still what was read,
+ * otherwise it reads the row again & works the rating out again
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @param  {[function]} compute [({ rating, rated_games }) => the new rating]
+ * @return {[object]} change [{ before, after }, null when the player has no row (they deleted their data)]
+ */
+async function saveRating(userId, compute) {
+	for (let i = 0; i < LIST_SAVE_TRIES; i++) {
+		const user = await retrieveUser(userId, true);
+		if (!user.user_data) { return null; }
+		const rating = readRating(user.user_data);
+		const after = compute(rating);
+
+		const params = {
+			TableName: USER_TABLE,
+			Key: {
+				user_id: { S: userId }
+			},
+			UpdateExpression: 'SET rating = :rating, rated_games = :rated_games',
+			ConditionExpression: user.user_data.rated_games ? 'rated_games = :old_rated_games' : 'attribute_exists(user_id) AND attribute_not_exists(rated_games)', // THEIR FIRST RATED GAME, OR NO OTHER GAME WAS RATED SINCE THE READ
+			ExpressionAttributeValues: {
+				":rating": { N: `${after}` },
+				":rated_games": { N: `${rating.rated_games + 1}` }
+			}
+		}
+		if (user.user_data.rated_games) { params.ExpressionAttributeValues[":old_rated_games"] = { N: user.user_data.rated_games.N }; }
+
+		try {
+			await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+			return { before: rating.rating, after };
+		} catch (err) {
+			if (err.name != "ConditionalCheckFailedException") { throw err; }
+		}
+	}
+	throw new Error(`Rating save failed after ${LIST_SAVE_TRIES} tries: ${userId}`);
 }
 
 /* ---------------------------------------------------------------- */
@@ -475,6 +557,31 @@ async function retrieveUser(userId, consistent) {
 			message: "User data not found"
 		}
 	}
+}
+
+/* ---------------------------------------------------------------- */
+// Retrieve ratings (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Gets players' ratings, for the game menu (GET /api/chess/game/:gameId/ratings)
+ * @param  {[array]} userIds [auth0 user ids without "auth0|"]
+ * @return {[object]} ratings [{ userId: { rating, rated_games } }, players without a row get the starting rating]
+ */
+async function retrieveRatings(userIds) {
+	const ids = [...new Set(userIds)];
+	const params = {
+		RequestItems: {
+			[USER_TABLE]: {
+				Keys: ids.map((userId) => ({ user_id: { S: userId } })),
+				ProjectionExpression: "user_id, rating, rated_games"
+			}
+		}
+	};
+	const response = await connection.batchGetItem(params); // GET REQUEST TO DYNAMODB
+	const items = response.Responses?.[USER_TABLE] || [];
+	let ratings = {};
+	for (let i = 0; i < ids.length; i++) { ratings[ids[i]] = readRating(items.find((item) => item.user_id.S == ids[i])); }
+	return ratings;
 }
 
 /* ---------------------------------------------------------------- */
@@ -728,4 +835,4 @@ async function pruneGameList(userData, listName) {
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, deleteUser, pruneOpenGames, pruneInvites }
+module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, deleteUser, pruneOpenGames, pruneInvites }

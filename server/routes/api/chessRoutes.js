@@ -1,7 +1,7 @@
 const router = require('express').Router()
 const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
 const { limitNewGames } = require('../../middleware/rateLimit.js')
-const { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames } = require('../../controllers/chessController.js')
+const { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
 
 // THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME (THE ONE IN THEIR guest_game COOKIE)
 // limitNewGames: THE ROUTES THAT MAKE A GAME ANSWER 429 WHEN A SESSION, AN IP OR THE SITE MAKES TOO MANY
@@ -23,6 +23,8 @@ router.route('/game/:gameId/rematch').post(requireAuth, rematchGame);   // /api/
 router.route('/game/:gameId/accept').post(requireAuth, acceptGame);     // /api/chess/game/:gameId/accept   -> FRIEND INVITES: PENDING -> OPEN. ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
 
 router.route('/game/:gameId/decline').post(requireAuth, declineGame);   // /api/chess/game/:gameId/decline  -> FRIEND INVITES: DECLINE (INVITED PLAYER) OR CANCEL (INVITER), THE PENDING GAME IS DELETED
+
+router.route('/game/:gameId/ratings').get(requireAuth, getRatings);   // /api/chess/game/:gameId/ratings  -> BOTH PLAYERS' RATINGS FOR THE GAME MENU (FRIEND GAMES), & THIS GAME'S RATING CHANGE ONCE IT'S OVER
 
 router.route('/levels').get(getLevels);                             // /api/chess/levels                -> AI LEVELS + APPROX ELO FOR HOME'S DROPDOWN
 

@@ -276,4 +276,4 @@ function repeatedThreeTimes(gameData) {
 }
 
 
-module.exports = { validateMove, gameResult, checkStartFen, startPieces, undoMoves }
+module.exports = { validateMove, gameResult, checkStartFen, startPieces, undoMoves, startFen }

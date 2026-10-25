@@ -14,7 +14,7 @@
 import "../../../css/style.css"; // PLAY PAGE STYLES (CANVAS LAYOUT)
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 const { renderCanvas, preloadImages } = require("../../gameplay/index.js");
-const { validate, newAiGame } = require("../../gameplay/validate/index.js");
+const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
 const { startNav, showTable, showPage, startLoading, goToPage } = require("../utils/index.js");
 const { ObjectId } = require("bson");
@@ -23,6 +23,7 @@ const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (serv
 const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD OF THE MOUSE
 
 const resultDisplay = document.getElementById("resultDisplay");
+const ratingDisplay = document.getElementById("ratingDisplay"); // FRIEND GAMES: BOTH PLAYERS' RATINGS UNDER THE TITLE
 const optResumeBtn = document.getElementById("optResume");
 const optRestartBtn = document.getElementById("optRestart");
 const optHomepageBtn = document.getElementById("optSettings");
@@ -52,6 +53,7 @@ window.addEventListener("load", async function () {
 		const playerId = sessionUser.userId.split("auth0|")[1];
 		const response = await validate(CHESS_URL, gameId, playerId, false, false, false); // IS IT THEIR GAME?
 		if (response?.status != 200) { return gameNotFound(); }
+		if (!response.ai) { showRatings(gameId); } // NOT AWAITED, THE GAME DOESN'T WAIT FOR IT
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: gameId, PLAYER_ID: playerId }
 	} else {
 		const guestId = await newGuestGame(guestGameId()); // A GUEST'S PLAYER ID IS THEIR GAME ID
@@ -65,6 +67,24 @@ window.addEventListener("load", async function () {
 	renderCanvas(playerData);
 }, false);
 
+
+/* ---------------------------------------------------------------- */
+// Ratings
+/* ---------------------------------------------------------------- */
+/**
+ * @description Friend games: both players' ratings under the menu's title, "You 1520? // Bob 1480?" (? while provisional), and the
+ * change once the game is over, "You 1532 (+12) // ...". Filled when the page loads (a Rematch keeps the line until the next load)
+ * @param  {[string]} gameId [the friend game]
+ */
+async function showRatings(gameId) {
+	const ratings = await getRatings(CHESS_URL, gameId);
+	if (ratings?.status != 200 || !ratings.rated) { return; } // AI GAMES AREN'T RATED
+	const text = (rating) => `${rating.rating}${rating.provisional ? "?" : ""}`;
+	const change = ratings.rating_change ? ratings.rating_change.after - ratings.rating_change.before : null;
+	const changeText = change == null ? "" : ` (${change >= 0 ? "+" : "-"}${Math.abs(change)})`;
+	ratingDisplay.innerText = `You ${text(ratings.player_rating)}${changeText} // ${ratings.opponent_name || "Opponent"} ${text(ratings.opponent_rating)}`;
+	ratingDisplay.hidden = false;
+}
 
 /* ---------------------------------------------------------------- */
 // Guest Game
