@@ -129,6 +129,7 @@ body {
 
 .boxes {
 	display: grid;
+	grid-template-columns: minmax(0, 1fr); /* ONE COLUMN, A LONG GAME ID IN YOUR GAMES ELLIPSES INSTEAD OF WIDENING THE PAGE */
 	gap: 12px;
 }
 
@@ -283,9 +284,33 @@ body {
 	color: var(--muted);
 }
 
-.note { /* WHY AN INVITE DIDN'T GO THROUGH */
+.note { /* WHY AN INVITE DIDN'T GO THROUGH, NEW GAME'S FORFEIT WARNING */
 	min-height: 1.4em;
 	color: var(--gold);
+}
+
+/* ---------------------------------------------------------------- */
+/* Current Game (Play the AI) */
+/* ---------------------------------------------------------------- */
+
+[hidden] {
+	display: none !important; /* .btn's display: inline-flex WOULD SHOW A HIDDEN Continue */
+}
+
+.boardPicture {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.boardPicture canvas { /* pages/utils/boardPicture.js DRAWS IT 880 x 720 */
+	display: block;
+	width: 100%;
+	height: auto;
+	aspect-ratio: 880 / 720;
+	border: 1px solid rgba(201, 163, 90, 0.35);
+	border-radius: 14px;
+	background-color: var(--walnut);
 }
 
 /* ---------------------------------------------------------------- */

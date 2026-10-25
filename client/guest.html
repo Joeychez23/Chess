@@ -46,7 +46,12 @@
 		<section class="boxes" aria-label="What you can do">
 			<div class="box boxBaize">
 				<div class="boxHead"><h2 class="label">Play the AI</h2><span class="spec">No. 01</span></div>
-				<p>Eight levels, from about 750 Elo up to full-strength Stockfish. Guests play level 3, sign in to pick any level.</p>
+				<p id="soloText">Eight levels, from about 750 Elo up to full-strength Stockfish. Guests play level 3, sign in to pick any level.</p>
+				<figure class="boardPicture" id="currentGame" hidden>
+					<canvas id="currentGameBoard" role="img" aria-label="The board of your current game"></canvas>
+					<figcaption class="spec" id="currentGameInfo"></figcaption>
+				</figure>
+				<a class="btn btnCream boxBottom" id="continueGame" href="/play" hidden>Continue current game</a>
 			</div>
 			<div class="box boxWalnut">
 				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>

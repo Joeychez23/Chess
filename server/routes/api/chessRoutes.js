@@ -4,7 +4,7 @@ const { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitG
 
 // THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME
 
-router.route('/game').post(optionalAuth, newGame);                  // /api/chess/game                  -> NEW AI GAME AT A LEVEL, OR A GUEST'S RESTART (OVERWRITES game_id)
+router.route('/game').post(optionalAuth, newGame);                  // /api/chess/game                  -> NEW AI GAME AT A LEVEL, OR A GUEST'S RESTART (OVERWRITES game_id). ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
 
 router.route('/game/:gameId').get(optionalAuth, getGame);           // /api/chess/game/:gameId          -> BOARD + PLAYER COLOR
 
@@ -22,7 +22,7 @@ router.route('/levels').get(getLevels);                             // /api/ches
 
 router.route('/invite').post(requireAuth, inviteGame);              // /api/chess/invite                -> NEW GAME VS A FRIEND BY EMAIL
 
-router.route('/user/:userId').get(requireAuth, getUserGames);       // /api/chess/user/:userId          -> OPEN GAMES FOR HOME
+router.route('/user/:userId').get(requireAuth, getUserGames);       // /api/chess/user/:userId          -> OPEN GAMES FOR HOME, PLUS THE OPEN AI GAME (ai_game_id)
 
 
 module.exports = router

@@ -26,11 +26,11 @@ AWS side (see [Deploy](#deploy)).
 | **Canvas rendering** | Board, table, and pieces are sprites drawn in layers (reflection, shadow, piece). Knights face the direction they last moved; the backend tracks each knight's last move so this survives a reload. |
 | **Moving** | Drag and drop, or click a piece and then a square. Legal moves are highlighted, and a king in check is highlighted. Moves slide into place with a sound. |
 | **Promotion** | When a pawn reaches the last rank, you pick the new piece by clicking one of your captured pieces beside the board. |
-| **Play AI** | The computer opponent is Stockfish at the level picked in the dropdown next to Play AI on Home (8 levels, each shown with its approximate Elo, see [AI levels](#ai-levels)). The server picks and saves the AI's moves, so the level can't change mid game and the browser can't move for the AI. Your color is random. Restart flips your color and starts a new game at the same level. Restarting a game that's still going counts as a forfeit. |
+| **Play AI** | The computer opponent is Stockfish at the level picked in the dropdown next to Play AI on Home (8 levels, each shown with its approximate Elo, see [AI levels](#ai-levels)). The server picks and saves the AI's moves, so the level can't change mid game and the browser can't move for the AI. Your color is random. Restart flips your color and starts a new game at the same level. Restarting a game that's still going counts as a forfeit. A signed-in player has **one AI game open at a time**: while it's open, Play the AI shows its board with Continue current game, and Play AI becomes New game, which forfeits the open game after a second press. |
 | **Play Friends** | Enter your opponent's email in Home's Play a friend box. The backend looks up their Auth0 account and creates the game. While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. The menu's Restart button is **Forfeit** here (it asks "Are you sure?" first). |
 | **Game over** | The server ends a game on checkmate, stalemate, insufficient material, the fifty-move rule, or a forfeit, and saves who won and why. Both boards open the menu with the result. Finished games leave Home. |
 | **Rematch** | After a friend game ends, both players get a Rematch button. If both press it within 1 minute, a new game starts with the sides picked at random and both boards load it. |
-| **Home** | `/` for signed-in players: three boxes, Play the AI (level dropdown), Play a friend (email) and Your games (finished games aren't listed), each game opening at `/play/:gameId`. Guests get the homepage: a picture of the board, Play as guest and Sign in (see [Pages](#pages)). |
+| **Home** | `/` for signed-in players: three boxes, Play the AI (level dropdown, or the open AI game's board with Continue current game), Play a friend (email) and Your games (finished games aren't listed, the AI game is marked vs AI), each game opening at `/play/:gameId`. Guests get the homepage: a picture of the board, Play as guest and Sign in, plus their game's board and Continue current game while it's open (see [Pages](#pages)). |
 | **Menu** | The 3 line button in the top right opens and closes the menu on every page. On Home and the guest page it holds the page links. In a game it's the game's menu (Resume, Restart / Forfeit / Rematch, Home, Logout or Sign in) and it opens with the result when the game ends. |
 | **Login / Logout** | The menu's Sign in / Logout link (Exit in a game) logs guests in and signed-in players out. A game link opened while signed out logs in, then opens the game. Auth0 runs on the Express server (see [Auth](#auth)). |
 | **Mobile** | Portrait and landscape layouts and touch input. iOS audio is unlocked on the first tap so the opponent's move sounds play. |
@@ -149,7 +149,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 
 | Url | Page |
 | --- | --- |
-| `/` | Signed in: `home.html`, the Play the AI, Play a friend and Your games boxes. Signed out: `guest.html`, the homepage with Play as guest and Sign in. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
+| `/` | Signed in: `home.html`, the Play the AI, Play a friend and Your games boxes. Play the AI shows the open AI game's board (`pages/utils/boardPicture.js`) and Continue current game. Signed out: `guest.html`, the homepage with Play as guest and Sign in, and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
 
@@ -201,7 +201,7 @@ expired mid game) or `403` when signed in.
 | Route | Body / query | What it does |
 | --- | --- | --- |
 | `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), and the result (`state`, `winner`, `reason`) |
-| `POST /api/chess/game` | `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). One side must be `CHESS_AI`, and the other side is always you. `player_id_1` plays white. Leave out `game_id` to generate one. A guest's existing `game_id` is overwritten with a new board (restart, the level is kept unless `ai_level` is sent). Signed-in players can't overwrite a game here, they restart with `/restart` |
+| `POST /api/chess/game` | `{ game_id, player_id_1, player_id_2, ai_level, replace_current }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). One side must be `CHESS_AI`, and the other side is always you. `player_id_1` plays white. Leave out `game_id` to generate one. A guest's existing `game_id` is overwritten with a new board (restart, the level is kept unless `ai_level` is sent). Signed-in players can't overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first |
 | `PUT /api/chess/game/:gameId` | `{ move: [from, to], promotion }` | Your move. Validates it against the stored board and saves it. Closes the game on checkmate or a draw. Refused once the game is closed, and refused if the board changed first (two moves at once) |
 | `POST /api/chess/game/:gameId/ai-move` | | AI games, on the AI's turn. The server picks the AI's move at the game's level, saves it, and returns the game with `ai_move: { from, to, promotion }`. After the AI moved, it returns that saved move instead of a new one |
 | `POST /api/chess/game/:gameId/restart` | `{ ai_color }` | AI games. Forfeits the game if it's still going, then starts a new game with a new id at the same level. `ai_color` is the AI's color in the new game. Guests' one game is overwritten instead |
@@ -209,7 +209,7 @@ expired mid game) or `403` when signed in.
 | `POST /api/chess/game/:gameId/forfeit` | | Signed in, friend games. Closes the game, and the other side wins. Emits `game-over` |
 | `POST /api/chess/game/:gameId/rematch` | | Signed in, finished friend games. The first press waits 1 minute (`{ waiting, expires_in }`). If the other player presses in time, a new game starts with random sides (`{ new_game_id }`) and `rematch` is emitted |
 | `POST /api/chess/invite` | `{ game_id, opponent_email }` | Signed in only. New game vs. a friend. Finds their Auth0 account by email (`getAuth0User`). You play white. `game_id` must not exist yet |
-| `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home. Ids of games TTL already deleted are pruned first |
+| `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home, plus `ai_game_id` (your open AI game, or `null`). Ids of games TTL already deleted are pruned first |
 
 ### Socket.IO
 
@@ -539,10 +539,11 @@ client/
   src/css/home.css           Home + guest homepage styles
   src/css/style.css          Play page layout (canvas), imported by pages/play
   src/js/pages/
-    home/index.js            Open games, new solo/multiplayer games, AI level dropdown
-    guest/index.js           Guest homepage menu, re-ups an expired session
+    home/index.js            Open games, new solo/multiplayer games, AI level dropdown, the open AI game (Continue / New game)
+    guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board
     play/index.js            Finds the player + game (url or guest localStorage), starts renderCanvas()
-    utils/index.js           startNav() (the menu on pages without the game), table background
+    utils/index.js           startNav() (the menu on pages without the game), table background, showCurrentGame()
+    utils/boardPicture.js    drawBoardPicture(): a still of a game's board, drawn like the play page
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
   src/js/socket/index.js     joinGame() / leaveGame(): friend game socket
   src/js/gameplay/

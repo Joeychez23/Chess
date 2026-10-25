@@ -41,11 +41,17 @@
 		<section class="boxes" aria-label="Games">
 			<div class="box boxBaize">
 				<div class="boxHead"><h2 class="label">Play the AI</h2><span class="spec">No. 01</span></div>
-				<p>Eight levels, from about 750 Elo up to full-strength Stockfish. You get a random color.</p>
+				<p id="soloText">Eight levels, from about 750 Elo up to full-strength Stockfish. You get a random color.</p>
+				<figure class="boardPicture" id="currentGame" hidden>
+					<canvas id="currentGameBoard" role="img" aria-label="The board of your current game"></canvas>
+					<figcaption class="spec" id="currentGameInfo"></figcaption>
+				</figure>
+				<a class="btn btnCream" id="continueGame" href="/" hidden>Continue current game</a>
 				<div class="field boxBottom">
 					<select id="aiLevel" aria-label="AI level"></select>
 					<button class="btn btnCream" id="optNewSolo" type="button">Play AI</button>
 				</div>
+				<p class="spec note" id="soloNote" role="status"></p>
 			</div>
 			<div class="box boxWalnut">
 				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>
