@@ -1,6 +1,6 @@
 /*
  *  validate.test.js  --  chess server tests
- *	Move Rules & Piece Facing (server/utils/validate.js)
+ *	Move Rules & Piece Facing (server/utils/validate.js), and the chess.js version both sides run
  *
  */
 
@@ -9,6 +9,8 @@ const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
 const { Chess } = require("chess.js");
 const { validateMove, gameResult } = require("../utils/validate.js");
+const serverPackage = require("../package.json");
+const clientPackage = require("../../package.json");
 
 /* ---------------------------------------------------------------- */
 // Helpers
@@ -66,6 +68,12 @@ describe("validateMove", () => {
 	test("refuses moving the other side's piece", async () => {
 		const response = await play(game(), "white", "e7", "e5");
 		assert.equal(response.status, 500);
+	});
+
+	test("refuses a move from an empty square", async () => {
+		const response = await play(game(), "white", "e4", "e5");
+		assert.equal(response.status, 500);
+		assert.equal(response.message, "Invalid piece movement");
 	});
 
 	test("refuses an illegal move", async () => {
@@ -161,7 +169,7 @@ describe("piece facing", () => {
 		const response = await play(gameData, "white", "e5", "d6");
 		const board = new Chess(response.game_data.game_board.S);
 		assert.equal(response.status, 200);
-		assert.ok(!board.get("d5"), "the captured pawn is gone"); // chess.js beta.6 RETURNS false FOR AN EMPTY SQUARE
+		assert.equal(board.get("d5"), undefined, "the captured pawn is gone"); // chess.js GIVES undefined FOR AN EMPTY SQUARE
 		assert.deepEqual(board.get("d6"), { type: "p", color: "w" });
 	});
 });
@@ -189,5 +197,21 @@ describe("gameResult", () => {
 
 	test("100 half moves without a capture or pawn move is a draw by the fifty-move rule", () => {
 		assert.deepEqual(gameResult("8/8/8/8/8/8/R7/K6k w - - 100 80"), { winner: "draw", reason: "fifty-move rule" });
+	});
+});
+
+/* ---------------------------------------------------------------- */
+// chess.js Version
+/* ---------------------------------------------------------------- */
+
+describe("chess.js version", () => {
+	test("the client and the server pin the same exact version, so they agree on what's legal", () => {
+		const serverVersion = serverPackage.dependencies["chess.js"];
+		assert.match(serverVersion, /^\d+\.\d+\.\d+$/, "server/package.json pins an exact version (no ^ or ~)");
+		assert.equal(clientPackage.dependencies["chess.js"], serverVersion, "package.json pins the same version as server/package.json");
+	});
+
+	test("the server runs the version it pins", () => {
+		assert.equal(require("chess.js/package.json").version, serverPackage.dependencies["chess.js"]);
 	});
 });
