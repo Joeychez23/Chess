@@ -45,7 +45,7 @@ resource "aws_iam_role_policy" "dynamodb_policy" {
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchGetItem"]
+      Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchGetItem", "dynamodb:DeleteItem"] # DeleteItem: DECLINED & CANCELLED INVITES (deleteInvite, ONLY WHILE PENDING)
       Resource = var.table_arns
     }]
   })
