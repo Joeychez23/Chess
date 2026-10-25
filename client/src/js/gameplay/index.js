@@ -153,7 +153,9 @@ export async function renderCanvas(playerData) {
 	let menuToggled = false; // MENU IS OPEN
 	let mouseDownCount = 0; // FRAMES THE MOUSE HAS BEEN HELD ON A PIECE, MORE THAN 3 MAKES IT A DRAG
 	let opposingMove = false; // TRUE WHILE IT'S NOT THE PLAYER'S TURN, LOCKS THE BOARD
-	let boardReset = false; // TRUE WHILE A NEW BOARD LOADS (RESTART & REMATCH), STOPS DRAWING
+	let boardReset = false; // TRUE WHILE A NEW BOARD LOADS & ITS PIECES SLIDE HOME (RESTART & REMATCH), STOPS THE NORMAL FRAMES (THE OLD BOARD STAYS ON SCREEN)
+	let restartSlide = null; // PIECES SLIDING HOME AFTER RESTART & REMATCH: { pieces, startTime } (startRestartSlide)
+	const RESTART_SLIDE_MS = 800; // HOW LONG THE PIECES TAKE TO SLIDE HOME
 	let gameOver = false; // THE SERVER CLOSED THE GAME (CHECKMATE, DRAW OR FORFEIT)
 	let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 	let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
@@ -421,6 +423,7 @@ export async function renderCanvas(playerData) {
 		async function renderLoop() {
 			const endTime = Date.now(); // USED BY THE OLD POLLING CHECK AT THE BOTTOM
 			initialAnimation = false; // THE START ANIMATION IS OFF
+			if (restartSlide) { return drawRestartSlide(); } // RESTART & REMATCH: THE PIECES SLIDE HOME
 			if ((refresh || currSlide) && !boardReset) {
 				try {
 					if (initialAnimation) { renderBoardAnimation(currInst); refresh = true; }
@@ -2692,6 +2695,7 @@ export async function renderCanvas(playerData) {
 		 */
 		window.addEventListener("resize", handleWindowResize);
 		function handleWindowResize(e) {
+			if (boardReset) { return; } // LOADING: THE OLD BOARD STAYS, SLIDING HOME: drawRestartSlide() DRAWS THE NEW SIZE NEXT FRAME
 			refresh = true;
 			try {
 				if (initialAnimation) { renderBoardAnimation(currInst); }
@@ -3131,6 +3135,7 @@ export async function renderCanvas(playerData) {
 		function handleResume(e) {
 			e.preventDefault();
 			e.stopPropagation();
+			if (boardReset) { return; } // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS (THE OLD BOARD UNDER IT IS LOCKED)
 			menuToggled = !menuToggled;
 			refresh = false;
 			if (menuToggled) { menu.style.display = "flex" }
@@ -3141,49 +3146,233 @@ export async function renderCanvas(playerData) {
 		// Restart Button (Menu)
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description AI games: a game that's still going is forfeited, then a new game starts.
+		 * @description AI games: a game that's still going is forfeited, then a new game starts. The old board stays on screen
+		 * under the menu & Restart says Loading & fills up while it loads, then the pieces slide home (startRestartSlide).
 		 * Friend games: the same button is Forfeit, then Rematch once the game is over
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
 		async function handleRestart(e) {
 			e.preventDefault();
 			e.stopPropagation();
+			if (boardReset) { return; } // ALREADY LOADING A NEW BOARD (A SECOND PRESS, THE TV REMOTE'S ENTER)
 			if (!ai) { return await handleFriendBtn(); } // FORFEIT / REMATCH
-			boardReset = true; // STOP DRAWING WHILE THE NEW BOARD LOADS
-			ctx.clearRect(0, 0, cw, ch);
+			const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
+			boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN UNDER THE MENU WHILE THE NEW ONE LOADS
 			refresh = false;
-			menuToggled = false;
 			optBtn.style.display = "none"
-			menu.style.display = "none"
+			setRestartLoading(0.15); // "Loading" & THE FILL
 			const restartResponse = await restartGame(GAME_URL, GAME_ID); // FORFEITS IF STILL GOING, THEN A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
-			if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME
+			if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME (THE MENU STAYS OPEN)
 				// console.log(restartResponse);
-				optBtn.style.display = "flex";
 				boardReset = false;
+				setRestartLoading(false);
+				optBtn.style.display = "flex";
 				refresh = true;
 				return;
 			}
+			setRestartLoading(0.5);
 			GAME_ID = restartResponse.game_id; // NEW GAME ID (GUESTS KEEP THEIRS)
 			if (playerData.SIGNED_IN) { history.replaceState(null, "", `/play/${GAME_ID}`); } // THE URL FOLLOWS THE NEW GAME, BACK DOESN'T RETURN TO THE OLD ONE (GUESTS STAY ON /play)
-			await loadNewBoard();
+			await loadNewBoard(fromPieces);
 			return
 		}
 
 		/**
-		 * @description Loads GAME_ID's board in place (restart & rematch), the canvas, listeners & render loop stay the same
+		 * @description Loads GAME_ID's board in place (restart & rematch), the canvas, listeners & render loop stay the same.
+		 * The old board stays on screen while it loads, then the menu closes & the pieces slide home (startRestartSlide)
+		 * @param  {[array]} fromPieces [where the old game's pieces were, getRestartPieces(true)]
 		 */
-		async function loadNewBoard() {
+		async function loadNewBoard(fromPieces) {
 			gameOver = false;
-			drawScreen = function () { return }; // DRAW NOTHING UNTIL THE NEW BOARD IS IN
+			drawScreen = function () { return }; // DRAW NOTHING UNTIL THE NEW BOARD IS IN (THE OLD ONE STAYS ON THE CANVAS)
 			await setInitialData(); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
 			handleInitialData(); // NEW drawScreen FOR THE (MAYBE NEW) PLAYER COLOR
-			optBtn.style.display = "flex";
+			setRestartLoading(1); // FULL
+			await new Promise(function (resolve) { setTimeout(resolve, 200); }); // THE FILL REACHES THE END
+			menu.style.display = "none"
 			optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 			resultDisplay.innerText = "Chess"
-			await refreshData(response);
-			opposingMove = chessInst.turn() != playerColor; // LOCKED IF THE OPPONENT GOES FIRST
-			boardReset = false;
-			refresh = true;
+			await refreshData(response); // ALSO SETS menuToggled TO FALSE
+			opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
+			startRestartSlide(fromPieces);
+		}
+
+		/* ---------------------------------------------------------------- */
+		// Restart Slide (Restart & Rematch)
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Where every piece is on screen in squares (screen column x & row y, like tiles), so the slide still lines up
+		 * after a resize. Board pieces sit a tenth of a square up like they're drawn, taken pieces are where renderTakenPieces()
+		 * last drew them (pawns aren't in the trays)
+		 * @param  {[boolean]} withTrays [true adds the taken pieces (the old game), the new game has none]
+		 * @return {[array]} pieces [{ type, color, square, x, y }, square is null in a tray]
+		 */
+		function getRestartPieces(withTrays) {
+			let pieces = [];
+			let board = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
+			if (playerColor == 'b') { // FLIPPED BOARD, SAME AS handleInitialData()
+				board = board.reverse();
+				for (let i = board.length - 1; i >= 0; i--) { board[i] = board[i].reverse(); }
+			}
+			for (let i = 0; i < board.length; i++) { // ROW
+				for (let j = 0; j < board[i].length; j++) { // COLUMN
+					if (board[i][j]) { pieces[pieces.length] = { type: board[i][j].type, color: board[i][j].color, square: board[i][j].square, x: j, y: i - 0.1 }; } // RESTING PIECES SIT A TENTH OF A SQUARE UP
+				}
+			}
+			if (withTrays && !currPromotion) { // WHILE PROMOTING THE TRAY IS THE PROMOTION PICKER
+				const takenPieces = [...(wTakenPieces || []), ...(bTakenPieces || [])];
+				for (let i = 0; i < takenPieces.length; i++) {
+					if (takenPieces[i].x !== undefined) { pieces[pieces.length] = { type: takenPieces[i].type, color: takenPieces[i].color, square: null, x: takenPieces[i].x, y: takenPieces[i].y }; } // DRAWN IN A TRAY
+				}
+			}
+			return pieces;
+		}
+
+		/**
+		 * @description Restart (Rematch in friend games) says Loading & fills up from the left while the new board loads
+		 * (.loading IN nav.css), like the Home button. false puts the button back
+		 * @param  {[number]} load [how full, 0 - 1, it only fills up. false = done or failed]
+		 */
+		function setRestartLoading(load) {
+			if (load === false) { // DONE OR FAILED
+				optRestartBtn.classList.remove("loading");
+				optRestartBtn.style.removeProperty("--load");
+				optRestartBtn.innerHTML = ai ? "Restart" : "Forfeit";
+				return;
+			}
+			if (!optRestartBtn.classList.contains("loading")) { // FIRST CALL
+				optRestartBtn.innerHTML = "Loading";
+				optRestartBtn.classList.add("loading");
+				setTimeout(function () { if (boardReset) { setRestartLoading(load); } }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)
+				return;
+			}
+			if (load > (Number(optRestartBtn.style.getPropertyValue("--load")) || 0)) { optRestartBtn.style.setProperty("--load", load); }
+		}
+
+		/**
+		 * @description Starts the slide home. Pairs every piece of the new game with a piece of the old one, same color & type,
+		 * closest pairs first (a bishop stays on its square color). A square with no old piece (a taken pawn, pawns aren't in
+		 * the trays) fades in, an old piece with no square (a promoted piece) fades out where it is
+		 * @param  {[array]} fromPieces [the old game, getRestartPieces(true) before it was replaced]
+		 */
+		function startRestartSlide(fromPieces) {
+			const toPieces = getRestartPieces(false); // THE NEW GAME'S START SQUARES
+			let pairs = []; // EVERY OLD & NEW PIECE THAT COULD BE THE SAME PIECE
+			for (let t = 0; t < toPieces.length; t++) {
+				for (let f = 0; f < fromPieces.length; f++) {
+					if (toPieces[t].color != fromPieces[f].color || toPieces[t].type != fromPieces[f].type) { continue; }
+					let distance = Math.hypot(toPieces[t].x - fromPieces[f].x, toPieces[t].y - fromPieces[f].y);
+					if (toPieces[t].type == 'b' && fromPieces[f].square && chessInst.squareColor(fromPieces[f].square) != chessInst.squareColor(toPieces[t].square)) { distance += 100; } // A BISHOP STAYS ON ITS SQUARE COLOR
+					pairs[pairs.length] = { t, f, distance };
+				}
+			}
+			pairs.sort(function (a, b) { return a.distance - b.distance; }); // CLOSEST FIRST
+			let pieces = [];
+			let toUsed = [];
+			let fromUsed = [];
+			for (let i = 0; i < pairs.length; i++) {
+				if (toUsed[pairs[i].t] || fromUsed[pairs[i].f]) { continue; } // ONE OF THEM IS ALREADY PAIRED
+				toUsed[pairs[i].t] = true;
+				fromUsed[pairs[i].f] = true;
+				pieces[pieces.length] = setSlidePiece(fromPieces[pairs[i].f], toPieces[pairs[i].t], 0);
+			}
+			for (let t = 0; t < toPieces.length; t++) { if (!toUsed[t]) { pieces[pieces.length] = setSlidePiece(toPieces[t], toPieces[t], 1); } } // FADES IN
+			for (let f = 0; f < fromPieces.length; f++) { if (!fromUsed[f]) { pieces[pieces.length] = setSlidePiece(fromPieces[f], fromPieces[f], -1); } } // FADES OUT
+			restartSlide = { pieces, startTime: Date.now() };
+		}
+
+		/**
+		 * @description One piece of the slide home & its images, picked once like a move: pawns face the other side, kings,
+		 * queens, bishops & rooks face up or down the way they go (sideways faces their start way), knights face left or right
+		 * the way they go (one that stays in its column faces the middle, like the start). The new game's first frame turns
+		 * them to their start
+		 * @param  {[object]} from [{ type, color, square, x, y } where it is now]
+		 * @param  {[object]} to [where it goes, its start square]
+		 * @param  {[number]} fade [0 = solid, 1 = fades in, -1 = fades out]
+		 * @return {[object]} { type, xFrom, yFrom, xTo, yTo, fade, imgArr }
+		 */
+		function setSlidePiece(from, to, fade) {
+			let imgArr; // REFLECTION, SHADOW, PIECE
+			const square = to.square || from.square; // A BISHOP'S IMAGE FOLLOWS ITS SQUARE COLOR
+			if (to.type == 'p') { // PAWN
+				handlePawnDirection();
+				if (to.color == 'w') { imgArr = [wPawnRefl, wPawnShdw, wPawnImg]; } else { imgArr = [bPawnRefl, bPawnShdw, bPawnImg]; }
+			} else if (to.type == 'n') { // KNIGHT
+				const right = to.x > from.x || (to.x == from.x && to.x < 4);
+				if (to.color == 'w') { imgArr = right ? [wRightKnightRefl, wRightKnightShdw, wRightKnightImg] : [wLeftKnightRefl, wLeftKnightShdw, wLeftKnightImg]; }
+				else { imgArr = right ? [bRightKnightRefl, bRightKnightShdw, bRightKnightImg] : [bLeftKnightRefl, bLeftKnightShdw, bLeftKnightImg]; }
+			} else { // KING, QUEEN, BISHOP OR ROOK
+				const yFrom = from.y == to.y ? null : from.y; // null: SIDEWAYS (OR STAYING), FACES ITS START WAY
+				const yTo = from.y == to.y ? null : to.y;
+				const lightSquare = square && chessInst.squareColor(square) == 'light';
+				if (to.color == 'w') {
+					handlePieceDirectionW(yFrom, yTo);
+					if (to.type == 'k') { imgArr = [wKingRefl, wKingShdw, wKingImg]; }
+					else if (to.type == 'q') { imgArr = [wQueenRefl, wQueenShdw, wQueenImg]; }
+					else if (to.type == 'b') { imgArr = [wBishopRefl, wBishopShdw, lightSquare ? wBishopWhiteSqImg : wBishopBlackSqImg]; }
+					else if (to.type == 'r') { imgArr = [wRookRefl, wRookShdw, wRookImg]; }
+				} else {
+					handlePieceDirectionB(yFrom, yTo);
+					if (to.type == 'k') { imgArr = [bKingRefl, bKingShdw, bKingImg]; }
+					else if (to.type == 'q') { imgArr = [bQueenRefl, bQueenShdw, bQueenImg]; }
+					else if (to.type == 'b') { imgArr = [bBishopRefl, bBishopShdw, lightSquare ? bBishopWhiteSqImg : bBishopBlackSqImg]; }
+					else if (to.type == 'r') { imgArr = [bRookRefl, bRookShdw, bRookImg]; }
+				}
+			}
+			return { type: to.type, xFrom: from.x, yFrom: from.y, xTo: to.x, yTo: to.y, fade, imgArr };
+		}
+
+		/**
+		 * @description One frame of the slide home, the render loop calls it instead of drawScreen while restartSlide is set.
+		 * Draws the board, then every piece part of the way home on a slow start & landing, back to front so the lower pieces
+		 * cover the ones above them. Knights hop like a move & are drawn on top while they're in the air. When the time is up
+		 * the new game takes over (its first frame turns the pieces to their start, an AI move slides in after)
+		 */
+		function drawRestartSlide() {
+			const progress = Math.min((Date.now() - restartSlide.startTime) / RESTART_SLIDE_MS, 1); // 0 - 1 OF THE TIME
+			if (progress == 1) { // HOME: THE NEW GAME TAKES OVER
+				restartSlide = null;
+				setRestartLoading(false);
+				optBtn.style.display = "flex";
+				opposingMove = chessInst.turn() != playerColor; // LOCKED IF THE OPPONENT GOES FIRST
+				boardReset = false;
+				drawScreen(); // THE NEW GAME'S FIRST FRAME, IT ALSO PUTS THE SQUARES ON tiles SO AN AI MOVE FINDS ITS PIECE
+				refresh = true; // AN AI MOVE SLIDES IN NEXT
+				return;
+			}
+			const eased = 0.5 - Math.cos(progress * Math.PI) / 2; // HOW FAR ALONG, SLOW START & LANDING
+			let hop = Math.sin(progress * Math.PI); // KNIGHTS: 0 ON THE BOARD, 1 HALFWAY (HALF A SQUARE UP), SAME ARC AS handleKnightHop()
+			if (hop < 0.001) { hop = 0; } // BACK ON THE BOARD (sin(PI) ISN'T EXACTLY 0)
+			renderBoard();
+
+			let drawPieces = []; // WHERE EACH PIECE IS THIS FRAME
+			for (let i = 0; i < restartSlide.pieces.length; i++) {
+				const piece = restartSlide.pieces[i];
+				const moving = piece.xFrom != piece.xTo || piece.yFrom != piece.yTo;
+				drawPieces[i] = {
+					imgArr: piece.imgArr,
+					x: piece.xFrom + (piece.xTo - piece.xFrom) * eased,
+					y: piece.yFrom + (piece.yTo - piece.yFrom) * eased,
+					hop: (piece.type == 'n' && moving) ? hop : 0,
+					alpha: piece.fade == 1 ? progress : piece.fade == -1 ? 1 - progress : 1 // FADES IN, FADES OUT OR SOLID
+				};
+			}
+			drawPieces.sort(function (a, b) { return ((a.hop > 0) - (b.hop > 0)) || (a.y - b.y); }); // BACK TO FRONT, KNIGHTS IN THE AIR LAST
+
+			for (let i = 0; i < drawPieces.length; i++) {
+				const piece = drawPieces[i];
+				const x = piece.x * tileWidth + xBoardOff - xPieceOffset / 2;
+				const y = piece.y * tileHeight + yBoardOff - yPieceOffset / 2;
+				ctx.globalAlpha = 0.30 * piece.alpha; // REFLECTION & SHADOW STAY ON THE BOARD, SHIFTED UP TO A FIFTH OF A SQUARE LEFT AS A KNIGHT RISES
+				ctx.drawImage(images[piece.imgArr[0]].image, x - (tileWidth / 5) * piece.hop, y, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+				ctx.globalAlpha = 0.75 * piece.alpha;
+				ctx.drawImage(images[piece.imgArr[1]].image, x - (tileWidth / 5) * piece.hop, y, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+				ctx.globalAlpha = piece.alpha; // PIECE, UP TO HALF A SQUARE UP WHILE A KNIGHT HOPS
+				ctx.drawImage(images[piece.imgArr[2]].image, x, y - (tileHeight / 2) * piece.hop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+			}
+			ctx.globalAlpha = 0.05
+			ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
+			ctx.globalAlpha = 1;
 		}
 
 		/* ---------------------------------------------------------------- */
@@ -3242,23 +3431,23 @@ export async function renderCanvas(playerData) {
 		// Load Rematch
 		/* ---------------------------------------------------------------- */
 		/**
-		 * @description Both players asked for a rematch: loads the new game in place (the server picked the sides)
+		 * @description Both players asked for a rematch: loads the new game in place (the server picked the sides). The old board
+		 * stays on screen & Rematch says Loading while it loads, then the pieces slide home (to the other side if the sides swapped)
 		 * @param  {[string]} newGameId [rematch game id, from the request or the socket]
 		 */
 		async function loadRematch(newGameId) {
 			if (!newGameId || `${newGameId}` == `${GAME_ID}`) { return; } // ALREADY LOADED (THE REQUEST & THE SOCKET BOTH SEND IT)
+			const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
 			GAME_ID = newGameId;
 			history.replaceState(null, "", `/play/${GAME_ID}`); // THE URL FOLLOWS THE REMATCH
 			clearTimeout(rematchWaiting); // STOP THE 1 MINUTE WAIT
 			rematchWaiting = false;
-			boardReset = true; // STOP DRAWING WHILE THE NEW BOARD LOADS
-			ctx.clearRect(0, 0, cw, ch);
+			boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN WHILE THE NEW ONE LOADS
 			refresh = false;
-			menuToggled = false;
-			menu.style.display = "none"
-			optRestartBtn.innerHTML = "Forfeit";
+			optBtn.style.display = "none"
+			setRestartLoading(0.5); // "Loading" & THE FILL (THE MENU IS OPEN AFTER A GAME ENDS), "Forfeit" WHEN THE SLIDE IS DONE
 			joinGame(GAME_ID, PLAYER_ID, socketHandlers); // NEW GAME'S ROOM
-			await loadNewBoard();
+			await loadNewBoard(fromPieces);
 		}
 
 		/* ---------------------------------------------------------------- */
