@@ -79,9 +79,9 @@ async function handleNewGuestGame(e) {
 	soloNote.innerText = "";
 	const gameId = savedGameId() || `${new ObjectId()}`;
 	const response = await newAiGame(CHESS_URL, gameId, aiColorSelect.value, aiLevelSelect.value, false, aiFenInput.value); // CREATE OR RESET THE GUEST'S GAME
-	if (response?.status == 400) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, THEIR GAME WASN'T RESET
+	if (response?.status == 400 || response?.status == 429) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, OR TOO MANY NEW GAMES: THEIR GAME WASN'T RESET
 	if (response?.status != 200) { stopLoading(); return console.log(response); }
-	try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch { } // NOT SAVED (PRIVATE MODE) -> THE PLAY PAGE MAKES ITS OWN GAME
+	try { localStorage.setItem("GUEST_GAME_ID", response.game_id); } catch { } // THE SERVER'S ID (A NEW ONE IF THE SAVED ID WAS ANOTHER BROWSER'S). NOT SAVED (PRIVATE MODE) -> THE PLAY PAGE MAKES ITS OWN GAME
 	goToPage("/play"); // ONCE THE IMAGES ARE IN
 }
 

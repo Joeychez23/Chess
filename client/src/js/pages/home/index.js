@@ -198,7 +198,7 @@ async function handleNewSoloGame(e) {
 	soloNote.innerText = "";
 	let _id = new ObjectId();
 	const response = await newAiGame(CHESS_URL, `${_id}`, aiColorSelect.value, aiLevelSelect.value, confirmNewGame, aiFenInput.value); // CREATE NEW GAME AT THE PICKED LEVEL, COLOR & POSITION
-	if (response?.status == 400) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, NOTHING WAS FORFEITED
+	if (response?.status == 400 || response?.status == 429) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, OR TOO MANY NEW GAMES: NOTHING WAS FORFEITED
 	if (response?.status == 409) { // AN AI GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
 		stopLoading();
 		soloNote.innerText = "You already have an AI game open";
@@ -267,7 +267,7 @@ async function handleMultiSubmit(e) {
 			multiNote.innerText = "You already have a friend game open";
 		} else {
 			resetInviteBtn(); // NOTHING WAS FORFEITED, THE NEXT TRY WARNS AGAIN
-			multiNote.innerText = response?.status == 400 ? response.message : inviteError(response?.message); // 400: THE FEN CAN'T BE PLAYED
+			multiNote.innerText = response?.status == 400 || response?.status == 429 ? response.message : inviteError(response?.message); // 400: THE FEN CAN'T BE PLAYED, 429: TOO MANY NEW GAMES
 		}
 	} catch (err) { console.log(err); resetInviteBtn(); multiNote.innerText = "Couldn't send the invite, try again"; }
 	multiEmailBtn.disabled = false;

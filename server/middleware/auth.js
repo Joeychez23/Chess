@@ -4,6 +4,7 @@
  *  Auth0 is only used to log in. After that the session is our own pair of JWTs:
  *  a short access token (checked on every request) and a long refresh token (used to re-up the access token).
  *  Both live in httpOnly cookies so the client never touches them.
+ *  Guests get a signed cookie instead (guest_game) that says which game is theirs, and which guest they are (the new game limits).
  *
  */
 
@@ -11,12 +12,16 @@
 // Global
 /* ---------------------------------------------------------------- */
 
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 
 const ACCESS_COOKIE = "access_token";
 const REFRESH_COOKIE = "refresh_token";
 const REFRESH_PATH = "/api/auth"; // REFRESH TOKEN IS ONLY SENT TO THE AUTH ROUTES
+const GUEST_COOKIE = "guest_game";
+const GUEST_PATH = "/api/chess"; // THE GUEST COOKIE IS ONLY SENT TO THE CHESS ROUTES
+const GUEST_COOKIE_AGE = 365 * 24 * 60 * 60 * 1000; // THE GAME ITSELF EXPIRES 25 DAYS AFTER ITS LAST MOVE, A COOKIE FOR A GONE GAME JUST MEANS A NEW ONE
 
 /* ---------------------------------------------------------------- */
 // Sign Token
@@ -146,5 +151,61 @@ function readRefreshUser(req) {
 	return payload ? payload.user : null;
 }
 
+/* ---------------------------------------------------------------- */
+// Set Guest Cookie
+/* ---------------------------------------------------------------- */
+/**
+ * @description Gives a guest a signed cookie for the game they just made, only that browser can play it, restart it or reset it
+ * (a guest's player id is their game id, which is in localStorage & could be seen or guessed). The cookie also has a guest session id
+ * that stays the same from game to game, so middleware/rateLimit.js can count one browser's new games
+ * @param  {[object]} req [express request, a guest who already has the cookie keeps their session id]
+ * @param  {[object]} res [express response]
+ * @param  {[string]} gameId [the guest's game id]
+ */
+function setGuestCookie(req, res, gameId) {
+	const session = readGuestCookie(req)?.session || crypto.randomBytes(12).toString("base64url");
+	res.cookie(GUEST_COOKIE, `${session}.${gameId}.${guestSignature(session, gameId)}`, {
+		httpOnly: true,                             // NOT READABLE FROM CLIENT JS
+		secure: config.isProduction,                // HTTPS ONLY IN PRODUCTION
+		sameSite: "lax",
+		path: GUEST_PATH,
+		maxAge: GUEST_COOKIE_AGE
+	});
+}
 
-module.exports = { setSessionCookies, clearSessionCookies, requireAuth, optionalAuth, readSessionUser, readRefreshUser };
+/* ---------------------------------------------------------------- */
+// Read Guest Cookie
+/* ---------------------------------------------------------------- */
+/**
+ * @description A guest's cookie, if its signature is ours
+ * @param  {[object]} req [request with req.cookies]
+ * @return {[object]} guest [{ session, gameId } | null when there's no cookie or it was changed]
+ */
+function readGuestCookie(req) {
+	const value = req.cookies?.[GUEST_COOKIE];
+	if (typeof value != "string") { return null; }
+	const first = value.indexOf(".");
+	const last = value.lastIndexOf(".");
+	if (first < 1 || last <= first + 1) { return null; } // SESSION.GAME_ID.SIGNATURE
+	const session = value.slice(0, first);
+	const gameId = value.slice(first + 1, last);
+	const signature = Buffer.from(value.slice(last + 1));
+	const expected = Buffer.from(guestSignature(session, gameId));
+	if (signature.length != expected.length || !crypto.timingSafeEqual(signature, expected)) { return null; }
+	return { session, gameId };
+}
+
+/**
+ * @description The game id in a guest's cookie (their player id), see readGuestCookie
+ * @return {[string]} gameId [null when there's no cookie or it was changed]
+ */
+function readGuestGame(req) {
+	return readGuestCookie(req)?.gameId || null;
+}
+
+function guestSignature(session, gameId) {
+	return crypto.createHmac("sha256", config.jwtSecret).update(`${GUEST_COOKIE}:${session}.${gameId}`).digest("base64url"); // THE SESSION SECRET, KEPT APART FROM THE JWTS BY THE PREFIX
+}
+
+
+module.exports = { setSessionCookies, clearSessionCookies, requireAuth, optionalAuth, readSessionUser, readRefreshUser, setGuestCookie, readGuestCookie, readGuestGame };

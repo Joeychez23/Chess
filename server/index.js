@@ -7,6 +7,7 @@ const routes = require("./routes")
 const { initSocket } = require("./socket.js");
 
 const app = express();
+app.set("trust proxy", "loopback"); // nginx ON THE SAME MACHINE SENDS X-Forwarded-For, SO req.ip IS THE PLAYER'S ADDRESS (THE NEW GAME LIMITS)
 const buildDir = path.join(`${__dirname}/../client/dist/`);
 const serveBuild = express.static(buildDir, { index: false }); // BUNDLES, MANIFEST & LOCAL ASSETS
 app.use(cookieParser()); // SESSION TOKENS ARE READ FROM COOKIES (req.cookies)
