@@ -77,10 +77,10 @@ window.addEventListener("load", async function () {
  */
 function guestGameId() {
 	let gameId;
-	try { gameId = localStorage.getItem("GUEST_GAME_ID"); } catch (err) { } // STORAGE BLOCKED (PRIVATE MODE)
+	try { gameId = localStorage.getItem("GUEST_GAME_ID"); } catch { } // STORAGE BLOCKED (PRIVATE MODE)
 	if (!gameId) {
 		gameId = `${new ObjectId()}`; // NEW GAME
-		try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch (err) { } // NOT SAVED -> A NEW GAME EACH LOAD
+		try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch { } // NOT SAVED -> A NEW GAME EACH LOAD
 	}
 	return gameId;
 }

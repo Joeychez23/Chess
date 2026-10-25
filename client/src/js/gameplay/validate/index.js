@@ -8,43 +8,24 @@
  * @param  {[object]} _id [player id, the server plays as the signed in session instead]
  * @param  {[object]} move [move array]
  * @param  {[string]} promotion [promotion piece]
- * @param  {[string]} restart [AI color 'w' or 'b' for a new game with these sides (gameplay's fallback for a guest's first game), Home, the guest page & the play page use newAiGame]
- * @param  {[number]} aiLevel [new games: the AI's level from Home's dropdown, left out = the server's default]
- * @param  {[boolean]} replaceCurrent [new games: true forfeits the player's open AI game first (one at a time), left out = the server answers 409 while one is open]
+ * @param  {[string]} restart ['b' = a new game with the player white & the AI black (gameplay's fallback for a guest's first game), Home, the guest page & the play page use newAiGame]
  * @return {[object]} response.json() = backend server response object of request data
  */
-export async function validate(gameUrl, gameId, _id, move, promotion, restart, aiLevel, replaceCurrent) {
-	if (restart) { // RESTART GAME (POST /game, OVERWRITES game_id WITH A NEW BOARD)
-		let options;
-		if (restart == 'w') {
-			options = {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					game_id: gameId,
-					player_id_1: "CHESS_AI",
-					player_id_2: _id,
-					ai_level: aiLevel,
-					replace_current: replaceCurrent,
-				})
-			};
-		} else if (restart == 'b') {
-			options = {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					game_id: gameId,
-					player_id_1: _id,
-					player_id_2: "CHESS_AI",
-					ai_level: aiLevel,
-					replace_current: replaceCurrent,
-				})
-			};
-		}
+export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
+	if (restart == 'b') { // RESTART GAME (POST /game, OVERWRITES game_id WITH A NEW BOARD)
+		const options = {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				game_id: gameId,
+				player_id_1: _id,
+				player_id_2: "CHESS_AI",
+			})
+		};
 		try {
 
 			return await request(`${gameUrl}/game`, options)
-		} catch (err) {
+		} catch {
 			return
 		}
 	} else if (move) { // MOVE UPDATE (PUT /game/:gameId)
@@ -59,7 +40,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart, a
 		try {
 
 			return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}`, options)
-		} catch (err) {
+		} catch {
 			return
 		}
 	} else { // GET GAME (GET /game/:gameId)
@@ -68,7 +49,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart, a
 		};
 		try {
 			return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}?player_id=${encodeURIComponent(_id)}`, options)
-		} catch (err) {
+		} catch {
 			return;
 		}
 	}
@@ -97,7 +78,7 @@ export async function newAiGame(gameUrl, gameId, startColor, aiLevel, replaceCur
 	};
 	try {
 		return await request(`${gameUrl}/game`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }
@@ -111,7 +92,7 @@ export async function getUserGameData(gameUrl, userId) {
 	};
 	try {
 		return await request(`${gameUrl}/user/${encodeURIComponent(userId)}`, options)
-	} catch (err) {
+	} catch {
 		return;
 	}
 }
@@ -136,7 +117,7 @@ export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail, r
 	};
 	try {
 		return await request(`${gameUrl}/invite`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }
@@ -154,7 +135,7 @@ export async function acceptInvite(gameUrl, gameId, replaceCurrent) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/accept`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }
@@ -169,7 +150,7 @@ export async function declineInvite(gameUrl, gameId) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/decline`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }
@@ -184,7 +165,7 @@ export async function restartGame(gameUrl, gameId) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/restart`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }
@@ -199,7 +180,7 @@ export async function forfeitGame(gameUrl, gameId) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/forfeit`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }
@@ -214,7 +195,7 @@ export async function rematchGame(gameUrl, gameId) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }
@@ -229,7 +210,7 @@ export async function aiMove(gameUrl, gameId) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/ai-move`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }
@@ -244,7 +225,7 @@ export async function getLevels(gameUrl) {
 	};
 	try {
 		return await request(`${gameUrl}/levels`, options)
-	} catch (err) {
+	} catch {
 		return
 	}
 }

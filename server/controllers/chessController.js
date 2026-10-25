@@ -585,7 +585,7 @@ function readStartParams(body) {
  */
 function startParams(gameData) {
 	let params = {};
-	try { params = JSON.parse(gameData.start_params?.S || "{}"); } catch (err) { }
+	try { params = JSON.parse(gameData.start_params?.S || "{}"); } catch { }
 	return { color: params.color == "w" || params.color == "b" ? params.color : "random" };
 }
 

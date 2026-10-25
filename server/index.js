@@ -3,7 +3,6 @@ const http = require("http");
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const config = require("./config");
-const dynamoDB = require("./dynamoDB.js");
 const routes = require("./routes")
 const { initSocket } = require("./socket.js");
 
