@@ -145,7 +145,7 @@ body {
 		padding: 24px 0 64px;
 	}
 	.boxes {
-		grid-template-columns: repeat(3, minmax(0, 1fr)); /* EQUAL WIDTHS, THE SELECT & INPUT DON'T WIDEN THEIR BOX */
+		grid-template-columns: repeat(2, minmax(0, 1fr)); /* 2 x 2, EQUAL WIDTHS, THE SELECT & INPUT DON'T WIDEN THEIR BOX */
 	}
 	.box {
 		min-height: 190px; /* SIDE BY SIDE, THE SAME HEIGHT */
@@ -284,13 +284,13 @@ body {
 	color: var(--muted);
 }
 
-.note { /* WHY AN INVITE DIDN'T GO THROUGH, NEW GAME'S FORFEIT WARNING */
+.note { /* WHY AN INVITE DIDN'T GO THROUGH, THE FORFEIT WARNINGS */
 	min-height: 1.4em;
 	color: var(--gold);
 }
 
 /* ---------------------------------------------------------------- */
-/* Current Game (Play the AI) */
+/* Current Game (Play the AI & Play a friend) */
 /* ---------------------------------------------------------------- */
 
 [hidden] {
@@ -311,6 +311,53 @@ body {
 	border: 1px solid rgba(201, 163, 90, 0.35);
 	border-radius: 14px;
 	background-color: var(--walnut);
+}
+
+/* ---------------------------------------------------------------- */
+/* Invites */
+/* ---------------------------------------------------------------- */
+
+.inviteList {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	list-style: none;
+}
+
+.inviteList li,
+.sentInvite {
+	display: flex;
+	flex-wrap: wrap; /* A NARROW BOX PUTS THE BUTTONS UNDER THE NAME */
+	justify-content: space-between;
+	align-items: center;
+	gap: 10px;
+	padding: 12px 14px;
+	border: 1px solid rgba(201, 163, 90, 0.25);
+	border-radius: 14px;
+	background-color: rgba(0, 0, 0, 0.18);
+}
+
+.inviteName {
+	min-width: 0;
+	font-size: 14px;
+	overflow-wrap: anywhere; /* A LONG SCREENNAME WRAPS INSTEAD OF WIDENING THE PAGE */
+}
+
+.inviteButtons {
+	display: flex;
+	gap: 8px;
+}
+
+.inviteList .btn,
+.sentInvite .btn {
+	min-height: 40px;
+	padding: 0 16px;
+}
+
+.sentInvite .spec {
+	min-width: 0;
+	color: var(--maple);
+	overflow-wrap: anywhere;
 }
 
 /* ---------------------------------------------------------------- */

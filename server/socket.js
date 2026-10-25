@@ -5,6 +5,7 @@
  *  Each game is a room ("game:<game_id>"). moveGame() emits "move" to the room after a move is saved,
  *  then the client loads the new board with GET /api/chess/game/:gameId like before.
  *  forfeitGame() emits "game-over" and rematchGame() emits "rematch" (the new game id) to the same room.
+ *  Every socket is also in its player's room ("player:<player_id>"): Home gets "games" when an invite or friend game changes
  *
  */
 
@@ -39,6 +40,7 @@ function initSocket(server) {
 	});
 
 	io.on("connection", (socket) => {
+		socket.join(`player:${socket.data.playerId}`); // HOME'S "games" (emitToPlayer)
 		socket.on("join-game", (gameId, ack) => joinGame(socket, gameId, ack));
 	});
 
@@ -89,5 +91,18 @@ function emitToGame(gameId, event, data) {
 	if (io) { io.to(`game:${gameId}`).emit(event, data); }
 }
 
+/* ---------------------------------------------------------------- */
+// Emit To Player
+/* ---------------------------------------------------------------- */
+/**
+ * @description Sends an event to every tab a player has open (Home redraws on "games")
+ * @param  {[string]} playerId [auth0 user id without "auth0|"]
+ * @param  {[string]} event [event name, "games"]
+ * @param  {[object]} data [event data]
+ */
+function emitToPlayer(playerId, event, data) {
+	if (io && playerId != "CHESS_AI") { io.to(`player:${playerId}`).emit(event, data); }
+}
 
-module.exports = { initSocket, emitToGame };
+
+module.exports = { initSocket, emitToGame, emitToPlayer };

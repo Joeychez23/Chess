@@ -4,12 +4,14 @@
  *  The server pushes "move" when a friend game's board changes, "game-over" when the opponent forfeits
  *  & "rematch" when both players asked for one (server/socket.js).
  *  The socket is only open while a friend game is on screen. Guests & AI games never open one.
+ *  Home opens its own (watchGames) & gets "games" when an invite or friend game changes.
  *
  */
 
 import { io } from "socket.io-client";
 
 let socket = null;
+let homeSocket = null; // HOME'S SOCKET (watchGames)
 
 /* ---------------------------------------------------------------- */
 // Join Game
@@ -67,4 +69,41 @@ export function joinGame(gameId, playerId, handlers) {
  */
 export function leaveGame() {
 	if (socket) { socket.disconnect(); socket = null; }
+}
+
+/* ---------------------------------------------------------------- */
+// Watch Games
+/* ---------------------------------------------------------------- */
+/**
+ * @description Home's socket: the server sends "games" to every tab the player has open when an invite is sent, accepted, declined
+ * or cancelled & when a friend game moves or ends (server/socket.js emitToPlayer). After a reconnect Home redraws too, it may have missed one
+ * @param  {[function]} handler [redraws Home]
+ */
+export function watchGames(handler) {
+	if (homeSocket) { homeSocket.disconnect(); }
+	const gamesSocket = io({ withCredentials: true }); // SAME ORIGIN, THE SESSION COOKIE SIGNS IN THE SOCKET
+	let connected = false;
+	let refreshed = false;
+	let redraw = null;
+	homeSocket = gamesSocket;
+
+	function redrawSoon() { // ONE REDRAW FOR A BURST (A FORFEIT, THEN THE INVITE)
+		clearTimeout(redraw);
+		redraw = setTimeout(handler, 200);
+	}
+
+	gamesSocket.on("connect", () => {
+		refreshed = false;
+		if (connected) { redrawSoon(); } // RECONNECTED, SOMETHING MAY HAVE CHANGED WHILE OFFLINE
+		connected = true;
+	});
+
+	gamesSocket.on("games", redrawSoon);
+
+	gamesSocket.on("connect_error", async () => {
+		if (gamesSocket.active || refreshed) { return; } // SOCKET.IO RETRIES NETWORK ERRORS BY ITSELF
+		refreshed = true; // THE SERVER TURNED THE SOCKET AWAY: ACCESS TOKEN EXPIRED -> RE-UP ONCE & TRY AGAIN
+		const res = await fetch("/api/auth/refresh", { method: "POST" }).catch(() => null);
+		if (res?.ok && homeSocket == gamesSocket) { gamesSocket.connect(); }
+	});
 }
