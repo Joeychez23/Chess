@@ -156,7 +156,8 @@ cd server && npm test   # every server/test/*.test.js, with Node's built-in test
 The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
 `test/helpers/env.js` sets test values, `test/helpers/fakeDynamo.js` keeps
 `chess_db` and `user_db` in memory (it understands the update and condition
-expressions `server/dynamoDB.js` uses), and `test/helpers/server.js` starts the
+expressions `server/dynamoDB.js` uses, and `staleReads()` makes reads lag like
+DynamoDB's default eventually consistent reads), and `test/helpers/server.js` starts the
 real `/api` routes on a random port and answers Auth0 and the engine from test
 data.
 
@@ -164,7 +165,7 @@ data.
 | --- | --- |
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, one close per game, invite answers, rematch presses |
+| `dynamoDB.test.js` | The conditional writes: two moves at once, one close per game, invite answers, rematch presses. Saves that don't depend on reading back what they wrote |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests and the

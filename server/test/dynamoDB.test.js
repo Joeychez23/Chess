@@ -1,7 +1,7 @@
 /*
  *  dynamoDB.test.js  --  chess server tests
  *	Conditional Writes (server/dynamoDB.js)
- *  The saves that guard against two requests at once, run against the in-memory tables
+ *  The saves that guard against two requests at once, and saves that don't trust a read back, run against the in-memory tables
  *
  */
 
@@ -12,8 +12,11 @@ const fakeDynamo = require("./helpers/fakeDynamo.js");
 fakeDynamo.install();
 const db = require("../dynamoDB.js");
 const { validateMove } = require("../utils/validate.js");
+const { Chess } = require("chess.js");
 
 beforeEach(() => fakeDynamo.reset());
+
+const list = (item, name) => JSON.parse(item[name].S);
 
 async function newGame() {
 	const created = await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
@@ -39,6 +42,37 @@ describe("updateGame", () => {
 		assert.equal(late.status, 500);
 		assert.match(late.message, /Board changed/);
 		assert.deepEqual((await db.retrieveGame("game1")).game_data.moves.S, ["e4"]);
+	});
+
+	test("reports a saved move as saved when a read would still return the old board", async () => {
+		const gameData = await newGame();
+		const board = gameData.game_board.S;
+		fakeDynamo.staleReads(true);
+
+		const saved = await db.updateGame((await validateMove({ player_id: "alice", move: ["e2", "e4"] }, gameData)).game_data, board);
+		assert.equal(saved.status, 200);
+		assert.deepEqual(saved.game_data.moves.S, ["e4"]); // THE GAME AS SAVED
+		assert.notEqual(saved.game_data.game_board.S, board);
+		assert.deepEqual(list(fakeDynamo.peek("chess_db", "game1"), "moves"), ["e4"]);
+	});
+});
+
+describe("saves without a read back", () => {
+	test("initalizeGame reports a new game as created when a read can't find it yet", async () => {
+		fakeDynamo.staleReads(true);
+		const created = await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		assert.equal(created.status, 200);
+		assert.equal(created.game_data.game_board.S, new Chess().fen());
+		assert.deepEqual(created.game_data.moves.S, []); // PARSED, LIKE retrieveGame
+		assert.ok(fakeDynamo.peek("chess_db", "game1"));
+	});
+
+	test("initalizeUser keeps a row that's already there (a read that lagged missed it)", async () => {
+		await newGame(); // ALICE'S ROW LISTS game1
+		const again = await db.initalizeUser("alice");
+		assert.equal(again.status, 200);
+		assert.deepEqual(list(again.user_data, "open_games"), ["game1"]);
+		assert.deepEqual(list(fakeDynamo.peek("user_db", "alice"), "open_games"), ["game1"]);
 	});
 });
 

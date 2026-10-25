@@ -103,15 +103,10 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 	await handleUser(playerId1);
 	await handleUser(playerId2);
 
-	// GET CREATED GAME
-	response = await retrieveGame(params.Item.game_id.S); // CHECKS IF THE GAME WAS CREATED
-
-	if (response.status == 200) { // RETURNS THE CREATED GAME IF FOUND
-		response.message = "Initalized game successfully"
-		return response; // RETURNS THE CREATED GAME
-	} else {
-		response.message = "Game initialization failed"
-		return response;
+	return { // putItem THROWS IF IT FAILED, SO THE GAME IS SAVED AS WRITTEN (A READ BACK CAN STILL MISS IT)
+		status: 200,
+		game_data: gameItem(params.Item),
+		message: "Initalized game successfully"
 	}
 }
 
@@ -121,24 +116,25 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 /**
  * @description Gets a game by id, moves & prev_move come back parsed into arrays
  * @param  {[string]} gameId [game id from the client]
+ * @param  {[boolean]} consistent [true = a strongly consistent read that sees every finished save (twice the read capacity),
+ * for reading what another request just saved. Left out, a read can briefly return the game from before the last save]
  * @return {[object]} response [{ status, game_data, message }]
  */
-async function retrieveGame(gameId) {
+async function retrieveGame(gameId, consistent) {
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameId } // SEARCH KEY
-		}
+		},
+		ConsistentRead: !!consistent
 	}
 
 	let response = await connection.getItem(params); // GET REQUEST TO DYNAMODB
 
 	if (response.Item) {
-		response.Item.moves.S = JSON.parse(response.Item.moves.S);
-		response.Item.prev_move.S = JSON.parse(response.Item.prev_move.S);
 		return {
 			status: 200,
-			game_data: response.Item,
+			game_data: gameItem(response.Item),
 			message: `Retrieved game id: ${response.Item.game_id.S}`
 		}
 	} else {
@@ -149,14 +145,23 @@ async function retrieveGame(gameId) {
 	}
 }
 
+/**
+ * @description A chess_db item the way the routes use it
+ * @param  {[object]} item [item as DynamoDB stores it]
+ * @return {[object]} gameData [a copy with moves & prev_move parsed into arrays]
+ */
+function gameItem(item) {
+	return { ...item, moves: { S: JSON.parse(item.moves.S) }, prev_move: { S: JSON.parse(item.prev_move.S) } };
+}
+
 /* ---------------------------------------------------------------- */
 // Update game (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Saves a validated move, then reads the game back to check it saved
+ * @description Saves a validated move
  * @param  {[object]} gameData [Validated server data, modified by a successful client request]
  * @param  {[string]} prevBoard [board the move was made on, the save fails if the board changed since (two requests at once)]
- * @return {[object]} response [{ status, game_data, message }]
+ * @return {[object]} response [{ status, game_data (the game as saved), message }]
  */
 async function updateGame(gameData, prevBoard) {
 	const params = {
@@ -174,41 +179,26 @@ async function updateGame(gameData, prevBoard) {
 			":w_piece": { S: gameData.w_piece.S }, // UPDATED WHITE KINGS, QUEENS, BISHOPS & ROOKS
 			":b_piece": { S: gameData.b_piece.S }, // UPDATED BLACK KINGS, QUEENS, BISHOPS & ROOKS
 			":expireAt": { N: expireTime() } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
-		}
+		},
+		ReturnValues: "ALL_NEW" // THE GAME AS SAVED, NO READ BACK (AN EVENTUALLY CONSISTENT READ CAN RETURN THE OLD BOARD)
 	}
 	if (prevBoard) {
 		params.ConditionExpression = 'game_board = :prev_board'; // ONLY ONE MOVE PER BOARD
 		params.ExpressionAttributeValues[":prev_board"] = { S: prevBoard };
 	}
 
+	let response;
 	try {
-		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		response = await connection.updateItem(params); // PUT REQUEST TO DYANMODB
 	} catch (err) {
 		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Board changed before the move saved: ${gameData.game_id.S}` }; }
 		throw err;
 	}
 
-	let response = await retrieveGame(gameData.game_id.S); // GET GAME BY ID
-
-	if (response.status == 200) {
-		let { game_board, moves } = response.game_data;
-		if (JSON.stringify(moves.S) == JSON.stringify(gameData.moves.S) && game_board.S == gameData.game_board.S) { // IF UPDATED SUCCESSFULLY
-			return {
-				status: 200,
-				game_data: gameData,
-				message: `Updated game attributes: ${response.game_data.game_id.S}`
-			}
-		} else {
-			return {
-				status: 500,
-				message: `Game attributes failed to update: ${response.game_data.game_id.S}`
-			}
-		}
-	} else {
-		return {
-			status: 500,
-			message: `Game attributes failed to update: ${gameData.game_id.S}`
-		}
+	return {
+		status: 200,
+		game_data: gameItem(response.Attributes),
+		message: `Updated game attributes: ${gameData.game_id.S}`
 	}
 }
 
@@ -441,9 +431,9 @@ async function acceptRematch(gameId, playerId, newGameId) {
 // Initalize user (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Creates a user row with empty game lists
+ * @description Creates a user row with empty game lists, unless another request already made it
  * @param  {[string]} userId [auth0 user id without "auth0|"]
- * @return {[object]} response [{ status, user_data, message }]
+ * @return {[object]} response [{ status, user_data (the new row, or the one already there), message }]
  */
 async function initalizeUser(userId) {
 	const params = {
@@ -453,24 +443,21 @@ async function initalizeUser(userId) {
 			open_games: { S: JSON.stringify([]) },
 			requested_games: { S: JSON.stringify([]) },
 			closed_games: { S: JSON.stringify([]) },
-		}
+		},
+		ConditionExpression: 'attribute_not_exists(user_id)' // NEVER WIPES A ROW'S GAME LISTS (A READ CAN MISS A ROW THAT WAS JUST MADE)
 	}
 
-	await connection.putItem(params); // POST REQUEST TO DYNAMODB
+	try {
+		await connection.putItem(params); // POST REQUEST TO DYNAMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return await retrieveUser(userId, true); } // ALREADY THERE, USE IT
+		throw err;
+	}
 
-	let response = await retrieveUser(userId);
-
-	if (response.status == 200) {
-		return {
-			status: 200,
-			user_data: response.user_data,
-			message: `user id: ${response.user_data.user_id.S} initalized inside db`
-		}
-	} else {
-		return {
-			status: 500,
-			message: "User data not found"
-		}
+	return {
+		status: 200,
+		user_data: params.Item,
+		message: `user id: ${userId} initalized inside db`
 	}
 }
 
@@ -480,14 +467,16 @@ async function initalizeUser(userId) {
 /**
  * @description Gets a user row by id, the game lists stay JSON strings
  * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @param  {[boolean]} consistent [true = a strongly consistent read (twice the read capacity), see retrieveGame]
  * @return {[object]} response [{ status, user_data, message }]
  */
-async function retrieveUser(userId) {
+async function retrieveUser(userId, consistent) {
 	const params = {
 		TableName: USER_TABLE,
 		Key: {
 			user_id: { S: userId } // SEARCH KEY
-		}
+		},
+		ConsistentRead: !!consistent
 	}
 
 	let response = await connection.getItem(params); // GET REQUEST TO DYNAMODB
@@ -525,24 +514,16 @@ async function updateUser(userData) {
 			":requested_games": { S: JSON.stringify(userData.requested_games.S) },
 			":open_games": { S: JSON.stringify(userData.open_games.S) },
 			":closed_games": { S: JSON.stringify(userData.closed_games.S) },
-		}
+		},
+		ReturnValues: "ALL_NEW" // THE ROW AS SAVED, NO READ BACK
 	}
 
-	await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	const response = await connection.updateItem(params); // PUT REQUEST TO DYANMODB
 
-	let response = await retrieveUser(userData.user_id.S); // GET USER BY ID
-
-	if (response.status == 200) {
-		return {
-			status: 200,
-			user_data: response.user_data,
-			message: `user id: ${response.user_data.user_id.S} updated`
-		}
-	} else {
-		return {
-			status: 500,
-			message: `User attributes failed to update: ${userData.user_id.S}`
-		}
+	return {
+		status: 200,
+		user_data: response.Attributes,
+		message: `user id: ${userData.user_id.S} updated`
 	}
 }
 
