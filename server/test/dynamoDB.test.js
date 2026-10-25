@@ -11,7 +11,7 @@ const assert = require("node:assert/strict");
 const fakeDynamo = require("./helpers/fakeDynamo.js");
 fakeDynamo.install();
 const db = require("../dynamoDB.js");
-const { validateMove } = require("../utils/validate.js");
+const { validateMove, undoMoves } = require("../utils/validate.js");
 const { Chess } = require("chess.js");
 
 beforeEach(() => fakeDynamo.reset());
@@ -42,6 +42,24 @@ describe("updateGame", () => {
 		assert.equal(late.status, 500);
 		assert.match(late.message, /Board changed/);
 		assert.deepEqual((await db.retrieveGame("game1")).game_data.moves.S, ["e4"]);
+	});
+
+	test("an undo and a move made on the same board can't both land, whichever saves first", async () => {
+		for (const undoFirst of [true, false]) {
+			fakeDynamo.reset();
+			const gameData = await newGame();
+			const start = gameData.game_board.S;
+			await db.updateGame((await validateMove({ player_id: "alice", move: ["e2", "e4"] }, gameData)).game_data, start);
+			const read = (await db.retrieveGame("game1")).game_data; // BOTH START FROM THIS: ALICE TAKES BACK e4 WHILE THE AI ANSWERS IT
+			const board = read.game_board.S;
+			const undo = undoMoves(structuredClone(read), 1).game_data;
+			const aiMove = (await validateMove({ player_id: "CHESS_AI", move: ["e7", "e5"] }, structuredClone(read))).game_data;
+
+			const [first, second] = undoFirst ? [undo, aiMove] : [aiMove, undo];
+			assert.equal((await db.updateGame(first, board)).status, 200);
+			assert.equal((await db.updateGame(second, board)).status, 500);
+			assert.deepEqual((await db.retrieveGame("game1")).game_data.moves.S, undoFirst ? [] : ["e4", "e5"]);
+		}
 	});
 
 	test("reports a saved move as saved when a read would still return the old board", async () => {

@@ -167,7 +167,8 @@ data.
 | --- | --- |
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks. The client and the server pin the same `chess.js` version |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
+| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests and the
@@ -280,6 +281,9 @@ inviter's in a friend game, and `fen` when the game started from a set position 
 `moves` only holds the moves played, so anything that replays them (threefold repetition, PGN export, takebacks, a replay viewer) has to start
 from `start_params.fen` when it's there, not the standard position. A new game's `w_knight`, `b_knight`, `w_piece` and `b_piece` come from its
 start position (`startPieces` in `server/utils/validate.js`): each knight, king, queen, bishop and rook as `{ from: null, to: square }`.
+The facing lists only hold where each piece faces now, so `undoMoves` (also in `validate.js`, for takebacks) replays the moves that are
+left from the start position through `faceMove`, the same facing rules a move uses, and gives back exactly the board, `moves`,
+`prev_move` and facing lists from before the undone moves. It's saved with `updateGame`, so an undo and a move made on the same board can't both land.
 Friend games also save `inviter_id`, so Home knows a sent invite from a received one (the inviter isn't always white).
 A `user_db` row also has `settings` (JSON, `{ ai_level, ai_color, friend_color }`) once the player saves Default start settings. It's its own
 attribute, so the game list saves never touch it, and saving it first makes the row (with empty game lists) for a player who hasn't played yet.

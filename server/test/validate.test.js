@@ -134,6 +134,14 @@ describe("piece facing", () => {
 		assert.deepEqual(list(response.game_data, "w_knight"), [{ from: "a7", to: "a8" }]);
 	});
 
+	test("a promotion sent with a move that isn't one is ignored (no new entry, the piece that moved is updated)", async () => {
+		const gameData = game();
+		const response = await play(gameData, "white", "g1", "f3", "q");
+		assert.equal(response.status, 200);
+		assert.deepEqual(list(gameData, "w_knight"), [{ from: null, to: "b1" }, { from: "g1", to: "f3" }]);
+		assert.deepEqual(list(gameData, "w_piece"), START_W_PIECE);
+	});
+
 	test("castling king side moves the rook's entry from h1 to f1", async () => {
 		const gameData = game("4k3/8/8/8/8/8/8/4K2R w K - 0 1", { w_piece: [{ from: null, to: "e1" }, { from: null, to: "h1" }] });
 		const response = await play(gameData, "white", "e1", "g1");
