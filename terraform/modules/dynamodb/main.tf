@@ -23,6 +23,10 @@ resource "aws_dynamodb_table" "chess_table" {
     enabled        = true
   }
 
+  point_in_time_recovery {
+    enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (README -> Restoring a table)
+  }
+
   lifecycle {
     prevent_destroy = true # HOLDS LIVE GAMES, TERRAFORM WILL REFUSE TO DELETE OR REPLACE IT
   }
@@ -42,6 +46,10 @@ resource "aws_dynamodb_table" "user_table" {
   attribute {
     name = "user_id"
     type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (README -> Restoring a table)
   }
 
   lifecycle {

@@ -372,7 +372,9 @@ In order:
 - **DynamoDB** (`modules/dynamodb`, us-east-1): `chess_db` (key `game_id`,
   TTL on `expireAt`: open games and finished AI games are deleted 25 days
   after the last move, finished friend games are kept) and `user_db` (key
-  `user_id`).
+  `user_id`). Both have point-in-time recovery on, so either can be put back
+  the way it was at any second in the last 35 days
+  ([Restoring a table](#restoring-a-table)).
 
 ```bash
 cd terraform/aws-enviroment
@@ -407,6 +409,74 @@ terraform import module.server_module.aws_iam_instance_profile.server_profile EC
 `terraform plan` should then show no changes for the tables or the role. Both
 tables have `prevent_destroy` set, so Terraform refuses any plan that would
 delete or replace them.
+
+#### Restoring a table
+
+`prevent_destroy` only stops Terraform. A bad deploy or a mistaken script can
+still delete or overwrite items, and point-in-time recovery is how you get
+them back. A restore always makes a new table, so you restore into a new name,
+then copy that back under the old name. The server, the tests and Terraform
+all keep using `chess_db` and `user_db`.
+
+These steps are for `chess_db`. For `user_db`, swap the names. If both tables
+were hit, restore both to the same time, so the players' game lists match the
+games.
+
+1. On the instance, stop the server so nothing writes while you work:
+
+   ```bash
+   sudo systemctl stop chess
+   ```
+
+2. From your Mac, restore into a new table. Pick a time from before the
+   mistake, in UTC:
+
+   ```bash
+   aws dynamodb restore-table-to-point-in-time --region us-east-1 \
+     --source-table-name chess_db --target-table-name chess_db_restore \
+     --restore-date-time 2026-10-25T18:00:00Z
+   aws dynamodb wait table-exists --region us-east-1 --table-name chess_db_restore
+   ```
+
+   Restoring can take a while. If the `wait` gives up, run it again. Then check
+   the items in the console (**DynamoDB → Tables → chess_db_restore → Explore
+   table items**).
+
+3. Back up the restored table. Note the `BackupArn` it prints, and wait until
+   `describe-backup` shows `AVAILABLE`:
+
+   ```bash
+   aws dynamodb create-backup --region us-east-1 --table-name chess_db_restore --backup-name chess_db_restore
+   aws dynamodb describe-backup --region us-east-1 --backup-arn <BackupArn> --query BackupDescription.BackupDetails.BackupStatus
+   ```
+
+4. Delete the original table. With point-in-time recovery on, DynamoDB keeps
+   a system backup of it for 35 days, so this can still be undone:
+
+   ```bash
+   aws dynamodb delete-table --region us-east-1 --table-name chess_db
+   aws dynamodb wait table-not-exists --region us-east-1 --table-name chess_db
+   ```
+
+5. Restore the backup under the original name:
+
+   ```bash
+   aws dynamodb restore-table-from-backup --region us-east-1 --target-table-name chess_db --backup-arn <BackupArn>
+   aws dynamodb wait table-exists --region us-east-1 --table-name chess_db
+   ```
+
+6. Run `terraform apply` in `terraform/aws-enviroment`. A restore doesn't copy
+   the TTL or point-in-time recovery settings, so the plan shows both being
+   turned back on. The table's ARN doesn't change, so the IAM policy still
+   covers it.
+
+7. Start the server, then delete the copy and the backup:
+
+   ```bash
+   sudo systemctl start chess
+   aws dynamodb delete-table --region us-east-1 --table-name chess_db_restore
+   aws dynamodb delete-backup --region us-east-1 --backup-arn <BackupArn>
+   ```
 
 ### 1. Before you start
 
