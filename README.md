@@ -589,6 +589,13 @@ terraform/
   modules/dynamodb/          Chess (games) and user tables
 ```
 
+## License
+
+Proprietary, all rights reserved: see [LICENSE](LICENSE). To contribute, see
+[CONTRIBUTING.md](CONTRIBUTING.md), and report security problems as described in
+[SECURITY.md](SECURITY.md). Third-party packages keep their own licenses, and
+Stockfish isn't included in this repo (see below).
+
 ## Stockfish license
 
 The AI plays with [Stockfish](https://stockfishchess.org/), free software by
