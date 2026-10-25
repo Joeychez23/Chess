@@ -13,7 +13,8 @@ module.exports = () => {
 		entry: { // ONE BUNDLE PER PAGE, THE SERVER PICKS THE PAGE (server/routes/pageRoutes.js)
 			home: './src/js/pages/home/index.js',    // /              SIGNED IN
 			guest: './src/js/pages/guest/index.js',  // /              GUEST
-			play: './src/js/pages/play/index.js'     // /play          GUEST GAME, /play/:gameId SIGNED IN GAME
+			play: './src/js/pages/play/index.js',    // /play          GUEST GAME, /play/:gameId SIGNED IN GAME
+			settings: './src/js/pages/settings/index.js' // /settings  SIGNED IN
 		},
 		output: {
 			filename: '[name].bundle.js',
@@ -24,6 +25,7 @@ module.exports = () => {
 			new HtmlWebpackPlugin({ template: './home.html', filename: 'home.html', chunks: ['home'] }),
 			new HtmlWebpackPlugin({ template: './guest.html', filename: 'guest.html', chunks: ['guest'] }),
 			new HtmlWebpackPlugin({ template: './play.html', filename: 'play.html', chunks: ['play'] }),
+			new HtmlWebpackPlugin({ template: './settings.html', filename: 'settings.html', chunks: ['settings'] }),
 
 			// Configure service worker on production builds
 			
@@ -80,7 +82,7 @@ module.exports = () => {
 			proxy: [
 				{ context: ['/api'], target: 'http://localhost:3001' }, // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
 				{ context: ['/socket.io'], target: 'http://localhost:3001', ws: true }, // FRIEND GAME SOCKET (server/socket.js)
-				{ context: (pathname) => pathname == '/' || pathname == '/play' || pathname.startsWith('/play/'), target: 'http://localhost:3001' }, // PAGES: THE SERVER PICKS WHICH ONE TO SEND
+				{ context: (pathname) => pathname == '/' || pathname == '/play' || pathname.startsWith('/play/') || pathname == '/settings', target: 'http://localhost:3001' }, // PAGES: THE SERVER PICKS WHICH ONE TO SEND
 			],
 		}
 	};

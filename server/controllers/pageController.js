@@ -54,6 +54,18 @@ async function gamePage(req, res) {
 	return sendPage(res, "play.html");
 }
 
+/* ---------------------------------------------------------------- */
+// Settings Page
+/* ---------------------------------------------------------------- */
+/**
+ * @description /settings -> a signed in player's account settings. Signed out (or the access token expired) -> /api/auth/resume,
+ * which re-ups the session or logs in, then comes back here
+ */
+function settingsPage(req, res) {
+	if (!readSessionUser(req)) { return res.redirect(`/api/auth/resume?returnTo=${encodeURIComponent("/settings")}`); }
+	return sendPage(res, "settings.html");
+}
+
 /**
  * @description Sends a page from client/dist (max-age 0, so a new build shows up on the next load)
  */
@@ -62,4 +74,4 @@ function sendPage(res, page) {
 }
 
 
-module.exports = { homePage, playPage, gamePage };
+module.exports = { homePage, playPage, gamePage, settingsPage };

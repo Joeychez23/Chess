@@ -235,6 +235,41 @@ export async function getLevels(gameUrl) {
 }
 
 /**
+ * @description Saves the settings page's Default start settings (PUT /api/user/settings), Home's dropdowns start on them
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @param  {[object]} settings [{ ai_level, ai_color, friend_color }]
+ * @return {[object]} response [{ status, settings (as saved), message }]
+ */
+export async function saveSettings(userUrl, settings) {
+	const options = {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(settings)
+	};
+	try {
+		return await request(`${userUrl}/settings`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Delete my data (DELETE /api/user): the server forfeits the open games, cancels & declines the invites, then deletes the user_db row
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @return {[object]} response [{ status, message }]
+ */
+export async function deleteUserData(userUrl) {
+	const options = {
+		method: "DELETE"
+	};
+	try {
+		return await request(userUrl, options)
+	} catch {
+		return
+	}
+}
+
+/**
  * @description fetch() for the chess routes. The server takes the player from the session cookie,
  * so a 401 means the access token expired mid game: re-up the session once & try again
  */

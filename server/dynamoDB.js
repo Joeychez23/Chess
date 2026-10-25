@@ -545,6 +545,65 @@ async function changeUserGames(userId, change) {
 }
 
 /* ---------------------------------------------------------------- */
+// Update user settings (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves a player's Default start settings (the settings page) on their user_db row. It's its own attribute, so the game list
+ * saves never touch it. A player who hasn't played yet has no row, initalizeUser makes it first so the game lists are there too
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @param  {[object]} settings [{ ai_level, ai_color, friend_color }, from readSettings in chessController.js]
+ * @return {[object]} response [{ status, user_data (the row as saved), message }]
+ */
+async function updateUserSettings(userId, settings) {
+	const user = await retrieveUser(userId, true);
+	if (!user.user_data) { await initalizeUser(userId); }
+
+	const params = {
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: userId }
+		},
+		UpdateExpression: 'SET settings = :settings',
+		ConditionExpression: 'attribute_exists(user_id)', // NEVER MAKES A ROW WITHOUT ITS GAME LISTS
+		ExpressionAttributeValues: {
+			':settings': { S: JSON.stringify(settings) }
+		},
+		ReturnValues: "ALL_NEW"
+	}
+	const response = await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+
+	return {
+		status: 200,
+		user_data: response.Attributes,
+		message: `user id: ${userId} settings saved`
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Delete user (DELETE)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Deletes a player's user_db row, their game lists & settings (Delete my data, after leaveAllGames). The games stay in chess_db:
+ * a friend's finished games still show the result, & the player's next game makes a new row
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @return {[object]} response [{ status, message }]
+ */
+async function deleteUser(userId) {
+	const params = {
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: userId }
+		}
+	}
+	await connection.deleteItem(params); // DELETE REQUEST TO DYANMODB
+
+	return {
+		status: 200,
+		message: `user id: ${userId} deleted`
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Prune open games
 /* ---------------------------------------------------------------- */
 /**
@@ -669,4 +728,4 @@ async function pruneGameList(userData, listName) {
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, pruneOpenGames, pruneInvites }
+module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, deleteUser, pruneOpenGames, pruneInvites }

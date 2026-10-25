@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" class="loadingPage"> <!-- loadingPage: THE LAST PAGE STAYS ON SCREEN UNTIL THIS PAGE IS DRAWN (showPage() REMOVES IT) -->
+
+<head>
+	<meta charset="UTF-8" />
+	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
+	<link rel="icon" type="image/png" sizes="32x32" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-32.png" />
+	<link rel="icon" type="image/png" sizes="192x192" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-192.png" />
+	<link rel="apple-touch-icon" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-180.png" /> <!-- iOS HOME SCREEN, ON THE BAIZE GREEN -->
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="theme-color" content="#0c2a1f" />
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..700&family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif&display=swap">
+	<title>Settings // Chess</title>
+	<style> /* IN THE PAGE, NOT home.css: IT'S NEEDED FOR THE FIRST PAINT, THE CSS FILES ARE ADDED BY THE BUNDLE AFTER THAT */
+		@view-transition { navigation: auto; } /* HOME & A GAME FADE INTO THIS PAGE THE SAME WAY */
+		html.loadingPage::view-transition-group(*),
+		html.loadingPage::view-transition-old(*),
+		html.loadingPage::view-transition-new(*) { animation-play-state: paused; } /* THE LAST PAGE STAYS ON SCREEN UNTIL THIS PAGE IS DRAWN */
+		::view-transition-group(*) { animation-duration: 400ms; }
+		html { background-color: #0c2a1f; } /* THE PAGE'S GREEN FROM THE FIRST PAINT, NOT WHITE */
+	</style>
+</head>
+
+<body id="body">
+	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
+	<nav id="menuContainer" aria-label="Menu">
+		<div id="resultDisplay">Chess</div>
+		<ul id="menuButtonList">
+			<li><a class="menuButton" href="/">Home</a></li>
+			<li><a class="menuButton" href="/settings" aria-current="page">Settings</a></li>
+			<li><a class="menuButton" href="/api/auth/logout">Logout</a></li>
+		</ul>
+	</nav>
+
+	<main class="page">
+		<section class="hero heroPlain">
+			<div class="heroText">
+				<p class="spec" id="signedInAs">Signed in</p>
+				<h1 class="title">Settings</h1>
+				<p class="lead">Your account, the start settings Home begins with, and your data.</p>
+			</div>
+		</section>
+
+		<section class="boxes" aria-label="Settings">
+			<div class="box boxBaize" id="accountBox">
+				<div class="boxHead"><h2 class="label">Account</h2><span class="spec">No. 01</span></div>
+				<p class="boxText">You sign in with <span id="accountEmail">your email</span>. Signed in games are kept on your account.</p>
+				<p class="spec" id="gamesFinished">Games finished // 0</p>
+				<div class="actions boxBottom">
+					<a class="btn btnLine" href="/api/auth/logout">Sign out</a>
+				</div>
+			</div>
+			<div class="box boxWalnut" id="startBox">
+				<div class="boxHead"><h2 class="label">Default start settings</h2><span class="spec">No. 02</span></div>
+				<p class="boxText">What Home's Play the AI and Play a friend start on. You can still change them for each game.</p>
+				<div class="field fieldStack boxBottom">
+					<select id="aiLevel" aria-label="AI level"></select>
+					<select id="aiColor" aria-label="Your color against the AI">
+						<option value="random" selected>Vs the AI: Random color</option>
+						<option value="w">Vs the AI: Play white</option>
+						<option value="b">Vs the AI: Play black</option>
+					</select>
+					<select id="friendColor" aria-label="Your color against a friend">
+						<option value="random" selected>Vs a friend: Random color</option>
+						<option value="w">Vs a friend: Play white</option>
+						<option value="b">Vs a friend: Play black</option>
+					</select>
+					<button class="btn btnCream" id="saveSettings" type="button">Save</button>
+				</div>
+				<p class="spec note" id="settingsNote" role="status"></p>
+			</div>
+			<div class="box boxWalnut" id="friendsBox">
+				<div class="boxHead"><h2 class="label">Friends</h2><span class="spec">No. 03</span></div>
+				<p class="boxText">The friends you play will be listed here, so you can invite them without typing their email.</p>
+				<p class="spec boxBottom">Coming soon</p>
+			</div>
+			<div class="box boxMaple" id="closedBox">
+				<div class="boxHead"><h2 class="label">Closed games</h2><span class="spec">No. 04</span></div>
+				<p class="boxText">Your finished games will be here, ready to go through move by move once game analysis is added.</p>
+				<p class="spec boxBottom">Coming soon</p>
+			</div>
+			<div class="box boxWalnut" id="deleteBox">
+				<div class="boxHead"><h2 class="label">Delete my data</h2><span class="spec">No. 05</span></div>
+				<p class="boxText">Forfeits your open games, cancels and declines your invites, then deletes your game lists and settings, and signs you out. Finished friend games stay for your opponents. Your sign in (Auth0) isn't deleted, so you can come back later and start fresh.</p>
+				<div class="actions boxBottom">
+					<button class="btn btnLine" id="deleteData" type="button">Delete my data</button>
+				</div>
+				<p class="spec note" id="deleteNote" role="status"></p>
+			</div>
+		</section>
+	</main>
+</body>
+
+</html>

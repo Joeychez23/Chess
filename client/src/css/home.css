@@ -144,6 +144,10 @@ body {
 		gap: 56px;
 		padding: 24px 0 64px;
 	}
+	.heroPlain { /* THE SETTINGS PAGE: TEXT ONLY, NO PICTURE */
+		grid-template-columns: minmax(0, 1fr);
+		padding-bottom: 32px;
+	}
 	.boxes {
 		grid-template-columns: repeat(2, minmax(0, 1fr)); /* 2 x 2, EQUAL WIDTHS, THE SELECT & INPUT DON'T WIDEN THEIR BOX */
 	}
