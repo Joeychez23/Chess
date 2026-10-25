@@ -14,7 +14,7 @@ const { Chess } = require("chess.js"); // RULES, LEGAL MOVES & FEN (SAME VERSION
 const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playerMove } = require("./user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
-const { setTiles } = require("./utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES
+const { setTiles, countStartPieces } = require("./utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH
 const { SPRITES } = require("./sprites/index.js"); // EVERY SPRITE URL IN IMAGE NUMBER ORDER (HOME & GUEST USE IT TO WARM THE BROWSER CACHE)
 const { joinGame, leaveGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
@@ -133,6 +133,7 @@ export async function renderCanvas(playerData) {
 	let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
 	let wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // WHITE PIECES DRAWN THIS FRAME, TAKEN PIECES = START COUNT - THIS
 	let bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // BLACK PIECES DRAWN THIS FRAME
+	let startPieceCount = countStartPieces(); // { w, b } PIECES EACH SIDE STARTED WITH (THE STANDARD SET, OR A SET POSITION'S, setInitialData())
 	let wTakenPieces; // WHITE PIECES THAT WERE TAKEN [{ color, type, x, y }]
 	let bTakenPieces; // BLACK PIECES THAT WERE TAKEN
 	let clickedTile = false; // TILE PICKED UP BY A CLICK (OR A FINISHED DRAG)
@@ -467,6 +468,7 @@ export async function renderCanvas(playerData) {
 			if (response.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
 				opponentColor = response?.opponent_color || false;
 				chessInst.load(response.game_board); // THE BOARD TO DRAW
+				startPieceCount = countStartPieces(response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
 				if (response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 					ai = response.ai;
 					showGameOver(response);
@@ -1380,12 +1382,12 @@ export async function renderCanvas(playerData) {
 												handleKnightDirectionW(xFrom, xTo);
 												drawKnight();
 												break;
-											} else if (JSON.parse(response.w_knight)[n].from == null && JSON.parse(response.w_knight)[n].to) { // HASN'T MOVED: b1 FACES RIGHT & g1 LEFT (TOWARD THE MIDDLE), FLIPPED WHEN PLAYING BLACK
+											} else if (JSON.parse(response.w_knight)[n].from == null && JSON.parse(response.w_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT (b1 RIGHT, g1 LEFT), FLIPPED WHEN PLAYING BLACK
 												if (playerColor == 'w') {
-													if (JSON.parse(response.w_knight)[n].to == 'b1' && tiles[index].square == 'b1') { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
+													if (JSON.parse(response.w_knight)[n].to == tiles[index].square && tiles[index].square.split("")[0] < 'e') { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 													else if (JSON.parse(response.w_knight)[n].to == tiles[index].square) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
 												} else if (playerColor == 'b') {
-													if (JSON.parse(response.w_knight)[n].to == 'b1' && tiles[index].square == 'b1') { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
+													if (JSON.parse(response.w_knight)[n].to == tiles[index].square && tiles[index].square.split("")[0] < 'e') { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
 													else if (JSON.parse(response.w_knight)[n].to == tiles[index].square) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 												}
 											}
@@ -1418,12 +1420,12 @@ export async function renderCanvas(playerData) {
 												handleKnightDirectionB(xFrom, xTo);
 												drawKnight();
 												break;
-											} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) { // HASN'T MOVED: b8 FACES RIGHT & g8 LEFT FROM WHITE'S SIDE, FLIPPED WHEN PLAYING BLACK
+											} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT FROM WHITE'S SIDE (b8 RIGHT, g8 LEFT), FLIPPED WHEN PLAYING BLACK
 												if (playerColor == 'w') {
-													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+													if (JSON.parse(response.b_knight)[n].to == tiles[index].square && tiles[index].square.split("")[0] < 'e') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 												} else if (playerColor == 'b') {
-													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+													if (JSON.parse(response.b_knight)[n].to == tiles[index].square && tiles[index].square.split("")[0] < 'e') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 												}
 											}
@@ -1636,10 +1638,10 @@ export async function renderCanvas(playerData) {
 								break;
 							} else if (JSON.parse(response.w_knight)[n].from == null && JSON.parse(response.w_knight)[n].to) {
 								if (playerColor == 'w') {
-									if (JSON.parse(response.w_knight)[n].to == 'b1' && pieceObj.square == 'b1') { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
+									if (JSON.parse(response.w_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 									else if (JSON.parse(response.w_knight)[n].to == pieceObj.square) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
 								} else if (playerColor == 'b') {
-									if (JSON.parse(response.w_knight)[n].to == 'b1' && pieceObj.square == 'b1') { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
+									if (JSON.parse(response.w_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
 									else if (JSON.parse(response.w_knight)[n].to == pieceObj.square) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 								}
 							} else if (pieceObj.square == moveObj.from && JSON.parse(response.w_knight)[n].from && JSON.parse(response.w_knight)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
@@ -1682,10 +1684,10 @@ export async function renderCanvas(playerData) {
 								break;
 							} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) {
 								if (playerColor == 'w') {
-									if (JSON.parse(response.b_knight)[n].to == 'b8' && pieceObj.square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+									if (JSON.parse(response.b_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 								} else if (playerColor == 'b') {
-									if (JSON.parse(response.b_knight)[n].to == 'b8' && pieceObj.square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+									if (JSON.parse(response.b_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 								}
 							} else if (pieceObj.square == moveObj.from && JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
@@ -1850,11 +1852,12 @@ export async function renderCanvas(playerData) {
 				for (let i = 1; i < takenCount + 1; i++) { takenArr[takenArr.length] = { color: paramColor, type: type } }
 			}
 
-			countToObj(currPieces.king, "k", 1);
-			countToObj(currPieces.queen, "q", 1);
-			countToObj(currPieces.bishop, "b", 2);
-			countToObj(currPieces.knight, "n", 2);
-			countToObj(currPieces.rook, "r", 2);
+			const startCount = currPromotion ? countStartPieces().w : startPieceCount[paramColor]; // HOW MANY STARTED, THE PROMOTION PICKER USES THE STANDARD SET (ONE OF EACH)
+			countToObj(currPieces.king, "k", startCount.king);
+			countToObj(currPieces.queen, "q", startCount.queen);
+			countToObj(currPieces.bishop, "b", startCount.bishop);
+			countToObj(currPieces.knight, "n", startCount.knight);
+			countToObj(currPieces.rook, "r", startCount.rook);
 
 			return takenArr;
 		}

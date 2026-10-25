@@ -29,12 +29,14 @@ const soloBox = document.getElementById("soloBox"); // PLAY THE AI
 const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY THE AI: PLAY AI, OR NEW GAME WHILE AN AI GAME IS OPEN
 const aiLevelSelect = document.getElementById("aiLevel"); // ABOVE PLAY AI, FILLED FROM THE SERVER'S LEVELS
 const aiColorSelect = document.getElementById("aiColor"); // RANDOM, WHITE OR BLACK, RESTART KEEPS IT
+const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BLANK = THE STANDARD POSITION, RESTART KEEPS IT
 const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEITS YOUR CURRENT GAME"
 const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND
 const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: EMAIL & INVITE
 const multiEmailInput = document.getElementById("enterMultiEmail");
 const multiEmailBtn = document.getElementById("enterMultiSubmit");
 const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
+const friendFenInput = document.getElementById("friendFen"); // START POSITION (FEN) FOR THE INVITE, BLANK = THE STANDARD POSITION
 const multiNote = document.getElementById("multiNote"); // WHY AN INVITE DIDN'T GO THROUGH, INVITE'S FORFEIT WARNING
 const noInvites = document.getElementById("noInvites"); // INVITES: "NO INVITES RIGHT NOW"
 const inviteList = document.getElementById("inviteList"); // "BOB INVITED YOU", ACCEPT & DECLINE
@@ -179,7 +181,8 @@ async function handleNewSoloGame(e) {
 	startLoading(optNewSoloBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
 	soloNote.innerText = "";
 	let _id = new ObjectId();
-	const response = await newAiGame(CHESS_URL, `${_id}`, aiColorSelect.value, aiLevelSelect.value, confirmNewGame); // CREATE NEW GAME AT THE PICKED LEVEL & COLOR
+	const response = await newAiGame(CHESS_URL, `${_id}`, aiColorSelect.value, aiLevelSelect.value, confirmNewGame, aiFenInput.value); // CREATE NEW GAME AT THE PICKED LEVEL, COLOR & POSITION
+	if (response?.status == 400) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, NOTHING WAS FORFEITED
 	if (response?.status == 409) { // AN AI GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
 		stopLoading();
 		soloNote.innerText = "You already have an AI game open";
@@ -237,9 +240,10 @@ async function handleMultiSubmit(e) {
 	multiEmailBtn.disabled = true; // ONE INVITE PER PRESS
 	let _id = new ObjectId();
 	try {
-		const response = await initMultiplayerGame(CHESS_URL, _id, PLAYER_ID, email, confirmInvite, friendColorSelect.value);
+		const response = await initMultiplayerGame(CHESS_URL, _id, PLAYER_ID, email, confirmInvite, friendColorSelect.value, friendFenInput.value);
 		if (response?.status == 200) {
 			multiEmailInput.value = "";
+			friendFenInput.value = "";
 			resetInviteBtn();
 			await refreshHome(); // SHOWS THE SENT INVITE IN INVITES
 		} else if (response?.status == 409) { // A FRIEND GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
@@ -247,7 +251,7 @@ async function handleMultiSubmit(e) {
 			multiNote.innerText = "You already have a friend game open";
 		} else {
 			resetInviteBtn(); // NOTHING WAS FORFEITED, THE NEXT TRY WARNS AGAIN
-			multiNote.innerText = inviteError(response?.message);
+			multiNote.innerText = response?.status == 400 ? response.message : inviteError(response?.message); // 400: THE FEN CAN'T BE PLAYED
 		}
 	} catch (err) { console.log(err); resetInviteBtn(); multiNote.innerText = "Couldn't send the invite, try again"; }
 	multiEmailBtn.disabled = false;

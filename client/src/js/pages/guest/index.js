@@ -23,6 +23,8 @@ const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (serv
 const soloBox = document.getElementById("soloBox"); // PLAY THE AI
 const aiLevelSelect = document.getElementById("aiLevel"); // FILLED FROM THE SERVER'S LEVELS
 const aiColorSelect = document.getElementById("aiColor"); // RANDOM, WHITE OR BLACK, RESTART KEEPS IT
+const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BLANK = THE STANDARD POSITION, RESTART KEEPS IT
+const soloNote = document.getElementById("soloNote"); // WHY A START POSITION CAN'T BE PLAYED
 const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY AI, OR NEW GAME WHILE THE GUEST'S GAME IS OPEN
 
 const auth = new InternalAuth;
@@ -74,8 +76,10 @@ async function handleNewGuestGame(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	startLoading(optNewSoloBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
+	soloNote.innerText = "";
 	const gameId = savedGameId() || `${new ObjectId()}`;
-	const response = await newAiGame(CHESS_URL, gameId, aiColorSelect.value, aiLevelSelect.value); // CREATE OR RESET THE GUEST'S GAME
+	const response = await newAiGame(CHESS_URL, gameId, aiColorSelect.value, aiLevelSelect.value, false, aiFenInput.value); // CREATE OR RESET THE GUEST'S GAME
+	if (response?.status == 400) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, THEIR GAME WASN'T RESET
 	if (response?.status != 200) { stopLoading(); return console.log(response); }
 	try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch { } // NOT SAVED (PRIVATE MODE) -> THE PLAY PAGE MAKES ITS OWN GAME
 	goToPage("/play"); // ONCE THE IMAGES ARE IN
