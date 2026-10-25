@@ -54,8 +54,7 @@ window.addEventListener("load", async function () {
 		if (response?.status != 200) { return gameNotFound(); }
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: gameId, PLAYER_ID: playerId }
 	} else {
-		const guestId = guestGameId(); // A GUEST'S PLAYER ID IS THEIR GAME ID
-		await newGuestGame(guestId);
+		const guestId = await newGuestGame(guestGameId()); // A GUEST'S PLAYER ID IS THEIR GAME ID
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: guestId, PLAYER_ID: guestId }
 	}
 	playerData.TV_BOOL = TV_DEV; // TV CONDITIONAL
@@ -88,13 +87,18 @@ function guestGameId() {
 
 /**
  * @description No game for the guest's id yet (a bare /play, or their game expired): a new game vs the AI with a random color
- * at the default level, made before the game starts. Otherwise setInitialData (gameplay/index.js) makes it & the guest is always white
- * @param  {[string]} gameId [the guest's game id, also their player id]
+ * at the default level, made before the game starts. Otherwise setInitialData (gameplay/index.js) makes it & the guest is always white.
+ * The server only lets the browser with the game's guest_game cookie play it, another guest's id (or one from before the cookie) gets a new id
+ * @param  {[string]} gameId [the guest's saved game id, also their player id]
+ * @return {[string]} gameId [the id their game has, saved for the next load]
  */
 async function newGuestGame(gameId) {
 	const response = await validate(CHESS_URL, gameId, gameId, false, false, false); // GET THE GAME
-	if (response?.game_board) { return; } // THEIR GAME IS THERE (OPEN OR OVER)
-	await newAiGame(CHESS_URL, gameId, "random"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
+	if (response?.game_board) { return gameId; } // THEIR GAME IS THERE (OPEN OR OVER)
+	const created = await newAiGame(CHESS_URL, gameId, "random"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
+	if (!created?.game_id) { return gameId; }
+	try { localStorage.setItem("GUEST_GAME_ID", created.game_id); } catch { } // NOT SAVED (PRIVATE MODE) -> A NEW GAME EACH LOAD
+	return created.game_id;
 }
 
 

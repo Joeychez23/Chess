@@ -15,10 +15,12 @@ const express = require("express");
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
 const fakeDynamo = require("./fakeDynamo.js");
+const { resetLimits } = require("../../middleware/rateLimit.js");
 
 const realFetch = globalThis.fetch;
 const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
 const engineMoves = []; // QUEUED ENGINE ANSWERS: { from, to, promotion }, THE ENGINE IS "DOWN" WHEN IT'S EMPTY
+const guestCookies = new Map(); // GUEST BROWSER NAME -> ITS guest_game COOKIE, LIKE A BROWSER KEEPS IT
 let baseUrl;
 
 /* ---------------------------------------------------------------- */
@@ -33,6 +35,7 @@ async function start() {
 	globalThis.fetch = standInFetch;
 
 	const app = express();
+	app.set("trust proxy", "loopback"); // SAME AS index.js, A TEST'S X-Forwarded-For IS THE PLAYER'S ADDRESS
 	app.use(cookieParser());
 	app.use(express.json());
 	app.use("/api", require("../../routes/api"));
@@ -44,12 +47,14 @@ async function start() {
 }
 
 /**
- * @description Clears the tables, the Auth0 users and the engine's queue between tests
+ * @description Clears the tables, the Auth0 users, the engine's queue, the guests' cookies and the new game limits between tests
  */
 function reset() {
 	fakeDynamo.reset();
 	auth0Users.clear();
 	engineMoves.length = 0;
+	guestCookies.clear();
+	resetLimits();
 }
 
 /* ---------------------------------------------------------------- */
@@ -81,15 +86,21 @@ function sessionCookie(user) {
  * @description Calls the API like the client does
  * @param  {[string]} method ["GET", "POST", "PUT"]
  * @param  {[string]} path [e.g. "/api/chess/levels"]
- * @param  {[object]} options [{ as: a player (left out = guest), body, cookie: a raw Cookie header }]
- * @return {[object]} response [{ http: the HTTP status, ...the JSON body }]
+ * @param  {[object]} options [{ as: a player (left out = guest), guest: which guest browser (left out = "guest", each keeps its own guest_game cookie),
+ * body, cookie: a raw Cookie header (no guest cookie), ip: the player's address (X-Forwarded-For, like nginx sends) }]
+ * @return {[object]} response [{ http: the HTTP status, retry_after: the Retry-After header, ...the JSON body }]
  */
 async function call(method, path, options = {}) {
 	const headers = { "Content-Type": "application/json" };
+	const guest = options.as || options.cookie ? null : options.guest || "guest";
 	if (options.as) { headers.Cookie = sessionCookie(options.as.user); }
 	if (options.cookie) { headers.Cookie = options.cookie; }
+	if (guest && guestCookies.has(guest)) { headers.Cookie = guestCookies.get(guest); }
+	if (options.ip) { headers["X-Forwarded-For"] = options.ip; }
 	const res = await realFetch(`${baseUrl}${path}`, { method, headers, body: options.body ? JSON.stringify(options.body) : undefined });
-	return { http: res.status, ...(await res.json()) };
+	const guestCookie = res.headers.getSetCookie().find((cookie) => cookie.startsWith("guest_game="));
+	if (guest && guestCookie) { guestCookies.set(guest, guestCookie.split(";")[0]); }
+	return { http: res.status, retry_after: res.headers.get("retry-after"), ...(await res.json()) };
 }
 
 /**

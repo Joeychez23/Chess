@@ -15,6 +15,7 @@ const { Chess } = require("chess.js");
 const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
+const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { initalizeGame, retrieveGame, updateGame, closeGame, acceptInvite, deleteInvite, requestRematch, acceptRematch, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { emitToGame, emitToPlayer } = require("../socket.js");
 
@@ -65,11 +66,13 @@ async function getGame(req, res) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Creates a game vs the AI, or a guest's New game: their game_id is overwritten with a new board (signed in users restart with /restart).
- * Signed in players have one AI game open at a time: while one is open this answers 409, unless replace_current forfeits it first
+ * Signed in players have one AI game open at a time: while one is open this answers 409, unless replace_current forfeits it first.
+ * A guest gets a guest_game cookie for the game, and a new game_id when theirs belongs to another browser (the response has the id used)
  * @param  {[object]} req.body [{ game_id (optional, generated when left out), start_color ("random" | "w" | "b", the requester's color from Home & the guest page,
  * the server picks the sides, the play page also sends random for a guest's missing game) OR player_id_1 (white) & player_id_2 (black) (gameplay's fallback for a guest's first game, one side is "CHESS_AI", the other side is always the requester),
  * ai_level (optional, the level dropdown), start_fen (optional, a set position to start from, the Start position box), replace_current (optional, true = forfeit the open AI game & start this one) }]
- * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)
+ * | { status: 429, message } (too many new games, middleware/rateLimit.js)]
  */
 async function newGame(req, res) {
 	const { game_id, player_id_1, player_id_2, ai_level, start_color, replace_current } = req.body || {};
@@ -78,15 +81,20 @@ async function newGame(req, res) {
 	if (position.message) { return res.status(400).json({ status: 400, message: position.message }); }
 
 	let level = readLevel(ai_level);
-	if (game_id) { // RESTART: ONLY A PLAYER IN THE GAME CAN WIPE IT
-		const existing = await retrieveGame(game_id);
-		if (existing.game_data && !playerInGame(req, existing.game_data)) { return notInGame(req, res); }
-		if (existing.game_data && !isAiGame(existing.game_data)) { return res.json({ status: 500, message: "Friend games can't be restarted" }); } // WOULD TURN IT INTO AN AI GAME & LOCK THE FRIEND OUT
-		if (existing.game_data && req.user) { return res.json({ status: 500, message: "Game id already in use, restart with /restart" }); } // WOULD ERASE THE RESULT WITHOUT A FORFEIT
-		if (existing.game_data && ai_level == undefined) { level = aiLevel(existing.game_data); } // GUEST RESTART KEEPS THE LEVEL
+	let gameId = game_id;
+	let existing = gameId ? await retrieveGame(gameId) : {};
+	if (existing.game_data && !req.user && !playerInGame(req, existing.game_data)) { // ANOTHER GUEST'S GAME, OR THEIR OWN FROM BEFORE GUEST COOKIES: A NEW GAME WITH A NEW ID (THE CLIENT SAVES IT)
+		gameId = `${new ObjectId()}`;
+		existing = {};
+	}
+	if (existing.game_data) { // RESTART: ONLY A PLAYER IN THE GAME CAN WIPE IT
+		if (!playerInGame(req, existing.game_data)) { return notInGame(req, res); }
+		if (!isAiGame(existing.game_data)) { return res.json({ status: 500, message: "Friend games can't be restarted" }); } // WOULD TURN IT INTO AN AI GAME & LOCK THE FRIEND OUT
+		if (req.user) { return res.json({ status: 500, message: "Game id already in use, restart with /restart" }); } // WOULD ERASE THE RESULT WITHOUT A FORFEIT
+		if (ai_level == undefined) { level = aiLevel(existing.game_data); } // GUEST RESTART KEEPS THE LEVEL
 	}
 
-	const playerId = req.user ? userPlayerId(req.user) : game_id; // A GUEST'S PLAYER ID IS THEIR GAME ID
+	const playerId = req.user ? userPlayerId(req.user) : gameId; // A GUEST'S PLAYER ID IS THEIR GAME ID
 	if (!playerId) { return res.status(401).json({ status: 401, message: "NOT SIGNED IN" }); }
 
 	if (req.user) { // ONE AI GAME AT A TIME (GUESTS ONLY EVER HAVE ONE, IT'S OVERWRITTEN)
@@ -99,7 +107,8 @@ async function newGame(req, res) {
 	let sides = { white: player_id_1 == "CHESS_AI" ? "CHESS_AI" : playerId, black: player_id_2 == "CHESS_AI" ? "CHESS_AI" : playerId };
 	if (start_color) { sides = pickSides(params, playerId, "CHESS_AI"); } // THE SERVER PICKS, RANDOM FLIPS A COIN
 
-	const response = await initalizeGame(game_id || false, sides.white, sides.black, level, { start_params: params }); // CREATE NEW GAME
+	const response = await initalizeGame(gameId || false, sides.white, sides.black, level, { start_params: params }); // CREATE NEW GAME
+	if (!req.user && response.game_data) { setGuestCookie(req, res, response.game_data.game_id.S); } // ONLY THIS BROWSER CAN PLAY IT NOW
 	return res.json(gameResponse(response));
 }
 
@@ -720,16 +729,16 @@ function gamePending(gameData) {
 }
 
 /**
- * @description The requester's player id in this game. Signed in players use their session,
- * a guest's player id is the game id (client/src/js/pages/play/index.js guestGameId, saved in localStorage) & guests only get AI games
+ * @description The requester's player id in this game. Signed in players use their session, a guest's player id is their
+ * game's id, from the signed guest_game cookie newGame gave them (the client also keeps it in localStorage) & guests only get AI games
  * @param  {[object]} req [express request, req.user is null for guests]
  * @param  {[object]} gameData [game item]
  * @return {[string]} playerId [null when the requester isn't in the game]
  */
 function playerInGame(req, gameData) {
 	if (!req.user && !isAiGame(gameData)) { return null; }
-	const playerId = req.user ? userPlayerId(req.user) : gameData.game_id.S;
-	if (playerId == gameData.white_player_id.S || playerId == gameData.black_player_id.S) { return playerId; }
+	const playerId = req.user ? userPlayerId(req.user) : readGuestGame(req); // A GUEST WITHOUT THE COOKIE (ANOTHER BROWSER) ISN'T IN IT
+	if (playerId && (playerId == gameData.white_player_id.S || playerId == gameData.black_player_id.S)) { return playerId; }
 	return null;
 }
 

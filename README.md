@@ -47,7 +47,8 @@ AWS side (see [Deploy](#deploy)).
    player gets the game in the url. A guest (`/play`) gets their own game vs.
    the AI: its id is saved in the browser's localStorage (`GUEST_GAME_ID`) by
    the guest page's Play AI, and a new id is made when none is saved. The guest's player id is the same
-   as the game id, so it never goes in the url.
+   as the game id, so it never goes in the url. The server also gives the guest a signed `guest_game` cookie
+   for that game, and if the saved id is another browser's game it makes a new one, which the page saves instead.
 2. **Load.** `renderCanvas()` preloads every sprite, then asks the server for
    the game (`GET /api/chess/game/:gameId?player_id=`). The server returns the board
    (FEN), your color, and whether the opponent is the AI. For a guest, if no
@@ -170,6 +171,7 @@ data.
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
 | `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
+| `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, and the new game limits (per session, IP and site) |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests and the
 client build on every pull request and every push to `main`.
@@ -230,7 +232,18 @@ The player is whoever is signed in. The server reads it from the session
 cookie and ignores the player ids the client sends. Nobody can move for the AI:
 its moves only come from `/ai-move`. Guests (no session) can only play an AI
 game whose `game_id` equals their player id, which is how the client sets up
-each guest. Guests aren't added to `user_db`. A request for a game you're not in gets `401` when signed out (the client
+each guest, and only from the browser that made it: `POST /api/chess/game` gives a guest an httpOnly, signed
+`guest_game` cookie (`setGuestCookie` in `server/middleware/auth.js`, only sent to `/api/chess`) holding their game id
+and a guest session id that stays the same from game to game. A guest whose `game_id` is another browser's game
+gets a new game with a new id instead of resetting it. Guests aren't added to `user_db`.
+
+Making games is limited (`server/middleware/rateLimit.js`): `POST /api/chess/game`, `/restart` and `/invite` answer
+`429` with `Retry-After` and `{ status: 429, message: "Too many new games, try again in N seconds" }` when a session (a signed-in
+player, or a guest's cookie) has made 10 at once (then 1 a minute), an IP (an IPv6 /64) 30 at once (then 1 every 20 seconds),
+or the whole site 60 at once (then 1 a second, a fifth of `chess_db`'s writes). The check runs before the route, so a refused
+request never forfeits or saves anything, and the first refusal for a key each minute is logged. Moves aren't limited. The
+counts live in memory (there's one server process) and start again when it restarts. `index.js` trusts nginx on loopback, so
+`req.ip` is the player's address from `X-Forwarded-For`. A request for a game you're not in gets `401` when signed out (the client
 then calls `/api/auth/refresh` once and retries, in case the access token
 expired mid game) or `403` when signed in.
 
@@ -599,7 +612,7 @@ sudo certbot --nginx -d chess.aws-prac-route53.com
 
 `deploy/nginx.conf` forwards everything to the server on 8080, passes
 Socket.IO's WebSocket upgrade through, and allows 10 requests per second per
-IP (bursts of 40). Its upgrade variable is named `$chess_connection_upgrade`
+IP (bursts of 40). The server also limits making games itself (see [Chess API](#chess-api) above). Its upgrade variable is named `$chess_connection_upgrade`
 because chess-engine-api's site on the same instance already defines
 `$connection_upgrade`, and nginx won't start with two.
 
@@ -642,7 +655,8 @@ over it removes HTTPS until you run the certbot line again.
 
 Send a `POST` to `http://localhost:3001/api/chess/game` from Postman,
 Insomnia, or curl. Signed out, this only works for a guest game, so
-`game_id` and the player's id must match. `player_id_1` plays white:
+`game_id` and the player's id must match, and only for a new `game_id` or one whose `guest_game` cookie you have
+(keep cookies between requests, `curl -c jar -b jar`). `player_id_1` plays white:
 
 ```json
 {
@@ -696,7 +710,8 @@ server/
     authController.js        login, callback, logout, refresh, resume
     userController.js        getUser, saveSettings, deleteUserData (Delete my data)
     chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games (was the chess lambda)
-  middleware/auth.js         JWT session cookies, requireAuth, optionalAuth
+  middleware/auth.js         JWT session cookies, requireAuth, optionalAuth, the guest_game cookie
+  middleware/rateLimit.js    New game limits per session, IP and site (429)
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
