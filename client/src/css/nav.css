@@ -178,3 +178,34 @@
 #menuContainer .menuButton[aria-current="page"]::before {
 	color: #7a6648;
 }
+
+/* ---------------------------------------------------------------- */
+/* Loading (Buttons Into A Game & Home) */
+/* ---------------------------------------------------------------- */
+
+.loading { /* "Loading" & IT FILLS UP FROM THE LEFT (--load 0 - 1, startLoading in pages/utils & handleHomepage in gameplay) */
+	position: relative;
+	isolation: isolate; /* THE FILL GOES OVER THE BACKGROUND, UNDER THE TEXT */
+	overflow: hidden;
+	pointer-events: none; /* ONE PRESS (LINKS CAN'T BE disabled) */
+}
+
+.loading::after { /* ::after, THE MENU BUTTONS' NUMBERS ARE ::before */
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	background-color: rgba(35, 22, 14, 0.2); /* DARKER ON CREAM */
+	transform: scaleX(var(--load, 0));
+	transform-origin: left;
+	transition: transform 200ms ease-out;
+}
+
+.btnLine.loading::after,
+#menuContainer .menuButton.loading::after {
+	background-color: rgba(236, 217, 180, 0.18); /* LIGHTER ON THE LINE BUTTON (NEW GAME) & THE MENU'S WALNUT */
+}
+
+.btn.loading:disabled {
+	opacity: 1; /* NOT GREYED OUT WHILE IT LOADS */
+}

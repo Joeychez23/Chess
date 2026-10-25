@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="loadingPage"> <!-- loadingPage: HIDDEN UNTIL THE BOARD IS DRAWN (gameplay/index.js REMOVES IT) -->
 
 <head>
 	<meta charset="UTF-8" />
@@ -13,6 +13,17 @@
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..700&family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif&display=swap">
 	<title>Chess</title>
+	<style> /* IN THE PAGE, NOT style.css: IT'S NEEDED FOR THE FIRST PAINT, THE CSS FILES ARE ADDED BY THE BUNDLE AFTER THAT */
+		@view-transition { navigation: auto; } /* FROM HOME: ONE FADE FROM HOME INTO THE GAME (home.html & guest.html OPT IN TOO) */
+		html.loadingPage::view-transition-group(*),
+		html.loadingPage::view-transition-old(*),
+		html.loadingPage::view-transition-new(*) { animation-play-state: paused; } /* HOME STAYS ON SCREEN UNTIL THE BOARD IS DRAWN */
+		::view-transition-group(*) { animation-duration: 400ms; }
+		body { background: #0c2a1f url("<%= process.env.CHESS_ASSESTS_URL %>/images/board/table.webp") center / cover no-repeat fixed; } /* THE TABLE FROM THE FIRST PAINT, NOT A SOLID COLOR (SAME SIZE & SPOT AS THE CANVAS'S TABLE) */
+		body > * { transition: opacity 400ms ease-out; }
+		html.loadingPage body > * { opacity: 0; } /* NO FADE FROM HOME (A RELOAD, FROM LOGIN, FIREFOX): THE TABLE, THEN THE GAME FADES IN */
+		:active-view-transition body > * { transition: none; } /* FROM HOME THE PAGE FADE DOES IT ALONE (A BROWSER WITHOUT THIS ONLY DROPS THIS LINE) */
+	</style>
 </head>
 
 <body id="body">

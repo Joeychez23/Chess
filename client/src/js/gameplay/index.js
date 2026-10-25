@@ -80,6 +80,18 @@ export function preloadImages() {
 }
 
 /* ---------------------------------------------------------------- */
+// Image Progress
+/* ---------------------------------------------------------------- */
+/**
+ * @description How many of the game's images have loaded, Home & guest fill the Loading button with it (startLoading in pages/utils)
+ * @return {[number]} progress [0 - 1, 1 when every image preloadImages() started is in]
+ */
+export function imageProgress() {
+	if (!images.length) { return 0; } // preloadImages() HASN'T RUN
+	return loadedImages / images.length;
+}
+
+/* ---------------------------------------------------------------- */
 // Render Canvas
 /* ---------------------------------------------------------------- */
 /**
@@ -336,7 +348,8 @@ export async function renderCanvas(playerData) {
 	// Check Image Loaded
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description If all images are loaded start game. Checks once a second, then removes the loading screen (gameContainer)
+	 * @description If all images are loaded start game. Checks every 100ms (Home already loaded them, so they come from the browser cache),
+	 * then removes the loading screen (gameContainer)
 	 */
 	const startGameCheck = setInterval(async function () {
 		if (loadedImages == images.length) {
@@ -344,7 +357,7 @@ export async function renderCanvas(playerData) {
 			startGame();
 			clearInterval(startGameCheck);
 		}
-	}, 1000);
+	}, 100);
 
 	/* ---------------------------------------------------------------- */
 	// Start Game
@@ -445,6 +458,7 @@ export async function renderCanvas(playerData) {
 							return;
 						}
 						drawScreen(); // DRAW ONE FRAME
+						document.documentElement.classList.remove("loadingPage"); // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT
 						refresh = false;
 					}
 				} catch (err) { console.log(err); }
@@ -3252,7 +3266,8 @@ export async function renderCanvas(playerData) {
 		/* ---------------------------------------------------------------- */
 		/**
 		 * @description Goes to Home (/). Stops the render loop & leaves the friend game's socket room first,
-		 * the page load clears everything else (listeners, canvas)
+		 * the page load clears everything else (listeners, canvas). Home says Loading & fills up like the buttons into a game,
+		 * then the game stays on screen until Home is drawn & fades into it (home.html, showPage in pages/utils)
 		 */
 		if (!TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
 		function handleHomepage(e) {
@@ -3261,7 +3276,10 @@ export async function renderCanvas(playerData) {
 
 			window.clearInterval(drawInterval); // STOP THE RENDER LOOP
 			leaveGame();
-			window.location.href = "/"; // HOME (server/routes/pageRoutes.js)
+			optHomepageBtn.innerText = "Loading";
+			optHomepageBtn.classList.add("loading"); // THE FILL (.loading IN nav.css), ONE PRESS
+			setTimeout(function () { optHomepageBtn.style.setProperty("--load", 1); }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)
+			setTimeout(function () { window.location.href = "/"; }, 250); // HOME ONCE IT'S FULL (server/routes/pageRoutes.js)
 		}
 
 		/* ---------------------------------------------------------------- */

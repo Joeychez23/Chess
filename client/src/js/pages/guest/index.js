@@ -16,7 +16,7 @@ const { ObjectId } = require("bson");
 const { InternalAuth } = require("../../auth/index.js");
 const { preloadImages } = require("../../gameplay/index.js");
 const { validate, newAiGame } = require("../../gameplay/validate/index.js");
-const { startNav, showCurrentGame, loadLevels } = require("../utils/index.js");
+const { startNav, showCurrentGame, loadLevels, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
 
@@ -29,9 +29,9 @@ const auth = new InternalAuth;
 
 startNav();
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
+startGameLinks(); // CONTINUE CURRENT GAME SAYS LOADING TOO
 checkSession();
-loadLevels(CHESS_URL, aiLevelSelect);
-loadGuestGame();
+showPageWhenDrawn([loadLevels(CHESS_URL, aiLevelSelect), loadGuestGame()]); // FROM A GAME (ITS HOME BUTTON) THE GAME STAYS ON SCREEN UNTIL THESE ARE IN, THEN FADES INTO THIS PAGE
 optNewSoloBtn.addEventListener("click", handleNewGuestGame);
 
 /* ---------------------------------------------------------------- */
@@ -60,7 +60,7 @@ async function loadGuestGame() {
 	if (game?.status != 200 || game.state != "OPEN") { return; } // EXPIRED OR OVER, PLAY AI STARTS A NEW ONE
 	optNewSoloBtn.innerText = "New game";
 	optNewSoloBtn.classList.replace("btnCream", "btnLine");
-	showCurrentGame(soloBox, game, "/play");
+	await showCurrentGame(soloBox, game, "/play"); // ITS BOARD PICTURE IS DRAWN BEFORE THE PAGE SHOWS
 }
 
 /* ---------------------------------------------------------------- */
@@ -73,12 +73,12 @@ async function loadGuestGame() {
 async function handleNewGuestGame(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	optNewSoloBtn.disabled = true; // ONE GAME PER PRESS
+	startLoading(optNewSoloBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
 	const gameId = savedGameId() || `${new ObjectId()}`;
 	const response = await newAiGame(CHESS_URL, gameId, aiColorSelect.value, aiLevelSelect.value); // CREATE OR RESET THE GUEST'S GAME
-	if (response?.status != 200) { optNewSoloBtn.disabled = false; return console.log(response); }
+	if (response?.status != 200) { stopLoading(); return console.log(response); }
 	try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch (err) { } // NOT SAVED (PRIVATE MODE) -> THE PLAY PAGE MAKES ITS OWN GAME
-	window.location.href = "/play";
+	goToPage("/play"); // ONCE THE IMAGES ARE IN
 }
 
 /**
