@@ -205,7 +205,7 @@ async function aiMoveGame(req, res) {
 	if (response.status == 200) {
 		response = await updateGame(response.game_data, prevBoard); // PUT VALIDATED MOVE
 		if (response.status != 200) { // ANOTHER REQUEST SAVED THE AI'S MOVE FIRST
-			const latest = await retrieveGame(req.params.gameId);
+			const latest = await retrieveGame(req.params.gameId, true); // CONSISTENT, SO IT SEES THAT MOVE
 			if (!latest.game_data) { return res.json({ status: latest.status, message: latest.message }); }
 			return res.json(savedAiMove(latest));
 		}
@@ -300,7 +300,7 @@ async function rematchGame(req, res) {
 
 	const newGameId = `${new ObjectId()}`;
 	if (!(await acceptRematch(gameId, playerId, newGameId))) { // OPPONENT'S MINUTE JUST RAN OUT, OR THE REMATCH ALREADY STARTED
-		const latest = await retrieveGame(gameId);
+		const latest = await retrieveGame(gameId, true); // CONSISTENT, SO IT SEES A REMATCH THE OTHER PRESS JUST STARTED
 		if (latest.game_data?.rematch_game_id) { return res.json({ status: 200, new_game_id: latest.game_data.rematch_game_id.S, message: "Rematch started" }); }
 		if (await requestRematch(gameId, playerId, Date.now() + REMATCH_TIME)) { return res.json(waiting); }
 		return res.json({ status: 500, message: "Rematch failed" });

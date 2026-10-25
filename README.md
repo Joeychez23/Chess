@@ -156,7 +156,8 @@ cd server && npm test   # every server/test/*.test.js, with Node's built-in test
 The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
 `test/helpers/env.js` sets test values, `test/helpers/fakeDynamo.js` keeps
 `chess_db` and `user_db` in memory (it understands the update and condition
-expressions `server/dynamoDB.js` uses), and `test/helpers/server.js` starts the
+expressions `server/dynamoDB.js` uses, and `staleReads()` makes reads lag like
+DynamoDB's default eventually consistent reads), and `test/helpers/server.js` starts the
 real `/api` routes on a random port and answers Auth0 and the engine from test
 data.
 
@@ -164,7 +165,7 @@ data.
 | --- | --- |
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, one close per game, invite answers, rematch presses |
+| `dynamoDB.test.js` | The conditional writes: two moves at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests and the
@@ -275,7 +276,9 @@ Friend games also save `inviter_id`, so Home knows a sent invite from a received
 A friend invite is a `PENDING` game listed in both players' `requested_games`.
 Accepting it makes it `OPEN` and moves it to `open_games`, declining or
 cancelling deletes it. Closing a game moves its id from `open_games` to `closed_games` on both
-players' `user_db` rows. A finished friend game loses its `expireAt`, so TTL
+players' `user_db` rows. A list change only saves if none of the row's lists changed since it
+read them (otherwise it reads the row again and retries), so two changes at once both stay, and
+only `OPEN` games in `open_games` count as the player's open game. A finished friend game loses its `expireAt`, so TTL
 never deletes it. AI games keep it and are deleted 25 days after the last
 move. Threefold repetition isn't detected, because only the board (FEN) is
 stored and the client works from the FEN too.

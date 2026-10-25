@@ -4,7 +4,7 @@
  *  Replaces the DynamoDB client's calls (getItem, putItem, updateItem, deleteItem, batchGetItem) with tables held in memory,
  *  so server/dynamoDB.js runs unchanged with no AWS account. It understands the update and condition expressions
  *  dynamoDB.js uses: SET / REMOVE, =, <>, <, <=, >, >=, AND, OR, parentheses, attribute_exists and attribute_not_exists.
- *  Reads are always up to date (strongly consistent).
+ *  Reads are up to date (strongly consistent) unless a test turns on staleReads(), see below.
  *
  */
 
@@ -15,6 +15,8 @@
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 
 const tables = new Map(); // TABLE NAME -> Map(KEY -> ITEM)
+const previous = new Map(); // TABLE NAME -> Map(KEY -> THE ITEM BEFORE ITS LAST WRITE, null = IT DIDN'T EXIST)
+let lagging = false; // staleReads()
 const KEYS = { chess_db: "game_id", user_db: "user_id" }; // HASH KEYS, MATCH terraform/modules/dynamodb
 
 /* ---------------------------------------------------------------- */
@@ -37,6 +39,17 @@ function install() {
  */
 function reset() {
 	tables.clear();
+	previous.clear();
+	lagging = false;
+}
+
+/**
+ * @description Makes reads behave like DynamoDB's default eventually consistent reads at their worst: a read without
+ * ConsistentRead returns each item as it was before its last write (a new item isn't found yet). ConsistentRead: true still sees every write
+ * @param  {[boolean]} on [true until reset()]
+ */
+function staleReads(on) {
+	lagging = on;
 }
 
 /**
@@ -63,19 +76,38 @@ function keyOf(tableName, key) {
 	return key[KEYS[tableName]].S;
 }
 
-async function getItem({ TableName, Key }) {
-	const item = table(TableName).get(keyOf(TableName, Key));
+/**
+ * @description The item a read gets: the stored one, or with staleReads() on & no ConsistentRead, the one from before its last write
+ */
+function readItem(tableName, key, consistent) {
+	const before = previous.get(tableName);
+	if (lagging && !consistent && before?.has(key)) { return before.get(key) || undefined; }
+	return table(tableName).get(key);
+}
+
+/**
+ * @description Saves an item (undefined deletes it) & keeps the one it replaces for staleReads()
+ */
+function writeItem(tableName, key, item) {
+	if (!previous.has(tableName)) { previous.set(tableName, new Map()); }
+	previous.get(tableName).set(key, table(tableName).get(key) || null);
+	if (item) { table(tableName).set(key, item); }
+	else { table(tableName).delete(key); }
+}
+
+async function getItem({ TableName, Key, ConsistentRead }) {
+	const item = readItem(TableName, keyOf(TableName, Key), ConsistentRead);
 	return item ? { Item: structuredClone(item) } : {};
 }
 
 async function putItem({ TableName, Item, ConditionExpression, ExpressionAttributeNames, ExpressionAttributeValues }) {
 	const key = Item[KEYS[TableName]].S;
 	check(table(TableName).get(key), ConditionExpression, ExpressionAttributeNames, ExpressionAttributeValues);
-	table(TableName).set(key, structuredClone(Item));
+	writeItem(TableName, key, structuredClone(Item));
 	return {};
 }
 
-async function updateItem({ TableName, Key, UpdateExpression, ConditionExpression, ExpressionAttributeNames, ExpressionAttributeValues }) {
+async function updateItem({ TableName, Key, UpdateExpression, ConditionExpression, ExpressionAttributeNames, ExpressionAttributeValues, ReturnValues }) {
 	const key = keyOf(TableName, Key);
 	const existing = table(TableName).get(key);
 	check(existing, ConditionExpression, ExpressionAttributeNames, ExpressionAttributeValues);
@@ -89,21 +121,21 @@ async function updateItem({ TableName, Key, UpdateExpression, ConditionExpressio
 	for (const name of removePart.split(",").map((part) => part.trim()).filter(Boolean)) {
 		delete item[attributeName(name, ExpressionAttributeNames)];
 	}
-	table(TableName).set(key, item);
-	return {};
+	writeItem(TableName, key, item);
+	return ReturnValues == "ALL_NEW" ? { Attributes: structuredClone(item) } : {};
 }
 
 async function deleteItem({ TableName, Key, ConditionExpression, ExpressionAttributeNames, ExpressionAttributeValues }) {
 	const key = keyOf(TableName, Key);
 	check(table(TableName).get(key), ConditionExpression, ExpressionAttributeNames, ExpressionAttributeValues);
-	table(TableName).delete(key);
+	writeItem(TableName, key, undefined);
 	return {};
 }
 
 async function batchGetItem({ RequestItems }) {
 	const Responses = {};
-	for (const [TableName, { Keys }] of Object.entries(RequestItems)) {
-		Responses[TableName] = Keys.map((key) => table(TableName).get(keyOf(TableName, key))).filter(Boolean).map((item) => structuredClone(item));
+	for (const [TableName, { Keys, ConsistentRead }] of Object.entries(RequestItems)) {
+		Responses[TableName] = Keys.map((key) => readItem(TableName, keyOf(TableName, key), ConsistentRead)).filter(Boolean).map((item) => structuredClone(item));
 	}
 	return { Responses, UnprocessedKeys: {} };
 }
@@ -184,4 +216,4 @@ function attributeName(name, names) {
 }
 
 
-module.exports = { install, reset, peek };
+module.exports = { install, reset, staleReads, peek };

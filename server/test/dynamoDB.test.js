@@ -1,7 +1,7 @@
 /*
  *  dynamoDB.test.js  --  chess server tests
  *	Conditional Writes (server/dynamoDB.js)
- *  The saves that guard against two requests at once, run against the in-memory tables
+ *  The saves that guard against two requests at once, and saves that don't trust a read back, run against the in-memory tables
  *
  */
 
@@ -12,8 +12,11 @@ const fakeDynamo = require("./helpers/fakeDynamo.js");
 fakeDynamo.install();
 const db = require("../dynamoDB.js");
 const { validateMove } = require("../utils/validate.js");
+const { Chess } = require("chess.js");
 
 beforeEach(() => fakeDynamo.reset());
+
+const list = (item, name) => JSON.parse(item[name].S);
 
 async function newGame() {
 	const created = await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
@@ -39,6 +42,37 @@ describe("updateGame", () => {
 		assert.equal(late.status, 500);
 		assert.match(late.message, /Board changed/);
 		assert.deepEqual((await db.retrieveGame("game1")).game_data.moves.S, ["e4"]);
+	});
+
+	test("reports a saved move as saved when a read would still return the old board", async () => {
+		const gameData = await newGame();
+		const board = gameData.game_board.S;
+		fakeDynamo.staleReads(true);
+
+		const saved = await db.updateGame((await validateMove({ player_id: "alice", move: ["e2", "e4"] }, gameData)).game_data, board);
+		assert.equal(saved.status, 200);
+		assert.deepEqual(saved.game_data.moves.S, ["e4"]); // THE GAME AS SAVED
+		assert.notEqual(saved.game_data.game_board.S, board);
+		assert.deepEqual(list(fakeDynamo.peek("chess_db", "game1"), "moves"), ["e4"]);
+	});
+});
+
+describe("saves without a read back", () => {
+	test("initalizeGame reports a new game as created when a read can't find it yet", async () => {
+		fakeDynamo.staleReads(true);
+		const created = await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		assert.equal(created.status, 200);
+		assert.equal(created.game_data.game_board.S, new Chess().fen());
+		assert.deepEqual(created.game_data.moves.S, []); // PARSED, LIKE retrieveGame
+		assert.ok(fakeDynamo.peek("chess_db", "game1"));
+	});
+
+	test("initalizeUser keeps a row that's already there (a read that lagged missed it)", async () => {
+		await newGame(); // ALICE'S ROW LISTS game1
+		const again = await db.initalizeUser("alice");
+		assert.equal(again.status, 200);
+		assert.deepEqual(list(again.user_data, "open_games"), ["game1"]);
+		assert.deepEqual(list(fakeDynamo.peek("user_db", "alice"), "open_games"), ["game1"]);
 	});
 });
 
@@ -86,5 +120,72 @@ describe("rematch", () => {
 		await db.initalizeGame("game5", "alice", "bob", false, {});
 		await db.requestRematch("game5", "alice", Date.now() - 1);
 		assert.equal(await db.acceptRematch("game5", "bob", "new1"), false);
+	});
+});
+
+describe("game lists", () => {
+	const lists = (userId) => {
+		const item = fakeDynamo.peek("user_db", userId);
+		return { requested_games: list(item, "requested_games"), open_games: list(item, "open_games"), closed_games: list(item, "closed_games") };
+	};
+
+	test("two changes to a player's lists at once both stay (an AI game ends while an invite is accepted)", async () => {
+		const aiGame = await newGame();
+		const invite = (await db.initalizeGame("game2", "alice", "bob", false, { pending: true, inviter_id: "bob" })).game_data; // ALICE IS WHITE IN BOTH, SO BOTH SAVES REACH HER ROW AT ONCE
+
+		await Promise.all([db.closeGame(aiGame, "b", "forfeit"), db.acceptInvite(invite)]);
+		assert.deepEqual(lists("alice"), { requested_games: [], open_games: ["game2"], closed_games: ["game1"] });
+		assert.deepEqual(lists("bob"), { requested_games: [], open_games: ["game2"], closed_games: [] });
+	});
+
+	test("a new player's first two games at once are both listed", async () => {
+		await Promise.all([
+			db.initalizeGame("game1", "alice", "CHESS_AI", 3, {}),
+			db.initalizeGame("game2", "alice", "bob", false, { pending: true, inviter_id: "bob" }),
+		]);
+		assert.deepEqual(lists("alice"), { requested_games: ["game2"], open_games: ["game1"], closed_games: [] });
+	});
+
+	test("changes stay when reads return the lists from before the last save", async () => {
+		fakeDynamo.staleReads(true);
+		const first = await newGame();
+		await db.closeGame(first, "b", "forfeit");
+		await db.initalizeGame("game2", "alice", "CHESS_AI", 3, {});
+		await db.initalizeGame("game3", "bob", "alice", false, { pending: true, inviter_id: "bob" });
+		assert.deepEqual(lists("alice"), { requested_games: ["game3"], open_games: ["game2"], closed_games: ["game1"] });
+	});
+
+	test("a declined invite is dropped when a read would still miss it", async () => {
+		fakeDynamo.staleReads(true);
+		const invite = (await db.initalizeGame("game1", "alice", "bob", false, { pending: true, inviter_id: "bob" })).game_data;
+		assert.equal((await db.deleteInvite(invite)).status, 200);
+		assert.deepEqual(lists("alice").requested_games, []);
+		assert.deepEqual(lists("bob").requested_games, []);
+	});
+
+	test("a finished game left in open_games isn't the open game", async () => {
+		await newGame(); // OPEN
+		await db.initalizeGame("game2", "alice", "CHESS_AI", 3, {});
+		await db.initalizeGame("game3", "alice", "bob", false, {});
+		await db.closeGame((await db.retrieveGame("game2")).game_data, "b", "forfeit");
+		await db.closeGame((await db.retrieveGame("game3")).game_data, "b", "forfeit");
+
+		const user = (await db.retrieveUser("alice")).user_data; // PUT THE FINISHED GAMES BACK, LIKE A SAVE THAT LOST A RACE USED TO
+		await db.updateUser(user, { requested_games: [], open_games: ["game1", "game2", "game3"], closed_games: ["game2", "game3"] });
+
+		const userData = await db.pruneOpenGames((await db.retrieveUser("alice")).user_data);
+		assert.equal(userData.ai_game_id, "game1"); // NOT game2, THE NEWEST
+		assert.equal(userData.friend_game_id, null);
+		assert.deepEqual(userData.open_game_list.map((game) => game.game_id.S), ["game1"]);
+	});
+
+	test("a save made from lists that changed since they were read is refused", async () => {
+		await newGame();
+		const stale = (await db.retrieveUser("alice")).user_data;
+		await db.closeGame((await db.retrieveGame("game1")).game_data, "b", "forfeit");
+
+		const late = await db.updateUser(stale, { requested_games: [], open_games: ["game1", "game2"], closed_games: [] });
+		assert.equal(late.status, 500);
+		assert.deepEqual(lists("alice"), { requested_games: [], open_games: [], closed_games: ["game1"] });
 	});
 });
