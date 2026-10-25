@@ -62,12 +62,14 @@ async function getGame(req, res) {
 // New Game (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Creates a game vs the AI, or restarts a guest's game: their game_id is overwritten with a new board (signed in users restart with /restart)
- * @param  {[object]} req.body [{ game_id (optional, generated when left out), player_id_1 (white), player_id_2 (black), ai_level (optional, Home's dropdown) }, one side is "CHESS_AI", the other side is always the requester]
- * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, message }]
+ * @description Creates a game vs the AI, or restarts a guest's game: their game_id is overwritten with a new board (signed in users restart with /restart).
+ * Signed in players have one AI game open at a time: while one is open this answers 409, unless replace_current forfeits it first
+ * @param  {[object]} req.body [{ game_id (optional, generated when left out), player_id_1 (white), player_id_2 (black), ai_level (optional, Home's dropdown),
+ * replace_current (optional, true = forfeit the open AI game & start this one) }, one side is "CHESS_AI", the other side is always the requester]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, message } | { status: 409, game_id (the open one), message }]
  */
 async function newGame(req, res) {
-	const { game_id, player_id_1, player_id_2, ai_level } = req.body || {};
+	const { game_id, player_id_1, player_id_2, ai_level, replace_current } = req.body || {};
 	if ((player_id_1 == "CHESS_AI") == (player_id_2 == "CHESS_AI")) { return res.json({ status: 500, message: "One player must be CHESS_AI, friend games start from /invite" }); }
 
 	let level = readLevel(ai_level);
@@ -81,6 +83,12 @@ async function newGame(req, res) {
 
 	const playerId = req.user ? userPlayerId(req.user) : game_id; // A GUEST'S PLAYER ID IS THEIR GAME ID
 	if (!playerId) { return res.status(401).json({ status: 401, message: "NOT SIGNED IN" }); }
+
+	if (req.user) { // ONE AI GAME AT A TIME (GUESTS ONLY EVER HAVE ONE, IT'S OVERWRITTEN)
+		const current = await currentAiGame(playerId);
+		if (current && !replace_current) { return res.json({ status: 409, game_id: current.game_id.S, message: "AI game already open" }); }
+		if (current) { await closeGame(current, playerId == current.white_player_id.S ? "b" : "w", "forfeit"); } // NEW GAME FORFEITS THE OPEN ONE
+	}
 
 	const whiteId = player_id_1 == "CHESS_AI" ? "CHESS_AI" : playerId;
 	const blackId = player_id_2 == "CHESS_AI" ? "CHESS_AI" : playerId;
@@ -325,7 +333,7 @@ async function inviteGame(req, res) {
 /**
  * @description Returns a user's game lists for Home, expired games are pruned first
  * @param  {[string]} req.params.userId [auth0 user id without "auth0|"]
- * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, message }]
+ * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, ai_game_id (the open AI game or null), message }]
  */
 async function getUserGames(req, res) {
 	if (req.params.userId != userPlayerId(req.user)) { return res.status(403).json({ status: 403, message: "Not your game list" }); }
@@ -342,8 +350,24 @@ async function getUserGames(req, res) {
 		requested_games: userData.requested_games.S,
 		open_games: userData.open_games.S,
 		closed_games: userData.closed_games.S,
+		ai_game_id: userData.ai_game_id, // HOME DRAWS ITS BOARD & LINKS IT (Continue current game)
 		message: response.message,
 	});
+}
+
+/**
+ * @description A signed in player's open AI game, they only have one at a time
+ * @param  {[string]} playerId [auth0 user id without "auth0|"]
+ * @return {[object]} gameData [the game item, null when there's no open AI game]
+ */
+async function currentAiGame(playerId) {
+	const user = await retrieveUser(playerId);
+	if (!user.user_data) { return null; } // NO GAMES YET
+	const userData = await pruneOpenGames(user.user_data);
+	if (!userData.ai_game_id) { return null; }
+	const response = await retrieveGame(userData.ai_game_id);
+	if (!response.game_data || !gameOpen(response.game_data)) { return null; }
+	return response.game_data;
 }
 
 /**

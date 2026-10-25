@@ -456,15 +456,18 @@ async function updateUser(userData) {
 // Prune open games
 /* ---------------------------------------------------------------- */
 /**
- * @description Drops games TTL already deleted from a user's open_games & saves the shorter list
+ * @description Drops games TTL already deleted from a user's open_games & saves the shorter list. Also finds the user's
+ * AI game (a player only has one open at a time, chessController.js newGame)
  * @param  {[object]} userData [user item from retrieveUser]
- * @return {[object]} userData [same item, open_games.S only lists games that still exist]
+ * @return {[object]} userData [same item, open_games.S only lists games that still exist, ai_game_id = the newest open AI game or null]
  */
 async function pruneOpenGames(userData) {
 	const openGames = [...new Set(JSON.parse(userData.open_games.S))]; // BATCH GET FAILS ON DUPLICATE KEYS
+	userData.ai_game_id = null;
 	if (openGames.length == 0) { return userData; }
 
 	let liveGames = [];
+	let aiGames = []; // OPEN GAMES WHERE ONE SIDE IS CHESS_AI
 	try {
 		for (let i = 0; i < openGames.length; i += 100) { // BATCH GET TAKES 100 KEYS MAX
 			const gameIds = openGames.slice(i, i + 100);
@@ -472,14 +475,18 @@ async function pruneOpenGames(userData) {
 				RequestItems: {
 					[CHESS_TABLE]: {
 						Keys: gameIds.map((gameId) => ({ game_id: { S: gameId } })),
-						ProjectionExpression: "game_id" // ONLY CHECKING THE GAME EXISTS
+						ProjectionExpression: "game_id, white_player_id, black_player_id" // THE GAME EXISTS & WHETHER IT'S AN AI GAME
 					}
 				}
 			};
 
 			const response = await connection.batchGetItem(params);
-			const foundGames = (response.Responses?.[CHESS_TABLE] || []).map((game) => game.game_id.S);
+			const foundItems = response.Responses?.[CHESS_TABLE] || [];
+			const foundGames = foundItems.map((game) => game.game_id.S);
 			const uncheckedGames = (response.UnprocessedKeys?.[CHESS_TABLE]?.Keys || []).map((key) => key.game_id.S);
+			for (let j = 0; j < foundItems.length; j++) {
+				if (foundItems[j].white_player_id?.S == "CHESS_AI" || foundItems[j].black_player_id?.S == "CHESS_AI") { aiGames.push(foundItems[j].game_id.S); }
+			}
 
 			for (let j = 0; j < gameIds.length; j++) {
 				if (foundGames.includes(gameIds[j]) || uncheckedGames.includes(gameIds[j])) { liveGames.push(gameIds[j]); } // UNCHECKED GAMES ARE KEPT, NEVER DROP A REAL GAME
@@ -490,6 +497,7 @@ async function pruneOpenGames(userData) {
 		return userData; // SHOW THE LIST AS IS RATHER THAN BREAKING HOME
 	}
 
+	for (let i = 0; i < liveGames.length; i++) { if (aiGames.includes(liveGames[i])) { userData.ai_game_id = liveGames[i]; } } // NEWEST IS LAST IN open_games
 	if (liveGames.length == openGames.length) { return userData; } // NOTHING EXPIRED
 
 	const prunedGames = JSON.stringify(liveGames);

@@ -10,9 +10,10 @@
  * @param  {[string]} promotion [promotion piece]
  * @param  {[string]} restart [AI color 'w' or 'b' to restart the game]
  * @param  {[number]} aiLevel [new games: the AI's level from Home's dropdown, left out = the server's default]
+ * @param  {[boolean]} replaceCurrent [new games: true forfeits the player's open AI game first (one at a time), left out = the server answers 409 while one is open]
  * @return {[object]} response.json() = backend server response object of request data
  */
-export async function validate(gameUrl, gameId, _id, move, promotion, restart, aiLevel) {
+export async function validate(gameUrl, gameId, _id, move, promotion, restart, aiLevel, replaceCurrent) {
 	if (restart) { // RESTART GAME (POST /game, OVERWRITES game_id WITH A NEW BOARD)
 		let options;
 		if (restart == 'w') {
@@ -24,6 +25,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart, a
 					player_id_1: "CHESS_AI",
 					player_id_2: _id,
 					ai_level: aiLevel,
+					replace_current: replaceCurrent,
 				})
 			};
 		} else if (restart == 'b') {
@@ -35,6 +37,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart, a
 					player_id_1: _id,
 					player_id_2: "CHESS_AI",
 					ai_level: aiLevel,
+					replace_current: replaceCurrent,
 				})
 			};
 		}
