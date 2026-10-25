@@ -59,6 +59,7 @@ let SENT_INVITE_ID = null; // THE PLAYER'S SENT INVITE (ONE AT A TIME)
 let confirmInvite = false; // INVITE NEEDS A SECOND PRESS WHILE A FRIEND GAME IS OPEN, IT FORFEITS THAT ONE
 let confirmAccept = null; // THE INVITE WHOSE ACCEPT WAS PRESSED ONCE WHILE A FRIEND GAME IS OPEN (SAME WARNING)
 let homeDrawing = Promise.resolve(); // ONE REDRAW AT A TIME (refreshHome)
+let SETTINGS = null; // THE PLAYER'S DEFAULT START SETTINGS (THE SETTINGS PAGE), THE DROPDOWNS START ON THEM
 
 startNav();
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
@@ -84,8 +85,22 @@ async function startHome() {
 	if (sessionUser.email) { signedInAs.innerText = `Signed in // ${sessionUser.email}`; }
 	const levelsLoaded = loadLevels(CHESS_URL, aiLevelSelect);
 	const homeDrawn = refreshHome(true);
+	const settingsUsed = useSettings(levelsLoaded, homeDrawn);
 	watchGames(refreshHome); // INVITES & FRIEND GAMES CHANGE WITHOUT A RELOAD
-	showPageWhenDrawn([levelsLoaded, homeDrawn]);
+	showPageWhenDrawn([levelsLoaded, homeDrawn, settingsUsed]);
+}
+
+/**
+ * @description Starts the level & color dropdowns on the player's Default start settings, once the levels & the game lists (which carry them) are in
+ * @param  {[object]} levelsLoaded [loadLevels() promise]
+ * @param  {[object]} homeDrawn [the first refreshHome() promise, it sets SETTINGS]
+ */
+async function useSettings(levelsLoaded, homeDrawn) {
+	await Promise.allSettled([levelsLoaded, homeDrawn]);
+	if (!SETTINGS) { return; } // NO ROW YET: THE DROPDOWNS KEEP THEIR DEFAULTS
+	aiLevelSelect.value = `${SETTINGS.ai_level}`;
+	aiColorSelect.value = SETTINGS.ai_color;
+	friendColorSelect.value = SETTINGS.friend_color;
 }
 
 /**
@@ -99,6 +114,7 @@ function refreshHome(firstLoad) {
 
 async function drawHome(firstLoad) {
 	const gameData = await getUserGameData(CHESS_URL, PLAYER_ID);
+	if (firstLoad) { SETTINGS = gameData?.settings || null; } // ONLY ON LOAD, A REDRAW DOESN'T UNDO A PICK
 	const friendGame = await openGame(gameData?.friend_game_id);
 	const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
 	listGames(gameData);

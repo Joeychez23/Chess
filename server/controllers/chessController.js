@@ -465,6 +465,8 @@ async function getUserGames(req, res) {
 		open_game_list: userData.open_game_list.map((game) => gameSummary(game, req.params.userId)), // YOUR GAMES: "vs AI // LEVEL 3 // YOU PLAY WHITE (RANDOM)"
 		sent_invite: userData.sent_invite ? inviteBody(userData.sent_invite) : null, // "INVITE SENT TO BOB // WAITING"
 		received_invites: userData.received_invites.map(inviteBody), // "BOB INVITED YOU", ACCEPT & DECLINE
+		settings: userSettings(userData), // THE SETTINGS PAGE'S DEFAULT START SETTINGS, HOME'S DROPDOWNS START ON THEM
+		games_finished: JSON.parse(userData.closed_games.S).length, // THE SETTINGS PAGE'S ACCOUNT BOX
 		message: response.message,
 	});
 }
@@ -516,6 +518,22 @@ async function dropInvite(gameId) {
 async function dropSentInvite(playerId) {
 	const invites = await userInvites(playerId);
 	if (invites.sent_invite) { await dropInvite(invites.sent_invite.game_id); }
+}
+
+/**
+ * @description Delete my data (the settings page): the player leaves every game before their user_db row goes. Their open friend game
+ * is forfeited (the friend wins & their board shows it), so is their open AI game, their sent invite is cancelled & the invites they got are declined
+ * @param  {[string]} playerId [auth0 user id without "auth0|"]
+ */
+async function leaveAllGames(playerId) {
+	const friendGame = await currentGame(playerId, false);
+	if (friendGame) { await forfeitFriendGame(friendGame, playerId); }
+	const aiGame = await currentGame(playerId, true);
+	if (aiGame) { await closeGame(aiGame, playerId == aiGame.white_player_id.S ? "b" : "w", "forfeit"); }
+
+	const invites = await userInvites(playerId);
+	if (invites.sent_invite) { await dropInvite(invites.sent_invite.game_id); }
+	for (let i = 0; i < invites.received_invites.length; i++) { await dropInvite(invites.received_invites[i].game_id); } // DECLINED
 }
 
 /**
@@ -597,6 +615,28 @@ function startParams(gameData) {
 	if (params.fen) { start.fen = params.fen; } // A SET POSITION (CHECKED WHEN THE FIRST GAME WAS MADE)
 	return start;
 }
+
+/**
+ * @description The settings a request saves (the settings page's Default start settings)
+ * @param  {[object]} body [req.body, { ai_level, ai_color, friend_color }]
+ * @return {[object]} settings [{ ai_level (1 - 8, anything else is the default level), ai_color, friend_color ("random" | "w" | "b", anything else is Random) }]
+ */
+function readSettings(body) {
+	return { ai_level: readLevel(body?.ai_level), ai_color: readColor(body?.ai_color), friend_color: readColor(body?.friend_color) };
+}
+
+/**
+ * @description A player's saved settings, Home's dropdowns start on them
+ * @param  {[object]} userData [user_db row]
+ * @return {[object]} settings [same as readSettings, a player who never saved any gets the defaults]
+ */
+function userSettings(userData) {
+	let saved = {};
+	try { saved = JSON.parse(userData?.settings?.S || "{}"); } catch { }
+	return readSettings(saved);
+}
+
+function readColor(value) { return value == "w" || value == "b" ? value : "random"; } // RANDOM IS THE DEFAULT
 
 /**
  * @description Picks the sides from the start settings. The host is the one whose color it is: the player vs the AI, or the friend game's inviter
@@ -721,4 +761,4 @@ function isAiGame(gameData) {
 }
 
 
-module.exports = { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames };
+module.exports = { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, leaveAllGames, readSettings, userPlayerId };
