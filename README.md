@@ -358,8 +358,9 @@ In order:
 `terraform/aws-enviroment` sets up:
 
 - **Server** (`modules/server`): the `EC2_Chess_DynamoDB` IAM role and
-  instance profile (made in the console, imported below), allowed only `GetItem`, `PutItem`, `UpdateItem` and `BatchGetItem`
-  on the two tables (the calls `server/dynamoDB.js` makes), and Route 53 `A`
+  instance profile (made in the console, imported below), allowed only `GetItem`, `PutItem`, `UpdateItem`,
+  `BatchGetItem` and `DeleteItem` (declined and cancelled invites) on the two
+  tables (the calls `server/dynamoDB.js` makes), and Route 53 `A`
   records for `chess` and `engine` pointing at the instance's Elastic IP
   (`server_ip` in `locals.tf`). The `engine` record was made in the console;
   `allow_overwrite` lets Terraform take it over.
