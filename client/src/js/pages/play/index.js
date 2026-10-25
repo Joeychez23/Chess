@@ -16,7 +16,7 @@ import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 const { renderCanvas, preloadImages } = require("../../gameplay/index.js");
 const { validate, newAiGame } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
-const { startNav, showTable } = require("../utils/index.js");
+const { startNav, showTable, showPage, startLoading, goToPage } = require("../utils/index.js");
 const { ObjectId } = require("bson");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
@@ -33,6 +33,8 @@ const gameId = decodeURIComponent(window.location.pathname.split("/")[2] || "");
 const sessionCheck = auth.getUser(); // STARTS CHECKING THE SESSION NOW INSTEAD OF AFTER THE PAGE LOADS
 
 preloadImages();
+setTimeout(showPage, 8000); // THE BOARD ISN'T DRAWN YET (SERVER DOWN, A LONG FIRST AI MOVE): SHOW THE PAGE ANYWAY, NOT HOME FROZEN ON SCREEN
+window.addEventListener("pageshow", function (e) { if (e.persisted) { window.location.reload(); } }); // BACK FROM HOME CAN SHOW THE GAME AS IT WAS LEFT (ITS RENDER LOOP STOPPED): LOAD IT AGAIN
 
 /* ---------------------------------------------------------------- */
 // Window Load
@@ -104,12 +106,13 @@ async function newGuestGame(gameId) {
  * The game never starts, so startNav() runs the menu button
  */
 function gameNotFound() {
+	showPage(); // NO BOARD TO WAIT FOR, SHOW THE MENU
 	showTable();
 	resultDisplay.innerHTML = "Game not found";
 	optResumeBtn.parentElement.style.display = "none";
 	optRestartBtn.parentElement.style.display = "none";
 	optExitBtn.innerHTML = "Logout";
-	optHomepageBtn.addEventListener("click", function () { window.location.href = "/"; });
+	optHomepageBtn.addEventListener("click", function () { startLoading(optHomepageBtn); goToPage("/"); }); // LOADING, THEN HOME (LIKE THE GAME'S HOME BUTTON)
 	optExitBtn.addEventListener("click", function () { auth.logout(); });
 	const toggleNav = startNav();
 	toggleNav(true); // OPEN, THE TITLE SAYS WHAT HAPPENED

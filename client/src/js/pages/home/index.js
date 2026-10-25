@@ -19,7 +19,7 @@ const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/index.js");
 const { watchGames } = require("../../socket/index.js");
-const { startNav, showCurrentGame, hideCurrentGame, loadLevels, colorText } = require("../utils/index.js");
+const { startNav, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
 
@@ -60,6 +60,7 @@ let homeDrawing = Promise.resolve(); // ONE REDRAW AT A TIME (refreshHome)
 
 startNav();
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
+startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
 muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE EMAIL FIELD
 cancelInviteBtn.addEventListener("click", handleCancelInvite);
@@ -70,7 +71,8 @@ startHome();
 // Start Home
 /* ---------------------------------------------------------------- */
 /**
- * @description Gets the player, then fills the AI levels, the boxes & the open games. The socket keeps Play a friend & Invites up to date
+ * @description Gets the player, then fills the AI levels, the boxes & the open games. The socket keeps Play a friend & Invites up to date.
+ * From a game (its Home button) the game stays on screen until all of it is drawn, then fades into it (showPageWhenDrawn)
  */
 async function startHome() {
 	const sessionUser = await sessionCheck;
@@ -78,9 +80,10 @@ async function startHome() {
 	PLAYER_ID = sessionUser.userId.split("auth0|")[1];
 	if (sessionUser.screenname) { welcome.innerText = `Welcome back, ${sessionUser.screenname}`; }
 	if (sessionUser.email) { signedInAs.innerText = `Signed in // ${sessionUser.email}`; }
-	loadLevels(CHESS_URL, aiLevelSelect);
-	refreshHome(true);
+	const levelsLoaded = loadLevels(CHESS_URL, aiLevelSelect);
+	const homeDrawn = refreshHome(true);
 	watchGames(refreshHome); // INVITES & FRIEND GAMES CHANGE WITHOUT A RELOAD
+	showPageWhenDrawn([levelsLoaded, homeDrawn]);
 }
 
 /**
@@ -95,10 +98,11 @@ function refreshHome(firstLoad) {
 async function drawHome(firstLoad) {
 	const gameData = await getUserGameData(CHESS_URL, PLAYER_ID);
 	const friendGame = await openGame(gameData?.friend_game_id);
-	if (firstLoad && gameData?.ai_game_id) { loadCurrentGame(gameData.ai_game_id); }
+	const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
 	listGames(gameData);
 	loadInvites(gameData);
 	await loadFriendBox(gameData, friendGame);
+	await currentGame; // HOME IS DRAWN ONCE IT'S IN TOO (showPageWhenDrawn)
 }
 
 /**
@@ -172,17 +176,17 @@ async function handleNewSoloGame(e) {
 		optNewSoloBtn.innerText = "Forfeit & start";
 		return soloNote.innerText = "This forfeits your current game. Press again to start a new one.";
 	}
-	optNewSoloBtn.disabled = true; // ONE GAME PER PRESS
+	startLoading(optNewSoloBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
 	soloNote.innerText = "";
 	let _id = new ObjectId();
 	const response = await newAiGame(CHESS_URL, `${_id}`, aiColorSelect.value, aiLevelSelect.value, confirmNewGame); // CREATE NEW GAME AT THE PICKED LEVEL & COLOR
 	if (response?.status == 409) { // AN AI GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
-		optNewSoloBtn.disabled = false;
+		stopLoading();
 		soloNote.innerText = "You already have an AI game open";
 		return loadCurrentGame(response.game_id);
 	}
-	if (response?.status != 200) { optNewSoloBtn.disabled = false; return console.log(response); }
-	window.location.href = `/play/${response.game_id}`;
+	if (response?.status != 200) { stopLoading(); return console.log(response); }
+	goToPage(`/play/${response.game_id}`); // ONCE THE IMAGES ARE IN
 }
 
 
@@ -315,10 +319,11 @@ async function handleAccept(e, gameId, acceptBtn) {
 		acceptBtn.innerText = "Forfeit & accept";
 		return inviteNote.innerText = `This forfeits your game vs ${FRIEND_NAME}, they win. Press again to accept.`;
 	}
-	acceptBtn.disabled = true; // ONE GAME PER PRESS
+	startLoading(acceptBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
 	inviteNote.innerText = "";
 	const response = await acceptInvite(CHESS_URL, gameId, confirmAccept == gameId);
-	if (response?.status == 200) { return window.location.href = `/play/${encodeURIComponent(gameId)}`; }
+	if (response?.status == 200) { return goToPage(`/play/${encodeURIComponent(gameId)}`); } // ONCE THE IMAGES ARE IN
+	stopLoading();
 	await refreshHome(); // THE INVITE OR THE OPEN GAME CHANGED SINCE
 	if (response?.status == 409) { inviteNote.innerText = "You already have a friend game open"; }
 	else if (response?.message == "They're in another game now") { inviteNote.innerText = "They're in another game now, the invite was removed"; }
