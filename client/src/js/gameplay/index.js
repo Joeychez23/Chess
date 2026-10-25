@@ -150,6 +150,7 @@ export async function renderCanvas(playerData) {
 	let slidePos; // SQUARE THE SLIDING PIECE IS CROSSING (trackSlidePosition)
 	let slideStart = false; // FIRST FRAME OF A SLIDE, A KNIGHT STOPS FOR 100MS BEFORE ITS HOP
 	let knightHop = 0; // HOW HIGH A HOPPING KNIGHT IS: 0 ON THE BOARD, 1 AT THE TOP (HALF A SQUARE UP), SET BY handleKnightHop()
+	let knightPause = false; // TRUE FOR THE 100MS A KNIGHT STOPS BEFORE ITS HOP (currSlide IS OFF), SO A FRAME DRAWN THEN STILL PUTS IT ON TOP
 	let menuToggled = false; // MENU IS OPEN
 	let mouseDownCount = 0; // FRAMES THE MOUSE HAS BEEN HELD ON A PIECE, MORE THAN 3 MAKES IT A DRAG
 	let opposingMove = false; // TRUE WHILE IT'S NOT THE PLAYER'S TURN, LOCKS THE BOARD
@@ -900,7 +901,8 @@ export async function renderCanvas(playerData) {
 		 * @description Renders game data based on input params. Goes through the board one square at a time (row by row,
 		 * index = row * 8 + column) & draws its piece: a held piece follows the mouse, a clicked piece sits lifted where it was
 		 * dropped, the rest sit on their square. Also draws the selected piece's legal moves, slides a moving piece toward its
-		 * new square & draws the pieces it passes behind again on top (drawSlideBox)
+		 * new square & draws the pieces it passes behind again on top (drawSlideBox). A hopping knight is drawn in the turn of the
+		 * square it's over (hopTurn), not its start square's
 		 * @param  {[number]} clickX [pixel x of the square under the mouse, from renderBoard()]
 		 * @param  {[number]} clickY [pixel y of the square under the mouse]
 		 * @param  {[boolean]} lightObstruction [true draws the reflections & shadows]
@@ -908,6 +910,19 @@ export async function renderCanvas(playerData) {
 		function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			let x, y; // WHERE THIS SQUARE'S PIECE IS DRAWN (PIXELS)
 			let index = 0; // TILE BEING DRAWN, COUNTS UP WITH THE LOOP (THE FUNCTIONS BELOW READ IT)
+
+			// A HOPPING KNIGHT IS DRAWN IN THE TURN OF THE SQUARE IT'S OVER, NOT ITS START SQUARE, SO ITS REFLECTION & SHADOW GO UNDER THE PIECES
+			// IN FRONT OF IT & OVER THE ONES BEHIND IT, LIKE A PIECE STANDING THERE (ITS IMAGE IS DRAWN AGAIN ON TOP AT THE END OF THE FRAME, drawSlideBox)
+			// !NOTE: IN ITS START SQUARE'S TURN IT PAINTED ITS SHADOW OVER THE PAWNS IT JUMPED (DRAWN BEFORE IT) UNTIL IT LANDED, SO THEY FLASHED
+			let hopTurn = null; // { index: THE KNIGHT'S TILE, square: TILE OF THE SQUARE IT'S OVER (row * 8 + column) }, null WHEN IT'S OVER ITS OWN
+			for (let q = 0; q < tiles.length; q++) {
+				if (tiles[q].isSliding && tiles[q].type == 'n' && (tiles[q].xDiff || tiles[q].yDiff)) {
+					const row = Math.min(Math.max(Math.round(tiles[q].y - tiles[q].yDiff / tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
+					const column = Math.min(Math.max(Math.round(tiles[q].x + tiles[q].xDiff / tileWidth), 0), 7);
+					if (row * 8 + column != q) { hopTurn = { index: q, square: row * 8 + column }; }
+					break;
+				}
+			}
 
 			/* ################################################################ */
 			// TV REMOTE SELECT BOX (TURNED OFF)
@@ -1352,8 +1367,9 @@ export async function renderCanvas(playerData) {
 											if (slideStart == true) { // FIRST FRAME: LIFT THE KNIGHT & PAUSE 100MS
 												ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset); // DRAW KNIGHT AS WITH STOP
 												currSlide = false; // SO THE TIMEOUT STOPS THE ANIMATION
+												knightPause = true; // THE END OF THE FRAME STILL DRAWS IT ON TOP (currSlide IS OFF NOW, IT WAS HELD UNDER THE PIECES IN FRONT FOR 100MS)
 												slideStart = false;
-												setTimeout(function () { currSlide = true; }, 100) // SO THE TIMEOUT RESTARTS THE ANIMATION
+												setTimeout(function () { currSlide = true; knightPause = false; }, 100) // SO THE TIMEOUT RESTARTS THE ANIMATION
 												slideStart = false;
 											} else {
 												if (completeSlide) { // LANDED: DRAW IT ON THE SQUARE & FINISH THE MOVE
@@ -1402,6 +1418,30 @@ export async function renderCanvas(playerData) {
 							if (((tiles[index]?.isMousedown || null || tiles[index]?.isClicked || null || tiles[index]?.isHovering || null) && opacity && !tiles[index]?.isSliding || null) || w == 0 || w == 1) { ctx.globalAlpha = 1 } // BACK TO SOLID FOR THE NEXT LAYER
 						}
 					}
+
+					/* ---------------------------------------------------------------- */
+					// Draw Hopping Knight
+					/* ---------------------------------------------------------------- */
+					/**
+					 * @description Draws the hopping knight in this square's turn, before this square's piece (it's over this square, hopTurn),
+					 * facing the way this move goes like Draw Knight (Draw Screen). index is the knight's tile while it draws (drawActivePiece reads it)
+					 */
+					function drawHoppingKnight() {
+						const squareIndex = index; // THIS SQUARE'S TILE
+						index = hopTurn.index;
+						let xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT CAME FROM (a = 0)
+						let xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT'S GOING TO
+						if (tiles[index].color == 'w') { // SAME FOR BOTH COLORS, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
+							handleKnightDirectionW(xFrom, xTo);
+							drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, false);
+						} else if (tiles[index].color == 'b') {
+							if (playerColor == 'b') { xFrom = 7 - xFrom; xTo = 7 - xTo; } // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
+							handleKnightDirectionB(xFrom, xTo);
+							drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, false);
+						}
+						index = squareIndex;
+					}
+					if (hopTurn && hopTurn.square == index) { drawHoppingKnight(); } // THE HOPPING KNIGHT IS OVER THIS SQUARE: UNDER THIS SQUARE'S PIECE & THE ONES AFTER IT
 
 					if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
 						tiles[index].originX = j; // THE PIECE'S OWN SQUARE (x, y FOLLOW THE MOUSE WHILE IT'S HELD)
@@ -1558,6 +1598,7 @@ export async function renderCanvas(playerData) {
 										let xTo; // FILE IT WENT TO
 										for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
 											if (tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
+												if (hopTurn) { break; } // OVER ANOTHER SQUARE: DRAWN IN THAT SQUARE'S TURN (drawHoppingKnight), STILL COUNTED BELOW
 												if (playerColor == 'w') {
 													xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
@@ -1595,6 +1636,7 @@ export async function renderCanvas(playerData) {
 										let xTo; // SCREEN COLUMN IT WENT TO
 										for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
 											if (tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
+												if (hopTurn) { break; } // OVER ANOTHER SQUARE: DRAWN IN THAT SQUARE'S TURN (drawHoppingKnight), STILL COUNTED BELOW
 												if (playerColor == 'w') {
 													xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
@@ -1916,7 +1958,7 @@ export async function renderCanvas(playerData) {
 				}
 			}
 
-			if ((currSlide || landedTile) && overlapSlideObj) { // A SLIDE IS PASSING OTHER PIECES (OR JUST LANDED): DRAW THE ONES IN FRONT OF IT AGAIN
+			if ((currSlide || landedTile || knightPause) && overlapSlideObj) { // A SLIDE IS PASSING OTHER PIECES (OR JUST LANDED, OR A KNIGHT'S 100MS STOP): DRAW THE ONES IN FRONT OF IT AGAIN
 				for (let q = 0; q < tiles.length; q++) { // SWAP EACH SQUARE NAME FOR THE TILE ON IT (SQUARES WITH NO PIECE STAY A NAME)
 					if (tiles[q].square == overlapSlideObj.y1x1 && tiles[q].type) { overlapSlideObj.y1x1 = tiles[q] }
 					else if (tiles[q].square == overlapSlideObj.y1x2 && tiles[q].type) { overlapSlideObj.y1x2 = tiles[q] }
@@ -3325,7 +3367,8 @@ export async function renderCanvas(playerData) {
 		/**
 		 * @description One frame of the slide home, the render loop calls it instead of drawScreen while restartSlide is set.
 		 * Draws the board, then every piece part of the way home on a slow start & landing, back to front so the lower pieces
-		 * cover the ones above them. Knights hop like a move & are drawn on top while they're in the air. When the time is up
+		 * cover the ones above them. Knights hop like a move, their image is drawn on top while they're in the air (their reflection & shadow
+		 * stay in order, under the pieces in front of them). When the time is up
 		 * the new game takes over (its first frame turns the pieces to their start, an AI move slides in after)
 		 */
 		function drawRestartSlide() {
@@ -3357,7 +3400,7 @@ export async function renderCanvas(playerData) {
 					alpha: piece.fade == 1 ? progress : piece.fade == -1 ? 1 - progress : 1 // FADES IN, FADES OUT OR SOLID
 				};
 			}
-			drawPieces.sort(function (a, b) { return ((a.hop > 0) - (b.hop > 0)) || (a.y - b.y); }); // BACK TO FRONT, KNIGHTS IN THE AIR LAST
+			drawPieces.sort(function (a, b) { return a.y - b.y; }); // BACK TO FRONT BY WHERE THEY ARE ON THE BOARD (A KNIGHT IN THE AIR BY THE SQUARE UNDER IT)
 
 			for (let i = 0; i < drawPieces.length; i++) {
 				const piece = drawPieces[i];
@@ -3367,8 +3410,14 @@ export async function renderCanvas(playerData) {
 				ctx.drawImage(images[piece.imgArr[0]].image, x - (tileWidth / 5) * piece.hop, y, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 				ctx.globalAlpha = 0.75 * piece.alpha;
 				ctx.drawImage(images[piece.imgArr[1]].image, x - (tileWidth / 5) * piece.hop, y, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
-				ctx.globalAlpha = piece.alpha; // PIECE, UP TO HALF A SQUARE UP WHILE A KNIGHT HOPS
-				ctx.drawImage(images[piece.imgArr[2]].image, x, y - (tileHeight / 2) * piece.hop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+				ctx.globalAlpha = piece.alpha;
+				if (piece.hop == 0) { ctx.drawImage(images[piece.imgArr[2]].image, x, y, tileWidth + xPieceOffset, tileHeight + yPieceOffset); } // PIECE (A KNIGHT IN THE AIR IS DRAWN BELOW)
+			}
+			for (let i = 0; i < drawPieces.length; i++) { // KNIGHTS IN THE AIR GO OVER EVERYTHING, UP TO HALF A SQUARE UP (ONLY THE IMAGE, LIKE drawSlideBox, THEIR SHADOWS STAYED IN ORDER ABOVE)
+				const piece = drawPieces[i];
+				if (piece.hop == 0) { continue; }
+				ctx.globalAlpha = piece.alpha;
+				ctx.drawImage(images[piece.imgArr[2]].image, piece.x * tileWidth + xBoardOff - xPieceOffset / 2, piece.y * tileHeight + yBoardOff - yPieceOffset / 2 - (tileHeight / 2) * piece.hop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 			}
 			ctx.globalAlpha = 0.05
 			ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
