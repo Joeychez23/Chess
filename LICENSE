@@ -1,0 +1,21 @@
+Copyright (c) 2026 Joe Sanchez. All rights reserved.
+
+This project, including the source code and documentation in this repository
+and the images and audio it loads, is proprietary.
+
+You may view the source code on GitHub, as allowed by GitHub's Terms of
+Service. No other rights are granted. Without prior written permission from the
+copyright holder, you may not use, copy, modify, merge, publish, distribute,
+sublicense or sell any part of this project, or run it as a service.
+
+Third-party software used by this project (for example chess.js,
+js-chess-engine, Express and Socket.IO) is covered by its own license.
+Stockfish is not included in this repository; see the Stockfish license section
+of README.md.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
