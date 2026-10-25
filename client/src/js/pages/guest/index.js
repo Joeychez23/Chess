@@ -77,7 +77,7 @@ async function handleNewGuestGame(e) {
 	const gameId = savedGameId() || `${new ObjectId()}`;
 	const response = await newAiGame(CHESS_URL, gameId, aiColorSelect.value, aiLevelSelect.value); // CREATE OR RESET THE GUEST'S GAME
 	if (response?.status != 200) { stopLoading(); return console.log(response); }
-	try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch (err) { } // NOT SAVED (PRIVATE MODE) -> THE PLAY PAGE MAKES ITS OWN GAME
+	try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch { } // NOT SAVED (PRIVATE MODE) -> THE PLAY PAGE MAKES ITS OWN GAME
 	goToPage("/play"); // ONCE THE IMAGES ARE IN
 }
 
@@ -86,5 +86,5 @@ async function handleNewGuestGame(e) {
  * @return {[string]} gameId [null when there's none or storage is blocked]
  */
 function savedGameId() {
-	try { return localStorage.getItem("GUEST_GAME_ID"); } catch (err) { return null; } // STORAGE BLOCKED (PRIVATE MODE)
+	try { return localStorage.getItem("GUEST_GAME_ID"); } catch { return null; } // STORAGE BLOCKED (PRIVATE MODE)
 }

@@ -8,12 +8,6 @@
  */
 
 /* ---------------------------------------------------------------- */
-// TOD0
-/* ---------------------------------------------------------------- */
-/**
- */
-
-/* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
 const { Chess } = require("chess.js"); // RULES, LEGAL MOVES & FEN (SAME VERSION AS THE SERVER)
@@ -120,8 +114,6 @@ export async function renderCanvas(playerData) {
 	let tileHeight; // HEIGHT OF ONE SQUARE
 	let tileX; // SCREEN COLUMN UNDER THE MOUSE (0 - 7 ON THE BOARD)
 	let tileY; // SCREEN ROW UNDER THE MOUSE (0 - 7 ON THE BOARD)
-	let clientX; // MOUSE X ON THE CANVAS
-	let clientY; // MOUSE Y ON THE CANVAS
 	let clickX; // PIXEL X OF tileX, A HELD PIECE IS DRAWN THERE
 	let clickY; // PIXEL Y OF tileY
 	let opponentColor; // 'w' OR 'b'
@@ -161,23 +153,13 @@ export async function renderCanvas(playerData) {
 	let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 	let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
 	let availableMoves; // LEGAL MOVES OF THE SELECTED PIECE (chess.js VERBOSE MOVES)
-	let initialAnimation = true; // START ANIMATION (renderBoardAnimation), NOT USED: renderLoop() SETS IT TO FALSE FIRST
-	// let initialRender = true;
 	let currInst; // 8 x 8 BOARD FROM chessInst.board(), FLIPPED WHEN PLAYING BLACK
 	let availableMovesData = { piece: null, square: null } // PIECE & SQUARE availableMoves IS FOR, SO THE MOVES ARE ONLY FOUND ONCE
 	let widthGreater; // WIDE SCREEN: TAKEN PIECES GO TO THE RIGHT OF THE BOARD
 	let portraitBoard = false; // TALL SCREEN (MOBILE)
 	let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
 	const frameRate = 1000 / 33; // MS BETWEEN FRAMES (ABOUT 33 A SECOND)
-	// const imagePaths = [];			// This will hold array of all loaded image resources
-	// const images = [];
-	// imagememory = 0;
-	// loadedImages = 0;
 	const moveAudio = new Audio(`${process.env.CHESS_ASSESTS_URL}/audio/piece-jump.mp4`); // MOVE SOUND
-
-	let startTime = new Date(); // WHEN THE LAST SLIDE STARTED
-	let endTime = new Date(); // WHEN THE LAST SLIDE FINISHED
-	let timeElapsed = endTime - startTime; // HOW LONG THE LAST SLIDE TOOK (MS)
 
 	canvas.style.backgroundRepeat = "repeat-y"; // THE TABLE BEHIND THE BOARD
 	canvas.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
@@ -351,12 +333,10 @@ export async function renderCanvas(playerData) {
 	// Check Image Loaded
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description If all images are loaded start game. Checks every 100ms (Home already loaded them, so they come from the browser cache),
-	 * then removes the loading screen (gameContainer)
+	 * @description If all images are loaded start game. Checks every 100ms (Home already loaded them, so they come from the browser cache)
 	 */
 	const startGameCheck = setInterval(async function () {
 		if (loadedImages == images.length) {
-			if (document.getElementById('gameContainer')) { document.getElementById('gameContainer').remove(); }
 			startGame();
 			clearInterval(startGameCheck);
 		}
@@ -370,7 +350,6 @@ export async function renderCanvas(playerData) {
 	 * to main & runs renderLoop() every frameRate ms. Every game function below lives in here
 	 */
 	async function startGame() {
-		let refreshDataStartTime = Date.now(); // LAST TIME THE OPPONENT'S MOVE WAS CHECKED (THE OLD POLLING, THE SOCKET PUSHES MOVES NOW)
 		let coffeeStartTime = Date.now(); // CLOCK OF THE COFFEE STEAM ANIMATION
 		let renderCoffeeImg = false; // THE SCREEN IS WIDE ENOUGH FOR THE TABLE PROPS
 
@@ -382,9 +361,6 @@ export async function renderCanvas(playerData) {
 
 		let xPos; // TAKEN PIECE TRAY COLUMN (renderTakenPieces)
 		let yPos; // TAKEN PIECE TRAY ROW
-
-		refreshDataStartTime = Date.now();
-		coffeeStartTime = Date.now();
 
 		let overlapSlideObj = null; // THE 3 x 3 SQUARES AROUND A SLIDING PIECE, SO THE PIECES IT PASSES BEHIND ARE DRAWN ON TOP (drawSlideBox)
 
@@ -422,52 +398,45 @@ export async function renderCanvas(playerData) {
 		 * otherwise it draws a frame when something changed (refresh) or a piece is sliding (currSlide)
 		 */
 		async function renderLoop() {
-			const endTime = Date.now(); // USED BY THE OLD POLLING CHECK AT THE BOTTOM
-			initialAnimation = false; // THE START ANIMATION IS OFF
 			if (restartSlide) { return drawRestartSlide(); } // RESTART & REMATCH: THE PIECES SLIDE HOME
 			if ((refresh || currSlide) && !boardReset) {
 				try {
-					if (initialAnimation) { renderBoardAnimation(currInst); refresh = true; }
-					else {
-						if (ai && chessInst.turn() != playerColor && aiTurn) { // IF AI
-							revert = response; // GO BACK TO THIS IF THE AI MOVE FAILS
-							clearInterval(drawInterval) // NO FRAMES WHILE THE SERVER PICKS THE MOVE
-							moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
+					if (ai && chessInst.turn() != playerColor && aiTurn) { // IF AI
+						revert = response; // GO BACK TO THIS IF THE AI MOVE FAILS
+						clearInterval(drawInterval) // NO FRAMES WHILE THE SERVER PICKS THE MOVE
+						moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
 
-							validateState.load(response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
-							validateState.move(moveObj);
-							for (let i = 0; i < tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
-								if (tiles[i].square == moveObj.from) {
-									slideStart = true;
-									tiles[i].isSliding = true;
-									if (playerColor == 'w') { // SCREEN COLUMN & ROW OF moveObj.to (a8 IS 0, 0)
-										tiles[i].xSlideTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-										tiles[i].ySlideTo = 8 - moveObj.to.split("")[1];
-									} else if (playerColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
-										tiles[i].xSlideTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
-										tiles[i].ySlideTo = moveObj.to.split("")[1] - 1;
-									}
-									tiles[i].xDiff = 0; // PIXELS MOVED SO FAR
-									tiles[i].yDiff = 0;
-								} else if (tiles[i].isSliding) { // STOP ANY OTHER SLIDE
-									tiles[i].isSliding = false;
-									tiles[i].xDiff = 0;
-									tiles[i].yDiff = 0;
+						validateState.load(response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
+						validateState.move(moveObj);
+						for (let i = 0; i < tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
+							if (tiles[i].square == moveObj.from) {
+								slideStart = true;
+								tiles[i].isSliding = true;
+								if (playerColor == 'w') { // SCREEN COLUMN & ROW OF moveObj.to (a8 IS 0, 0)
+									tiles[i].xSlideTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+									tiles[i].ySlideTo = 8 - moveObj.to.split("")[1];
+								} else if (playerColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
+									tiles[i].xSlideTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
+									tiles[i].ySlideTo = moveObj.to.split("")[1] - 1;
 								}
+								tiles[i].xDiff = 0; // PIXELS MOVED SO FAR
+								tiles[i].yDiff = 0;
+							} else if (tiles[i].isSliding) { // STOP ANY OTHER SLIDE
+								tiles[i].isSliding = false;
+								tiles[i].xDiff = 0;
+								tiles[i].yDiff = 0;
 							}
-							aiTurn = false;
-							currSlide = true;
-							startTime = new Date();
-							drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // FRAMES AGAIN, THE SLIDE PLAYS
-							return;
 						}
-						drawScreen(); // DRAW ONE FRAME
-						document.documentElement.classList.remove("loadingPage"); // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT
-						refresh = false;
+						aiTurn = false;
+						currSlide = true;
+						drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // FRAMES AGAIN, THE SLIDE PLAYS
+						return;
 					}
+					drawScreen(); // DRAW ONE FRAME
+					document.documentElement.classList.remove("loadingPage"); // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT
+					refresh = false;
 				} catch (err) { console.log(err); }
 			}
-			// if ((endTime - refreshDataStartTime > 2000) && !ai) { await checkOpponentMove(); } // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
 		}
 
 		let drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // THE RENDER LOOP, ABOUT 33 FRAMES A SECOND
@@ -481,192 +450,6 @@ export async function renderCanvas(playerData) {
 		/* ################################################################ */
 
 		/* ---------------------------------------------------------------- */
-		// Start Animation
-		/* ---------------------------------------------------------------- */
-		/**
-		 * @description Animates board from a position: every piece slides in from the top left corner to its square.
-		 * !NOTE: NOT USED, renderLoop() SETS initialAnimation TO FALSE BEFORE IT CHECKS IT
-		 * @param  {[array]} inst [8 x 8 board from chessInst.board(), flipped when playing black]
-		 */
-		function renderBoardAnimation(inst) {
-			renderBoard();
-			let index = 0;
-			let totalSlide = 0; // PIECES SLIDING IN
-			let completedSlide = 0; // PIECES THAT REACHED THEIR SQUARE
-			for (let i = 0; i < inst.length; i++) { // ROW
-				for (let j = 0; j < inst[i].length; j++, index++) { // COLUMN
-					tiles[index] = { ...inst[i][j], ...tiles[index], x: -1, y: -1 }; // TILE[INDEX] = DECONSTRUCTED ARRAY OF CHESS BOARD ROW/COLUMN, TILE[INDEX] INIT VALUES, X, Y
-					if (inst[i][j]) {
-						tiles[index].isSliding = true;
-						totalSlide += 1;
-						tiles[index].xSlideTo = j; // SLIDES FROM -1, -1 TO ITS SQUARE
-						tiles[index].ySlideTo = i;
-
-						/* ---------------------------------------------------------------- */
-						// Draw image
-						/* ---------------------------------------------------------------- */
-						/**
-						 * @description Draws active piece to canvas (start animation): reflection, shadow, then the piece, a step closer to its square each frame
-						 * @param  {[array]} imgArr [image numbers: reflection, shadow, piece]
-						 */
-						async function drawActivePiece(imgArr) {
-							for (let w = 0; w < imgArr.length; w++) {
-								if (w == 0) { ctx.globalAlpha = 0.30; } // REFLECTION
-								else if (w == 1) { ctx.globalAlpha = 0.75; } // SHADOW
-								else if (w == 2) { ctx.globalAlpha = 1; } // PIECE
-
-								if (tiles[index].isSliding) { // IF TILE IS SLIDING
-									const xChange = (frameRate / tileHeight) * 5; // PIXELS MOVED PER FRAME
-									const yChange = (frameRate / tileWidth) * 5;
-									let endTileX;
-									let endTileY;
-									let xBool = false;
-									let yBool = false;
-									// X
-									if (tiles[index].xSlideTo > tiles[index].x) { // X: Greater
-										endTileX = tiles[index].xSlideTo - tiles[index].x;
-										if (((tiles[index].x * tileWidth) + tiles[index].xDiff > ((tiles[index].x * tileWidth) + (tileWidth * endTileX)))) { xBool = true }
-										else {
-											tiles[index].xDiff = tiles[index].xDiff + xChange
-										}
-									} else if (tiles[index].xSlideTo < tiles[index].x) { // X: Less
-										endTileX = tiles[index].x - tiles[index].xSlideTo;
-										if (((tiles[index].x * tileWidth) + tiles[index].xDiff < ((tiles[index].x * tileWidth) - (tileWidth * endTileX)))) { xBool = true }
-										else { tiles[index].xDiff = tiles[index].xDiff - xChange }
-									} else { xBool = true } // X: Zero
-									// Y
-									if (tiles[index].ySlideTo > tiles[index].y) { // Y: Greater
-										endTileY = tiles[index].ySlideTo - tiles[index].y;
-										if (((tiles[index].y * tileHeight) - tiles[index].yDiff > ((tiles[index].y * tileHeight) + (tileHeight * endTileY)))) { yBool = true; }
-										else { tiles[index].yDiff = tiles[index].yDiff - yChange }
-									} else if (tiles[index].ySlideTo < tiles[index].y) { // Y: Less
-										endTileY = tiles[index].y - tiles[index].ySlideTo;
-										if (((tiles[index].y * tileHeight) - tiles[index].yDiff < ((tiles[index].y * tileHeight) - (tileHeight * endTileY)))) { yBool = true }
-										else { tiles[index].yDiff = tiles[index].yDiff + yChange }
-									} else { yBool = true } // Y: Zero
-									try {
-										if (xBool && yBool) { // ARRIVED: DRAW IT ON ITS SQUARE
-											tiles[index].isSliding = false;
-											ctx.drawImage(images[imgArr[w]].image, ((tiles[index].xSlideTo * tileWidth) + xBoardOff) - xPieceOffset / 2, ((tiles[index].ySlideTo * tileHeight) - yPieceOffset / 2) - ((tileHeight / 10) - yBoardOff), tileWidth + xPieceOffset, tileHeight + yPieceOffset);
-											completedSlide += 1;
-										} else { ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, ((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset); }
-									} catch (err) { return; }
-								} else {
-									ctx.drawImage(images[imgArr[w]].image, ((tiles[index].xSlideTo * tileWidth) + xBoardOff) - xPieceOffset / 2, ((tiles[index].ySlideTo * tileHeight) - yPieceOffset / 2) - ((tileHeight / 10) - yBoardOff), tileWidth + xPieceOffset, tileHeight + yPieceOffset)
-								} // DRAWING IMAGE WITH SLIDING FALSE
-							}
-						}
-
-						if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
-							tiles[index].originX = j;
-							tiles[index].originY = i;
-							const pieceType = inst[i][j].type;
-							const pieceColor = inst[i][j].color;
-							if (!currPromotion) {
-								if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-									if (pieceColor == "w") { drawActivePiece([wFrontKingRefl, wFrontKingShdw, wFrontKingImg]); }
-									else if (pieceColor == "b") { drawActivePiece([bFrontKingRefl, bFrontKingShdw, bFrontKingImg]); }
-								} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-									if (pieceColor == "w") { drawActivePiece([wFrontQueenRefl, wFrontQueenShdw, wFrontQueenImg]); }
-									else if (pieceColor == "b") { drawActivePiece([bFrontQueenRefl, bFrontQueenShdw, bFrontQueenImg]); }
-								} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
-									if (pieceColor == "w") {
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wFrontBishopRefl, wFrontBishopShdw, wFrontBishopWhiteSqImg]); }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wFrontBishopRefl, wFrontBishopShdw, wFrontBishopBlackSqImg]); }
-									} else if (pieceColor == "b") {
-										if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bFrontBishopRefl, bFrontBishopShdw, bFrontBishopWhiteSqImg]); }
-										else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bFrontBishopRefl, bFrontBishopShdw, bFrontBishopBlackSqImg]); }
-									}
-								} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
-									/* ---------------------------------------------------------------- */
-									// Draw Knight (Board Animation)
-									/* ---------------------------------------------------------------- */
-									/**
-									 * @description Draws the knight to the board (start animation), same as Draw Knight (Draw Screen) below
-									 */
-									function drawKnight() {
-										if (pieceColor == 'w') {
-											if (tiles[index].isMousedown) {
-												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg]); }
-												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg]); }
-												else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg]); }
-											} else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg]); }
-										} else if (pieceColor == 'b') {
-											if (tiles[index].isMousedown) {
-												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg]); }
-												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg]); }
-												else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg]); }
-											} else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg]); }
-										}
-									}
-									if (pieceColor == "w") { // WHITE KNIGHT
-										let xFrom;
-										let xTo;
-										for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
-											if (JSON.parse(response.w_knight)[n].from && (JSON.parse(response.w_knight)[n].to == tiles[index].square)) {
-												if (playerColor == 'w') {
-													xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-												} else if (playerColor == 'b') {
-													xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-												}
-												handleKnightDirectionW(xFrom, xTo);
-												drawKnight();
-												break;
-											} else if (JSON.parse(response.w_knight)[n].from == null && JSON.parse(response.w_knight)[n].to) {
-												if (playerColor == 'w') {
-													if (JSON.parse(response.w_knight)[n].to == 'b1' && tiles[index].square == 'b1') { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
-													else if (JSON.parse(response.w_knight)[n].to == tiles[index].square) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
-												} else if (playerColor == 'b') {
-													if (JSON.parse(response.w_knight)[n].to == 'b1' && tiles[index].square == 'b1') { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
-													else if (JSON.parse(response.w_knight)[n].to == tiles[index].square) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
-												}
-											}
-										}
-									} else if (pieceColor == "b") { // BLACK KNIGHT
-										let xFrom;
-										let xTo;
-										for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
-											if (JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == tiles[index].square) {
-												if (playerColor == 'w') {
-													xFrom = JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-												} else if (playerColor == 'b') {
-													xFrom = 8 - (JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
-													xTo = 8 - (JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
-												}
-												handleKnightDirectionB(xFrom, xTo);
-												drawKnight();
-												break;
-											} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) {
-												if (playerColor == 'w') {
-													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
-													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
-												} else if (playerColor == 'b') {
-													if (JSON.parse(response.b_knight)[n].to == 'b8' && tiles[index].square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
-													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
-												}
-											}
-										}
-									}
-								} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-									if (pieceColor == "w") { drawActivePiece([wFrontRookRefl, wFrontRookShdw, wFrontRookImg]); wPieceCount.rook++; }
-									else if (pieceColor == "b") { drawActivePiece([bFrontRookRefl, bFrontRookShdw, bFrontRookImg]); bPieceCount.rook++; }
-								} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
-									if (pieceColor == "w") { drawActivePiece([wFrontPawnRefl, wFrontPawnShdw, wFrontPawnImg]); }
-									else if (pieceColor == "b") { drawActivePiece([bFrontPawnRefl, bFrontPawnShdw, bFrontPawnImg]); }
-								}
-							}
-						}
-					}
-				}
-			}
-			if (completedSlide == totalSlide) { initialAnimation = false; tiles = setTiles(); } // EVERY PIECE ARRIVED, THE ANIMATION IS DONE
-		}
-
-
-		/* ---------------------------------------------------------------- */
 		// Set Initial Board Data
 		/* ---------------------------------------------------------------- */
 		/**
@@ -675,9 +458,7 @@ export async function renderCanvas(playerData) {
 		 * @return {[boolean]} false [the game couldn't be loaded]
 		 */
 		async function setInitialData() {
-			if (PLAYER_ID == "GUEST_USER") { // OLD GUEST ID: ALWAYS A NEW GAME, THE GUEST IS WHITE ('b' = THE AI'S COLOR)
-				await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, 'b');
-			} else if (PLAYER_ID === GAME_ID && PLAYER_ID && GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
+			if (PLAYER_ID === GAME_ID && PLAYER_ID && GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
 				response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false);
 				if (!response?.game_board) { response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, 'b'); } // NO GAME YET: NEW GAME VS THE AI
 			}
@@ -842,7 +623,7 @@ export async function renderCanvas(playerData) {
 
 			bw = (boardWidth - (boardWidth * (images[boardImg].image.naturalWidth - images[rawBoardImg].image.naturalWidth) / images[boardImg].image.naturalWidth)) // THE WIDTH OF THE CHESS BOARD NO MARBLE
 			bh = (boardHeight - (boardHeight * (images[boardImg].image.naturalHeight - images[rawBoardImg].image.naturalHeight) / images[boardImg].image.naturalHeight)) // THE HEIGHT OF THE CHESS BOARD NO MARBLE
-			xBoardOff = ((cw - (bw * xBoardShadowRatio)) / 2) //* xBoardShadowRatio; // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS X
+			xBoardOff = ((cw - (bw * xBoardShadowRatio)) / 2); // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS X
 			yBoardOff = (ch - bh) / 2; // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS Y
 			tileWidth = bw / 8;
 			tileHeight = bh / 8;
@@ -873,7 +654,6 @@ export async function renderCanvas(playerData) {
 				// candleObj.x = (xBoardStart - (candleObj.width + (tileWidth * .75)));
 				candleObj.y = (yBoardStart);
 				if (smBoard) { // Small Board
-					boardPadding = 1.4;
 					coffeeObj.height = 0;
 					coffeeObj.width = 0;
 					deckObj.height = 0;
@@ -1146,12 +926,6 @@ export async function renderCanvas(playerData) {
 					if (!currPromotion && !opposingMove) { checkAvailableMoves() } // ONLY ON THE PLAYER'S TURN
 
 
-					// /* ---------------------------------------------------------------- */
-					// // Draw image
-					// /* ---------------------------------------------------------------- */
-					// /**
-					//  * @description Draws active piece to canvas
-					//  */
 					/**
 					 * @description Draws active piece to canvas: the reflection (30%), shadow (75%) & piece, in that order. Held, clicked
 					 * & hovered pieces are a little see through. A sliding piece moves a step toward its new square each frame & when it
@@ -1173,12 +947,6 @@ export async function renderCanvas(playerData) {
 								// IF Y IS POSITIVE ITS OVER THE UNDER PIECE
 								let slideOverlap = true;
 
-								// /* ---------------------------------------------------------------- */
-								// // Track Slide Position
-								// /* ---------------------------------------------------------------- */
-								// /**
-								//  * @description Tracks the position of the piece that's sliding which allows for a rerender once all the pieces are rendered to the board
-								//  */
 								/**
 								 * @description Tracks the position of the piece that's sliding which allows for a rerender once all the pieces are rendered
 								 * to the board. Sets slidePos (the square it's crossing, in white's file letters) & its direction (xPositive = right,
@@ -1195,10 +963,8 @@ export async function renderCanvas(playerData) {
 									} else if (tiles[index].xSlideTo > tiles[index].x) {
 										xPositive = true;
 										// X IS GOING TO THE RIGHT
-										// console.log("X RIGHT")
 										if (tiles[index].ySlideTo > tiles[index].y) {
 											// Y GOING DOWN THE BOARD
-											// console.log("Y DOWN")
 											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight);
 											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth);
 											xChange = tiles[index].x + xTilesMoved;
@@ -1208,7 +974,6 @@ export async function renderCanvas(playerData) {
 											yPositive = true;
 										} else if (tiles[index].ySlideTo < tiles[index].y) {
 											// Y GOING UP THE BOARD
-											//console.log("Y UP")
 											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE (339.99 OF 340)
 											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth + 0.001);
 											xChange = tiles[index].x + xTilesMoved; // THE SQUARE IT'S LEAVING, LIKE UP TO LEFT (WAS + 1 / - 1, THE SQUARE IT'S ENTERING,
@@ -1218,10 +983,8 @@ export async function renderCanvas(playerData) {
 										} else { slideOverlap = false; }
 									} else if ((tiles[index].xSlideTo < tiles[index].x)) {
 										// X IS GOING TO THE LEFT
-										// console.log("X LEFT")
 										if (tiles[index].ySlideTo > tiles[index].y) {
 											// Y GOING DOWN THE BOARD
-											// console.log("Y DOWN")
 											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight);
 											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth);
 											xChange = tiles[index].x + xTilesMoved;
@@ -1231,7 +994,6 @@ export async function renderCanvas(playerData) {
 											yPositive = true;
 										} else if (tiles[index].ySlideTo < tiles[index].y) {
 											// Y GOING UP THE BOARD
-											// console.log("Y UP")
 											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE
 											let xTilesMoved = Math.ceil(tiles[index].xDiff / tileWidth - 0.001); // CEIL: ON A SQUARE (FIRST & LANDING FRAME) IT'S THAT SQUARE, NOT THE ONE TO ITS RIGHT
 											xChange = tiles[index].x + xTilesMoved;
@@ -1370,7 +1132,6 @@ export async function renderCanvas(playerData) {
 												knightPause = true; // THE END OF THE FRAME STILL DRAWS IT ON TOP (currSlide IS OFF NOW, IT WAS HELD UNDER THE PIECES IN FRONT FOR 100MS)
 												slideStart = false;
 												setTimeout(function () { currSlide = true; knightPause = false; }, 100) // SO THE TIMEOUT RESTARTS THE ANIMATION
-												slideStart = false;
 											} else {
 												if (completeSlide) { // LANDED: DRAW IT ON THE SQUARE & FINISH THE MOVE
 													tiles[index].isSliding = null;
@@ -1396,7 +1157,6 @@ export async function renderCanvas(playerData) {
 											if (completeSlide) { // ARRIVED: FINISH THE MOVE
 												tiles[index].isSliding = null;
 												if (tiles[index].color == playerColor) {
-													setTimeout(function () { })
 													await updateUserStateSlide(index); // SENDS THE PLAYER'S MOVE
 												}
 												else if (tiles[index].color == opponentColor) {
@@ -1406,7 +1166,7 @@ export async function renderCanvas(playerData) {
 										}
 									}
 
-								} catch (err) { return; }
+								} catch { return; }
 							}
 							else {
 								if ((w == 0 || w == 1) && lightObstruction) {
@@ -2205,7 +1965,6 @@ export async function renderCanvas(playerData) {
 		 */
 		async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
 			try {
-				refreshDataStartTime = Date.now();
 				revert = response
 				const updatedResponse = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false); // GET THE GAME
 				if (updatedResponse.game_board != revert.game_board && opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
@@ -2249,7 +2008,7 @@ export async function renderCanvas(playerData) {
 					currSlide = true;
 					refresh = true;
 				}
-			} catch (err) { console.log(err); refreshDataStartTime = Date.now(); }
+			} catch (err) { console.log(err); }
 		}
 
 		/* ---------------------------------------------------------------- */
@@ -2281,9 +2040,6 @@ export async function renderCanvas(playerData) {
 		 */
 		async function validateMove() {
 			try {
-				endTime = new Date();
-				timeElapsed = endTime - startTime;
-
 				moveAudio.load();
 				moveAudio.play().catch((err) => { console.log(err) });
 				revert = { ...response }; // GO BACK TO THIS IF THE SERVER SAYS NO (A COPY, THE LISTS BELOW CHANGE response)
@@ -2389,9 +2145,6 @@ export async function renderCanvas(playerData) {
 		 */
 		async function updateOpponentStateSlide(index) {
 			try {
-				endTime = new Date();
-				timeElapsed = endTime - startTime;
-
 				moveAudio.load();
 				moveAudio.play().catch((err) => { console.log(err) });
 				tiles[index].xSlideTo = 0;
@@ -2499,7 +2252,6 @@ export async function renderCanvas(playerData) {
 				currSlide = false;
 				slideStart = false;
 				refresh = true;
-				availableMoves;
 				availableMovesData = { piece: null, square: null }
 				menuToggled = false;
 				
@@ -2736,12 +2488,12 @@ export async function renderCanvas(playerData) {
 		 * @description Redraws the game at the new window size (renderBoard() resizes everything from the window)
 		 */
 		window.addEventListener("resize", handleWindowResize);
-		function handleWindowResize(e) {
+		function handleWindowResize() {
 			if (boardReset) { return; } // LOADING: THE OLD BOARD STAYS, SLIDING HOME: drawRestartSlide() DRAWS THE NEW SIZE NEXT FRAME
 			refresh = true;
 			try {
-				if (initialAnimation) { renderBoardAnimation(currInst); }
-				else { drawScreen(); refresh = false; }
+				drawScreen();
+				refresh = false;
 			} catch (err) { console.log(err); }
 		};
 
@@ -2831,12 +2583,6 @@ export async function renderCanvas(playerData) {
 						remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false }
 					}
 				}
-				// if (e.keyCode == 10009) { // BACK
-				if (e.keyCode == 49) { // BACK ("1" KEY STANDS IN FOR THE REMOTE'S BACK BUTTON, NOTHING YET)
-				}
-				// if (e.keyCode == 10182) { // EXIT
-				if (e.keyCode == 50) { // EXIT ("2" KEY STANDS IN FOR THE REMOTE'S EXIT BUTTON, NOTHING YET)
-				}
 				refresh = true
 			}
 		}
@@ -2868,8 +2614,6 @@ export async function renderCanvas(playerData) {
 			e.preventDefault();
 			e.stopPropagation();
 			const point = getCanvasPoint(e);
-			clientX = point.x;
-			clientY = point.y;
 			tileX = Math.floor((point.x - xBoardOff) / tileWidth); // SCREEN COLUMN CLICKED
 			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // SCREEN ROW CLICKED
 
@@ -2955,8 +2699,6 @@ export async function renderCanvas(playerData) {
 							opposingMove = true;
 							refresh = true;
 
-							startTime = new Date();
-
 							return;
 						} catch (err) { console.log(err); clickedTile = false; opposingMove = false; return refreshData(revert); }
 					}
@@ -2978,11 +2720,8 @@ export async function renderCanvas(playerData) {
 			e.stopPropagation();
 			// IF PIECE IS CLICK TO BE MOVED MOUSE POSITION
 			const point = getCanvasPoint(e);
-			clientX = point.x
-			clientY = point.y
 			tileX = Math.floor((point.x - xBoardOff) / tileWidth); // SCREEN COLUMN (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
 			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // SCREEN ROW
-			// remoteNavBox.isClicked = false;
 			if (!((tileX < 0 || tileX > 7) && (tileY < 0 || tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
 				if (currPromotion) { // HOVER THE PICKER
 					let takenPieces
@@ -2999,7 +2738,7 @@ export async function renderCanvas(playerData) {
 						let tile = tiles[i];
 						tile.isHovering =
 							(!tile.isSliding) &&
-							(tile.x === tileX && tile.y === tileY) && //|| (remoteNavBox.x == tile.originX && remoteNavBox.y == tile.originY)) && 
+							(tile.x === tileX && tile.y === tileY) &&
 							((tile.color == playerColor || !tile.color) || tile.isMousedown) &&
 							(!opposingMove && !menuToggled)
 						if (tile.isHovering || tile.isClicked) { refresh = true; offBoardRefresh = true; }
@@ -3144,7 +2883,7 @@ export async function renderCanvas(playerData) {
 			handleCanvasClick(point);
 		}
 
-		function handleTouchCancel(e) { // THE BROWSER TOOK THE TOUCH (A SYSTEM GESTURE): LET GO WITHOUT A CLICK
+		function handleTouchCancel() { // THE BROWSER TOOK THE TOUCH (A SYSTEM GESTURE): LET GO WITHOUT A CLICK
 			if (!touchState) { return; }
 			handleMouseUp(touchState.point);
 			touchState = null;
@@ -3205,7 +2944,6 @@ export async function renderCanvas(playerData) {
 			setRestartLoading(0.15); // "Loading" & THE FILL
 			const restartResponse = await restartGame(GAME_URL, GAME_ID); // FORFEITS IF STILL GOING, THEN A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
 			if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME (THE MENU STAYS OPEN)
-				// console.log(restartResponse);
 				boardReset = false;
 				setRestartLoading(false);
 				optBtn.style.display = "flex";

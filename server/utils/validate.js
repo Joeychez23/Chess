@@ -169,13 +169,13 @@ async function validateMove(playerData, gameData) {
 					message: "Invalid piece movement"
 				}
 			}
-		} catch (err) {
+		} catch {
 			return {
 				status: 500,
 				message: "Invalid piece movement"
 			}
 		}
-	} catch (err) {
+	} catch {
 		return {
 			status: 500,
 			message: "Invalid board, corrupted data"

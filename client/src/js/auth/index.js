@@ -13,8 +13,6 @@ export class InternalAuth {
 		this.userData = null;
 	}
 
-	initialize() { console.log("Internal Auth Init") }
-
 	/* ---------------------------------------------------------------- */
 	// Login
 	/* ---------------------------------------------------------------- */
@@ -47,10 +45,6 @@ export class InternalAuth {
 			this.userData = {
 				userId: response.userData.user_id,
 				screenname: response.userData.user_metadata?.screenname || '',
-				siteSlug: "demo",
-				signedIn: true,
-				action: "user",
-				gameReturnKey: "TEST_KEY",
 				email: response.userData.email,
 				emailVerified: response.userData.email_verified,
 				firstName: response.userData.user_metadata?.first_name,
@@ -78,5 +72,5 @@ export class InternalAuth {
 async function request(url, method) {
 	try {
 		return await fetch(url, { method, credentials: "same-origin" }).then(res => res.json());
-	} catch (err) { return null; }
+	} catch { return null; }
 }
