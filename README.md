@@ -163,7 +163,7 @@ data.
 
 | File | What it covers |
 | --- | --- |
-| `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks |
+| `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks. The client and the server pin the same `chess.js` version |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
 | `dynamoDB.test.js` | The conditional writes: two moves at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
@@ -284,8 +284,9 @@ move. Threefold repetition isn't detected, because only the board (FEN) is
 stored and the client works from the FEN too.
 
 The move rules (`server/utils/validate.js`) are a copy of the lambda's
-`validate/validate.js`. `chess.js` is pinned to the client's version
-(`1.0.0-beta.6`) so the browser and the server agree on what's legal.
+`validate/validate.js`. Both `package.json` files pin `chess.js` to the same exact
+version (`1.4.0`, also what the engine uses) so the browser and the server agree
+on what's legal; a test fails if they differ.
 
 ### AI levels
 

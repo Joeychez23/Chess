@@ -15,7 +15,7 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1153.0",
     "bson": "^6.10.4",
-    "chess.js": "1.0.0-beta.6",
+    "chess.js": "1.4.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",

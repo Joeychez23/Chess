@@ -24,8 +24,8 @@ async function validateMove(playerData, gameData) {
 	try {
 		const Module_chess = new Chess(gameData.game_board.S);
 		try {
-			if (gameData.white_player_id.S == playerData.player_id && Module_chess.turn() == "w" && Module_chess.get(playerData.move[0]).color == 'w') { // WHITE PLAYER MOVE CONDITIONS
-				const takenPiece = Module_chess.get(playerData.move[1]); // CHECKED BEFORE THE MOVE SO A PROMOTION THAT TAKES A KNIGHT CLEARS IT TOO
+			if (gameData.white_player_id.S == playerData.player_id && Module_chess.turn() == "w" && Module_chess.get(playerData.move[0])?.color == 'w') { // WHITE PLAYER MOVE CONDITIONS
+				const takenPiece = Module_chess.get(playerData.move[1]) || {}; // CHECKED BEFORE THE MOVE SO A PROMOTION THAT TAKES A KNIGHT CLEARS IT TOO, {} = EMPTY SQUARE (chess.js GIVES undefined)
 				if (takenPiece.type == 'n' && takenPiece.color == 'b') {
 					for (let n = 0; n < JSON.parse(gameData.b_knight.S).length; n++) {
 						if (JSON.parse(gameData.b_knight.S)[n].to == playerData.move[1]) {
@@ -94,8 +94,8 @@ async function validateMove(playerData, gameData) {
 					message: "Validated piece movement"
 				}
 
-			} else if (gameData.black_player_id.S == playerData.player_id && Module_chess.turn() == "b" && Module_chess.get(playerData.move[0]).color == 'b') { // BLACK PLAYER MOVE CONDITIONS
-				const takenPiece = Module_chess.get(playerData.move[1]); // CHECKED BEFORE THE MOVE SO A PROMOTION THAT TAKES A KNIGHT CLEARS IT TOO
+			} else if (gameData.black_player_id.S == playerData.player_id && Module_chess.turn() == "b" && Module_chess.get(playerData.move[0])?.color == 'b') { // BLACK PLAYER MOVE CONDITIONS
+				const takenPiece = Module_chess.get(playerData.move[1]) || {}; // CHECKED BEFORE THE MOVE SO A PROMOTION THAT TAKES A KNIGHT CLEARS IT TOO, {} = EMPTY SQUARE (chess.js GIVES undefined)
 				if (takenPiece.type == 'n' && takenPiece.color == 'w') {
 					for (let n = 0; n < JSON.parse(gameData.w_knight.S).length; n++) {
 						if (JSON.parse(gameData.w_knight.S)[n].to == playerData.move[1]) {
@@ -198,7 +198,7 @@ function gameResult(fen) {
 	if (Module_chess.isCheckmate()) { return { winner: Module_chess.turn() == "w" ? "b" : "w", reason: "checkmate" }; } // THE SIDE TO MOVE IS MATED
 	if (Module_chess.isStalemate()) { return { winner: "draw", reason: "stalemate" }; }
 	if (Module_chess.isInsufficientMaterial()) { return { winner: "draw", reason: "insufficient material" }; }
-	if (Module_chess.isDraw()) { return { winner: "draw", reason: "fifty-move rule" }; }
+	if (Module_chess.isDrawByFiftyMoves()) { return { winner: "draw", reason: "fifty-move rule" }; }
 	return null;
 }
 
