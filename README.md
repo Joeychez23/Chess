@@ -112,7 +112,9 @@ bucket under `images/` and `audio/`, and CloudFront serves them at
 `https://assets.chess.aws-prac-route53.com`. Every sprite, the move sound, the
 table background, and the favicon start with `CHESS_ASSESTS_URL`, e.g.
 `${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`. The homepage's picture of the board is
-`images/home/board.webp` (rendered with the `preview` job in `images/_ideas/generator`, no props). So with the
+`images/home/board.webp` (rendered with the `preview` job in `images/_ideas/generator`, no props). The favicon is
+the white bishop, `images/icon/bishop-32.png` and `bishop-192.png`, plus `bishop-180.png` on the baize green for
+the iOS home screen (all three from the `icon` job). So with the
 CloudFront URL set the browser downloads them from CloudFront, not from this
 server. To use local copies instead, put them back in `client/src/`, set
 `CHESS_ASSESTS_URL=.`, and turn on the `CopyWebpackPlugin` block in
