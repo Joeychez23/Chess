@@ -42,29 +42,39 @@
 		<section class="boxes" aria-label="Games">
 			<div class="box boxBaize" id="soloBox">
 				<div class="boxHead"><h2 class="label">Play the AI</h2><span class="spec">No. 01</span></div>
-				<p class="boxText">Eight levels, from about 750 Elo up to full-strength Stockfish. You get a random color.</p>
+				<p class="boxText">Eight levels, from about 750 Elo up to full-strength Stockfish. Pick a level and a color, Restart keeps both.</p>
 				<figure class="boardPicture" hidden>
 					<canvas role="img" aria-label="The board of your current AI game"></canvas>
 					<figcaption class="spec"></figcaption>
 				</figure>
 				<a class="btn btnCream continueGame" href="/" hidden>Continue current game</a>
-				<div class="field boxBottom">
+				<div class="field fieldStack boxBottom">
 					<select id="aiLevel" aria-label="AI level"></select>
+					<select id="aiColor" aria-label="Your color">
+						<option value="random" selected>Random color</option>
+						<option value="w">Play white</option>
+						<option value="b">Play black</option>
+					</select>
 					<button class="btn btnCream" id="optNewSolo" type="button">Play AI</button>
 				</div>
 				<p class="spec note" id="soloNote" role="status"></p>
 			</div>
 			<div class="box boxWalnut" id="friendBox">
 				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>
-				<p class="boxText">Invite them by the email they sign in with. Once they accept, each move shows up on both boards.</p>
+				<p class="boxText">Invite them by the email they sign in with and pick your color, the invite shows it. Once they accept, each move shows up on both boards.</p>
 				<figure class="boardPicture" hidden>
 					<canvas role="img" aria-label="The board of your current friend game"></canvas>
 					<figcaption class="spec"></figcaption>
 				</figure>
 				<a class="btn btnCream continueGame" href="/" hidden>Continue current game</a>
 				<form id="muliplayerForm" class="boxBottom">
-					<div class="field">
+					<div class="field fieldStack">
 						<input type="email" inputmode="email" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Their email" aria-label="Friend's email">
+						<select id="friendColor" aria-label="Your color">
+							<option value="random" selected>Random color</option>
+							<option value="w">Play white</option>
+							<option value="b">Play black</option>
+						</select>
 						<button class="btn btnCream" id="enterMultiSubmit" type="submit">Invite</button>
 					</div>
 					<p class="spec note" id="multiNote" role="status"></p>

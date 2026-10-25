@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Home Page (/, signed in)
- *	Four boxes: Play the AI (at a level), Play a friend (by email), Invites (sent & received) & the player's open games.
+ *	Four boxes: Play the AI (at a level & color), Play a friend (by email, with your color), Invites (sent & received) & the player's open games.
  *	A player has one AI game & one friend game open at a time: each box shows its game's board & Continue current game,
  *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites,
  *	the socket redraws Play a friend & Invites when one changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
@@ -16,10 +16,10 @@ import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
 const { ObjectId } = require("bson");
 const { InternalAuth } = require("../../auth/index.js");
-const { validate, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite, getLevels } = require("../../gameplay/validate/index.js");
+const { validate, newAiGame, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/index.js");
 const { watchGames } = require("../../socket/index.js");
-const { startNav, showCurrentGame, hideCurrentGame } = require("../utils/index.js");
+const { startNav, showCurrentGame, hideCurrentGame, loadLevels, colorText } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
 
@@ -27,12 +27,14 @@ const signedInAs = document.getElementById("signedInAs"); // "SIGNED IN // EMAIL
 const welcome = document.getElementById("welcome"); // "WELCOME BACK, SCREENNAME"
 const soloBox = document.getElementById("soloBox"); // PLAY THE AI
 const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY THE AI: PLAY AI, OR NEW GAME WHILE AN AI GAME IS OPEN
-const aiLevelSelect = document.getElementById("aiLevel"); // NEXT TO PLAY AI, FILLED FROM THE SERVER'S LEVELS
+const aiLevelSelect = document.getElementById("aiLevel"); // ABOVE PLAY AI, FILLED FROM THE SERVER'S LEVELS
+const aiColorSelect = document.getElementById("aiColor"); // RANDOM, WHITE OR BLACK, RESTART KEEPS IT
 const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEITS YOUR CURRENT GAME"
 const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND
 const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: EMAIL & INVITE
 const multiEmailInput = document.getElementById("enterMultiEmail");
 const multiEmailBtn = document.getElementById("enterMultiSubmit");
+const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
 const multiNote = document.getElementById("multiNote"); // WHY AN INVITE DIDN'T GO THROUGH, INVITE'S FORFEIT WARNING
 const noInvites = document.getElementById("noInvites"); // INVITES: "NO INVITES RIGHT NOW"
 const inviteList = document.getElementById("inviteList"); // "BOB INVITED YOU", ACCEPT & DECLINE
@@ -76,7 +78,7 @@ async function startHome() {
 	PLAYER_ID = sessionUser.userId.split("auth0|")[1];
 	if (sessionUser.screenname) { welcome.innerText = `Welcome back, ${sessionUser.screenname}`; }
 	if (sessionUser.email) { signedInAs.innerText = `Signed in // ${sessionUser.email}`; }
-	loadLevels();
+	loadLevels(CHESS_URL, aiLevelSelect);
 	refreshHome(true);
 	watchGames(refreshHome); // INVITES & FRIEND GAMES CHANGE WITHOUT A RELOAD
 }
@@ -94,7 +96,7 @@ async function drawHome(firstLoad) {
 	const gameData = await getUserGameData(CHESS_URL, PLAYER_ID);
 	const friendGame = await openGame(gameData?.friend_game_id);
 	if (firstLoad && gameData?.ai_game_id) { loadCurrentGame(gameData.ai_game_id); }
-	listGames(gameData, friendGame);
+	listGames(gameData);
 	loadInvites(gameData);
 	await loadFriendBox(gameData, friendGame);
 }
@@ -116,25 +118,22 @@ async function openGame(gameId) {
 // Your Games
 /* ---------------------------------------------------------------- */
 /**
- * @description Lists the player's open games, each one is a link to /play/:gameId. The AI game is marked "vs AI" & the friend game "vs Bob",
- * they're also shown in their boxes
+ * @description Lists the player's open games, each one is a link to /play/:gameId with its opponent & start settings:
+ * "vs AI // Level 3 // You play white (random)", "vs Bob // You play black". They're also shown in their boxes
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
- * @param  {[object]} friendGame [the open friend game or null]
  */
-function listGames(gameData, friendGame) {
-	const openGames = JSON.parse(gameData?.open_games || "[]"); // NEW USERS HAVE NO GAMES YET
+function listGames(gameData) {
+	const openGames = gameData?.open_game_list || []; // NEW USERS HAVE NO GAMES YET
 	gameList.replaceChildren(); // REDRAWN WHEN THE SOCKET SAYS A GAME CHANGED
 	loadingDiv.hidden = openGames.length > 0;
 	if (!openGames.length) { return loadingDiv.innerText = "No open games yet. Start one with the AI or a friend."; }
 	for (let i = 0; i < openGames.length; i++) {
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
-		let gameLabel = openGames[i];
-		if (openGames[i] == gameData.ai_game_id) { gameLabel = `vs AI // ${openGames[i]}`; }
-		if (friendGame && openGames[i] == gameData.friend_game_id) { gameLabel = `vs ${friendGame.opponent_name || "Friend"} // ${openGames[i]}`; }
-		gameLink.href = `/play/${encodeURIComponent(openGames[i])}`;
-		gameLink.innerHTML = `<span class="label">Game ${i + 1}</span><span class="spec gameId"></span><span class="label gameOpen">Open</span>`;
-		gameLink.querySelector(".gameId").innerText = gameLabel; // innerText, THE ID & NAME ARE NEVER READ AS HTML
+		const opponent = openGames[i].ai ? `vs AI // Level ${openGames[i].ai_level}` : `vs ${openGames[i].opponent_name || "Friend"}`;
+		gameLink.href = `/play/${encodeURIComponent(openGames[i].game_id)}`;
+		gameLink.innerHTML = `<span class="label">Game ${i + 1}</span><span class="spec gameInfo"></span><span class="label gameOpen">Open</span>`;
+		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(openGames[i].player_color, openGames[i].start_params)}`; // innerText, THE NAME IS NEVER READ AS HTML
 		listElement.append(gameLink);
 		gameList.append(listElement);
 	}
@@ -162,7 +161,7 @@ async function loadCurrentGame(gameId) {
 // Play AI
 /* ---------------------------------------------------------------- */
 /**
- * @description New game vs the AI at the picked level, then opens it. Your color is random.
+ * @description New game vs the AI at the picked level & color (Random lets the server pick), then opens it. Restart keeps both.
  * While an AI game is open the first press says it'll be forfeited, the second starts the new game (the server forfeits the open one)
  */
 async function handleNewSoloGame(e) {
@@ -176,11 +175,7 @@ async function handleNewSoloGame(e) {
 	optNewSoloBtn.disabled = true; // ONE GAME PER PRESS
 	soloNote.innerText = "";
 	let _id = new ObjectId();
-	let startColor
-	let randInt = Math.round(Math.random() * 1)
-	if (randInt == 0) { startColor = 'w' }
-	else { startColor = 'b' }
-	const response = await validate(CHESS_URL, _id, PLAYER_ID, false, false, startColor, aiLevelSelect.value, confirmNewGame); // CREATE NEW GAME AT THE PICKED LEVEL
+	const response = await newAiGame(CHESS_URL, `${_id}`, aiColorSelect.value, aiLevelSelect.value, confirmNewGame); // CREATE NEW GAME AT THE PICKED LEVEL & COLOR
 	if (response?.status == 409) { // AN AI GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
 		optNewSoloBtn.disabled = false;
 		soloNote.innerText = "You already have an AI game open";
@@ -188,26 +183,6 @@ async function handleNewSoloGame(e) {
 	}
 	if (response?.status != 200) { optNewSoloBtn.disabled = false; return console.log(response); }
 	window.location.href = `/play/${response.game_id}`;
-}
-
-
-/* ---------------------------------------------------------------- */
-// AI Levels
-/* ---------------------------------------------------------------- */
-/**
- * @description Fills the dropdown next to Play AI with the server's levels & their approx Elo. The level is saved with the game,
- * so it only changes by starting a new game
- */
-async function loadLevels() {
-	const response = await getLevels(CHESS_URL);
-	if (response?.status != 200) { return; } // NO LEVELS -> THE SERVER USES ITS DEFAULT
-	for (let i = 0; i < response.levels.length; i++) {
-		const option = document.createElement("option");
-		option.value = response.levels[i].level;
-		option.innerText = `Level ${response.levels[i].level} (${response.levels[i].elo})`;
-		if (response.levels[i].level == response.default_level) { option.selected = true; }
-		aiLevelSelect.append(option);
-	}
 }
 
 
@@ -241,7 +216,7 @@ function validateEmail(email) {
 };
 
 /**
- * @description Invites a friend by email, they accept it on their Home. Stays here & the invite shows in Invites.
+ * @description Invites a friend by email with the picked color (Random is drawn now), they accept it on their Home. Stays here & the invite shows in Invites.
  * While a friend game is open the first press says it'll be forfeited, the second sends the invite (the server forfeits the open one)
  */
 async function handleMultiSubmit(e) {
@@ -258,7 +233,7 @@ async function handleMultiSubmit(e) {
 	multiEmailBtn.disabled = true; // ONE INVITE PER PRESS
 	let _id = new ObjectId();
 	try {
-		const response = await initMultiplayerGame(CHESS_URL, _id, PLAYER_ID, email, confirmInvite);
+		const response = await initMultiplayerGame(CHESS_URL, _id, PLAYER_ID, email, confirmInvite, friendColorSelect.value);
 		if (response?.status == 200) {
 			multiEmailInput.value = "";
 			resetInviteBtn();
@@ -295,29 +270,31 @@ function resetInviteBtn() {
 // Invites
 /* ---------------------------------------------------------------- */
 /**
- * @description Draws Invites: invites to the player (Accept & Decline), then their sent invite (Cancel invite)
+ * @description Draws Invites: invites to the player (Accept & Decline), then their sent invite (Cancel invite). Each one says the player's color
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  */
 function loadInvites(gameData) {
 	const received = gameData?.received_invites || [];
+	const sent = gameData?.sent_invite;
 	listInvites(received);
-	SENT_INVITE_ID = gameData?.sent_invite?.game_id || null;
-	sentInviteText.innerText = `Invite sent to ${gameData?.sent_invite?.name || "your friend"} // Waiting`;
+	SENT_INVITE_ID = sent?.game_id || null;
+	sentInviteText.innerText = sent ? `Invite sent to ${sent.name || "your friend"} // ${colorText(sent.player_color, sent.start_params)} // Waiting` : "";
 	sentInvite.hidden = !SENT_INVITE_ID;
 	noInvites.hidden = Boolean(received.length || SENT_INVITE_ID);
 }
 
 /**
- * @description "Bob invited you" rows, each with Accept & Decline
- * @param  {[array]} invites [received_invites: [{ game_id, name }]]
+ * @description "Bob invited you // You play black (random)" rows, each with Accept & Decline
+ * @param  {[array]} invites [received_invites: [{ game_id, name, player_color, start_params }]]
  */
 function listInvites(invites) {
 	inviteList.replaceChildren();
 	inviteList.hidden = !invites.length;
 	for (let i = 0; i < invites.length; i++) {
 		const listElement = document.createElement("li");
-		listElement.innerHTML = `<span class="label inviteName"></span><span class="inviteButtons"><button class="btn btnCream" type="button">Accept</button><button class="btn btnLine" type="button">Decline</button></span>`;
+		listElement.innerHTML = `<span class="inviteText"><span class="label inviteName"></span><span class="spec inviteParams"></span></span><span class="inviteButtons"><button class="btn btnCream" type="button">Accept</button><button class="btn btnLine" type="button">Decline</button></span>`;
 		listElement.querySelector(".inviteName").innerText = `${invites[i].name || "A friend"} invited you`; // innerText, THE NAME IS NEVER READ AS HTML
+		listElement.querySelector(".inviteParams").innerText = colorText(invites[i].player_color, invites[i].start_params); // THE START SETTINGS THEY PICKED
 		const [acceptBtn, declineBtn] = listElement.querySelectorAll("button");
 		if (confirmAccept == invites[i].game_id) { acceptBtn.innerText = "Forfeit & accept"; } // STILL WARNING AFTER A REDRAW
 		acceptBtn.addEventListener("click", (e) => handleAccept(e, invites[i].game_id, acceptBtn));

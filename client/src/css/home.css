@@ -129,7 +129,7 @@ body {
 
 .boxes {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr); /* ONE COLUMN, A LONG GAME ID IN YOUR GAMES ELLIPSES INSTEAD OF WIDENING THE PAGE */
+	grid-template-columns: minmax(0, 1fr); /* ONE COLUMN, LONG TEXT WRAPS INSTEAD OF WIDENING THE PAGE */
 	gap: 12px;
 }
 
@@ -284,6 +284,18 @@ body {
 	color: var(--muted);
 }
 
+.fieldStack { /* PLAY THE AI & PLAY A FRIEND: LEVEL OR EMAIL, COLOR, THEN THE BUTTON, ONE PER ROW */
+	flex-direction: column;
+	flex-wrap: nowrap;
+}
+
+.fieldStack select,
+.fieldStack input,
+.fieldStack .btn {
+	flex: none; /* .field's 190px BASIS WOULD BE A 190px HEIGHT IN A COLUMN */
+	width: 100%;
+}
+
 .note { /* WHY AN INVITE DIDN'T GO THROUGH, THE FORFEIT WARNINGS */
 	min-height: 1.4em;
 	color: var(--gold);
@@ -337,10 +349,21 @@ body {
 	background-color: rgba(0, 0, 0, 0.18);
 }
 
+.inviteText {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
 .inviteName {
 	min-width: 0;
 	font-size: 14px;
 	overflow-wrap: anywhere; /* A LONG SCREENNAME WRAPS INSTEAD OF WIDENING THE PAGE */
+}
+
+.inviteParams { /* "YOU PLAY BLACK (RANDOM)" */
+	color: var(--maple);
 }
 
 .inviteButtons {
@@ -395,12 +418,9 @@ body {
 	white-space: nowrap;
 }
 
-#gameList .gameId {
+#gameList .gameInfo { /* "vs AI // LEVEL 3 // YOU PLAY WHITE (RANDOM)" */
 	min-width: 0;
-	text-transform: none; /* IDS ARE LOWERCASE HEX, SHOWN AS THEY ARE */
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere; /* WRAPS ON A PHONE, A LONG SCREENNAME NEVER WIDENS THE PAGE */
 	color: #7a6648;
 }
 

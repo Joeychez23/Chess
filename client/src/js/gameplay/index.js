@@ -3118,9 +3118,7 @@ export async function renderCanvas(playerData) {
 			menuToggled = false;
 			optBtn.style.display = "none"
 			menu.style.display = "none"
-			// THE RESTART PARAM IS THE AI'S COLOR (THE BACKEND STORES PLAYER_ID_1 AS WHITE), GIVING THE AI THE PLAYER'S COLOR FLIPS SIDES EACH RESTART
-			const aiColor = playerColor;
-			const restartResponse = await restartGame(GAME_URL, GAME_ID, aiColor); // FORFEITS IF STILL GOING, THEN A NEW GAME IN THE DATABASE
+			const restartResponse = await restartGame(GAME_URL, GAME_ID); // FORFEITS IF STILL GOING, THEN A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
 			if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME
 				// console.log(restartResponse);
 				optBtn.style.display = "flex";

@@ -1,8 +1,8 @@
 /*
  *  index.js  --  chess frontend
  *	Guest Page (/, signed out)
- *	The homepage for guests: Play as guest (/play) & Sign in. The links are plain <a>s, so this only runs the menu,
- *	preloads the play page's sprites, shows the guest's game in Play the AI & checks for a session that can be renewed
+ *	The homepage for guests: Play the AI (at a level & color, no account needed) & Sign in. Runs the menu, preloads the play page's sprites,
+ *	shows the guest's game in Play the AI & checks for a session that can be renewed
  *
  */
 
@@ -12,19 +12,27 @@
 
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
+const { ObjectId } = require("bson");
 const { InternalAuth } = require("../../auth/index.js");
 const { preloadImages } = require("../../gameplay/index.js");
-const { validate } = require("../../gameplay/validate/index.js");
-const { startNav, showCurrentGame } = require("../utils/index.js");
+const { validate, newAiGame } = require("../../gameplay/validate/index.js");
+const { startNav, showCurrentGame, loadLevels } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
+
+const soloBox = document.getElementById("soloBox"); // PLAY THE AI
+const aiLevelSelect = document.getElementById("aiLevel"); // FILLED FROM THE SERVER'S LEVELS
+const aiColorSelect = document.getElementById("aiColor"); // RANDOM, WHITE OR BLACK, RESTART KEEPS IT
+const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY AI, OR NEW GAME WHILE THE GUEST'S GAME IS OPEN
 
 const auth = new InternalAuth;
 
 startNav();
-preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO Play as guest OPENS FROM THE BROWSER CACHE
+preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
 checkSession();
+loadLevels(CHESS_URL, aiLevelSelect);
 loadGuestGame();
+optNewSoloBtn.addEventListener("click", handleNewGuestGame);
 
 /* ---------------------------------------------------------------- */
 // Check Session
@@ -43,13 +51,40 @@ async function checkSession() {
 /* ---------------------------------------------------------------- */
 /**
  * @description A guest has one AI game, its id is in localStorage (guestGameId() in pages/play/index.js). While it's open
- * its board & Continue current game go in Play the AI
+ * its board & Continue current game go in Play the AI, & Play AI becomes New game
  */
 async function loadGuestGame() {
-	let gameId;
-	try { gameId = localStorage.getItem("GUEST_GAME_ID"); } catch (err) { } // STORAGE BLOCKED (PRIVATE MODE)
+	const gameId = savedGameId();
 	if (!gameId) { return; } // NO GAME YET
 	const game = await validate(CHESS_URL, gameId, gameId, false, false, false); // GET THE GAME, A GUEST'S PLAYER ID IS THEIR GAME ID
-	if (game?.status != 200 || game.state != "OPEN") { return; } // EXPIRED OR OVER, Play as guest STARTS OR SHOWS IT
-	showCurrentGame(document.getElementById("soloBox"), game, "/play");
+	if (game?.status != 200 || game.state != "OPEN") { return; } // EXPIRED OR OVER, PLAY AI STARTS A NEW ONE
+	optNewSoloBtn.innerText = "New game";
+	optNewSoloBtn.classList.replace("btnCream", "btnLine");
+	showCurrentGame(soloBox, game, "/play");
+}
+
+/* ---------------------------------------------------------------- */
+// Play AI
+/* ---------------------------------------------------------------- */
+/**
+ * @description New game vs the AI at the picked level & color, then opens /play. A guest only has one game: it's reset to the new one
+ * (the same saved id, the server overwrites it), so there's no forfeit warning. No saved id -> a new one is saved
+ */
+async function handleNewGuestGame(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	optNewSoloBtn.disabled = true; // ONE GAME PER PRESS
+	const gameId = savedGameId() || `${new ObjectId()}`;
+	const response = await newAiGame(CHESS_URL, gameId, aiColorSelect.value, aiLevelSelect.value); // CREATE OR RESET THE GUEST'S GAME
+	if (response?.status != 200) { optNewSoloBtn.disabled = false; return console.log(response); }
+	try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch (err) { } // NOT SAVED (PRIVATE MODE) -> THE PLAY PAGE MAKES ITS OWN GAME
+	window.location.href = "/play";
+}
+
+/**
+ * @description The guest's game id from localStorage (also their player id)
+ * @return {[string]} gameId [null when there's none or storage is blocked]
+ */
+function savedGameId() {
+	try { return localStorage.getItem("GUEST_GAME_ID"); } catch (err) { return null; } // STORAGE BLOCKED (PRIVATE MODE)
 }
