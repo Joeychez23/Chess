@@ -25,6 +25,7 @@ const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (serv
 
 const signedInAs = document.getElementById("signedInAs"); // "SIGNED IN // EMAIL"
 const welcome = document.getElementById("welcome"); // "WELCOME BACK, SCREENNAME"
+const playerRating = document.getElementById("playerRating"); // "RATING // 1520?", FRIEND GAMES CHANGE IT
 const soloBox = document.getElementById("soloBox"); // PLAY THE AI
 const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY THE AI: PLAY AI, OR NEW GAME WHILE AN AI GAME IS OPEN
 const aiLevelSelect = document.getElementById("aiLevel"); // ABOVE PLAY AI, FILLED FROM THE SERVER'S LEVELS
@@ -115,12 +116,24 @@ function refreshHome(firstLoad) {
 async function drawHome(firstLoad) {
 	const gameData = await getUserGameData(CHESS_URL, PLAYER_ID);
 	if (firstLoad) { SETTINGS = gameData?.settings || null; } // ONLY ON LOAD, A REDRAW DOESN'T UNDO A PICK
+	showRating(gameData?.rating); // A FINISHED FRIEND GAME REDRAWS HOME (SOCKET "games"), SO THE NEW RATING SHOWS
 	const friendGame = await openGame(gameData?.friend_game_id);
 	const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
 	listGames(gameData);
 	loadInvites(gameData);
 	await loadFriendBox(gameData, friendGame);
 	await currentGame; // HOME IS DRAWN ONCE IT'S IN TOO (showPageWhenDrawn)
+}
+
+/**
+ * @description Shows the player's rating under the welcome, with a ? while it's provisional (their first 10 rated games)
+ * @param  {[object]} rating [{ rating, provisional, rated_games } from GET /user/:userId, left out = nothing shown]
+ */
+function showRating(rating) {
+	if (!rating) { return; }
+	playerRating.innerText = `Rating // ${rating.rating}${rating.provisional ? "?" : ""}`;
+	playerRating.title = rating.provisional ? `Provisional until 10 rated games (${rating.rated_games} so far). Friend games change it, AI games don't` : "Friend games change it, AI games don't";
+	playerRating.hidden = false;
 }
 
 /**
