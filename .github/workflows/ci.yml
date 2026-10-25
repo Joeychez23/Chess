@@ -1,5 +1,5 @@
 # Runs the server tests and the client build on every pull request and on pushes to main.
-# Installs with npm install because the lockfiles aren't committed yet (#197); switch to npm ci once they are.
+# npm ci installs the exact versions in the committed package-lock.json files.
 
 name: CI
 
@@ -23,7 +23,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --no-audit --no-fund
       - run: npm test
 
   client:
@@ -34,5 +36,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
       - run: npm run build

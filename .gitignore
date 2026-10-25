@@ -15,8 +15,8 @@ sony
 !.github/workflows/*.yml
 sony
 *.zip
-package-lock.json
 .env
 stockfish
 _dep
 Chess.wiki
+.DS_Store

@@ -77,9 +77,14 @@ AWS side (see [Deploy](#deploy)).
 Requires Node 22+ (the server).
 
 ```bash
-npm install
-cd server && npm install
+npm ci
+cd server && npm ci
 ```
+
+`npm ci` installs the exact versions in the committed `package-lock.json`
+files. To add or upgrade a package, use `npm install <package>` in the right
+folder (the top folder for the client, `server/` for the server) and commit
+the updated `package-lock.json` with it.
 
 `server/.env` (see `server/.env.example`):
 
@@ -433,8 +438,8 @@ rsync -av --exclude node_modules --exclude .env --exclude dist --exclude .DS_Sto
 
 That leaves out your `.env` files (the instance gets its own in step 4), the
 local Stockfish build, the Terraform state, and the images and audio
-(CloudFront serves them). `package-lock.json` is git-ignored but copied on
-purpose, so `npm ci` installs the same versions as your Mac.
+(CloudFront serves them). Both `package-lock.json` files are committed, so
+`npm ci` installs the same versions on the instance as everywhere else.
 
 ### 4. `.env` files
 
