@@ -26,7 +26,7 @@ const REMATCH_TIME = 60 * 1000; // BOTH PLAYERS MUST PRESS REMATCH WITHIN 1 MINU
 /**
  * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, player_color, opponent_color, opponent_name, moves, prev_move, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
  */
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -45,6 +45,7 @@ async function getGame(req, res) {
 		game_board: gameData.game_board.S,
 		ai: isAiGame(gameData),
 		ai_level: aiLevel(gameData),
+		start_params: startParams(gameData), // { color: "random" | "w" | "b" }, WHAT RESTART & REMATCH REUSE
 		player_color: playerColor,
 		opponent_color: opponentColor,
 		opponent_name: playerName(gameData, opponentColor), // FRIEND GAMES: HOME'S "vs Bob"
@@ -63,15 +64,16 @@ async function getGame(req, res) {
 // New Game (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Creates a game vs the AI, or restarts a guest's game: their game_id is overwritten with a new board (signed in users restart with /restart).
+ * @description Creates a game vs the AI, or a guest's New game: their game_id is overwritten with a new board (signed in users restart with /restart).
  * Signed in players have one AI game open at a time: while one is open this answers 409, unless replace_current forfeits it first
- * @param  {[object]} req.body [{ game_id (optional, generated when left out), player_id_1 (white), player_id_2 (black), ai_level (optional, Home's dropdown),
- * replace_current (optional, true = forfeit the open AI game & start this one) }, one side is "CHESS_AI", the other side is always the requester]
+ * @param  {[object]} req.body [{ game_id (optional, generated when left out), start_color ("random" | "w" | "b", the requester's color from Home & the guest page,
+ * the server picks the sides, the play page also sends random for a guest's missing game) OR player_id_1 (white) & player_id_2 (black) (gameplay's fallback for a guest's first game, one side is "CHESS_AI", the other side is always the requester),
+ * ai_level (optional, the level dropdown), replace_current (optional, true = forfeit the open AI game & start this one) }]
  * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, message } | { status: 409, game_id (the open one), message }]
  */
 async function newGame(req, res) {
-	const { game_id, player_id_1, player_id_2, ai_level, replace_current } = req.body || {};
-	if ((player_id_1 == "CHESS_AI") == (player_id_2 == "CHESS_AI")) { return res.json({ status: 500, message: "One player must be CHESS_AI, friend games start from /invite" }); }
+	const { game_id, player_id_1, player_id_2, ai_level, start_color, replace_current } = req.body || {};
+	if (!start_color && (player_id_1 == "CHESS_AI") == (player_id_2 == "CHESS_AI")) { return res.json({ status: 500, message: "One player must be CHESS_AI, friend games start from /invite" }); }
 
 	let level = readLevel(ai_level);
 	if (game_id) { // RESTART: ONLY A PLAYER IN THE GAME CAN WIPE IT
@@ -91,10 +93,11 @@ async function newGame(req, res) {
 		if (current) { await closeGame(current, playerId == current.white_player_id.S ? "b" : "w", "forfeit"); } // NEW GAME FORFEITS THE OPEN ONE
 	}
 
-	const whiteId = player_id_1 == "CHESS_AI" ? "CHESS_AI" : playerId;
-	const blackId = player_id_2 == "CHESS_AI" ? "CHESS_AI" : playerId;
+	const params = readStartParams(req.body); // NO start_color (THE PLAY PAGE'S FIRST GUEST GAME) -> RANDOM FROM ITS RESTARTS ON
+	let sides = { white: player_id_1 == "CHESS_AI" ? "CHESS_AI" : playerId, black: player_id_2 == "CHESS_AI" ? "CHESS_AI" : playerId };
+	if (start_color) { sides = pickSides(params, playerId, "CHESS_AI"); } // THE SERVER PICKS, RANDOM FLIPS A COIN
 
-	const response = await initalizeGame(game_id || false, whiteId, blackId, level); // CREATE NEW GAME
+	const response = await initalizeGame(game_id || false, sides.white, sides.black, level, { start_params: params }); // CREATE NEW GAME
 	return res.json(gameResponse(response));
 }
 
@@ -145,15 +148,11 @@ async function moveGame(req, res) {
 /* ---------------------------------------------------------------- */
 /**
  * @description AI games: restarting a game that's still going forfeits it, then a new game starts with a new id
- * (the old one stays closed) at the same level. Guests only have one game, so theirs is overwritten
+ * (the old one stays closed) with the same start settings: the level & the player's color (Random draws again). Guests only have one game, so theirs is overwritten
  * @param  {[string]} req.params.gameId [current game id]
- * @param  {[object]} req.body [{ ai_color: "w" | "b" }]
  * @return {[object]} response [{ status, game_id (the new game), ai, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
  */
 async function restartGame(req, res) {
-	const { ai_color } = req.body || {};
-	if (ai_color != "w" && ai_color != "b") { return res.json({ status: 500, message: "Missing ai_color" }); }
-
 	let response = await retrieveGame(req.params.gameId);
 	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
 
@@ -162,17 +161,17 @@ async function restartGame(req, res) {
 	if (!playerId) { return notInGame(req, res); }
 	if (!isAiGame(gameData)) { return res.json({ status: 500, message: "Friend games can't be restarted" }); }
 
-	const whiteId = ai_color == "w" ? "CHESS_AI" : playerId;
-	const blackId = ai_color == "b" ? "CHESS_AI" : playerId;
-	const level = aiLevel(gameData); // THE LEVEL ONLY CHANGES WITH A NEW GAME FROM HOME
+	const params = startParams(gameData); // THE START SETTINGS ONLY CHANGE WITH A NEW GAME FROM HOME OR THE GUEST PAGE
+	const sides = pickSides(params, playerId, "CHESS_AI");
+	const level = aiLevel(gameData);
 
 	if (!req.user) { // GUESTS HAVE ONE GAME, IT'S OVERWRITTEN
-		response = await initalizeGame(gameData.game_id.S, whiteId, blackId, level);
+		response = await initalizeGame(gameData.game_id.S, sides.white, sides.black, level, { start_params: params });
 		return res.json(gameResponse(response));
 	}
 
 	if (gameOpen(gameData)) { await closeGame(gameData, playerId == gameData.white_player_id.S ? "b" : "w", "forfeit"); } // RESTARTING MID GAME FORFEITS IT
-	response = await initalizeGame(false, whiteId, blackId, level); // CREATE NEW GAME
+	response = await initalizeGame(false, sides.white, sides.black, level, { start_params: params }); // CREATE NEW GAME
 	return res.json(gameResponse(response));
 }
 
@@ -277,7 +276,7 @@ async function forfeitFriendGame(gameData, playerId) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Friend games that are over: the first press waits 1 minute for the other player. If they press
- * in time a new game starts with the sides picked at random, and both boards load it
+ * in time a new game starts with the same start settings (the inviter's color, Random draws again), and both boards load it
  * @param  {[string]} req.params.gameId [closed game id]
  * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in } while waiting]
  */
@@ -307,10 +306,12 @@ async function rematchGame(req, res) {
 		return res.json({ status: 500, message: "Rematch failed" });
 	}
 
-	// SIDES ARE PICKED AT RANDOM
-	const names = [playerName(gameData, "w"), playerName(gameData, "b")]; // THE SCREENNAMES FOLLOW THE PLAYERS
-	let randInt = Math.round(Math.random() * 1)
-	const created = await initalizeGame(newGameId, players[randInt], players[1 - randInt], false, { w: names[randInt], b: names[1 - randInt] }); // CREATE NEW GAME
+	// SIDES FOLLOW THE INVITER'S PICK
+	const params = startParams(gameData);
+	const inviter = inviterId(gameData);
+	const sides = pickSides(params, inviter, inviter == players[0] ? players[1] : players[0]);
+	const names = { [players[0]]: playerName(gameData, "w"), [players[1]]: playerName(gameData, "b") }; // THE SCREENNAMES FOLLOW THE PLAYERS
+	const created = await initalizeGame(newGameId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter }); // CREATE NEW GAME
 	if (!created.game_data) { return res.json({ status: created.status, message: created.message }); }
 
 	for (let i = 0; i < players.length; i++) { await dropSentInvite(players[i]); } // THEY'RE BOTH IN A FRIEND GAME NOW
@@ -324,9 +325,10 @@ async function rematchGame(req, res) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Invites a friend by email: looks up their Auth0 account & creates a PENDING game, they accept or decline it on Home.
- * The challenger (signed in user) plays white. One sent invite at a time: a new one deletes the last one.
+ * The challenger (signed in user) picks their color, the sides are drawn now so the invite shows them. One sent invite at a time: a new one deletes the last one.
  * Signed in players have one friend game open at a time: while one is open this answers 409, unless replace_current forfeits it first
- * @param  {[object]} req.body [{ game_id (optional, must be new), opponent_email, replace_current (optional, true = forfeit the open friend game & invite) }]
+ * @param  {[object]} req.body [{ game_id (optional, must be new), opponent_email, start_color ("random" | "w" | "b", the challenger's color, left out = Random),
+ * replace_current (optional, true = forfeit the open friend game & invite) }]
  * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message }]
  */
 async function inviteGame(req, res) {
@@ -353,8 +355,12 @@ async function inviteGame(req, res) {
 	if (current) { await forfeitFriendGame(current, challengerId); } // A NEW INVITE FORFEITS THE OPEN ONE
 	if (invites.sent_invite) { await dropInvite(invites.sent_invite.game_id); } // ONE SENT INVITE AT A TIME
 
-	const names = { w: req.user.user_metadata?.screenname, b: opponentData.user_metadata?.screenname };
-	const response = await initalizeGame(game_id || false, challengerId, opponentId, false, names, true); // CREATE NEW GAME, PENDING UNTIL THEY ACCEPT
+	const params = readStartParams(req.body);
+	const sides = pickSides(params, challengerId, opponentId); // RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
+	const challengerName = req.user.user_metadata?.screenname;
+	const opponentName = opponentData.user_metadata?.screenname;
+	const names = sides.white == challengerId ? { w: challengerName, b: opponentName } : { w: opponentName, b: challengerName };
+	const response = await initalizeGame(game_id || false, sides.white, sides.black, false, { names, pending: true, start_params: params, inviter_id: challengerId }); // CREATE NEW GAME, PENDING UNTIL THEY ACCEPT
 	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); }
 
 	notifyHome(response.game_data); // THEIR HOME SHOWS THE INVITE
@@ -385,11 +391,11 @@ async function acceptGame(req, res) {
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
 	if (!gamePending(gameData)) { return res.json({ status: 500, message: "Invite was already answered" }); }
-	if (playerId != gameData.black_player_id.S) { return res.json({ status: 500, message: "Only the invited player can accept" }); } // THE INVITER PLAYS WHITE
+	if (playerId == inviterId(gameData)) { return res.json({ status: 500, message: "Only the invited player can accept" }); }
 
 	const current = await currentGame(playerId, false); // ONE FRIEND GAME AT A TIME
 	if (current && !replace_current) { return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
-	if (await currentGame(gameData.white_player_id.S, false)) { // THE INVITER STARTED ANOTHER FRIEND GAME SINCE (A REMATCH, OR THEY ACCEPTED ONE)
+	if (await currentGame(inviterId(gameData), false)) { // THE INVITER STARTED ANOTHER FRIEND GAME SINCE (A REMATCH, OR THEY ACCEPTED ONE)
 		await dropInvite(gameData.game_id.S);
 		return res.json({ status: 500, message: "They're in another game now" });
 	}
@@ -430,7 +436,8 @@ async function declineGame(req, res) {
  * @description Returns a user's game lists for Home, expired games & invites are pruned first
  * @param  {[string]} req.params.userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, ai_game_id / friend_game_id (the open AI / friend game or null),
- * sent_invite ({ game_id, name } or null), received_invites ([{ game_id, name }]), message }]
+ * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params }], newest last),
+ * sent_invite ({ game_id, name, player_color, start_params } or null), received_invites ([{ game_id, name, player_color, start_params }]), message }]
  */
 async function getUserGames(req, res) {
 	if (req.params.userId != userPlayerId(req.user)) { return res.status(403).json({ status: 403, message: "Not your game list" }); }
@@ -441,7 +448,7 @@ async function getUserGames(req, res) {
 	response.user_data = await pruneOpenGames(response.user_data); // DROPS EXPIRED GAMES BEFORE HOME LISTS THEM
 	response.user_data = await pruneInvites(response.user_data);
 	const userData = response.user_data;
-	const inviteBody = (invite) => ({ game_id: invite.game_id, name: invite.name }); // THE OTHER PLAYER'S ID STAYS ON THE SERVER
+	const inviteBody = (invite) => ({ game_id: invite.game_id, name: invite.name, player_color: invite.player_color, start_params: invite.start_params }); // THE OTHER PLAYER'S ID STAYS ON THE SERVER
 
 	return res.json({
 		status: response.status,
@@ -451,6 +458,7 @@ async function getUserGames(req, res) {
 		closed_games: userData.closed_games.S,
 		ai_game_id: userData.ai_game_id, // HOME DRAWS ITS BOARD & LINKS IT (Continue current game)
 		friend_game_id: userData.friend_game_id, // SAME, IN PLAY A FRIEND
+		open_game_list: userData.open_game_list.map((game) => gameSummary(game, req.params.userId)), // YOUR GAMES: "vs AI // LEVEL 3 // YOU PLAY WHITE (RANDOM)"
 		sent_invite: userData.sent_invite ? inviteBody(userData.sent_invite) : null, // "INVITE SENT TO BOB // WAITING"
 		received_invites: userData.received_invites.map(inviteBody), // "BOB INVITED YOU", ACCEPT & DECLINE
 		message: response.message,
@@ -558,6 +566,67 @@ function savedAiMove(response) {
 	if (!lastMove) { return { status: 500, message: "It's not the AI's turn" }; } // THE PLAYER MOVES FIRST
 	const promotion = lastMove.match(/=([QRBN])/)?.[1].toLowerCase(); // "e8=Q+"
 	return { ...gameResponse(response), ai_move: { from: prev_move.S[0], to: prev_move.S[1], promotion }, message: "AI already moved" };
+}
+
+/**
+ * @description The start settings a request asks for (Home & the guest page's dropdowns, the invite form)
+ * @param  {[object]} body [req.body, { start_color: "random" | "w" | "b" }]
+ * @return {[object]} params [{ color }, anything else is Random (the default)]
+ */
+function readStartParams(body) {
+	const color = body?.start_color == "w" || body?.start_color == "b" ? body.start_color : "random";
+	return { color };
+}
+
+/**
+ * @description The start settings saved with a game, Restart & Rematch start the next game with them
+ * @param  {[object]} gameData [game item]
+ * @return {[object]} params [{ color: "random" | "w" | "b" }, games from before start_params are Random]
+ */
+function startParams(gameData) {
+	let params = {};
+	try { params = JSON.parse(gameData.start_params?.S || "{}"); } catch (err) { }
+	return { color: params.color == "w" || params.color == "b" ? params.color : "random" };
+}
+
+/**
+ * @description Picks the sides from the start settings. The host is the one whose color it is: the player vs the AI, or the friend game's inviter
+ * @param  {[object]} params [{ color: "random" | "w" | "b" }]
+ * @param  {[string]} hostId [the player who picked the color]
+ * @param  {[string]} otherId ["CHESS_AI" or the invited friend]
+ * @return {[object]} sides [{ white, black } player ids, Random flips a coin each time]
+ */
+function pickSides(params, hostId, otherId) {
+	let hostColor = params.color;
+	if (hostColor == "random") { hostColor = Math.random() < 0.5 ? "w" : "b"; }
+	return hostColor == "w" ? { white: hostId, black: otherId } : { white: otherId, black: hostId };
+}
+
+/**
+ * @description The friend game's inviter, their pick is start_params.color (rematches keep them as the inviter)
+ * @param  {[object]} gameData [friend game item]
+ * @return {[string]} playerId [games from before inviter_id: white, the inviter always played white]
+ */
+function inviterId(gameData) {
+	return gameData.inviter_id?.S || gameData.white_player_id.S;
+}
+
+/**
+ * @description One open game for Your games on Home
+ * @param  {[object]} gameData [game item, pruneGameList's projection is enough]
+ * @param  {[string]} playerId [the user the list is for]
+ * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params }]
+ */
+function gameSummary(gameData, playerId) {
+	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
+	return {
+		game_id: gameData.game_id.S,
+		ai: isAiGame(gameData),
+		ai_level: aiLevel(gameData),
+		opponent_name: playerName(gameData, playerColor == "w" ? "b" : "w"),
+		player_color: playerColor,
+		start_params: startParams(gameData),
+	};
 }
 
 /**

@@ -40,11 +40,14 @@ function expireTime() {
  * @param  {[string]} playerId1 [white player id]
  * @param  {[string]} playerId2 [black player id]
  * @param  {[number]} aiLevel [AI games: the AI's level, saved with the game so it can't change mid game]
- * @param  {[object]} names [friend games: { w, b } screennames for Home's caption]
- * @param  {[boolean]} pending [friend invites: the game is PENDING & waits in requested_games until it's accepted (acceptInvite)]
+ * @param  {[object]} options [{ names: friend games' { w, b } screennames for Home's caption,
+ * pending: friend invites, the game is PENDING & waits in requested_games until it's accepted (acceptInvite),
+ * start_params: the start settings ({ color }, Restart & Rematch reuse them, left out = Random),
+ * inviter_id: friend games, the player who sent the invite (their pick is start_params.color) }]
  * @return {[object]} response [{ status, game_data, message }]
  */
-async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, names, pending) {
+async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, options) {
+	const { names, pending, start_params, inviter_id } = options || {};
 	const board = new Chess().fen();
 
 	let gameId;
@@ -65,12 +68,14 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, name
 			b_piece: { S: JSON.stringify([{ from: null, to: 'a8' }, { from: null, to: 'c8' }, { from: null, to: 'd8' }, { from: null, to: 'e8' }, { from: null, to: 'f8' }, { from: null, to: 'h8' }]) },
 			white_player_id: { S: playerId1 },
 			black_player_id: { S: playerId2 },
+			start_params: { S: JSON.stringify(start_params || { color: "random" }) }, // START SETTINGS, AI GAMES: THE PLAYER'S PICK, FRIEND GAMES: THE INVITER'S
 			expireAt: { N: expireTime() } // TTL, PUSHED BACK ON EVERY MOVE IN updateGame
 		}
 	};
 	if (aiLevel) { params.Item.ai_level = { N: String(aiLevel) }; } // FRIEND GAMES HAVE NO LEVEL
 	if (names?.w) { params.Item.white_name = { S: names.w }; } // FRIEND GAMES: "vs Bob" ON HOME
 	if (names?.b) { params.Item.black_name = { S: names.b }; }
+	if (inviter_id) { params.Item.inviter_id = { S: inviter_id }; } // FRIEND GAMES: SENT OR RECEIVED, & WHOSE COLOR start_params HOLDS (CARRIED OVER ON A REMATCH)
 
 	await connection.putItem(params); // POST REQUEST FOR GAME CREATION TO DYNAMODB
 
@@ -549,13 +554,14 @@ async function updateUser(userData) {
  * AI game & friend game (a player has one of each open at a time, chessController.js newGame & inviteGame)
  * @param  {[object]} userData [user item from retrieveUser]
  * @return {[object]} userData [same item, open_games.S only lists games that still exist,
- * ai_game_id / friend_game_id = the newest open AI / friend game or null]
+ * ai_game_id / friend_game_id = the newest open AI / friend game or null, open_game_list = the open game items (newest last) for Your games]
  */
 async function pruneOpenGames(userData) {
 	userData.ai_game_id = null;
 	userData.friend_game_id = null;
 
 	const games = await pruneGameList(userData, "open_games");
+	userData.open_game_list = games.filter((game) => (game.state?.S || "OPEN") == "OPEN");
 	for (let i = 0; i < games.length; i++) { // NEWEST IS LAST IN open_games
 		if (games[i].white_player_id?.S == "CHESS_AI" || games[i].black_player_id?.S == "CHESS_AI") { userData.ai_game_id = games[i].game_id.S; }
 		else { userData.friend_game_id = games[i].game_id.S; }
@@ -567,11 +573,11 @@ async function pruneOpenGames(userData) {
 // Prune invites
 /* ---------------------------------------------------------------- */
 /**
- * @description Drops invites TTL already deleted from a user's requested_games & splits the rest into sent & received.
- * The inviter plays white (chessController.js inviteGame)
+ * @description Drops invites TTL already deleted from a user's requested_games & splits the rest into sent & received
+ * by inviter_id (chessController.js inviteGame, games from before inviter_id: the inviter played white)
  * @param  {[object]} userData [user item from retrieveUser]
- * @return {[object]} userData [same item, sent_invite = { game_id, name, player_id } or null (one at a time),
- * received_invites = [{ game_id, name, player_id }], name & player_id are the other player's]
+ * @return {[object]} userData [same item, sent_invite = { game_id, name, player_id, player_color, start_params } or null (one at a time),
+ * received_invites = [{ game_id, name, player_id, player_color, start_params }], name & player_id are the other player's, player_color is the user's]
  */
 async function pruneInvites(userData) {
 	const userId = userData.user_id.S;
@@ -581,11 +587,14 @@ async function pruneInvites(userData) {
 	const games = await pruneGameList(userData, "requested_games");
 	for (let i = 0; i < games.length; i++) {
 		if (games[i].state?.S != "PENDING") { continue; } // ACCEPTED WHILE THIS WAS LOADING
-		const sent = games[i].white_player_id.S == userId;
+		const sent = (games[i].inviter_id?.S || games[i].white_player_id.S) == userId;
+		const white = games[i].white_player_id.S == userId; // THE USER'S SIDE, THE OTHER PLAYER HAS THE OTHER ONE
 		const invite = {
 			game_id: games[i].game_id.S,
-			name: (sent ? games[i].black_name?.S : games[i].white_name?.S) || null,
-			player_id: sent ? games[i].black_player_id.S : games[i].white_player_id.S
+			name: (white ? games[i].black_name?.S : games[i].white_name?.S) || null,
+			player_id: white ? games[i].black_player_id.S : games[i].white_player_id.S,
+			player_color: white ? "w" : "b",
+			start_params: JSON.parse(games[i].start_params?.S || '{ "color": "random" }') // "YOU PLAY BLACK (RANDOM)"
 		};
 		if (sent) { userData.sent_invite = invite; }
 		else { userData.received_invites.push(invite); }
@@ -597,7 +606,7 @@ async function pruneInvites(userData) {
  * @description Checks every game in one of a user's lists still exists (TTL deletes expired games) & saves the shorter list
  * @param  {[object]} userData [user item from retrieveUser, userData[listName].S is updated to the pruned list]
  * @param  {[string]} listName ["open_games" or "requested_games"]
- * @return {[array]} games [the found games in list order (newest last): game_id, player ids, names & state]
+ * @return {[array]} games [the found games in list order (newest last): game_id, player ids, names, state, level & start settings]
  */
 async function pruneGameList(userData, listName) {
 	const gameIds = [...new Set(JSON.parse(userData[listName].S))]; // BATCH GET FAILS ON DUPLICATE KEYS
@@ -612,7 +621,7 @@ async function pruneGameList(userData, listName) {
 				RequestItems: {
 					[CHESS_TABLE]: {
 						Keys: batchIds.map((gameId) => ({ game_id: { S: gameId } })),
-						ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state", // THE GAME EXISTS, WHO'S IN IT & WHETHER IT'S AN AI GAME
+						ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, ai_level, start_params, inviter_id", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME & HOW IT STARTED (YOUR GAMES & INVITES)
 						ExpressionAttributeNames: { "#state": "state" }
 					}
 				}

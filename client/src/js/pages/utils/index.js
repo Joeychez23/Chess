@@ -1,7 +1,8 @@
 /*
  *  index.js  --  chess frontend
  *	Page Utils
- *	Shared by the pages: the menu (on pages without the game), the table background & the current game in the Play the AI & Play a friend boxes
+ *	Shared by the pages: the menu (on pages without the game), the table background, the current game in the Play the AI & Play a friend boxes,
+ *	the AI level dropdown & how a game's start settings read ("You play white (random)")
  *
  */
 
@@ -10,6 +11,7 @@
 /* ---------------------------------------------------------------- */
 
 const { drawBoardPicture } = require("./boardPicture.js");
+const { getLevels } = require("../../gameplay/validate/index.js");
 
 /* ---------------------------------------------------------------- */
 // Start Nav
@@ -70,7 +72,7 @@ export async function showCurrentGame(box, game, href) {
 	const turn = game.game_board.split(" ")[1]; // FEN: w OR b TO MOVE
 	const opponent = game.ai ? `Level ${game.ai_level}` : `vs ${game.opponent_name || "Friend"}`;
 	const theirMove = game.ai ? "AI's move" : "Their move";
-	picture.querySelector("figcaption").innerText = `${opponent} // You play ${game.player_color == "w" ? "white" : "black"} // ${turn == game.player_color ? "Your move" : theirMove}`;
+	picture.querySelector("figcaption").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)} // ${turn == game.player_color ? "Your move" : theirMove}`;
 	continueLink.href = href;
 	try {
 		await drawBoardPicture(picture.querySelector("canvas"), game);
@@ -88,4 +90,38 @@ export function hideCurrentGame(box) {
 	box.querySelector(".boardPicture").hidden = true;
 	box.querySelector(".continueGame").hidden = true;
 	box.querySelector(".boxText").hidden = false;
+}
+
+/* ---------------------------------------------------------------- */
+// AI Levels
+/* ---------------------------------------------------------------- */
+/**
+ * @description Fills a level dropdown (Play the AI on Home & the guest page) with the server's levels & their approx Elo. The level is saved with the game,
+ * so it only changes by starting a new game
+ * @param  {[string]} gameUrl [chess api, "/api/chess"]
+ * @param  {[object]} select [the <select>]
+ */
+export async function loadLevels(gameUrl, select) {
+	const response = await getLevels(gameUrl);
+	if (response?.status != 200) { return; } // NO LEVELS -> THE SERVER USES ITS DEFAULT
+	for (let i = 0; i < response.levels.length; i++) {
+		const option = document.createElement("option");
+		option.value = response.levels[i].level;
+		option.innerText = `Level ${response.levels[i].level} (${response.levels[i].elo})`;
+		if (response.levels[i].level == response.default_level) { option.selected = true; }
+		select.append(option);
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Color Text
+/* ---------------------------------------------------------------- */
+/**
+ * @description How a game's color reads on Home: the picture's caption, Invites & Your games
+ * @param  {[string]} playerColor ["w" or "b", the player's side in this game]
+ * @param  {[object]} startParams [the game's start settings, { color: "random" | "w" | "b" }]
+ * @return {[string]} text ["You play white", "You play white (random)" when it was drawn]
+ */
+export function colorText(playerColor, startParams) {
+	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : ""}`;
 }

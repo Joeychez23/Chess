@@ -8,7 +8,7 @@
  * @param  {[object]} _id [player id, the server plays as the signed in session instead]
  * @param  {[object]} move [move array]
  * @param  {[string]} promotion [promotion piece]
- * @param  {[string]} restart [AI color 'w' or 'b' to restart the game]
+ * @param  {[string]} restart [AI color 'w' or 'b' for a new game with these sides (gameplay's fallback for a guest's first game), Home, the guest page & the play page use newAiGame]
  * @param  {[number]} aiLevel [new games: the AI's level from Home's dropdown, left out = the server's default]
  * @param  {[boolean]} replaceCurrent [new games: true forfeits the player's open AI game first (one at a time), left out = the server answers 409 while one is open]
  * @return {[object]} response.json() = backend server response object of request data
@@ -76,6 +76,33 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart, a
 }
 
 /**
+ * @description New game vs the AI with the start settings from the dropdowns, the server picks the sides (POST /game).
+ * Home & the guest page use it, a guest's game_id is overwritten with the new game (their New game)
+ * @param  {[string]} gameId [new game id, or the guest's saved one]
+ * @param  {[string]} startColor [the player's color: "random" | "w" | "b", Restart keeps it]
+ * @param  {[number]} aiLevel [the AI's level, Restart keeps it too]
+ * @param  {[boolean]} replaceCurrent [signed in: true forfeits the player's open AI game first (one at a time), left out = the server answers 409 while one is open]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, ... } | { status: 409, game_id (the open one) }]
+ */
+export async function newAiGame(gameUrl, gameId, startColor, aiLevel, replaceCurrent) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			game_id: gameId,
+			start_color: startColor,
+			ai_level: aiLevel,
+			replace_current: replaceCurrent
+		})
+	};
+	try {
+		return await request(`${gameUrl}/game`, options)
+	} catch (err) {
+		return
+	}
+}
+
+/**
  * @description Gets a user's game lists for Home (GET /user/:userId)
  */
 export async function getUserGameData(gameUrl, userId) {
@@ -92,9 +119,10 @@ export async function getUserGameData(gameUrl, userId) {
 /**
  * @description Invites a friend, the server finds their account by email & the game waits (PENDING) until they accept (POST /invite)
  * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the server answers 409 while one is open]
+ * @param  {[string]} startColor [the inviter's color: "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
  * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) }]
  */
-export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail, replaceCurrent) {
+export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail, replaceCurrent, startColor) {
 	let options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -102,7 +130,8 @@ export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail, r
 			game_id: gameId,
 			challenger_id: _id,
 			opponent_email: opponentEmail,
-			replace_current: replaceCurrent
+			replace_current: replaceCurrent,
+			start_color: startColor
 		})
 	};
 	try {
@@ -146,15 +175,12 @@ export async function declineInvite(gameUrl, gameId) {
 }
 
 /**
- * @description AI games: new board with a new game id, a game that's still going is forfeited first (POST /game/:gameId/restart)
- * @param  {[string]} aiColor [the AI's color in the new game, 'w' or 'b']
+ * @description AI games: new board with a new game id & the same start settings (level & color), a game that's still going is forfeited first (POST /game/:gameId/restart)
  * @return {[object]} response [the new game: { status, game_id, ai, game_board, ..., state }]
  */
-export async function restartGame(gameUrl, gameId, aiColor) {
+export async function restartGame(gameUrl, gameId) {
 	const options = {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ ai_color: aiColor })
+		method: "POST"
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/restart`, options)

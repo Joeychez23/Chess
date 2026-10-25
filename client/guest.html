@@ -22,7 +22,7 @@
 		<div id="resultDisplay">Chess</div>
 		<ul id="menuButtonList">
 			<li><a class="menuButton" href="/" aria-current="page">Home</a></li>
-			<li><a class="menuButton" href="/play">Play as guest</a></li>
+			<li><a class="menuButton" href="#soloBox">Play the AI</a></li>
 			<li><a class="menuButton" href="/api/auth/login">Sign in</a></li>
 		</ul>
 	</nav>
@@ -34,8 +34,7 @@
 				<h1 class="title">Chess</h1>
 				<p class="lead">A 3D-rendered board in your browser. Play the AI as a guest, or sign in to play a friend and keep your games.</p>
 				<div class="actions">
-					<a class="btn btnCream" href="/play">Play as guest</a>
-					<a class="btn btnLine" href="/api/auth/login">Sign in</a>
+					<a class="btn btnCream" href="/api/auth/login">Sign in</a>
 				</div>
 			</div>
 			<figure class="heroImage">
@@ -46,12 +45,21 @@
 		<section class="boxes" aria-label="What you can do">
 			<div class="box boxBaize" id="soloBox">
 				<div class="boxHead"><h2 class="label">Play the AI</h2><span class="spec">No. 01</span></div>
-				<p class="boxText">Eight levels, from about 750 Elo up to full-strength Stockfish. Guests play level 3, sign in to pick any level.</p>
+				<p class="boxText">Eight levels, from about 750 Elo up to full-strength Stockfish. Pick a level and a color, no account needed.</p>
 				<figure class="boardPicture" hidden>
 					<canvas role="img" aria-label="The board of your current game"></canvas>
 					<figcaption class="spec"></figcaption>
 				</figure>
-				<a class="btn btnCream boxBottom continueGame" href="/play" hidden>Continue current game</a>
+				<a class="btn btnCream continueGame" href="/play" hidden>Continue current game</a>
+				<div class="field fieldStack boxBottom">
+					<select id="aiLevel" aria-label="AI level"></select>
+					<select id="aiColor" aria-label="Your color">
+						<option value="random" selected>Random color</option>
+						<option value="w">Play white</option>
+						<option value="b">Play black</option>
+					</select>
+					<button class="btn btnCream" id="optNewSolo" type="button">Play AI</button>
+				</div>
 			</div>
 			<div class="box boxWalnut">
 				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>
