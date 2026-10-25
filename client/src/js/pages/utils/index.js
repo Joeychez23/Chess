@@ -123,13 +123,14 @@ export async function loadLevels(gameUrl, select) {
 // Color Text
 /* ---------------------------------------------------------------- */
 /**
- * @description How a game's color reads on Home: the picture's caption, Invites & Your games
+ * @description How a game's start settings read on Home: the picture's caption, Invites & Your games
  * @param  {[string]} playerColor ["w" or "b", the player's side in this game]
- * @param  {[object]} startParams [the game's start settings, { color: "random" | "w" | "b" }]
- * @return {[string]} text ["You play white", "You play white (random)" when it was drawn]
+ * @param  {[object]} startParams [the game's start settings, { color: "random" | "w" | "b", fen (a set position) }]
+ * @return {[string]} text ["You play white", "You play white (random)" when it was drawn, then " // Set position" for a game from a FEN]
  */
 export function colorText(playerColor, startParams) {
-	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : ""}`;
+	const position = startParams?.fen ? " // Set position" : ""; // STARTED FROM THE START POSITION BOX
+	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : ""}${position}`;
 }
 
 /* ---------------------------------------------------------------- */

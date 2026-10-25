@@ -12,6 +12,7 @@
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
+const { startPieces } = require("./utils/validate.js");
 
 const connection = new DynamoDB({ region: "us-east-1" }); // CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE SERVER'S IAM ROLE ON AWS
 
@@ -45,13 +46,14 @@ function expireTime() {
  * @param  {[number]} aiLevel [AI games: the AI's level, saved with the game so it can't change mid game]
  * @param  {[object]} options [{ names: friend games' { w, b } screennames for Home's caption,
  * pending: friend invites, the game is PENDING & waits in requested_games until it's accepted (acceptInvite),
- * start_params: the start settings ({ color }, Restart & Rematch reuse them, left out = Random),
+ * start_params: the start settings ({ color, fen }, Restart & Rematch reuse them, left out = Random from the standard position. fen = a set position, checked by checkStartFen),
  * inviter_id: friend games, the player who sent the invite (their pick is start_params.color) }]
  * @return {[object]} response [{ status, game_data, message }]
  */
 async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, options) {
 	const { names, pending, start_params, inviter_id } = options || {};
-	const board = new Chess().fen();
+	const board = start_params?.fen || new Chess().fen(); // A SET POSITION (THE START POSITION BOX) OR THE STANDARD ONE
+	const pieces = startPieces(board); // EVERY KNIGHT, KING, QUEEN, BISHOP & ROOK ON THE BOARD, NONE HAVE MOVED
 
 	let gameId;
 	if (existingGameId) { gameId = existingGameId; }
@@ -64,10 +66,10 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 			game_board: { S: board },
 			moves: { S: JSON.stringify([]) },
 			prev_move: { S: JSON.stringify([]) },
-			w_knight: { S: JSON.stringify([{ from: null, to: 'b1' }, { from: null, to: 'g1' }]) },
-			b_knight: { S: JSON.stringify([{ from: null, to: 'b8' }, { from: null, to: 'g8' }]) },
-			w_piece: { S: JSON.stringify([{ from: null, to: 'a1' }, { from: null, to: 'c1' }, { from: null, to: 'd1' }, { from: null, to: 'e1' }, { from: null, to: 'f1' }, { from: null, to: 'h1' }]) }, // KINGS, QUEENS, BISHOPS & ROOKS (WHICH WAY THEY FACE)
-			b_piece: { S: JSON.stringify([{ from: null, to: 'a8' }, { from: null, to: 'c8' }, { from: null, to: 'd8' }, { from: null, to: 'e8' }, { from: null, to: 'f8' }, { from: null, to: 'h8' }]) },
+			w_knight: { S: JSON.stringify(pieces.w_knight) }, // STANDARD: b1 & g1
+			b_knight: { S: JSON.stringify(pieces.b_knight) },
+			w_piece: { S: JSON.stringify(pieces.w_piece) }, // KINGS, QUEENS, BISHOPS & ROOKS (WHICH WAY THEY FACE), STANDARD: a1, c1, d1, e1, f1 & h1
+			b_piece: { S: JSON.stringify(pieces.b_piece) },
 			white_player_id: { S: playerId1 },
 			black_player_id: { S: playerId2 },
 			start_params: { S: JSON.stringify(start_params || { color: "random" }) }, // START SETTINGS, AI GAMES: THE PLAYER'S PICK, FRIEND GAMES: THE INVITER'S

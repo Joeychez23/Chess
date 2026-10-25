@@ -9,7 +9,62 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { Chess } = require("chess.js");
+const { Chess, validateFen, DEFAULT_POSITION } = require("chess.js");
+
+/* ---------------------------------------------------------------- */
+// Check Start Position
+/* ---------------------------------------------------------------- */
+/**
+ * @description Checks a position a new game starts from (Home & the guest page's Start position box). chess.js checks the FEN's
+ * format & that each side has one king, this also turns down what it lets through: pawns on the first or last rank, the side
+ * that isn't moving in check (its king could be taken), and positions that are already over
+ * @param  {[string]} fen [req.body.start_fen, left out or blank = the standard position]
+ * @return {[object]} result [{ fen } (the cleaned up FEN, false for the standard position) | { message } why it can't be played]
+ */
+function checkStartFen(fen) {
+	if (typeof fen != "string" || !fen.trim()) { return { fen: false }; } // NO SET POSITION
+	let fields = fen.trim().split(/\s+/);
+	if (fields.length >= 2 && fields.length < 6) { fields = fields.concat(["-", "-", "0", "1"].slice(fields.length - 6)); } // "8/8/... w" IS ENOUGH, THE REST GET THEIR DEFAULTS (SAME AS chess.js load())
+	fen = fields.join(" ");
+
+	const check = validateFen(fen);
+	if (!check.ok) { return { message: check.error }; } // "Invalid FEN: ..."
+	const rows = fields[0].split("/");
+	if (/[pP]/.test(rows[0] + rows[7])) { return { message: "Invalid FEN: pawns can't be on the first or last rank" }; }
+
+	let otherSide = [...fields];
+	otherSide[1] = fields[1] == "w" ? "b" : "w"; // THE SIDE THAT ISN'T MOVING
+	otherSide[3] = "-";
+	if (new Chess(otherSide.join(" ")).isCheck()) { return { message: "Invalid FEN: the side that isn't moving is in check" }; }
+
+	if (new Chess(fen).isGameOver()) { return { message: "That position is already over (checkmate or a draw)" }; }
+	if (fen == DEFAULT_POSITION) { return { fen: false }; } // THE STANDARD POSITION, SAVED WITHOUT A fen
+	return { fen };
+}
+
+/* ---------------------------------------------------------------- */
+// Start Pieces
+/* ---------------------------------------------------------------- */
+/**
+ * @description The facing lists a new game starts with: each knight in w_knight / b_knight & each king, queen, bishop & rook in
+ * w_piece / b_piece as { from: null, to: square } (hasn't moved, faces the other side). Rank 1 first, a to h, so the standard
+ * position gives the same lists games always started with. Pawns aren't listed, they always face the other side
+ * @param  {[string]} fen [start position]
+ * @return {[object]} lists [{ w_knight, b_knight, w_piece, b_piece }]
+ */
+function startPieces(fen) {
+	const board = new Chess(fen).board(); // 8 x 8, RANK 8 FIRST
+	let lists = { w_knight: [], b_knight: [], w_piece: [], b_piece: [] };
+	for (let i = board.length - 1; i >= 0; i--) { // RANK 1 FIRST
+		for (let j = 0; j < board[i].length; j++) {
+			const piece = board[i][j];
+			if (!piece || piece.type == 'p') { continue; }
+			let list = piece.type == 'n' ? lists[`${piece.color}_knight`] : lists[`${piece.color}_piece`];
+			list[list.length] = { from: null, to: piece.square };
+		}
+	}
+	return lists;
+}
 
 /* ---------------------------------------------------------------- */
 // Validates client move request
@@ -203,4 +258,4 @@ function gameResult(fen) {
 }
 
 
-module.exports = { validateMove, gameResult }
+module.exports = { validateMove, gameResult, checkStartFen, startPieces }
