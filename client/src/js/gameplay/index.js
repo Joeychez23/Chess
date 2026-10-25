@@ -137,6 +137,7 @@ export async function renderCanvas(playerData) {
 	let currSlide = false; // TRUE WHILE A PIECE SLIDES TO ITS NEW SQUARE
 	let slidePos; // SQUARE THE SLIDING PIECE IS CROSSING (trackSlidePosition)
 	let slideStart = false; // FIRST FRAME OF A SLIDE, A KNIGHT STOPS FOR 100MS BEFORE ITS HOP
+	let knightHop = 0; // HOW HIGH A HOPPING KNIGHT IS: 0 ON THE BOARD, 1 AT THE TOP (HALF A SQUARE UP), SET BY handleKnightHop()
 	let menuToggled = false; // MENU IS OPEN
 	let mouseDownCount = 0; // FRAMES THE MOUSE HAS BEEN HELD ON A PIECE, MORE THAN 3 MAKES IT A DRAG
 	let opposingMove = false; // TRUE WHILE IT'S NOT THE PLAYER'S TURN, LOCKS THE BOARD
@@ -1216,8 +1217,10 @@ export async function renderCanvas(playerData) {
 								let xChange = (tileWidth / frameRate) * 3.48513659; // PIXELS MOVED PER FRAME, ABOUT 9 FRAMES PER SQUARE
 								let yChange = (tileHeight / frameRate) * 3.48513659;
 
-								let endTileX; // SQUARES TO GO ACROSS
-								let endTileY; // SQUARES TO GO UP OR DOWN
+								let endTileX = Math.abs(tiles[index].xSlideTo - tiles[index].x); // SQUARES TO GO ACROSS
+								let endTileY = Math.abs(tiles[index].ySlideTo - tiles[index].y); // SQUARES TO GO UP OR DOWN
+								if (tiles[index].type.match(/[n]/) && endTileX > endTileY) { xChange = xChange * 2; } // KNIGHTS MOVE TWICE AS FAST ALONG THEIR LONG SIDE SO BOTH SIDES FINISH TOGETHER
+								else if (tiles[index].type.match(/[n]/) && endTileY > endTileX) { yChange = yChange * 2; } // (SET BEFORE THE CHECKS BELOW SO THEY SNAP ON THE REAL STEP)
 								let xBool = false; // ARRIVED ACROSS
 								let yBool = false; // ARRIVED UP OR DOWN
 								// THE SLIDE MOVES ON THE REFLECTION LAYER (w == 0), THE SHADOW & PIECE ARE DRAWN AT THE SAME SPOT
@@ -1230,14 +1233,7 @@ export async function renderCanvas(playerData) {
 									} else if (((tiles[index].x * tileWidth) + (tiles[index].xDiff + xChange)) >= ((tiles[index].x * tileWidth) + (tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
 										const remainder = (tiles[index].x * tileWidth) + tiles[index].xDiff - ((tiles[index].x * tileWidth) + (tileWidth * endTileX));
 										tiles[index].xDiff = tiles[index].xDiff - remainder;
-									} else {
-										// KNIGHTS MOVE TWICE AS FAST ALONG THEIR LONG SIDE SO BOTH SIDES FINISH TOGETHER
-										// !NOTE: endTileY IS SET BELOW (Y), SO HERE IT'S STILL UNDEFINED & ONLY THE Y SIDE EVER DOUBLES
-										if (tiles[index].type.match(/[n]/) && (endTileX > endTileY)) {
-											tiles[index].xDiff = tiles[index].xDiff + (xChange * 2);
-										} // KNIGHT SLIDE
-										else { tiles[index].xDiff = tiles[index].xDiff + xChange }
-									}
+									} else { tiles[index].xDiff = tiles[index].xDiff + xChange } // (A KNIGHT'S LONG SIDE IS ALREADY DOUBLED ABOVE)
 								} else if (tiles[index].xSlideTo < tiles[index].x && w == 0) { // X: Less
 									endTileX = tiles[index].x - tiles[index].xSlideTo;
 									if (Math.floor((tiles[index].x * tileWidth) + tiles[index].xDiff) == Math.floor((tiles[index].x * tileWidth) - (tileWidth * endTileX))) { // ARRIVED
@@ -1245,12 +1241,7 @@ export async function renderCanvas(playerData) {
 									} else if (((tiles[index].x * tileWidth) + (tiles[index].xDiff - xChange)) <= ((tiles[index].x * tileWidth) - (tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
 										const remainder = (((tiles[index].x * tileWidth) + tiles[index].xDiff) - ((tiles[index].x * tileWidth) - (tileWidth * endTileX)));
 										tiles[index].xDiff = tiles[index].xDiff - remainder;
-									} else {
-										if (tiles[index].type.match(/[n]/) && (endTileX > endTileY)) {
-											tiles[index].xDiff = tiles[index].xDiff - (xChange * 2);
-										} // KNIGHT SLIDE
-										else { tiles[index].xDiff = tiles[index].xDiff - xChange; }
-									}
+									} else { tiles[index].xDiff = tiles[index].xDiff - xChange; }
 								} else if (w == 0) { xBool = true } // X: Zero
 								// Y (yDiff IS SUBTRACTED, SO GOING DOWN THE SCREEN MAKES IT NEGATIVE)
 								if (tiles[index].ySlideTo > tiles[index].y && w == 0) { // Y: Greater
@@ -1260,12 +1251,7 @@ export async function renderCanvas(playerData) {
 									} else if (((tiles[index].y * tileHeight) - (tiles[index].yDiff - yChange)) >= ((tiles[index].y * tileHeight) + (tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
 										const remainder = (((tiles[index].y * tileHeight) + (tileHeight * endTileY)) - ((tiles[index].y * tileHeight) - tiles[index].yDiff));
 										tiles[index].yDiff = tiles[index].yDiff - remainder;
-									} else {
-										if (tiles[index].type.match(/[n]/) && (endTileY > endTileX)) {
-											tiles[index].yDiff = tiles[index].yDiff - (yChange * 2);
-										} // KNIGHT SLIDE
-										else { tiles[index].yDiff = tiles[index].yDiff - yChange; }
-									}
+									} else { tiles[index].yDiff = tiles[index].yDiff - yChange; }
 								} else if (tiles[index].ySlideTo < tiles[index].y && w == 0) { // Y: Less
 									endTileY = tiles[index].y - tiles[index].ySlideTo;
 									if (Math.floor((tiles[index].y * tileHeight) - tiles[index].yDiff) == Math.floor((tiles[index].y * tileHeight) - (tileHeight * endTileY))) { // ARRIVED
@@ -1273,12 +1259,7 @@ export async function renderCanvas(playerData) {
 									} else if (((tiles[index].y * tileHeight) - (tiles[index].yDiff + yChange)) <= ((tiles[index].y * tileHeight) - (tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
 										const remainder = (((tiles[index].y * tileHeight) - (tileHeight * endTileY)) - ((tiles[index].y * tileHeight) - tiles[index].yDiff));
 										tiles[index].yDiff = tiles[index].yDiff - remainder;
-									} else {
-										if (tiles[index].type.match(/[n]/) && (endTileY > endTileX)) {
-											tiles[index].yDiff = tiles[index].yDiff + (yChange * 2)
-										} // KNIGHT SLIDE
-										else { tiles[index].yDiff = tiles[index].yDiff + yChange; }
-									}
+									} else { tiles[index].yDiff = tiles[index].yDiff + yChange; }
 								} else if (w == 0) { yBool = true } // Y: Zero
 
 
@@ -1346,12 +1327,13 @@ export async function renderCanvas(playerData) {
 									if (xBool && yBool) { completeSlide = true; } // ARRIVED BOTH WAYS
 
 									if (tiles[index].type.match(/[n]/)) { // KNIGHT SLIDE
-										if ((w == 0 || w == 1) && lightObstruction) { // REFLECTION & SHADOW STAY ON THE BOARD, SHIFTED A FIFTH OF A SQUARE LEFT
-											ctx.drawImage(images[imgArr[w]].image, ((((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2) - tileWidth / 5, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2), tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+										handleKnightHop(tiles[index]); // HOW HIGH IT IS THIS FRAME (knightHop)
+										if ((w == 0 || w == 1) && lightObstruction) { // REFLECTION & SHADOW STAY ON THE BOARD, SHIFTED UP TO A FIFTH OF A SQUARE LEFT AS IT RISES
+											ctx.drawImage(images[imgArr[w]].image, ((((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2) - (tileWidth / 5) * knightHop, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2), tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 										} // DRAW SHADOW OF KNIGHT
-										else if (w == 2) { // DRAW PIECE, HALF A SQUARE UP WHILE IT HOPS
+										else if (w == 2) { // DRAW PIECE, UP TO HALF A SQUARE UP WHILE IT HOPS
 											if (slideStart == true) { // FIRST FRAME: LIFT THE KNIGHT & PAUSE 100MS
-												ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset); // DRAW KNIGHT AS WITH STOP
+												ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset); // DRAW KNIGHT AS WITH STOP
 												currSlide = false; // SO THE TIMEOUT STOPS THE ANIMATION
 												slideStart = false;
 												setTimeout(function () { currSlide = true; }, 100) // SO THE TIMEOUT RESTARTS THE ANIMATION
@@ -1359,6 +1341,7 @@ export async function renderCanvas(playerData) {
 											} else {
 												if (completeSlide) { // LANDED: DRAW IT ON THE SQUARE & FINISH THE MOVE
 													tiles[index].isSliding = null;
+													overlapSlideObj = null; // SO THE END OF THE FRAME USES THE LANDED REDRAW (IN FRONT OF & BEHIND THE RIGHT PIECES), NOT THE HOP'S (ON TOP OF EVERYTHING)
 													ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2), tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 													if (tiles[index].color == playerColor) {
 														await updateUserStateSlide(index); // SENDS THE PLAYER'S MOVE
@@ -1367,7 +1350,8 @@ export async function renderCanvas(playerData) {
 														await updateOpponentStateSlide(index); // FINISHES THE OPPONENT'S MOVE
 													}
 												} else { // IN THE AIR
-													ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+													if (knightHop == 0) { overlapSlideObj = null; } // ON ITS NEW SQUARE (THE FRAME BEFORE IT LANDS): DRAWN AGAIN LIKE A LANDED PIECE AT THE END OF THE FRAME, NOT ON TOP
+													ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 												}
 											} // DRAW KNIGHT AS USUAL
 										}
@@ -1778,23 +1762,24 @@ export async function renderCanvas(playerData) {
 						}
 					}
 				} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
+					handleKnightHop(pieceObj); // HOW HIGH IT IS THIS FRAME (knightHop)
 					/* ---------------------------------------------------------------- */
 					// Draw Knight (Draw Slide Box)
 					/* ---------------------------------------------------------------- */
 					/**
-					 * @description Draws the knight to the board (image only), half a square up while it's hopping.
+					 * @description Draws the knight to the board (image only), up to half a square up while it's hopping (knightHop).
 					 * The loops below pick its facing the same way as Draw Knight (Draw Screen)
 					 */
 					function drawKnight() {
 						if (pieceColor == 'w') {
 							if (pieceObj.isSliding) { // HOPPING
-								ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+								ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 							} else {
 								ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 							}
 						} else if (pieceColor == 'b') {
 							if (pieceObj.isSliding) {
-								ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+								ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 							} else {
 								ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 							}
@@ -1814,7 +1799,7 @@ export async function renderCanvas(playerData) {
 								}
 								handleKnightDirectionW(xFrom, xTo);
 								if (pieceObj.isSliding) {
-									ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+									ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 								} else {
 									ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 								}
@@ -1838,6 +1823,12 @@ export async function renderCanvas(playerData) {
 									if (JSON.parse(response.w_knight)[n].to == 'b1' && pieceObj.square == 'b1') { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
 									else if (JSON.parse(response.w_knight)[n].to == pieceObj.square) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 								}
+							} else if (pieceObj.square == moveObj.from && JSON.parse(response.w_knight)[n].from && JSON.parse(response.w_knight)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
+								xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1; // SAME FOR BOTH COLORS, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
+								xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+								handleKnightDirectionW(xFrom, xTo);
+								drawKnight();
+								break;
 							}
 						}
 					} else if (pieceColor == "b") {
@@ -1854,7 +1845,7 @@ export async function renderCanvas(playerData) {
 								}
 								handleKnightDirectionB(xFrom, xTo);
 								if (pieceObj.isSliding) {
-									ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - tileHeight / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+									ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
 								} else {
 									ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
 								}
@@ -1878,6 +1869,17 @@ export async function renderCanvas(playerData) {
 									if (JSON.parse(response.b_knight)[n].to == 'b8' && pieceObj.square == 'b8') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 								}
+							} else if (pieceObj.square == moveObj.from && JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
+								if (playerColor == 'w') {
+									xFrom = JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
+									xTo = JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+								} else if (playerColor == 'b') {
+									xFrom = 8 - (JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
+									xTo = 8 - (JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
+								}
+								handleKnightDirectionB(xFrom, xTo);
+								drawKnight();
+								break;
 							}
 						}
 					}
@@ -1893,7 +1895,7 @@ export async function renderCanvas(playerData) {
 			let landedTile = null;
 			if (!overlapSlideObj) { // currSlide CAN ALREADY BE false HERE (validateMove TURNS IT OFF BEFORE setTiles() IS DONE)
 				for (let q = 0; q < tiles.length; q++) {
-					if (tiles[q].square == moveObj.from && !tiles[q].isSliding && (tiles[q].xDiff || tiles[q].yDiff) && tiles[q].type && tiles[q].type != 'n') { landedTile = tiles[q]; overlapSlideObj = { y2x2: tiles[q] }; break; } // A LANDED KNIGHT STAYS AS IT WAS
+					if (tiles[q].square == moveObj.from && (!tiles[q].isSliding || (tiles[q].type == 'n' && knightHop == 0)) && (tiles[q].xDiff || tiles[q].yDiff) && tiles[q].type) { landedTile = tiles[q]; overlapSlideObj = { y2x2: tiles[q] }; break; } // KNIGHTS TOO, FROM THE FRAME THEY'RE BACK ON THE BOARD (drawSlideBox FINDS A LANDED KNIGHT BY moveObj.to)
 				}
 			}
 
@@ -2498,6 +2500,27 @@ export async function renderCanvas(playerData) {
 				else if (xFrom > xTo) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; }
 				else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
 			}
+		}
+
+
+		/* ---------------------------------------------------------------- */
+		// Handle Knight Hop
+		/* ---------------------------------------------------------------- */
+		/**
+		 * @description Check how far the sliding knight has gone to determine how high it is. Sets knightHop on an arc,
+		 * 0 as it leaves its square, 1 halfway (half a square up) & back to 0 as it lands, so it doesn't pop up or drop.
+		 * Its shadow & reflection use it too (they slide out from under it as it rises)
+		 * @param  {[object]} tile [the knight's tile]
+		 */
+		function handleKnightHop(tile) {
+			let xMoved = 0; // HOW FAR ACROSS IT'S GONE (0 - 1)
+			let yMoved = 0; // HOW FAR UP OR DOWN IT'S GONE (0 - 1)
+			if (tile.isSliding) {
+				if (tile.xSlideTo != tile.x) { xMoved = Math.abs(tile.xDiff) / (Math.abs(tile.xSlideTo - tile.x) * tileWidth); }
+				if (tile.ySlideTo != tile.y) { yMoved = Math.abs(tile.yDiff) / (Math.abs(tile.ySlideTo - tile.y) * tileHeight); }
+				knightHop = Math.sin(Math.min(Math.max(xMoved, yMoved), 1) * Math.PI); // 0 AT THE START & END, 1 HALFWAY
+				if (knightHop < 0.001) { knightHop = 0; } // BACK ON THE BOARD (sin(PI) ISN'T EXACTLY 0)
+			} else { knightHop = 0; } // ON THE BOARD
 		}
 
 
