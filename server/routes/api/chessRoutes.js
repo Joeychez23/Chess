@@ -1,6 +1,6 @@
 const router = require('express').Router()
 const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
-const { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, getUserGames } = require('../../controllers/chessController.js')
+const { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames } = require('../../controllers/chessController.js')
 
 // THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME
 
@@ -16,13 +16,17 @@ router.route('/game/:gameId/ai-move').post(optionalAuth, aiMoveGame);   // /api/
 
 router.route('/game/:gameId/forfeit').post(requireAuth, forfeitGame);   // /api/chess/game/:gameId/forfeit  -> FRIEND GAMES: CLOSES THE GAME, THE OTHER SIDE WINS
 
-router.route('/game/:gameId/rematch').post(requireAuth, rematchGame);   // /api/chess/game/:gameId/rematch  -> FRIEND GAMES: NEW GAME WHEN BOTH PLAYERS PRESS WITHIN 1 MINUTE
+router.route('/game/:gameId/rematch').post(requireAuth, rematchGame);   // /api/chess/game/:gameId/rematch  -> FRIEND GAMES: NEW GAME WHEN BOTH PLAYERS PRESS WITHIN 1 MINUTE, 409 IF EITHER IS IN ANOTHER FRIEND GAME
+
+router.route('/game/:gameId/accept').post(requireAuth, acceptGame);     // /api/chess/game/:gameId/accept   -> FRIEND INVITES: PENDING -> OPEN. ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+
+router.route('/game/:gameId/decline').post(requireAuth, declineGame);   // /api/chess/game/:gameId/decline  -> FRIEND INVITES: DECLINE (INVITED PLAYER) OR CANCEL (INVITER), THE PENDING GAME IS DELETED
 
 router.route('/levels').get(getLevels);                             // /api/chess/levels                -> AI LEVELS + APPROX ELO FOR HOME'S DROPDOWN
 
-router.route('/invite').post(requireAuth, inviteGame);              // /api/chess/invite                -> NEW GAME VS A FRIEND BY EMAIL
+router.route('/invite').post(requireAuth, inviteGame);              // /api/chess/invite                -> INVITE A FRIEND BY EMAIL (PENDING GAME). ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
 
-router.route('/user/:userId').get(requireAuth, getUserGames);       // /api/chess/user/:userId          -> OPEN GAMES FOR HOME, PLUS THE OPEN AI GAME (ai_game_id)
+router.route('/user/:userId').get(requireAuth, getUserGames);       // /api/chess/user/:userId          -> OPEN GAMES FOR HOME, THE OPEN AI & FRIEND GAMES (ai_game_id, friend_game_id) & INVITES
 
 
 module.exports = router

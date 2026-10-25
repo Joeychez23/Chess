@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Page Utils
- *	Shared by the pages: the menu (on pages without the game), the table background & the current game in the Play the AI box
+ *	Shared by the pages: the menu (on pages without the game), the table background & the current game in the Play the AI & Play a friend boxes
  *
  */
 
@@ -58,20 +58,34 @@ export function showTable() {
 // Show Current Game
 /* ---------------------------------------------------------------- */
 /**
- * @description The Play the AI box on Home & guest: swaps the box's text for a picture of the player's open AI game,
- * a line about it (level, color, whose move) & Continue current game. If the picture can't be drawn Continue still shows
+ * @description Play the AI (Home & guest) & Play a friend (Home): swaps the box's text for a picture of the player's open game,
+ * a line about it (level or opponent, color, whose move) & Continue current game. If the picture can't be drawn Continue still shows
+ * @param  {[object]} box [the .box, it holds a .boxText, a .boardPicture (canvas & figcaption) & a .continueGame link]
  * @param  {[object]} game [GET /api/chess/game/:gameId response]
  * @param  {[string]} href [where Continue goes: /play/:gameId (signed in) or /play (guest)]
  */
-export async function showCurrentGame(game, href) {
-	const continueLink = document.getElementById("continueGame");
+export async function showCurrentGame(box, game, href) {
+	const picture = box.querySelector(".boardPicture");
+	const continueLink = box.querySelector(".continueGame");
 	const turn = game.game_board.split(" ")[1]; // FEN: w OR b TO MOVE
-	document.getElementById("currentGameInfo").innerText = `Level ${game.ai_level} // You play ${game.player_color == "w" ? "white" : "black"} // ${turn == game.player_color ? "Your move" : "AI's move"}`;
+	const opponent = game.ai ? `Level ${game.ai_level}` : `vs ${game.opponent_name || "Friend"}`;
+	const theirMove = game.ai ? "AI's move" : "Their move";
+	picture.querySelector("figcaption").innerText = `${opponent} // You play ${game.player_color == "w" ? "white" : "black"} // ${turn == game.player_color ? "Your move" : theirMove}`;
 	continueLink.href = href;
 	try {
-		await drawBoardPicture(document.getElementById("currentGameBoard"), game);
-		document.getElementById("currentGame").hidden = false;
+		await drawBoardPicture(picture.querySelector("canvas"), game);
+		picture.hidden = false;
 	} catch (err) { console.log(err); } // AN IMAGE DIDN'T LOAD, CONTINUE STILL WORKS
-	document.getElementById("soloText").hidden = true;
+	box.querySelector(".boxText").hidden = true;
 	continueLink.hidden = false;
+}
+
+/**
+ * @description Puts the box's text back once its game is over (Play a friend redraws when the socket says it changed)
+ * @param  {[object]} box [the .box showCurrentGame drew in]
+ */
+export function hideCurrentGame(box) {
+	box.querySelector(".boardPicture").hidden = true;
+	box.querySelector(".continueGame").hidden = true;
+	box.querySelector(".boxText").hidden = false;
 }

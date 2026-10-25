@@ -40,9 +40,11 @@ function expireTime() {
  * @param  {[string]} playerId1 [white player id]
  * @param  {[string]} playerId2 [black player id]
  * @param  {[number]} aiLevel [AI games: the AI's level, saved with the game so it can't change mid game]
+ * @param  {[object]} names [friend games: { w, b } screennames for Home's caption]
+ * @param  {[boolean]} pending [friend invites: the game is PENDING & waits in requested_games until it's accepted (acceptInvite)]
  * @return {[object]} response [{ status, game_data, message }]
  */
-async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
+async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, names, pending) {
 	const board = new Chess().fen();
 
 	let gameId;
@@ -53,7 +55,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
 		TableName: CHESS_TABLE,
 		Item: {
 			game_id: { S: gameId },
-			state: { S: "OPEN" },
+			state: { S: pending ? "PENDING" : "OPEN" },
 			game_board: { S: board },
 			moves: { S: JSON.stringify([]) },
 			prev_move: { S: JSON.stringify([]) },
@@ -67,6 +69,8 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
 		}
 	};
 	if (aiLevel) { params.Item.ai_level = { N: String(aiLevel) }; } // FRIEND GAMES HAVE NO LEVEL
+	if (names?.w) { params.Item.white_name = { S: names.w }; } // FRIEND GAMES: "vs Bob" ON HOME
+	if (names?.b) { params.Item.black_name = { S: names.b }; }
 
 	await connection.putItem(params); // POST REQUEST FOR GAME CREATION TO DYNAMODB
 
@@ -77,12 +81,13 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel) {
 
 			let userData = response?.user_data;
 			let openGames = JSON.parse(userData.open_games.S);
-			if (!openGames.includes(gameId)) { openGames[openGames.length] = gameId; } // ADD TO OPEN GAMES ONCE, RESTARTS KEEP THE SAME game_id
-
-			userData.open_games.S = openGames;
+			let requestedGames = JSON.parse(userData.requested_games.S);
+			let gameList = pending ? requestedGames : openGames; // INVITES WAIT IN requested_games UNTIL THEY'RE ACCEPTED
+			if (!gameList.includes(gameId)) { gameList[gameList.length] = gameId; } // ADD ONCE, RESTARTS KEEP THE SAME game_id
 
 			//SET DATA
-			userData.requested_games.S = JSON.parse(userData.requested_games.S);
+			userData.open_games.S = openGames;
+			userData.requested_games.S = requestedGames;
 			userData.closed_games.S = JSON.parse(userData.closed_games.S);
 
 			//UPDATE DATA
@@ -238,8 +243,8 @@ async function closeGame(gameData, winner, reason) {
 		throw err;
 	}
 
-	await closeUserGame(gameData.white_player_id.S, gameId);
-	await closeUserGame(gameData.black_player_id.S, gameId);
+	await moveUserGame(gameData.white_player_id.S, gameId, "open_games", "closed_games");
+	await moveUserGame(gameData.black_player_id.S, gameId, "open_games", "closed_games");
 
 	gameData.state = { S: "CLOSED" };
 	gameData.winner = { S: winner };
@@ -252,24 +257,108 @@ async function closeGame(gameData, winner, reason) {
 	}
 }
 
+/* ---------------------------------------------------------------- */
+// Accept invite (PUT)
+/* ---------------------------------------------------------------- */
 /**
- * @description Moves a game id from a user's open_games to closed_games (Home only lists open games)
- * @param  {[string]} userId [auth0 user id without "auth0|"]
- * @param  {[string]} gameId [closed game]
+ * @description The invited player accepted: PENDING -> OPEN & the game moves from requested_games to open_games for both players
+ * @param  {[object]} gameData [PENDING game item from retrieveGame]
+ * @return {[object]} response [{ status, game_data, message }]
  */
-async function closeUserGame(userId, gameId) {
+async function acceptInvite(gameData) {
+	const gameId = gameData.game_id.S;
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: 'SET #state = :open, expireAt = :expireAt', // THE 25 DAYS START FROM THE ACCEPT
+		ConditionExpression: '#state = :pending', // ONLY ONE ACCEPT WINS, A DECLINE MAY HAVE GOTTEN THERE FIRST
+		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
+		ExpressionAttributeValues: {
+			":open": { S: "OPEN" },
+			":pending": { S: "PENDING" },
+			":expireAt": { N: expireTime() }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Invite was already answered: ${gameId}` }; }
+		throw err;
+	}
+
+	await moveUserGame(gameData.white_player_id.S, gameId, "requested_games", "open_games");
+	await moveUserGame(gameData.black_player_id.S, gameId, "requested_games", "open_games");
+
+	gameData.state = { S: "OPEN" };
+	return {
+		status: 200,
+		game_data: gameData,
+		message: `Accepted game id: ${gameId}`
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Delete invite (DELETE)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A declined or cancelled invite: the PENDING game is deleted & dropped from both players' requested_games
+ * @param  {[object]} gameData [PENDING game item from retrieveGame]
+ * @return {[object]} response [{ status, message }]
+ */
+async function deleteInvite(gameData) {
+	const gameId = gameData.game_id.S;
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		ConditionExpression: '#state = :pending', // AN ACCEPTED GAME IS NEVER DELETED
+		ExpressionAttributeNames: { "#state": "state" },
+		ExpressionAttributeValues: {
+			":pending": { S: "PENDING" }
+		}
+	}
+
+	try {
+		await connection.deleteItem(params); // DELETE REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Invite was already answered: ${gameId}` }; }
+		throw err;
+	}
+
+	await moveUserGame(gameData.white_player_id.S, gameId, "requested_games", null);
+	await moveUserGame(gameData.black_player_id.S, gameId, "requested_games", null);
+
+	return {
+		status: 200,
+		message: `Deleted invite id: ${gameId}`
+	}
+}
+
+/**
+ * @description Moves a game id between a user's game lists: open_games -> closed_games (closed), requested_games -> open_games (accepted),
+ * requested_games -> nowhere (declined or cancelled). Home only lists open games & invites
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} fromList ["requested_games" or "open_games"]
+ * @param  {[string]} toList ["open_games" or "closed_games", null just drops it]
+ */
+async function moveUserGame(userId, gameId, fromList, toList) {
 	if (userId == "CHESS_AI" || userId == "GUEST_USER" || userId == gameId) { return; } // A GUEST'S PLAYER ID IS THEIR GAME ID
 	const response = await retrieveUser(userId);
 	if (!response.user_data) { return; }
 
 	let userData = response.user_data;
-	let closedGames = JSON.parse(userData.closed_games.S);
-	if (!closedGames.includes(gameId)) { closedGames[closedGames.length] = gameId; }
 
 	//SET DATA
-	userData.open_games.S = JSON.parse(userData.open_games.S).filter((openGameId) => openGameId != gameId);
-	userData.closed_games.S = closedGames;
 	userData.requested_games.S = JSON.parse(userData.requested_games.S);
+	userData.open_games.S = JSON.parse(userData.open_games.S);
+	userData.closed_games.S = JSON.parse(userData.closed_games.S);
+	userData[fromList].S = userData[fromList].S.filter((listGameId) => listGameId != gameId);
+	if (toList && !userData[toList].S.includes(gameId)) { userData[toList].S[userData[toList].S.length] = gameId; }
 
 	//UPDATE DATA
 	await updateUser(userData);
@@ -457,48 +546,95 @@ async function updateUser(userData) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Drops games TTL already deleted from a user's open_games & saves the shorter list. Also finds the user's
- * AI game (a player only has one open at a time, chessController.js newGame)
+ * AI game & friend game (a player has one of each open at a time, chessController.js newGame & inviteGame)
  * @param  {[object]} userData [user item from retrieveUser]
- * @return {[object]} userData [same item, open_games.S only lists games that still exist, ai_game_id = the newest open AI game or null]
+ * @return {[object]} userData [same item, open_games.S only lists games that still exist,
+ * ai_game_id / friend_game_id = the newest open AI / friend game or null]
  */
 async function pruneOpenGames(userData) {
-	const openGames = [...new Set(JSON.parse(userData.open_games.S))]; // BATCH GET FAILS ON DUPLICATE KEYS
 	userData.ai_game_id = null;
-	if (openGames.length == 0) { return userData; }
+	userData.friend_game_id = null;
+
+	const games = await pruneGameList(userData, "open_games");
+	for (let i = 0; i < games.length; i++) { // NEWEST IS LAST IN open_games
+		if (games[i].white_player_id?.S == "CHESS_AI" || games[i].black_player_id?.S == "CHESS_AI") { userData.ai_game_id = games[i].game_id.S; }
+		else { userData.friend_game_id = games[i].game_id.S; }
+	}
+	return userData;
+}
+
+/* ---------------------------------------------------------------- */
+// Prune invites
+/* ---------------------------------------------------------------- */
+/**
+ * @description Drops invites TTL already deleted from a user's requested_games & splits the rest into sent & received.
+ * The inviter plays white (chessController.js inviteGame)
+ * @param  {[object]} userData [user item from retrieveUser]
+ * @return {[object]} userData [same item, sent_invite = { game_id, name, player_id } or null (one at a time),
+ * received_invites = [{ game_id, name, player_id }], name & player_id are the other player's]
+ */
+async function pruneInvites(userData) {
+	const userId = userData.user_id.S;
+	userData.sent_invite = null;
+	userData.received_invites = [];
+
+	const games = await pruneGameList(userData, "requested_games");
+	for (let i = 0; i < games.length; i++) {
+		if (games[i].state?.S != "PENDING") { continue; } // ACCEPTED WHILE THIS WAS LOADING
+		const sent = games[i].white_player_id.S == userId;
+		const invite = {
+			game_id: games[i].game_id.S,
+			name: (sent ? games[i].black_name?.S : games[i].white_name?.S) || null,
+			player_id: sent ? games[i].black_player_id.S : games[i].white_player_id.S
+		};
+		if (sent) { userData.sent_invite = invite; }
+		else { userData.received_invites.push(invite); }
+	}
+	return userData;
+}
+
+/**
+ * @description Checks every game in one of a user's lists still exists (TTL deletes expired games) & saves the shorter list
+ * @param  {[object]} userData [user item from retrieveUser, userData[listName].S is updated to the pruned list]
+ * @param  {[string]} listName ["open_games" or "requested_games"]
+ * @return {[array]} games [the found games in list order (newest last): game_id, player ids, names & state]
+ */
+async function pruneGameList(userData, listName) {
+	const gameIds = [...new Set(JSON.parse(userData[listName].S))]; // BATCH GET FAILS ON DUPLICATE KEYS
+	if (gameIds.length == 0) { return []; }
 
 	let liveGames = [];
-	let aiGames = []; // OPEN GAMES WHERE ONE SIDE IS CHESS_AI
+	let foundItems = [];
 	try {
-		for (let i = 0; i < openGames.length; i += 100) { // BATCH GET TAKES 100 KEYS MAX
-			const gameIds = openGames.slice(i, i + 100);
+		for (let i = 0; i < gameIds.length; i += 100) { // BATCH GET TAKES 100 KEYS MAX
+			const batchIds = gameIds.slice(i, i + 100);
 			const params = {
 				RequestItems: {
 					[CHESS_TABLE]: {
-						Keys: gameIds.map((gameId) => ({ game_id: { S: gameId } })),
-						ProjectionExpression: "game_id, white_player_id, black_player_id" // THE GAME EXISTS & WHETHER IT'S AN AI GAME
+						Keys: batchIds.map((gameId) => ({ game_id: { S: gameId } })),
+						ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state", // THE GAME EXISTS, WHO'S IN IT & WHETHER IT'S AN AI GAME
+						ExpressionAttributeNames: { "#state": "state" }
 					}
 				}
 			};
 
 			const response = await connection.batchGetItem(params);
-			const foundItems = response.Responses?.[CHESS_TABLE] || [];
-			const foundGames = foundItems.map((game) => game.game_id.S);
+			const batchItems = response.Responses?.[CHESS_TABLE] || [];
+			const foundGames = batchItems.map((game) => game.game_id.S);
 			const uncheckedGames = (response.UnprocessedKeys?.[CHESS_TABLE]?.Keys || []).map((key) => key.game_id.S);
-			for (let j = 0; j < foundItems.length; j++) {
-				if (foundItems[j].white_player_id?.S == "CHESS_AI" || foundItems[j].black_player_id?.S == "CHESS_AI") { aiGames.push(foundItems[j].game_id.S); }
-			}
+			foundItems = foundItems.concat(batchItems);
 
-			for (let j = 0; j < gameIds.length; j++) {
-				if (foundGames.includes(gameIds[j]) || uncheckedGames.includes(gameIds[j])) { liveGames.push(gameIds[j]); } // UNCHECKED GAMES ARE KEPT, NEVER DROP A REAL GAME
+			for (let j = 0; j < batchIds.length; j++) {
+				if (foundGames.includes(batchIds[j]) || uncheckedGames.includes(batchIds[j])) { liveGames.push(batchIds[j]); } // UNCHECKED GAMES ARE KEPT, NEVER DROP A REAL GAME
 			}
 		}
 	} catch (err) {
-		console.log(`Open games check failed: ${err.message}`);
-		return userData; // SHOW THE LIST AS IS RATHER THAN BREAKING HOME
+		console.log(`Game list check failed (${listName}): ${err.message}`);
+		return []; // SHOW THE LIST AS IS RATHER THAN BREAKING HOME
 	}
 
-	for (let i = 0; i < liveGames.length; i++) { if (aiGames.includes(liveGames[i])) { userData.ai_game_id = liveGames[i]; } } // NEWEST IS LAST IN open_games
-	if (liveGames.length == openGames.length) { return userData; } // NOTHING EXPIRED
+	const games = liveGames.map((gameId) => foundItems.find((game) => game.game_id.S == gameId)).filter(Boolean); // BATCH GET ISN'T IN ORDER
+	if (liveGames.length == gameIds.length) { return games; } // NOTHING EXPIRED
 
 	const prunedGames = JSON.stringify(liveGames);
 	const params = {
@@ -506,23 +642,23 @@ async function pruneOpenGames(userData) {
 		Key: {
 			user_id: { S: userData.user_id.S }
 		},
-		UpdateExpression: 'SET open_games = :open_games',
-		ConditionExpression: 'open_games = :old_open_games', // SKIPS THE SAVE IF A GAME WAS ADDED MEANWHILE, NEXT LOAD PRUNES AGAIN
+		UpdateExpression: `SET ${listName} = :game_list`,
+		ConditionExpression: `${listName} = :old_game_list`, // SKIPS THE SAVE IF A GAME WAS ADDED MEANWHILE, NEXT LOAD PRUNES AGAIN
 		ExpressionAttributeValues: {
-			":open_games": { S: prunedGames },
-			":old_open_games": { S: userData.open_games.S }
+			":game_list": { S: prunedGames },
+			":old_game_list": { S: userData[listName].S }
 		}
 	}
 
 	try {
 		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
 	} catch (err) {
-		if (err.name != "ConditionalCheckFailedException") { console.log(`Open games save failed: ${err.message}`); }
+		if (err.name != "ConditionalCheckFailedException") { console.log(`Game list save failed (${listName}): ${err.message}`); }
 	}
 
-	userData.open_games.S = prunedGames;
-	return userData;
+	userData[listName].S = prunedGames;
+	return games;
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, pruneOpenGames }
+module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, pruneOpenGames, pruneInvites }

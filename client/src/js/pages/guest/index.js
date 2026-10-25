@@ -51,5 +51,5 @@ async function loadGuestGame() {
 	if (!gameId) { return; } // NO GAME YET
 	const game = await validate(CHESS_URL, gameId, gameId, false, false, false); // GET THE GAME, A GUEST'S PLAYER ID IS THEIR GAME ID
 	if (game?.status != 200 || game.state != "OPEN") { return; } // EXPIRED OR OVER, Play as guest STARTS OR SHOWS IT
-	showCurrentGame(game, "/play");
+	showCurrentGame(document.getElementById("soloBox"), game, "/play");
 }

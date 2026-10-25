@@ -21,6 +21,7 @@
 		<div id="resultDisplay">Chess</div>
 		<ul id="menuButtonList">
 			<li><a class="menuButton" href="/" aria-current="page">Home</a></li>
+			<li><a class="menuButton" href="#invites">Invites</a></li>
 			<li><a class="menuButton" href="#games">Your games</a></li>
 			<li><a class="menuButton" href="/api/auth/logout">Logout</a></li>
 		</ul>
@@ -39,23 +40,28 @@
 		</section>
 
 		<section class="boxes" aria-label="Games">
-			<div class="box boxBaize">
+			<div class="box boxBaize" id="soloBox">
 				<div class="boxHead"><h2 class="label">Play the AI</h2><span class="spec">No. 01</span></div>
-				<p id="soloText">Eight levels, from about 750 Elo up to full-strength Stockfish. You get a random color.</p>
-				<figure class="boardPicture" id="currentGame" hidden>
-					<canvas id="currentGameBoard" role="img" aria-label="The board of your current game"></canvas>
-					<figcaption class="spec" id="currentGameInfo"></figcaption>
+				<p class="boxText">Eight levels, from about 750 Elo up to full-strength Stockfish. You get a random color.</p>
+				<figure class="boardPicture" hidden>
+					<canvas role="img" aria-label="The board of your current AI game"></canvas>
+					<figcaption class="spec"></figcaption>
 				</figure>
-				<a class="btn btnCream" id="continueGame" href="/" hidden>Continue current game</a>
+				<a class="btn btnCream continueGame" href="/" hidden>Continue current game</a>
 				<div class="field boxBottom">
 					<select id="aiLevel" aria-label="AI level"></select>
 					<button class="btn btnCream" id="optNewSolo" type="button">Play AI</button>
 				</div>
 				<p class="spec note" id="soloNote" role="status"></p>
 			</div>
-			<div class="box boxWalnut">
+			<div class="box boxWalnut" id="friendBox">
 				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>
-				<p>Invite them by the email they sign in with. Each move shows up on both boards.</p>
+				<p class="boxText">Invite them by the email they sign in with. Once they accept, each move shows up on both boards.</p>
+				<figure class="boardPicture" hidden>
+					<canvas role="img" aria-label="The board of your current friend game"></canvas>
+					<figcaption class="spec"></figcaption>
+				</figure>
+				<a class="btn btnCream continueGame" href="/" hidden>Continue current game</a>
 				<form id="muliplayerForm" class="boxBottom">
 					<div class="field">
 						<input type="email" inputmode="email" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Their email" aria-label="Friend's email">
@@ -64,8 +70,18 @@
 					<p class="spec note" id="multiNote" role="status"></p>
 				</form>
 			</div>
+			<div class="box boxWalnut" id="invites">
+				<div class="boxHead"><h2 class="label">Invites</h2><span class="spec">No. 03</span></div>
+				<p id="noInvites">No invites right now. When a friend invites you, it shows up here.</p>
+				<ul class="inviteList" id="inviteList" aria-label="Invites you got" hidden></ul>
+				<div class="sentInvite" id="sentInvite" hidden>
+					<p class="spec" id="sentInviteText"></p>
+					<button class="btn btnLine" id="cancelInvite" type="button">Cancel invite</button>
+				</div>
+				<p class="spec note" id="inviteNote" role="status"></p>
+			</div>
 			<div class="box boxMaple" id="games">
-				<div class="boxHead"><h2 class="label">Your games</h2><span class="spec">No. 03</span></div>
+				<div class="boxHead"><h2 class="label">Your games</h2><span class="spec">No. 04</span></div>
 				<p id="loadingDiv">Loading...</p>
 				<ul id="gameList"></ul>
 			</div>

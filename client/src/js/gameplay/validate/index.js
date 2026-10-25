@@ -90,20 +90,56 @@ export async function getUserGameData(gameUrl, userId) {
 }
 
 /**
- * @description New game vs a friend, the server finds their account by email (POST /invite)
+ * @description Invites a friend, the server finds their account by email & the game waits (PENDING) until they accept (POST /invite)
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the server answers 409 while one is open]
+ * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) }]
  */
-export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail) {
+export async function initMultiplayerGame(gameUrl, gameId, _id, opponentEmail, replaceCurrent) {
 	let options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			game_id: gameId,
 			challenger_id: _id,
-			opponent_email: opponentEmail
+			opponent_email: opponentEmail,
+			replace_current: replaceCurrent
 		})
 	};
 	try {
 		return await request(`${gameUrl}/invite`, options)
+	} catch (err) {
+		return
+	}
+}
+
+/**
+ * @description Friend invites: the invited player starts the game (POST /game/:gameId/accept)
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
+ * @return {[object]} response [the game: { status, game_id, game_board, ..., state: "OPEN" } | { status: 409, game_id (the open one) }]
+ */
+export async function acceptInvite(gameUrl, gameId, replaceCurrent) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ replace_current: replaceCurrent })
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/accept`, options)
+	} catch (err) {
+		return
+	}
+}
+
+/**
+ * @description Friend invites: the invited player declines, or the inviter cancels (POST /game/:gameId/decline)
+ * @return {[object]} response [{ status, game_id, message }]
+ */
+export async function declineInvite(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/decline`, options)
 	} catch (err) {
 		return
 	}

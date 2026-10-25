@@ -3173,6 +3173,7 @@ export async function renderCanvas(playerData) {
 			}
 			if (rematchWaiting) { return; } // ALREADY ASKED, STILL WAITING
 			const rematchResponse = await rematchGame(GAME_URL, GAME_ID);
+			if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME
 			if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
 			if (rematchResponse?.waiting) { // WAIT 1 MINUTE FOR THE OPPONENT
 				optRestartBtn.innerHTML = "Waiting...";
