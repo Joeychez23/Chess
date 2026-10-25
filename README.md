@@ -142,6 +142,29 @@ With `npm run dev`, set `CLIENT_URL=http://localhost:3002/` so login returns
 to the dev server. The dev server writes the `.html` pages to `client/dist`
 so the server can pick between them, and keeps the bundles in memory.
 
+## Tests
+
+```bash
+cd server && npm test   # every server/test/*.test.js, with Node's built-in test runner
+```
+
+The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
+`test/helpers/env.js` sets test values, `test/helpers/fakeDynamo.js` keeps
+`chess_db` and `user_db` in memory (it understands the update and condition
+expressions `server/dynamoDB.js` uses), and `test/helpers/server.js` starts the
+real `/api` routes on a random port and answers Auth0 and the engine from test
+data.
+
+| File | What it covers |
+| --- | --- |
+| `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks |
+| `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
+| `dynamoDB.test.js` | The conditional writes: two moves at once, one close per game, invite answers, rematch presses |
+| `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the server tests and the
+client build on every pull request and every push to `main`.
+
 ## Pages
 
 The server sends the page (`server/routes/pageRoutes.js`). It checks the same
@@ -579,6 +602,9 @@ server/
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
+  test/                      Server tests (npm test): validate, ai, dynamoDB, games, plus helpers/ (test settings, in-memory tables, test server)
+.github/
+  workflows/ci.yml           GitHub Actions: server tests and the client build on every pull request
 deploy/
   chess.service              systemd unit for the server
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)

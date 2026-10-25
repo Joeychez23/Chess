@@ -12,6 +12,7 @@ audio
 workbench
 sony
 *.yml
+!.github/workflows/*.yml
 sony
 *.zip
 package-lock.json
