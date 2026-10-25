@@ -1,0 +1,38 @@
+# Runs the server tests and the client build on every pull request and on pushes to main.
+# Installs with npm install because the lockfiles aren't committed yet (#197); switch to npm ci once they are.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+
+  client:
+    name: Client build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run build

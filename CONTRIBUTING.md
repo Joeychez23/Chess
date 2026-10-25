@@ -19,7 +19,7 @@ Setup, the `.env` files and the run commands are in the README's [Setup](README.
 3. Update the README in the same pull request when you change a route, a Socket.IO event, a stored field or a deploy step.
 4. Open a pull request into `main`. The template asks for a short summary, the changes, the commits and the related issues. Write `Closes #N` for each issue it finishes so GitHub closes it on merge.
 
-There are no automated tests yet. Say in the pull request how you checked the change (for example: played an AI game and a friend game in two browsers, on desktop and on a phone).
+Run `cd server && npm test` before opening a pull request, and add tests for server changes in `server/test/` (see the README's [Tests](README.md#tests) section). CI runs the tests and the client build on every pull request. The tests don't cover the board drawing, so also say in the pull request how you checked the change in the browser (for example: played an AI game and a friend game in two browsers, on desktop and on a phone).
 
 ## Code style
 
