@@ -11,6 +11,8 @@
 
 const { Chess, validateFen, DEFAULT_POSITION } = require("chess.js");
 
+const FACING_LISTS = ["w_knight", "b_knight", "w_piece", "b_piece"]; // WHICH WAY EACH KNIGHT, KING, QUEEN, BISHOP & ROOK FACES (JSON STRINGS ON THE GAME)
+
 /* ---------------------------------------------------------------- */
 // Check Start Position
 /* ---------------------------------------------------------------- */
@@ -67,6 +69,52 @@ function startPieces(fen) {
 }
 
 /* ---------------------------------------------------------------- */
+// Face Move
+/* ---------------------------------------------------------------- */
+/**
+ * @description Updates the facing lists for one move, the rules a move (validateMove) & an undo (replayMoves) share. Knights face the way
+ * they last moved, kings, queens, bishops & rooks the way they last moved up or down (a sideways move keeps their from)
+ * @param  {[object]} facing [{ w_knight, b_knight, w_piece, b_piece } arrays of { from, to }, changed in place]
+ * @param  {[object]} move [the chess.js move: { color, piece, from, to, captured, promotion }]
+ */
+function faceMove(facing, move) {
+	const other = move.color == 'w' ? 'b' : 'w';
+	const knights = facing[`${move.color}_knight`];
+	const pieces = facing[`${move.color}_piece`];
+
+	let taken = null; // A TAKEN KNIGHT, QUEEN, BISHOP OR ROOK IS CLEARED (PAWNS AREN'T LISTED, SO EN PASSANT CHANGES NOTHING)
+	if (move.captured == 'n') { taken = facing[`${other}_knight`]; }
+	else if (move.captured == 'q' || move.captured == 'b' || move.captured == 'r') { taken = facing[`${other}_piece`]; }
+	for (let n = 0; taken && n < taken.length; n++) {
+		if (taken[n].to == move.to) { taken[n] = { from: null, to: null }; }
+	}
+
+	if (move.promotion) { // THE NEW PIECE FACES THE OTHER SIDE, IT CAME UP FROM RANK 7 (WHITE) OR 2 (BLACK)
+		const list = move.promotion == 'n' ? knights : pieces;
+		list[list.length] = { from: move.from, to: move.to };
+	} else if (move.piece == 'n') {
+		for (let n = 0; n < knights.length; n++) {
+			if (knights[n].to == move.from) { knights[n] = { from: move.from, to: move.to }; }
+		}
+	} else if (move.piece.match(/[kqbr]/)) { // KINGS, QUEENS, BISHOPS & ROOKS FACE THE WAY THEY LAST MOVED UP OR DOWN
+		for (let n = 0; n < pieces.length; n++) {
+			if (pieces[n].to != move.from) { continue; }
+			if (move.from[1] != move.to[1]) { pieces[n] = { from: move.from, to: move.to }; } // MOVED UP OR DOWN
+			else { pieces[n].to = move.to; } // MOVED SIDEWAYS: KEEPS ITS from SO IT FACES THE SAME WAY
+		}
+
+		const rank = move.color == 'w' ? '1' : '8';
+		if (move.piece == 'k' && move.from == `e${rank}` && (move.to == `g${rank}` || move.to == `c${rank}`)) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO
+			const rookFrom = move.to == `g${rank}` ? `h${rank}` : `a${rank}`; // KING SIDE : QUEEN SIDE
+			const rookTo = move.to == `g${rank}` ? `f${rank}` : `d${rank}`;
+			for (let n = 0; n < pieces.length; n++) {
+				if (pieces[n].to == rookFrom) { pieces[n].to = rookTo; }
+			}
+		}
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Validates client move request
 /* ---------------------------------------------------------------- */
 /**
@@ -76,165 +124,117 @@ function startPieces(fen) {
  * @return {[object]} response [Returns the results of the processed move internally]
  */
 async function validateMove(playerData, gameData) {
+	let Module_chess;
 	try {
-		const Module_chess = new Chess(gameData.game_board.S);
-		try {
-			if (gameData.white_player_id.S == playerData.player_id && Module_chess.turn() == "w" && Module_chess.get(playerData.move[0])?.color == 'w') { // WHITE PLAYER MOVE CONDITIONS
-				const takenPiece = Module_chess.get(playerData.move[1]) || {}; // CHECKED BEFORE THE MOVE SO A PROMOTION THAT TAKES A KNIGHT CLEARS IT TOO, {} = EMPTY SQUARE (chess.js GIVES undefined)
-				if (takenPiece.type == 'n' && takenPiece.color == 'b') {
-					for (let n = 0; n < JSON.parse(gameData.b_knight.S).length; n++) {
-						if (JSON.parse(gameData.b_knight.S)[n].to == playerData.move[1]) {
-							let b_knight = JSON.parse(gameData.b_knight.S);
-							b_knight[n] = { from: null, to: null };
-							gameData.b_knight.S = JSON.stringify(b_knight);
-						}
-					}
-				} else if ((takenPiece.type == 'q' || takenPiece.type == 'b' || takenPiece.type == 'r') && takenPiece.color == 'b') { // TAKEN QUEEN, BISHOP OR ROOK
-					for (let n = 0; n < JSON.parse(gameData.b_piece.S).length; n++) {
-						if (JSON.parse(gameData.b_piece.S)[n].to == playerData.move[1]) {
-							let b_piece = JSON.parse(gameData.b_piece.S);
-							b_piece[n] = { from: null, to: null };
-							gameData.b_piece.S = JSON.stringify(b_piece);
-						}
-					}
-				}
-
-				//IF WHITE PAWN AT END OF BOARD
-				if (playerData.promotion) { // SET Knight promotion
-					if(playerData.promotion == 'n') {
-						let w_knight = JSON.parse(gameData.w_knight.S);
-						w_knight[w_knight.length] = { from: playerData.move[0], to: playerData.move[1] };
-						gameData.w_knight.S = JSON.stringify(w_knight);
-					} else { // SET QUEEN, BISHOP OR ROOK PROMOTION (FACES BLACK'S SIDE, IT CAME FROM RANK 7)
-						let w_piece = JSON.parse(gameData.w_piece.S);
-						w_piece[w_piece.length] = { from: playerData.move[0], to: playerData.move[1] };
-						gameData.w_piece.S = JSON.stringify(w_piece);
-					}
-					Module_chess.move({ from: playerData.move[0], to: playerData.move[1], promotion: playerData.promotion }); // MOVES THE PIECE
-				} else {
-					if (Module_chess.get(playerData.move[0]).type == 'n') {
-						for (let n = 0; n < JSON.parse(gameData.w_knight.S).length; n++) {
-							if (JSON.parse(gameData.w_knight.S)[n].to == playerData.move[0]) {
-								let w_knight = JSON.parse(gameData.w_knight.S);
-								w_knight[n] = { from: playerData.move[0], to: playerData.move[1] };
-								gameData.w_knight.S = JSON.stringify(w_knight);
-							}
-						}
-					} else if (Module_chess.get(playerData.move[0]).type.match(/[kqbr]/)) { // KINGS, QUEENS, BISHOPS & ROOKS FACE THE WAY THEY LAST MOVED UP OR DOWN
-						for (let n = 0; n < JSON.parse(gameData.w_piece.S).length; n++) {
-							if (JSON.parse(gameData.w_piece.S)[n].to == playerData.move[0]) {
-								let w_piece = JSON.parse(gameData.w_piece.S);
-								if (playerData.move[0].split("")[1] != playerData.move[1].split("")[1]) { w_piece[n] = { from: playerData.move[0], to: playerData.move[1] }; } // MOVED UP OR DOWN
-								else { w_piece[n].to = playerData.move[1]; } // MOVED SIDEWAYS: KEEPS ITS from SO IT FACES THE SAME WAY
-								gameData.w_piece.S = JSON.stringify(w_piece);
-							}
-						}
-						if (Module_chess.get(playerData.move[0]).type == 'k' && playerData.move[0] == 'e1' && (playerData.move[1] == 'g1' || playerData.move[1] == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO
-							for (let n = 0; n < JSON.parse(gameData.w_piece.S).length; n++) {
-								let w_piece = JSON.parse(gameData.w_piece.S);
-								if (playerData.move[1] == 'g1' && w_piece[n].to == 'h1') { w_piece[n].to = 'f1'; gameData.w_piece.S = JSON.stringify(w_piece); } // KING SIDE
-								else if (playerData.move[1] == 'c1' && w_piece[n].to == 'a1') { w_piece[n].to = 'd1'; gameData.w_piece.S = JSON.stringify(w_piece); } // QUEEN SIDE
-							}
-						}
-					}
-					Module_chess.move({ from: playerData.move[0], to: playerData.move[1] }); // MOVES THE PIECE
-				}
-
-				gameData.game_board.S = Module_chess.fen(); // UPDATES GAME BOARD LOCALLY
-				gameData.moves.S[gameData.moves.S.length] = Module_chess.history()[0]; // ADDS UPDATED MOVE
-				gameData.prev_move.S = playerData.move
-				return {
-					status: 200,
-					game_data: gameData,
-					message: "Validated piece movement"
-				}
-
-			} else if (gameData.black_player_id.S == playerData.player_id && Module_chess.turn() == "b" && Module_chess.get(playerData.move[0])?.color == 'b') { // BLACK PLAYER MOVE CONDITIONS
-				const takenPiece = Module_chess.get(playerData.move[1]) || {}; // CHECKED BEFORE THE MOVE SO A PROMOTION THAT TAKES A KNIGHT CLEARS IT TOO, {} = EMPTY SQUARE (chess.js GIVES undefined)
-				if (takenPiece.type == 'n' && takenPiece.color == 'w') {
-					for (let n = 0; n < JSON.parse(gameData.w_knight.S).length; n++) {
-						if (JSON.parse(gameData.w_knight.S)[n].to == playerData.move[1]) {
-							let w_knight = JSON.parse(gameData.w_knight.S);
-							w_knight[n] = { from: null, to: null };
-							gameData.w_knight.S = JSON.stringify(w_knight);
-						}
-					}
-				} else if ((takenPiece.type == 'q' || takenPiece.type == 'b' || takenPiece.type == 'r') && takenPiece.color == 'w') { // TAKEN QUEEN, BISHOP OR ROOK
-					for (let n = 0; n < JSON.parse(gameData.w_piece.S).length; n++) {
-						if (JSON.parse(gameData.w_piece.S)[n].to == playerData.move[1]) {
-							let w_piece = JSON.parse(gameData.w_piece.S);
-							w_piece[n] = { from: null, to: null };
-							gameData.w_piece.S = JSON.stringify(w_piece);
-						}
-					}
-				}
-
-				//IF BLACK PAWN AT END OF BOARD
-				if (playerData.promotion) { // SET Knight promotion
-					if(playerData.promotion == 'n') {
-						let b_knight = JSON.parse(gameData.b_knight.S);
-						b_knight[b_knight.length] = { from: playerData.move[0], to: playerData.move[1] };
-						gameData.b_knight.S = JSON.stringify(b_knight);
-					} else { // SET QUEEN, BISHOP OR ROOK PROMOTION (FACES WHITE'S SIDE, IT CAME FROM RANK 2)
-						let b_piece = JSON.parse(gameData.b_piece.S);
-						b_piece[b_piece.length] = { from: playerData.move[0], to: playerData.move[1] };
-						gameData.b_piece.S = JSON.stringify(b_piece);
-					}
-					Module_chess.move({ from: playerData.move[0], to: playerData.move[1], promotion: playerData.promotion }); // MOVES THE PIECE
-				} else {
-					if (Module_chess.get(playerData.move[0]).type == 'n') {
-						for (let n = 0; n < JSON.parse(gameData.b_knight.S).length; n++) {
-							if (JSON.parse(gameData.b_knight.S)[n].to == playerData.move[0]) {
-								let b_knight = JSON.parse(gameData.b_knight.S);
-								b_knight[n] = { from: playerData.move[0], to: playerData.move[1] };
-								gameData.b_knight.S = JSON.stringify(b_knight);
-							}
-						}
-					} else if (Module_chess.get(playerData.move[0]).type.match(/[kqbr]/)) { // KINGS, QUEENS, BISHOPS & ROOKS FACE THE WAY THEY LAST MOVED UP OR DOWN
-						for (let n = 0; n < JSON.parse(gameData.b_piece.S).length; n++) {
-							if (JSON.parse(gameData.b_piece.S)[n].to == playerData.move[0]) {
-								let b_piece = JSON.parse(gameData.b_piece.S);
-								if (playerData.move[0].split("")[1] != playerData.move[1].split("")[1]) { b_piece[n] = { from: playerData.move[0], to: playerData.move[1] }; } // MOVED UP OR DOWN
-								else { b_piece[n].to = playerData.move[1]; } // MOVED SIDEWAYS: KEEPS ITS from SO IT FACES THE SAME WAY
-								gameData.b_piece.S = JSON.stringify(b_piece);
-							}
-						}
-						if (Module_chess.get(playerData.move[0]).type == 'k' && playerData.move[0] == 'e8' && (playerData.move[1] == 'g8' || playerData.move[1] == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO
-							for (let n = 0; n < JSON.parse(gameData.b_piece.S).length; n++) {
-								let b_piece = JSON.parse(gameData.b_piece.S);
-								if (playerData.move[1] == 'g8' && b_piece[n].to == 'h8') { b_piece[n].to = 'f8'; gameData.b_piece.S = JSON.stringify(b_piece); } // KING SIDE
-								else if (playerData.move[1] == 'c8' && b_piece[n].to == 'a8') { b_piece[n].to = 'd8'; gameData.b_piece.S = JSON.stringify(b_piece); } // QUEEN SIDE
-							}
-						}
-					}
-					Module_chess.move({ from: playerData.move[0], to: playerData.move[1] }); // MOVES THE PIECE
-				}
-
-				gameData.game_board.S = Module_chess.fen(); // UPDATES GAME BOARD LOCALLY
-				gameData.moves.S[gameData.moves.S.length] = Module_chess.history()[0]; // ADDS UPDATED MOVE
-				gameData.prev_move.S = playerData.move
-				return {
-					status: 200,
-					game_data: gameData,
-					message: "Validated piece movement"
-				}
-			} else {
-				return {
-					status: 500,
-					message: "Invalid piece movement"
-				}
-			}
-		} catch {
-			return {
-				status: 500,
-				message: "Invalid piece movement"
-			}
-		}
+		Module_chess = new Chess(gameData.game_board.S);
 	} catch {
 		return {
 			status: 500,
 			message: "Invalid board, corrupted data"
 		}
+	}
+
+	try {
+		const turn = Module_chess.turn();
+		const playerId = turn == "w" ? gameData.white_player_id.S : gameData.black_player_id.S; // THE PLAYER WHOSE TURN IT IS
+		if (playerId != playerData.player_id || Module_chess.get(playerData.move[0])?.color != turn) { // NOT THEIR TURN, OR NOT THEIR PIECE
+			return {
+				status: 500,
+				message: "Invalid piece movement"
+			}
+		}
+
+		const move = Module_chess.move({ from: playerData.move[0], to: playerData.move[1], promotion: playerData.promotion }); // MOVES THE PIECE, THROWS IF IT'S NOT LEGAL
+		let facing = {};
+		for (let i = 0; i < FACING_LISTS.length; i++) { facing[FACING_LISTS[i]] = JSON.parse(gameData[FACING_LISTS[i]].S); }
+		faceMove(facing, move); // THE PROMOTION COMES FROM chess.js, A promotion SENT WITH ANY OTHER MOVE IS IGNORED
+		for (let i = 0; i < FACING_LISTS.length; i++) { gameData[FACING_LISTS[i]].S = JSON.stringify(facing[FACING_LISTS[i]]); }
+
+		gameData.game_board.S = Module_chess.fen(); // UPDATES GAME BOARD LOCALLY
+		gameData.moves.S[gameData.moves.S.length] = move.san; // ADDS UPDATED MOVE
+		gameData.prev_move.S = playerData.move
+		return {
+			status: 200,
+			game_data: gameData,
+			message: "Validated piece movement"
+		}
+	} catch {
+		return {
+			status: 500,
+			message: "Invalid piece movement"
+		}
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Start Position
+/* ---------------------------------------------------------------- */
+/**
+ * @description The position a game started from: its set position (start_params.fen) or the standard one
+ * @param  {[object]} gameData [game item]
+ * @return {[string]} fen [games from before start_params started from the standard position]
+ */
+function startFen(gameData) {
+	try { return JSON.parse(gameData.start_params?.S || "{}").fen || DEFAULT_POSITION; }
+	catch { return DEFAULT_POSITION; }
+}
+
+/* ---------------------------------------------------------------- */
+// Replay Moves
+/* ---------------------------------------------------------------- */
+/**
+ * @description Plays a game's first moves again from its start position, with the facing lists from startPieces & faceMove. Only the
+ * board & the current facing are saved, so this is how an earlier position is rebuilt (undoMoves)
+ * @param  {[object]} gameData [game item from retrieveGame, moves.S is the array of SAN moves]
+ * @param  {[number]} count [how many of the moves to play]
+ * @return {[object]} replay [{ chess (the board after them, with their history), facing ({ w_knight, b_knight, w_piece, b_piece } arrays),
+ * last (the last move played, a chess.js move, null for none) }], throws if a saved move can't be played
+ */
+function replayMoves(gameData, count) {
+	const fen = startFen(gameData);
+	const chess = new Chess(fen);
+	let facing = startPieces(fen);
+	let last = null;
+	for (let i = 0; i < count; i++) {
+		last = chess.move(gameData.moves.S[i]); // SAN, THROWS IF IT ISN'T LEGAL HERE
+		faceMove(facing, last);
+	}
+	return { chess, facing, last };
+}
+
+/* ---------------------------------------------------------------- */
+// Undo Moves
+/* ---------------------------------------------------------------- */
+/**
+ * @description Takes back a game's last moves (the undo AI & friend takebacks share): the moves that are left are replayed from the
+ * start position, so the board, moves, prev_move & facing lists are exactly what they were before the undone moves. Save it with
+ * updateGame(game_data, the board before the undo) in dynamoDB.js, its game_board condition makes a move made meanwhile win
+ * @param  {[object]} gameData [game item from retrieveGame, changed in place when it works]
+ * @param  {[number]} count [moves (plies) to take back: 1 = the last move, 2 = the last move of each side]
+ * @return {[object]} response [{ status, game_data, message }, nothing changes when it fails]
+ */
+function undoMoves(gameData, count) {
+	const moves = gameData.moves.S;
+	if ((gameData.state?.S || "OPEN") != "OPEN") { return { status: 500, message: "Game isn't open" }; } // GAMES FROM BEFORE state ARE OPEN
+	if (!Number.isInteger(count) || count < 1) { return { status: 500, message: "Nothing to take back" }; }
+	if (count > moves.length) { return { status: 500, message: "Can't take back past the start" }; }
+
+	let kept;
+	try {
+		if (replayMoves(gameData, moves.length).chess.fen() != gameData.game_board.S) { return { status: 500, message: "Saved moves don't match the board" }; } // OLD OR DAMAGED DATA
+		kept = replayMoves(gameData, moves.length - count);
+	} catch {
+		return { status: 500, message: "Saved moves can't be replayed" };
+	}
+
+	gameData.game_board.S = kept.chess.fen();
+	gameData.moves.S = moves.slice(0, moves.length - count);
+	gameData.prev_move.S = kept.last ? [kept.last.from, kept.last.to] : []; // THE MOVE BEFORE THE UNDONE ONES, NONE AT THE START
+	for (let i = 0; i < FACING_LISTS.length; i++) { gameData[FACING_LISTS[i]].S = JSON.stringify(kept.facing[FACING_LISTS[i]]); }
+	return {
+		status: 200,
+		game_data: gameData,
+		message: `Took back ${count} move${count == 1 ? "" : "s"}`
 	}
 }
 
@@ -258,4 +258,4 @@ function gameResult(fen) {
 }
 
 
-module.exports = { validateMove, gameResult, checkStartFen, startPieces }
+module.exports = { validateMove, gameResult, checkStartFen, startPieces, undoMoves }
