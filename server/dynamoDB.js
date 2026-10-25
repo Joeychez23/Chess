@@ -202,7 +202,7 @@ async function updateGame(gameData, prevBoard) {
  * Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
  * @param  {[object]} gameData [game item from retrieveGame]
  * @param  {[string]} winner ["w", "b" or "draw"]
- * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule" or "forfeit"]
+ * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition" or "forfeit"]
  * @return {[object]} response [{ status, game_data, message }]
  */
 async function closeGame(gameData, winner, reason) {

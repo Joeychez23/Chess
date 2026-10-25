@@ -85,6 +85,32 @@ describe("a guest's AI game", () => {
 		assert.equal(afterMate.message, "Game is over");
 	});
 
+	test("the move that repeats a position a third time draws the game, the player's or the AI's", async () => {
+		await call("POST", "/api/chess/game", { body: { game_id: "guest1", start_color: "b" } }); // THE AI IS WHITE
+		const aiPlays = async (from, to) => { engineWillPlay(from, to); return call("POST", "/api/chess/game/guest1/ai-move"); };
+		for (let i = 0; i < 2; i++) {
+			await aiPlays("g1", "f3");
+			await call("PUT", "/api/chess/game/guest1", { body: { move: ["g8", "f6"] } });
+			await aiPlays("f3", "g1");
+			const back = await call("PUT", "/api/chess/game/guest1", { body: { move: ["f6", "g8"] } }); // THE START POSITION AGAIN
+			assert.equal(back.state, i == 0 ? "OPEN" : "CLOSED");
+		}
+		const draw = await call("GET", "/api/chess/game/guest1");
+		assert.equal(draw.winner, "draw");
+		assert.equal(draw.reason, "threefold repetition");
+
+		await call("POST", "/api/chess/game", { body: { game_id: "guest2", start_color: "w" } }); // THE PLAYER IS WHITE, THE AI REPEATS IT
+		const moves = [["g1", "f3"], ["g8", "f6"], ["f3", "g1"], ["f6", "g8"]];
+		let last;
+		for (let i = 0; i < 8; i++) {
+			const [from, to] = moves[i % 4];
+			if (i % 2 == 0) { await call("PUT", "/api/chess/game/guest2", { body: { move: [from, to] } }); }
+			else { engineWillPlay(from, to); last = await call("POST", "/api/chess/game/guest2/ai-move"); }
+		}
+		assert.equal(last.state, "CLOSED");
+		assert.equal(last.reason, "threefold repetition");
+	});
+
 	test("a move without two squares is refused", async () => {
 		await call("POST", "/api/chess/game", { body: { game_id: "guest1", start_color: "w" } });
 		const response = await call("PUT", "/api/chess/game/guest1", { body: { move: "e2e4" } });

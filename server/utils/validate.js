@@ -243,18 +243,36 @@ function undoMoves(gameData, count) {
 // Game Result
 /* ---------------------------------------------------------------- */
 /**
- * @description Checks a board for the end of the game. Only the board (FEN) is stored, so threefold repetition
- * isn't seen, same as the client (it also loads the FEN)
- * @param  {[string]} fen [game board]
+ * @description Checks a game for the end: checkmate & the draws. The board (FEN) is enough for all but threefold repetition,
+ * which needs every position since the start, so the saved moves are replayed for it (repeatedThreeTimes)
+ * @param  {[object]} gameData [game item, game_board.S is the board after the last move & moves.S the SAN moves]
  * @return {[object]} result [{ winner: "w" | "b" | "draw", reason } | null while the game is still going]
  */
-function gameResult(fen) {
-	const Module_chess = new Chess(fen);
+function gameResult(gameData) {
+	const Module_chess = new Chess(gameData.game_board.S);
 	if (Module_chess.isCheckmate()) { return { winner: Module_chess.turn() == "w" ? "b" : "w", reason: "checkmate" }; } // THE SIDE TO MOVE IS MATED
 	if (Module_chess.isStalemate()) { return { winner: "draw", reason: "stalemate" }; }
 	if (Module_chess.isInsufficientMaterial()) { return { winner: "draw", reason: "insufficient material" }; }
 	if (Module_chess.isDrawByFiftyMoves()) { return { winner: "draw", reason: "fifty-move rule" }; }
+	if (repeatedThreeTimes(gameData)) { return { winner: "draw", reason: "threefold repetition" }; }
 	return null;
+}
+
+/**
+ * @description Whether the position on the board has now come up three times (same pieces, side to move, castling rights &
+ * en passant), counted by chess.js over a replay of the saved moves from the start position
+ * @param  {[object]} gameData [game item]
+ * @return {[boolean]} repeated [false when the saved moves can't be replayed or don't lead to the board (old or damaged data)]
+ */
+function repeatedThreeTimes(gameData) {
+	const halfMoves = Number(gameData.game_board.S.split(" ")[4]);
+	if (!(halfMoves >= 8)) { return false; } // A POSITION NEEDS 8 HALF MOVES WITHOUT A CAPTURE OR PAWN MOVE TO COME UP A THIRD TIME, NO REPLAY NEEDED
+	try {
+		const replay = replayMoves(gameData, gameData.moves.S.length);
+		return replay.chess.fen() == gameData.game_board.S && replay.chess.isThreefoldRepetition();
+	} catch {
+		return false; // THE GAME GOES ON, LIKE BEFORE THREEFOLD WAS CHECKED
+	}
 }
 
 
