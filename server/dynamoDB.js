@@ -20,6 +20,9 @@ const USER_TABLE = "user_db"; // KEY: user_id (S)
 
 const GAME_TTL = 60 * 60 * 24 * 25; // GAMES EXPIRE 25 DAYS AFTER THE LAST MOVE (SECONDS)
 
+const GAME_LISTS = ["requested_games", "open_games", "closed_games"]; // A user_db ROW'S GAME LISTS (JSON STRINGS)
+const LIST_SAVE_TRIES = 5; // A GAME LIST SAVE THAT LOST A RACE READS THE ROW AGAIN & RETRIES
+
 /* ---------------------------------------------------------------- */
 // Expire Time
 /* ---------------------------------------------------------------- */
@@ -51,7 +54,6 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 	const board = new Chess().fen();
 
 	let gameId;
-	let response;
 	if (existingGameId) { gameId = existingGameId; }
 	else { gameId = `${new ObjectId()}`; } // CREATES UNIQUE GAME IDENTIFIER
 	let params = {
@@ -81,22 +83,10 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 
 	async function handleUser(userId) {
 		if (userId != "CHESS_AI" && userId != "GUEST_USER" && userId != gameId) { // GUESTS HAVE NO GAME LIST, SKIP THEM LIKE THE AI (A GUEST'S PLAYER ID IS THEIR GAME ID)
-			response = await retrieveUser(userId);
-			if (response.status == 500) { response = await initalizeUser(userId); }
-
-			let userData = response?.user_data;
-			let openGames = JSON.parse(userData.open_games.S);
-			let requestedGames = JSON.parse(userData.requested_games.S);
-			let gameList = pending ? requestedGames : openGames; // INVITES WAIT IN requested_games UNTIL THEY'RE ACCEPTED
-			if (!gameList.includes(gameId)) { gameList[gameList.length] = gameId; } // ADD ONCE, RESTARTS KEEP THE SAME game_id
-
-			//SET DATA
-			userData.open_games.S = openGames;
-			userData.requested_games.S = requestedGames;
-			userData.closed_games.S = JSON.parse(userData.closed_games.S);
-
-			//UPDATE DATA
-			response = await updateUser(userData);
+			await changeUserGames(userId, (gameLists) => {
+				let gameList = pending ? gameLists.requested_games : gameLists.open_games; // INVITES WAIT IN requested_games UNTIL THEY'RE ACCEPTED
+				if (!gameList.includes(gameId)) { gameList[gameList.length] = gameId; } // ADD ONCE, RESTARTS KEEP THE SAME game_id
+			});
 		}
 	}
 
@@ -343,20 +333,10 @@ async function deleteInvite(gameData) {
  */
 async function moveUserGame(userId, gameId, fromList, toList) {
 	if (userId == "CHESS_AI" || userId == "GUEST_USER" || userId == gameId) { return; } // A GUEST'S PLAYER ID IS THEIR GAME ID
-	const response = await retrieveUser(userId);
-	if (!response.user_data) { return; }
-
-	let userData = response.user_data;
-
-	//SET DATA
-	userData.requested_games.S = JSON.parse(userData.requested_games.S);
-	userData.open_games.S = JSON.parse(userData.open_games.S);
-	userData.closed_games.S = JSON.parse(userData.closed_games.S);
-	userData[fromList].S = userData[fromList].S.filter((listGameId) => listGameId != gameId);
-	if (toList && !userData[toList].S.includes(gameId)) { userData[toList].S[userData[toList].S.length] = gameId; }
-
-	//UPDATE DATA
-	await updateUser(userData);
+	await changeUserGames(userId, (gameLists) => {
+		gameLists[fromList] = gameLists[fromList].filter((listGameId) => listGameId != gameId);
+		if (toList && !gameLists[toList].includes(gameId)) { gameLists[toList][gameLists[toList].length] = gameId; }
+	});
 }
 
 /* ---------------------------------------------------------------- */
@@ -499,32 +479,67 @@ async function retrieveUser(userId, consistent) {
 // Update user (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Saves a user's game lists
- * @param  {[object]} userData [user row, the game list .S values are ARRAYS here (stringified on save)]
- * @return {[object]} response [{ status, user_data, message }]
+ * @description Saves the game lists that changed, only if none of the lists changed since they were read
+ * @param  {[object]} userData [user row from retrieveUser, its game lists are the JSON strings that were read]
+ * @param  {[object]} gameLists [{ requested_games, open_games, closed_games } arrays to save]
+ * @return {[object]} response [{ status, user_data, message }, status 500 when another request changed the lists first]
  */
-async function updateUser(userData) {
+async function updateUser(userData, gameLists) {
+	const userId = userData.user_id.S;
+	const changed = GAME_LISTS.filter((listName) => JSON.stringify(gameLists[listName]) != userData[listName].S);
+	if (changed.length == 0) { return { status: 200, user_data: userData, message: `user id: ${userId} unchanged` }; } // NOTHING TO SAVE
+
 	const params = {
 		TableName: USER_TABLE,
 		Key: {
-			user_id: { S: userData.user_id.S }
+			user_id: { S: userId }
 		},
-		UpdateExpression: 'SET requested_games = :requested_games, open_games = :open_games, closed_games = :closed_games',
-		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
-			":requested_games": { S: JSON.stringify(userData.requested_games.S) },
-			":open_games": { S: JSON.stringify(userData.open_games.S) },
-			":closed_games": { S: JSON.stringify(userData.closed_games.S) },
-		},
+		UpdateExpression: `SET ${changed.map((listName) => `${listName} = :${listName}`).join(", ")}`,
+		ConditionExpression: GAME_LISTS.map((listName) => `${listName} = :old_${listName}`).join(" AND "), // EVERY LIST, AN UNCHANGED ONE CAN BE STALE TOO (A MOVE THAT DIDN'T FIND THE GAME)
+		ExpressionAttributeValues: {}, // ASSOCIATED ATTRIBUTES
 		ReturnValues: "ALL_NEW" // THE ROW AS SAVED, NO READ BACK
 	}
+	for (let i = 0; i < changed.length; i++) { params.ExpressionAttributeValues[`:${changed[i]}`] = { S: JSON.stringify(gameLists[changed[i]]) }; }
+	for (let i = 0; i < GAME_LISTS.length; i++) { params.ExpressionAttributeValues[`:old_${GAME_LISTS[i]}`] = { S: userData[GAME_LISTS[i]].S }; }
 
-	const response = await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	let response;
+	try {
+		response = await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Game lists changed before the save: ${userId}` }; }
+		throw err;
+	}
 
 	return {
 		status: 200,
 		user_data: response.Attributes,
-		message: `user id: ${userData.user_id.S} updated`
+		message: `user id: ${userId} updated`
 	}
+}
+
+/**
+ * @description Changes a user's game lists without losing a change another request makes at the same time (an AI game ends
+ * while an invite is accepted): when updateUser finds the lists changed since they were read, the row is read again & the change made again
+ * @param  {[string]} userId [auth0 user id without "auth0|", the row is made if there isn't one]
+ * @param  {[function]} change [(gameLists) => edits the { requested_games, open_games, closed_games } arrays, it can run more than once]
+ * @return {[object]} response [{ status, user_data, message }]
+ */
+async function changeUserGames(userId, change) {
+	for (let i = 0; i < LIST_SAVE_TRIES; i++) {
+		let response = await retrieveUser(userId, true); // CONSISTENT: A READ THAT LAGS CAN MISS THE GAME, & A CHANGE THAT FINDS NOTHING TO MOVE SAVES NOTHING
+		if (!response.user_data) { response = await initalizeUser(userId); }
+		if (!response.user_data) { return response; }
+
+		const gameLists = {};
+		for (let j = 0; j < GAME_LISTS.length; j++) { gameLists[GAME_LISTS[j]] = JSON.parse(response.user_data[GAME_LISTS[j]].S); }
+		change(gameLists);
+
+		response = await updateUser(response.user_data, gameLists);
+		if (response.status == 200) { return response; }
+	}
+
+	console.log(`Game list save failed after ${LIST_SAVE_TRIES} tries: ${userId}`);
+	return { status: 500, message: `User attributes failed to update: ${userId}` };
 }
 
 /* ---------------------------------------------------------------- */
@@ -542,10 +557,11 @@ async function pruneOpenGames(userData) {
 	userData.friend_game_id = null;
 
 	const games = await pruneGameList(userData, "open_games");
-	userData.open_game_list = games.filter((game) => (game.state?.S || "OPEN") == "OPEN");
-	for (let i = 0; i < games.length; i++) { // NEWEST IS LAST IN open_games
-		if (games[i].white_player_id?.S == "CHESS_AI" || games[i].black_player_id?.S == "CHESS_AI") { userData.ai_game_id = games[i].game_id.S; }
-		else { userData.friend_game_id = games[i].game_id.S; }
+	const openGames = games.filter((game) => (game.state?.S || "OPEN") == "OPEN"); // A FINISHED GAME LEFT IN open_games IS NEVER THE OPEN ONE
+	userData.open_game_list = openGames;
+	for (let i = 0; i < openGames.length; i++) { // NEWEST IS LAST IN open_games
+		if (openGames[i].white_player_id?.S == "CHESS_AI" || openGames[i].black_player_id?.S == "CHESS_AI") { userData.ai_game_id = openGames[i].game_id.S; }
+		else { userData.friend_game_id = openGames[i].game_id.S; }
 	}
 	return userData;
 }
