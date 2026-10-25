@@ -14,7 +14,7 @@
 import "../../../css/style.css"; // PLAY PAGE STYLES (CANVAS LAYOUT)
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 const { renderCanvas, preloadImages } = require("../../gameplay/index.js");
-const { validate } = require("../../gameplay/validate/index.js");
+const { validate, newAiGame } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
 const { startNav, showTable } = require("../utils/index.js");
 const { ObjectId } = require("bson");
@@ -53,6 +53,7 @@ window.addEventListener("load", async function () {
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: gameId, PLAYER_ID: playerId }
 	} else {
 		const guestId = guestGameId(); // A GUEST'S PLAYER ID IS THEIR GAME ID
+		await newGuestGame(guestId);
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: guestId, PLAYER_ID: guestId }
 	}
 	playerData.TV_BOOL = TV_DEV; // TV CONDITIONAL
@@ -68,8 +69,8 @@ window.addEventListener("load", async function () {
 // Guest Game
 /* ---------------------------------------------------------------- */
 /**
- * @description Each guest gets their own game vs the AI, its id is saved in localStorage so a reload opens it again.
- * None saved -> a new id. The server has no game for a new id (or an expired one), so setInitialData creates it (gameplay/index.js)
+ * @description Each guest gets their own game vs the AI, its id is saved in localStorage so a reload opens it again
+ * (the guest page's Play AI saves it). None saved -> a new id, newGuestGame makes its game
  * @return {[string]} gameId [also the guest's player id]
  */
 function guestGameId() {
@@ -80,6 +81,18 @@ function guestGameId() {
 		try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch (err) { } // NOT SAVED -> A NEW GAME EACH LOAD
 	}
 	return gameId;
+}
+
+
+/**
+ * @description No game for the guest's id yet (a bare /play, or their game expired): a new game vs the AI with a random color
+ * at the default level, made before the game starts. Otherwise setInitialData (gameplay/index.js) makes it & the guest is always white
+ * @param  {[string]} gameId [the guest's game id, also their player id]
+ */
+async function newGuestGame(gameId) {
+	const response = await validate(CHESS_URL, gameId, gameId, false, false, false); // GET THE GAME
+	if (response?.game_board) { return; } // THEIR GAME IS THERE (OPEN OR OVER)
+	await newAiGame(CHESS_URL, gameId, "random"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
 }
 
 

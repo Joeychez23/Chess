@@ -8,7 +8,7 @@
  * @param  {[object]} _id [player id, the server plays as the signed in session instead]
  * @param  {[object]} move [move array]
  * @param  {[string]} promotion [promotion piece]
- * @param  {[string]} restart [AI color 'w' or 'b' for a new game with these sides (the play page's first guest game), Home & the guest page use newAiGame]
+ * @param  {[string]} restart [AI color 'w' or 'b' for a new game with these sides (gameplay's fallback for a guest's first game), Home, the guest page & the play page use newAiGame]
  * @param  {[number]} aiLevel [new games: the AI's level from Home's dropdown, left out = the server's default]
  * @param  {[boolean]} replaceCurrent [new games: true forfeits the player's open AI game first (one at a time), left out = the server answers 409 while one is open]
  * @return {[object]} response.json() = backend server response object of request data

@@ -67,7 +67,7 @@ async function getGame(req, res) {
  * @description Creates a game vs the AI, or a guest's New game: their game_id is overwritten with a new board (signed in users restart with /restart).
  * Signed in players have one AI game open at a time: while one is open this answers 409, unless replace_current forfeits it first
  * @param  {[object]} req.body [{ game_id (optional, generated when left out), start_color ("random" | "w" | "b", the requester's color from Home & the guest page,
- * the server picks the sides) OR player_id_1 (white) & player_id_2 (black) (the play page's first guest game, one side is "CHESS_AI", the other side is always the requester),
+ * the server picks the sides, the play page also sends random for a guest's missing game) OR player_id_1 (white) & player_id_2 (black) (gameplay's fallback for a guest's first game, one side is "CHESS_AI", the other side is always the requester),
  * ai_level (optional, the level dropdown), replace_current (optional, true = forfeit the open AI game & start this one) }]
  * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, message } | { status: 409, game_id (the open one), message }]
  */

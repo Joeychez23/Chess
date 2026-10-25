@@ -49,8 +49,9 @@ AWS side (see [Deploy](#deploy)).
 2. **Load.** `renderCanvas()` preloads every sprite, then asks the server for
    the game (`GET /api/chess/game/:gameId?player_id=`). The server returns the board
    (FEN), your color, and whether the opponent is the AI. For a guest, if no
-   game exists for their id yet (a new guest, or the game expired), a new game
-   against the AI is created first (`POST /api/chess/game`).
+   game exists for their id yet (a bare `/play`, or the game expired), the play
+   page creates one first with a random color at the default level
+   (`POST /api/chess/game` with `start_color: "random"`).
 3. **Render loop.** A ~33 fps loop redraws only when something changed: a
    hover, a drag, a slide in progress, or new data.
 4. **Your move.** chess.js plays the move locally, which throws on an illegal
@@ -201,7 +202,7 @@ expired mid game) or `403` when signed in.
 | Route | Body / query | What it does |
 | --- | --- | --- |
 | `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), the start settings (`start_params`), the friend's screenname (`opponent_name`), and the result (`state`, `winner`, `reason`) |
-| `POST /api/chess/game` | `{ game_id, start_color, ai_level, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). `start_color` is your color, `random` (the default, anything else counts as it), `w` or `b`, and the server picks the sides (Home and the guest page). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (the play page's first guest game, saved as Random). Leave out `game_id` to generate one. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first |
+| `POST /api/chess/game` | `{ game_id, start_color, ai_level, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). `start_color` is your color, `random` (the default, anything else counts as it), `w` or `b`, and the server picks the sides (Home, the guest page, and the play page with `random` when a guest has no game yet). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (gameplay's fallback if that request failed, saved as Random). Leave out `game_id` to generate one. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first |
 | `PUT /api/chess/game/:gameId` | `{ move: [from, to], promotion }` | Your move. Validates it against the stored board and saves it. Closes the game on checkmate or a draw. Refused while the game is `PENDING` or once it's closed, and refused if the board changed first (two moves at once) |
 | `POST /api/chess/game/:gameId/ai-move` | | AI games, on the AI's turn. The server picks the AI's move at the game's level, saves it, and returns the game with `ai_move: { from, to, promotion }`. After the AI moved, it returns that saved move instead of a new one |
 | `POST /api/chess/game/:gameId/restart` | | AI games. Forfeits the game if it's still going, then starts a new game with a new id and the same start settings: the level and your color (Random draws again). Guests' one game is overwritten instead |
@@ -550,7 +551,7 @@ client/
   src/js/pages/
     home/index.js            Open games (opponent, level, color), new solo games, invites (send, accept, decline, cancel), color dropdowns, the open AI & friend games (Continue / forfeit)
     guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board, Play AI / New game
-    play/index.js            Finds the player + game (url or guest localStorage), starts renderCanvas()
+    play/index.js            Finds the player + game (url or guest localStorage, a missing guest game is made as Random), starts renderCanvas()
     utils/index.js           startNav() (the menu on pages without the game), table background, showCurrentGame() / hideCurrentGame(), loadLevels(), colorText()
     utils/boardPicture.js    drawBoardPicture(): a still of a game's board, drawn like the play page
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
