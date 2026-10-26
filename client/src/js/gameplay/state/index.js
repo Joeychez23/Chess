@@ -30,6 +30,7 @@ export const game = {
 	GAME_URL: undefined, // CHESS API, "/api/chess" (SET BY renderCanvas)
 	PLAYER_ID: undefined, // THIS PLAYER (A GUEST'S PLAYER ID IS THEIR GAME ID)
 	TV_BOOL: undefined, // TV REMOTE CONTROLS INSTEAD OF THE MOUSE
+	SIGNED_IN: undefined, // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
 	response: undefined, // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
 	revert: undefined, // GAME TO GO BACK TO IF A MOVE FAILS
 	playerColor: undefined, // 'w' OR 'b', BLACK FLIPS THE BOARD SO THE PLAYER IS ALWAYS AT THE BOTTOM
