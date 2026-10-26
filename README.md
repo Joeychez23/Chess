@@ -197,7 +197,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 
 Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.
 The `.html` files are only sent through these routes, never as static files.
-Home and the guest page call `preloadImages()` (`client/src/js/gameplay/index.js`)
+Home and the guest page call `preloadImages()` (`client/src/js/gameplay/images/index.js`)
 as soon as they open, so the game's sprites are already in the browser cache
 when a game opens, and each one is logged to the console. That only sticks once the S3
 objects have a `Cache-Control` header: CloudFront's TTL is 0 and nothing sets
@@ -718,8 +718,16 @@ client/
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
   src/js/socket/index.js     joinGame() / leaveGame(): friend game socket, watchGames(): Home's socket
   src/js/gameplay/
-    index.js                 renderCanvas(): sprite loading, render loop, input, animation
-    sprites/index.js         Every sprite url in image number order (preloadImages() loads them, also on home + guest)
+    index.js                 renderCanvas() (sets up the canvas, starts once the sprites are in), startGame() (loads the game, joins a friend game, listeners), renderLoop()
+    state/index.js           game: the state every gameplay file shares, plus the canvas, ctx & the chess.js boards
+    images/index.js          preloadImages() / imageProgress(): loads the sprites into images[] (home, guest + play call it)
+    sprites/index.js         Every sprite url in image number order + the image numbers (wFrontKingImg = 5, ...)
+    layout/index.js          renderBoard(): sizes the canvas & board to the window, draws the table & board; resize
+    draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays, which way pieces face
+    animate/index.js         Knight hop height, the pieces sliding home after Restart & Rematch
+    input/index.js           Mouse, touch & TV remote handlers
+    moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
+    menu/index.js            Menu buttons, Restart / Forfeit / Rematch (loads the new board in place), game over, socketHandlers
     validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move

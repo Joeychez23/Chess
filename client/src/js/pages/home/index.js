@@ -17,7 +17,7 @@ import "../../../css/home.css"; // HOME PAGE STYLES
 const { ObjectId } = require("bson");
 const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
-const { preloadImages } = require("../../gameplay/index.js");
+const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { startNav, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 

@@ -3,7 +3,7 @@
  *	Play Page (/play, /play/:gameId)
  *	Starts the game on the canvas. The server picks this page (server/controllers/pageController.js), the game id
  *	comes from the url (signed in) or localStorage (guest). Home & Exit leave the page, so nothing has to be torn down.
- *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (handleMenuBtn in gameplay/index.js)
+ *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (handleMenuBtn in gameplay/menu/index.js)
  *
  */
 
@@ -13,7 +13,8 @@
 
 import "../../../css/style.css"; // PLAY PAGE STYLES (CANVAS LAYOUT)
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
-const { renderCanvas, preloadImages } = require("../../gameplay/index.js");
+const { renderCanvas } = require("../../gameplay/index.js");
+const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
 const { startNav, showTable, showPage, startLoading, goToPage } = require("../utils/index.js");
@@ -107,7 +108,7 @@ function guestGameId() {
 
 /**
  * @description No game for the guest's id yet (a bare /play, or their game expired): a new game vs the AI with a random color
- * at the default level, made before the game starts. Otherwise setInitialData (gameplay/index.js) makes it & the guest is always white.
+ * at the default level, made before the game starts. Otherwise setInitialData (gameplay/moves/index.js) makes it & the guest is always white.
  * The server only lets the browser with the game's guest_game cookie play it, another guest's id (or one from before the cookie) gets a new id
  * @param  {[string]} gameId [the guest's saved game id, also their player id]
  * @return {[string]} gameId [the id their game has, saved for the next load]

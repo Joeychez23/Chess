@@ -4,6 +4,7 @@ dist
 *.txt
 workbench
 images
+!client/src/js/gameplay/images/
 audio
 *.tfstate
 *.terraform

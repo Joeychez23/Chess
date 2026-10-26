@@ -14,7 +14,7 @@ import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
 const { ObjectId } = require("bson");
 const { InternalAuth } = require("../../auth/index.js");
-const { preloadImages } = require("../../gameplay/index.js");
+const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame } = require("../../gameplay/validate/index.js");
 const { startNav, showCurrentGame, loadLevels, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
