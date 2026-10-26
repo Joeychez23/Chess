@@ -18,6 +18,7 @@ export const ctx = canvas.getContext("2d"); // EVERYTHING IS DRAWN WITH THIS
 export const chessInst = new Chess(); // THE BOARD THAT'S DRAWN, LOADED FROM THE SERVER'S FEN
 export const validateState = new Chess(); // SCRATCH BOARD, TESTS A MOVE WITHOUT CHANGING chessInst
 export const frameRate = 1000 / 33; // MS BETWEEN FRAMES (ABOUT 33 A SECOND)
+export const OVERRIDE_TV = false; // TRUE TURNS ON THE TV REMOTE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
 
 /* ---------------------------------------------------------------- */
 // Game
@@ -32,6 +33,7 @@ export const game = {
 	PLAYER_ID: undefined, // THIS PLAYER (A GUEST'S PLAYER ID IS THEIR GAME ID)
 	TV_BOOL: undefined, // TV REMOTE CONTROLS INSTEAD OF THE MOUSE
 	SIGNED_IN: undefined, // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
+	moveAudio: undefined, // MOVE SOUND (MADE IN renderCanvas)
 	response: undefined, // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
 	revert: undefined, // GAME TO GO BACK TO IF A MOVE FAILS
 	playerColor: undefined, // 'w' OR 'b', BLACK FLIPS THE BOARD SO THE PLAYER IS ALWAYS AT THE BOTTOM
