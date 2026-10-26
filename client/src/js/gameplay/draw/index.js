@@ -25,7 +25,7 @@ const {
 	moveHighlight, takeableHighlight, checkHighlight // UI
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
 const { handleKnightHop } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS
-const { updateUserStateSlide, updateOpponentStateSlide } = require("../index.js"); // STILL IN gameplay/index.js (THEY MOVE WITH THE SERVER CALLS), ONLY FUNCTIONS CAN COME FROM THERE
+const { updateUserStateSlide, updateOpponentStateSlide } = require("../moves/index.js"); // A SLIDE LANDED: SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S
 
 let clickX; // PIXEL X OF tileX, A HELD PIECE IS DRAWN THERE
 let clickY; // PIXEL Y OF tileY
