@@ -17,6 +17,7 @@ export const canvas = document.createElement("canvas"); // THE WHOLE GAME IS DRA
 export const ctx = canvas.getContext("2d"); // EVERYTHING IS DRAWN WITH THIS
 export const chessInst = new Chess(); // THE BOARD THAT'S DRAWN, LOADED FROM THE SERVER'S FEN
 export const validateState = new Chess(); // SCRATCH BOARD, TESTS A MOVE WITHOUT CHANGING chessInst
+export const frameRate = 1000 / 33; // MS BETWEEN FRAMES (ABOUT 33 A SECOND)
 
 /* ---------------------------------------------------------------- */
 // Game
