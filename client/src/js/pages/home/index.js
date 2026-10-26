@@ -24,7 +24,7 @@ const { startNav, showCurrentGame, hideCurrentGame, loadLevels, colorText, start
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
 
 const signedInAs = document.getElementById("signedInAs"); // "SIGNED IN // EMAIL"
-const welcome = document.getElementById("welcome"); // "WELCOME BACK, SCREENNAME"
+const welcome = document.getElementById("welcome"); // "WELCOME BACK, USERNAME"
 const playerRating = document.getElementById("playerRating"); // "RATING // 1520?", FRIEND GAMES CHANGE IT
 const soloBox = document.getElementById("soloBox"); // PLAY THE AI
 const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY THE AI: PLAY AI, OR NEW GAME WHILE AN AI GAME IS OPEN
@@ -82,7 +82,8 @@ async function startHome() {
 	const sessionUser = await sessionCheck;
 	if (!sessionUser) { return auth.login(); } // THE SERVER ONLY SENDS HOME TO SIGNED IN PLAYERS, THIS CATCHES A SESSION THAT ENDED SINCE
 	PLAYER_ID = sessionUser.userId.split("auth0|")[1];
-	if (sessionUser.screenname) { welcome.innerText = `Welcome back, ${sessionUser.screenname}`; }
+	const name = sessionUser.username || sessionUser.screenname; // THE SERVER SENDS A PLAYER WITHOUT A USERNAME TO /settings FIRST
+	if (name) { welcome.innerText = `Welcome back, ${name}`; }
 	if (sessionUser.email) { signedInAs.innerText = `Signed in // ${sessionUser.email}`; }
 	const levelsLoaded = loadLevels(CHESS_URL, aiLevelSelect);
 	const homeDrawn = refreshHome(true);

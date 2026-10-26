@@ -1,7 +1,7 @@
 /*
  *  fakeDynamo.js  --  chess server tests
  *	In-memory DynamoDB
- *  Replaces the DynamoDB client's calls (getItem, putItem, updateItem, deleteItem, batchGetItem) with tables held in memory,
+ *  Replaces the DynamoDB client's calls (getItem, putItem, updateItem, deleteItem, batchGetItem, transactWriteItems) with tables held in memory,
  *  so server/dynamoDB.js runs unchanged with no AWS account. It understands the update and condition expressions
  *  dynamoDB.js uses: SET / REMOVE, =, <>, <, <=, >, >=, AND, OR, parentheses, attribute_exists and attribute_not_exists.
  *  Reads are up to date (strongly consistent) unless a test turns on staleReads(), see below.
@@ -32,6 +32,7 @@ function install() {
 	DynamoDB.prototype.updateItem = async (params) => updateItem(params);
 	DynamoDB.prototype.deleteItem = async (params) => deleteItem(params);
 	DynamoDB.prototype.batchGetItem = async (params) => batchGetItem(params);
+	DynamoDB.prototype.transactWriteItems = async (params) => transactWriteItems(params);
 }
 
 /**
@@ -138,6 +139,45 @@ async function batchGetItem({ RequestItems }) {
 		Responses[TableName] = Keys.map((key) => readItem(TableName, keyOf(TableName, key), ConsistentRead)).filter(Boolean).map((item) => structuredClone(item));
 	}
 	return { Responses, UnprocessedKeys: {} };
+}
+
+/**
+ * @description All or nothing, like DynamoDB: every condition is checked first, & if any is false nothing is written & it throws
+ * TransactionCanceledException with a CancellationReasons code for each item, in order ("None" or "ConditionalCheckFailed")
+ */
+async function transactWriteItems({ TransactItems }) {
+	const writes = TransactItems.map((transactItem) => {
+		const [type, params] = Object.entries(transactItem)[0]; // Put, Update OR Delete
+		const key = type == "Put" ? params.Item[KEYS[params.TableName]].S : keyOf(params.TableName, params.Key);
+		return { type, params, key };
+	});
+	if (new Set(writes.map((write) => `${write.params.TableName}/${write.key}`)).size != writes.length) { // DYNAMODB REFUSES TWO WRITES TO ONE ITEM
+		const err = new Error("Transaction request cannot include multiple operations on one item");
+		err.name = "ValidationException";
+		throw err;
+	}
+
+	const reasons = writes.map(({ params, key }) => {
+		try {
+			check(table(params.TableName).get(key), params.ConditionExpression, params.ExpressionAttributeNames, params.ExpressionAttributeValues);
+			return { Code: "None" };
+		} catch {
+			return { Code: "ConditionalCheckFailed", Message: "The conditional request failed" };
+		}
+	});
+	if (reasons.some((reason) => reason.Code != "None")) {
+		const err = new Error(`Transaction cancelled, please refer cancellation reasons for specific reasons [${reasons.map((reason) => reason.Code).join(", ")}]`);
+		err.name = "TransactionCanceledException";
+		err.CancellationReasons = reasons;
+		throw err;
+	}
+
+	for (const { type, params } of writes) { // EVERY CONDITION HOLDS, SO EACH WRITE GOES THROUGH. NO AWAIT: THEY ALL LAND BEFORE ANOTHER REQUEST RUNS
+		if (type == "Put") { putItem(params); }
+		if (type == "Update") { updateItem(params); }
+		if (type == "Delete") { deleteItem(params); }
+	}
+	return {};
 }
 
 /* ---------------------------------------------------------------- */

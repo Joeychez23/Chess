@@ -14,11 +14,12 @@ const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
+const { usernameKey } = require("./utils/username.js");
 
 const connection = new DynamoDB({ region: "us-east-1" }); // CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE SERVER'S IAM ROLE ON AWS
 
 const CHESS_TABLE = "chess_db"; // KEY: game_id (S), NAMES MATCH terraform/aws-enviroment/locals.tf
-const USER_TABLE = "user_db"; // KEY: user_id (S)
+const USER_TABLE = "user_db"; // KEY: user_id (S), PLAYERS' ROWS & THE username#<name> ITEMS THAT HOLD EACH USERNAME (claimUsername)
 
 const GAME_TTL = 60 * 60 * 24 * 25; // GAMES EXPIRE 25 DAYS AFTER THE LAST MOVE (SECONDS)
 
@@ -45,7 +46,7 @@ function expireTime() {
  * @param  {[string]} playerId1 [white player id]
  * @param  {[string]} playerId2 [black player id]
  * @param  {[number]} aiLevel [AI games: the AI's level, saved with the game so it can't change mid game]
- * @param  {[object]} options [{ names: friend games' { w, b } screennames for Home's caption,
+ * @param  {[object]} options [{ names: friend games' { w, b } names (usernames, or Auth0 screennames) for Home's caption,
  * pending: friend invites, the game is PENDING & waits in requested_games until it's accepted (acceptInvite),
  * start_params: the start settings ({ color, fen }, Restart & Rematch reuse them, left out = Random from the standard position. fen = a set position, checked by checkStartFen),
  * inviter_id: friend games, the player who sent the invite (their pick is start_params.color) }]
@@ -687,27 +688,130 @@ async function updateUserSettings(userId, settings) {
 }
 
 /* ---------------------------------------------------------------- */
+// Claim username (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves a player's username (the settings page) in one transaction, so it's all or nothing: the username#<name> item is made
+ * only if nobody has it, the player's row gets the name, & the name they had before is freed. "joe" -> "Joe" keeps the same item.
+ * A player who hasn't played yet has no row, initalizeUser makes it first
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @param  {[string]} username [checked by checkUsername in utils/username.js]
+ * @return {[object]} response [{ status, username, message }, status 409 when another player has it]
+ */
+async function claimUsername(userId, username) {
+	const claimKey = usernameKey(username);
+	for (let i = 0; i < LIST_SAVE_TRIES; i++) {
+		let user = await retrieveUser(userId, true);
+		if (!user.user_data) { user = await initalizeUser(userId); }
+		if (!user.user_data) { return user; }
+		const oldUsername = user.user_data.username?.S || null;
+		if (oldUsername == username) { return { status: 200, username, message: `user id: ${userId} username unchanged` }; }
+		const sameName = oldUsername && usernameKey(oldUsername) == claimKey; // ONLY THE CAPITALS CHANGED, THE PLAYER ALREADY HOLDS IT
+
+		const saveName = {
+			Update: {
+				TableName: USER_TABLE,
+				Key: {
+					user_id: { S: userId }
+				},
+				UpdateExpression: 'SET username = :username',
+				ConditionExpression: oldUsername ? 'username = :old_username' : 'attribute_exists(user_id) AND attribute_not_exists(username)', // NOT RENAMED SINCE THE READ (TWO SAVES AT ONCE)
+				ExpressionAttributeValues: {
+					":username": { S: username }
+				}
+			}
+		}
+		if (oldUsername) { saveName.Update.ExpressionAttributeValues[":old_username"] = { S: oldUsername }; }
+
+		const claim = sameName ? {
+			Update: {
+				TableName: USER_TABLE,
+				Key: {
+					user_id: { S: claimKey }
+				},
+				UpdateExpression: 'SET username = :username',
+				ConditionExpression: 'owner_id = :owner_id',
+				ExpressionAttributeValues: {
+					":username": { S: username },
+					":owner_id": { S: userId }
+				}
+			}
+		} : {
+			Put: {
+				TableName: USER_TABLE,
+				Item: {
+					user_id: { S: claimKey },
+					owner_id: { S: userId }, // WHO HOLDS IT
+					username: { S: username } // AS THEY WROTE IT
+				},
+				ConditionExpression: 'attribute_not_exists(user_id)' // NOBODY HAS IT
+			}
+		}
+
+		let transactItems = [claim, saveName];
+		if (oldUsername && !sameName) {
+			transactItems.push({
+				Delete: { // FREES THE OLD NAME
+					TableName: USER_TABLE,
+					Key: {
+						user_id: { S: usernameKey(oldUsername) }
+					},
+					ConditionExpression: 'owner_id = :owner_id',
+					ExpressionAttributeValues: {
+						":owner_id": { S: userId }
+					}
+				}
+			});
+		}
+
+		try {
+			await connection.transactWriteItems({ TransactItems: transactItems }); // PUT, UPDATE & DELETE REQUESTS TO DYNAMODB, ALL OR NONE
+			return { status: 200, username, message: `user id: ${userId} username saved` };
+		} catch (err) {
+			if (err.name != "TransactionCanceledException") { throw err; }
+			const reasons = (err.CancellationReasons || []).map((reason) => reason.Code);
+			if (!sameName && reasons[0] == "ConditionalCheckFailed" && reasons[1] != "ConditionalCheckFailed") { return { status: 409, message: "That username is taken" }; } // THE ROW HASN'T CHANGED, SO SOMEONE ELSE HOLDS THE NAME
+		} // THE ROW CHANGED SINCE THE READ, READ IT AGAIN
+	}
+	return { status: 500, message: `Username save failed after ${LIST_SAVE_TRIES} tries: ${userId}` };
+}
+
+/* ---------------------------------------------------------------- */
 // Delete user (DELETE)
 /* ---------------------------------------------------------------- */
 /**
- * @description Deletes a player's user_db row, their game lists & settings (Delete my data, after leaveAllGames). The games stay in chess_db:
- * a friend's finished games still show the result, & the player's next game makes a new row
+ * @description Deletes a player's user_db row, their game lists, settings & rating (Delete my data, after leaveAllGames), & frees their username.
+ * The games stay in chess_db: a friend's finished games still show the result & the name, & the player's next game makes a new row
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, message }]
  */
 async function deleteUser(userId) {
-	const params = {
-		TableName: USER_TABLE,
-		Key: {
-			user_id: { S: userId }
-		}
+	for (let i = 0; i < LIST_SAVE_TRIES; i++) {
+		const user = await retrieveUser(userId, true);
+		const username = user.user_data?.username?.S;
+		try {
+			if (!username) {
+				const params = {
+					TableName: USER_TABLE,
+					Key: {
+						user_id: { S: userId }
+					},
+					ConditionExpression: 'attribute_not_exists(username)' // NO NAME WAS SAVED SINCE THE READ
+				}
+				await connection.deleteItem(params); // DELETE REQUEST TO DYANMODB
+			} else {
+				const transactItems = [
+					{ Delete: { TableName: USER_TABLE, Key: { user_id: { S: userId } }, ConditionExpression: 'username = :username', ExpressionAttributeValues: { ":username": { S: username } } } },
+					{ Delete: { TableName: USER_TABLE, Key: { user_id: { S: usernameKey(username) } }, ConditionExpression: 'owner_id = :owner_id', ExpressionAttributeValues: { ":owner_id": { S: userId } } } } // FREES THE NAME
+				];
+				await connection.transactWriteItems({ TransactItems: transactItems }); // DELETE REQUESTS TO DYNAMODB, BOTH OR NEITHER
+			}
+			return { status: 200, message: `user id: ${userId} deleted` };
+		} catch (err) {
+			if (err.name != "ConditionalCheckFailedException" && err.name != "TransactionCanceledException") { throw err; }
+		} // RENAMED SINCE THE READ, READ IT AGAIN
 	}
-	await connection.deleteItem(params); // DELETE REQUEST TO DYANMODB
-
-	return {
-		status: 200,
-		message: `user id: ${userId} deleted`
-	}
+	return { status: 500, message: `User delete failed after ${LIST_SAVE_TRIES} tries: ${userId}` };
 }
 
 /* ---------------------------------------------------------------- */
@@ -835,4 +939,4 @@ async function pruneGameList(userData, listName) {
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, deleteUser, pruneOpenGames, pruneInvites }
+module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, pruneOpenGames, pruneInvites }

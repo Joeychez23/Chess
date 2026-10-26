@@ -269,6 +269,25 @@ export async function saveSettings(userUrl, settings) {
 }
 
 /**
+ * @description Saves the settings page's Username (PUT /api/user/username), the name friends see on invites & games
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @param  {[string]} username [3 - 20 letters, numbers, _ or -]
+ * @return {[object]} response [{ status, username (as saved), message }, status 400 when it can't be used, 409 when it's taken]
+ */
+export async function saveUsername(userUrl, username) {
+	const options = {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ username })
+	};
+	try {
+		return await request(`${userUrl}/username`, options)
+	} catch {
+		return
+	}
+}
+
+/**
  * @description Delete my data (DELETE /api/user): the server forfeits the open games, cancels & declines the invites, then deletes the user_db row
  * @param  {[string]} userUrl [user api, "/api/user"]
  * @return {[object]} response [{ status, message }]

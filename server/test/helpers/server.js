@@ -1,7 +1,7 @@
 /*
  *  server.js  --  chess server tests
  *	Test Server
- *  Starts the real /api routes on a random local port with the in-memory tables, and answers the server's own calls
+ *  Starts the real /api routes & page routes on a random local port with the in-memory tables, and answers the server's own calls
  *  out (Auth0 and the Stockfish engine API) from test data instead of the network
  *
  */
@@ -39,6 +39,7 @@ async function start() {
 	app.use(cookieParser());
 	app.use(express.json());
 	app.use("/api", require("../../routes/api"));
+	app.use(require("../../routes/pageRoutes.js")); // THE PAGES' REDIRECTS (A PAGE ITSELF NEEDS client/dist, WHICH THE SERVER TESTS DON'T BUILD)
 
 	const server = http.createServer(app);
 	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -104,6 +105,19 @@ async function call(method, path, options = {}) {
 }
 
 /**
+ * @description Opens a page like a browser, without following a redirect
+ * @param  {[string]} path [e.g. "/"]
+ * @param  {[object]} options [{ as: a player (left out = guest) }]
+ * @return {[object]} response [{ http: the HTTP status, location: where a redirect goes (null when it sent the page) }]
+ */
+async function page(path, options = {}) {
+	const headers = options.as ? { Cookie: sessionCookie(options.as.user) } : {};
+	const res = await realFetch(`${baseUrl}${path}`, { headers, redirect: "manual" });
+	await res.arrayBuffer(); // THE BODY ISN'T NEEDED
+	return { http: res.status, location: res.headers.get("location") };
+}
+
+/**
  * @description Queues the engine's next answer, the server's next AI move
  * @param  {[string]} from [e.g. "e7"]
  * @param  {[string]} to [e.g. "e5"]
@@ -136,4 +150,4 @@ async function standInFetch(url, options) {
 }
 
 
-module.exports = { start, reset, player, call, engineWillPlay, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, call, page, engineWillPlay, peek: fakeDynamo.peek };

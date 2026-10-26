@@ -33,7 +33,8 @@ AWS side (see [Deploy](#deploy)).
 | **Ratings** | Every signed-in player has an Elo rating, starting at 1500. Finished friend games change it, once both sides have moved; AI games and games from a set position don't. Home shows yours under the welcome (`Rating // 1520?`, with a `?` for your first 10 rated games), and a friend game's menu shows both players' ratings, plus your change once the game is over (`You 1520? (+20) // Bob 1480?`). |
 | **Rematch** | After a friend game ends, both players get a Rematch button. If both press it within 1 minute, a new game starts with the same start settings (the inviter's color, Random draws again) and both boards load it. If either player is already in another friend game, the button reads Can't rematch. |
 | **Home** | `/` for signed-in players: four boxes, Play the AI (level dropdown, or the open AI game's board with Continue current game), Play a friend (the open friend game's board with Continue current game, and the email form), Invites (invites you got with Accept and Decline, and your sent invite with Cancel invite, each with your color) and Your games (finished games aren't listed, each row shows the opponent, the level for AI games and your color: "vs AI // Level 3 // You play white (random)"), each game opening at `/play/:gameId`. Guests get the homepage: a picture of the board, Sign in, and Play the AI with the same level and color dropdowns, plus their game's board and Continue current game while it's open. A guest has one game, so New game resets it to the new settings without a forfeit warning (see [Pages](#pages)). |
-| **Settings** | `/settings`, linked from Home's menu. Five boxes: **Account** (the email you sign in with, games finished, Sign out), **Default start settings** (the AI level, your color vs the AI and your color vs a friend; Save, and Home's dropdowns start on them from then on), **Friends** and **Closed games** (placeholders: a friends list, and finished games for game analysis later), and **Delete my data** (a second press within 5 seconds forfeits your open games, cancels and declines your invites, deletes your `user_db` row and signs you out. Finished friend games stay for your opponents, and your Auth0 login isn't deleted). |
+| **Usernames** | Friends see your **username** on invites and games. It's 3 to 20 letters, numbers, `_` or `-`, nobody else can have it in any capitals, and a few names are reserved (admin, stockfish, chess_ai, guest, friend and the like, `server/utils/username.js`). After you sign in, Home sends you to Settings to pick one first, filled in from your Auth0 screenname, and saving it takes you Home. You can change it there later, which frees the old one. New invites and rematches show the new name, and games keep the name they were made with. Until a player picks one, their Auth0 screenname is shown. |
+| **Settings** | `/settings`, linked from Home's menu. Six boxes: **Username** (see Usernames), **Account** (the email you sign in with, games finished, Sign out), **Default start settings** (the AI level, your color vs the AI and your color vs a friend; Save, and Home's dropdowns start on them from then on), **Friends** and **Closed games** (placeholders: a friends list, and finished games for game analysis later), and **Delete my data** (a second press within 5 seconds forfeits your open games, cancels and declines your invites, deletes your `user_db` row, frees your username and signs you out. Finished friend games stay for your opponents, and your Auth0 login isn't deleted). |
 | **Menu** | The 3 line button in the top right opens and closes the menu on every page. On Home and the guest page it holds the page links. In a game it's the game's menu (Resume, Restart / Forfeit / Rematch, Home, Logout or Sign in) and it opens with the result when the game ends. |
 | **Login / Logout** | The menu's Sign in / Logout link (Exit in a game) logs guests in and signed-in players out. A game link opened while signed out logs in, then opens the game. Auth0 runs on the Express server (see [Auth](#auth)). |
 | **Mobile** | Portrait and landscape layouts and touch input. iOS audio is unlocked on the first tap so the opponent's move sounds play. |
@@ -162,7 +163,7 @@ The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
 `chess_db` and `user_db` in memory (it understands the update and condition
 expressions `server/dynamoDB.js` uses, and `staleReads()` makes reads lag like
 DynamoDB's default eventually consistent reads), and `test/helpers/server.js` starts the
-real `/api` routes on a random port and answers Auth0 and the engine from test
+real `/api` and page routes on a random port and answers Auth0 and the engine from test
 data.
 
 | File | What it covers |
@@ -174,6 +175,9 @@ data.
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 | `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, and the new game limits (per session, IP and site) |
 | `rating.test.js` | The Elo math, which games are rated, the ratings Home and the game menu get, and two of a player's games ending at once |
+| `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
+| `settings.test.js` | The settings page's Default start settings and Delete my data |
+| `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests and the
 client build on every pull request and every push to `main`.
@@ -189,7 +193,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 | `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites and Your games boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
-| `/settings` | Signed in: `settings.html`, the Account, Default start settings, Friends, Closed games and Delete my data boxes. Signed out, it goes through `/api/auth/resume` and comes back |
+| `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my data boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
 
 Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.
 The `.html` files are only sent through these routes, never as static files.
@@ -211,9 +215,10 @@ client secret.
 | `POST /api/auth/refresh` | Re-ups the session: a valid refresh token gets a new access + refresh token |
 | `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it logs in first |
 | `GET /api/auth/logout` | Clears the session and logs out of Auth0 |
-| `GET /api/user` | The signed-in user, or `401` |
+| `GET /api/user` | The signed-in user, and `username` from their `user_db` row (`null` until they pick one), or `401` |
 | `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w` or `b` is `random`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
-| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, then deletes your `user_db` row. Your games stay in `chess_db`, and your next game starts a new row |
+| `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
+| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, then deletes your `user_db` row and frees your username. Your games stay in `chess_db`, and your next game starts a new row |
 
 The session is two JWTs in httpOnly cookies: an access token (15 minutes)
 checked on every request, and a refresh token (7 days) that's only sent to
@@ -251,7 +256,7 @@ expired mid game) or `403` when signed in.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |
-| `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), the start settings (`start_params`), the friend's screenname (`opponent_name`), and the result (`state`, `winner`, `reason`) |
+| `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), the start settings (`start_params`), the friend's name (`opponent_name`), and the result (`state`, `winner`, `reason`) |
 | `POST /api/chess/game` | `{ game_id, start_color, ai_level, start_fen, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). `start_color` is your color, `random` (the default, anything else counts as it), `w` or `b`, and the server picks the sides (Home, the guest page, and the play page with `random` when a guest has no game yet). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (gameplay's fallback if that request failed, saved as Random). Leave out `game_id` to generate one. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first. `start_fen` (optional) starts from a set position, saved in `start_params.fen`; one that can't be played returns `{ status: 400, message }` (HTTP 400) before anything is saved or forfeited |
 | `PUT /api/chess/game/:gameId` | `{ move: [from, to], promotion }` | Your move. Validates it against the stored board and saves it. Closes the game on checkmate or a draw. Refused while the game is `PENDING` or once it's closed, and refused if the board changed first (two moves at once) |
 | `POST /api/chess/game/:gameId/ai-move` | | AI games, on the AI's turn. The server picks the AI's move at the game's level, saves it, and returns the game with `ai_move: { from, to, promotion }`. After the AI moved, it returns that saved move instead of a new one |
@@ -259,7 +264,7 @@ expired mid game) or `403` when signed in.
 | `GET /api/chess/levels` | | The AI levels for Home's dropdown: `{ levels: [{ level, elo }], default_level }` |
 | `POST /api/chess/game/:gameId/forfeit` | | Signed in, friend games. Closes the game, and the other side wins. Emits `game-over` |
 | `POST /api/chess/game/:gameId/rematch` | | Signed in, finished friend games. The first press waits 1 minute (`{ waiting, expires_in }`). If the other player presses in time, a new game starts with the same start settings (`{ new_game_id }`, the inviter keeps their color pick, Random draws again), both players' sent invites are cancelled, and `rematch` is emitted. `{ status: 409 }` if either player is in another friend game |
-| `POST /api/chess/invite` | `{ game_id, opponent_email, start_color, start_fen, replace_current }` | Signed in only. Invites a friend: finds their Auth0 account by email (`getAuth0User`) and creates a `PENDING` game with both screennames (`white_name`, `black_name`), `inviter_id` and `start_params`. `start_color` is your color (`random`, `w` or `b`), and the sides are drawn now so the invite shows them. `start_fen` (optional) starts the game and its rematches from a set position, with the same `400` as `/game` when it can't be played. Your last sent invite is deleted. `game_id` must not exist yet. Refused for your own email, and for a friend who already invited you. While you have a friend game open this returns `{ status: 409, game_id }`, unless `replace_current: true` forfeits it first |
+| `POST /api/chess/invite` | `{ game_id, opponent_email, start_color, start_fen, replace_current }` | Signed in only. Invites a friend: finds their Auth0 account by email (`getAuth0User`) and creates a `PENDING` game with both names (`white_name`, `black_name`: each player's username, or their Auth0 screenname until they pick one), `inviter_id` and `start_params`. `start_color` is your color (`random`, `w` or `b`), and the sides are drawn now so the invite shows them. `start_fen` (optional) starts the game and its rematches from a set position, with the same `400` as `/game` when it can't be played. Your last sent invite is deleted. `game_id` must not exist yet. Refused for your own email, and for a friend who already invited you. While you have a friend game open this returns `{ status: 409, game_id }`, unless `replace_current: true` forfeits it first |
 | `POST /api/chess/game/:gameId/accept` | `{ replace_current }` | Signed in, the invited player. `PENDING` → `OPEN`, the game moves from both players' `requested_games` to `open_games`, and your own sent invite is cancelled. Same `409` / `replace_current` rule as `/invite`. Refused if the inviter is in another friend game by then (the invite is deleted) |
 | `POST /api/chess/game/:gameId/decline` | | Signed in, either player of a `PENDING` game. The invited player declines or the inviter cancels: the game is deleted and dropped from both players' `requested_games` |
 | `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home, plus `ai_game_id` and `friend_game_id` (your open AI and friend games, or `null`), `open_game_list` (`[{ game_id, ai, ai_level, opponent_name, player_color, start_params }]`, newest last, for Your games), `sent_invite` (`{ game_id, name, player_color, start_params }` or `null`) and `received_invites` (`[{ game_id, name, player_color, start_params }]`, `player_color` is yours), `settings` (`{ ai_level, ai_color, friend_color }`, the defaults until you save some) and `games_finished`. Ids of games and invites TTL already deleted are pruned first, and `rating` (`{ rating, provisional, rated_games }`, the starting 1500 before your first game) |
@@ -303,6 +308,11 @@ left from the start position through `faceMove`, the same facing rules a move us
 Friend games also save `inviter_id`, so Home knows a sent invite from a received one (the inviter isn't always white).
 A `user_db` row also has `settings` (JSON, `{ ai_level, ai_color, friend_color }`) once the player saves Default start settings. It's its own
 attribute, so the game list saves never touch it, and saving it first makes the row (with empty game lists) for a player who hasn't played yet.
+**Usernames** live in `user_db` too. A player's row gets `username` (as they wrote it), and an item keyed `username#<the name in lowercase>`
+(`{ user_id, owner_id, username }`) holds the name, so only one player can have it in any capitals. `claimUsername` (`dynamoDB.js`) saves a name in
+one `TransactWriteItems`: it puts the new item only if it doesn't exist, sets `username` on the row only if it's still the name that was read, and
+deletes the old item only if it's the player's, so either all three land or none do. A change of capitals only updates the item. `deleteUser`
+deletes the row and the item together. Nothing reads `user_db` by anything other than a key, so the `username#` items never show up as players.
 
 **Ratings** (`server/utils/rating.js`): Elo, everyone starts at 1500. After a game a player's rating moves by `K × (score − expected)`, where the
 score is 1, ½ or 0 and `expected = 1 / (1 + 10^((opponent − rating) / 400))`, rounded and never below 100. K is 40 for a player's first 10
@@ -406,8 +416,11 @@ In order:
 - **Server** (`modules/server`): the `EC2_Chess_DynamoDB` IAM role and
   instance profile (made in the console, imported below), allowed only `GetItem`, `PutItem`, `UpdateItem`,
   `BatchGetItem` and `DeleteItem` (declined and cancelled invites) on the two
-  tables (the calls `server/dynamoDB.js` makes), and Route 53 `A`
-  records for `chess` and `engine` pointing at the instance's Elastic IP
+  tables (the calls `server/dynamoDB.js` makes). Usernames are saved with
+  `TransactWriteItems`, which has no IAM action of its own: each write in it is
+  checked as the `PutItem`, `UpdateItem` or `DeleteItem` it is, so the policy
+  already covers it ([Using IAM with DynamoDB transactions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html)).
+  The module also makes the Route 53 `A` records for `chess` and `engine` pointing at the instance's Elastic IP
   (`server_ip` in `locals.tf`). The `engine` record was made in the console;
   `allow_overwrite` lets Terraform take it over.
 - **Assets** (`modules/cloudfront`): ACM certificate for
@@ -687,7 +700,7 @@ leave out `game_id`, the backend creates a new game and generates its id.
 ```
 client/
   home.html                  Home markup: Play the AI (level), Play a friend (email), Invites, Your games, menu (Home, Invites, Your games, Settings, Logout)
-  settings.html              Settings markup: Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
+  settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Sign in)
   play.html                  Game menu markup (Resume, Restart / Forfeit / Rematch, Home, Exit)
   webpack.config.js          One entry + HTML page each (home, guest, play, settings), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
@@ -698,7 +711,7 @@ client/
   src/js/pages/
     home/index.js            Open games (opponent, level, color), new solo games, invites (send, accept, decline, cancel), color dropdowns, the open AI & friend games (Continue / forfeit)
     guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board, Play AI / New game
-    settings/index.js        Account info, saves the Default start settings, Delete my data (two presses, then logout)
+    settings/index.js        Username (first pick goes Home), account info, saves the Default start settings, Delete my data (two presses, then logout)
     play/index.js            Finds the player + game (url or guest localStorage, a missing guest game is made as Random), starts renderCanvas()
     utils/index.js           startNav() (the menu on pages without the game), table background, showCurrentGame() / hideCurrentGame(), loadLevels(), colorText()
     utils/boardPicture.js    drawBoardPicture(): a still of a game's board, drawn like the play page
@@ -707,7 +720,7 @@ client/
   src/js/gameplay/
     index.js                 renderCanvas(): sprite loading, render loop, input, animation
     sprites/index.js         Every sprite url in image number order (preloadImages() loads them, also on home + guest)
-    validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, accept, decline, save settings, delete my data
+    validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move
     utils/index.js           Per-square tile state
@@ -719,9 +732,9 @@ server/
   routes/pageRoutes.js       /, /play, /play/:gameId, /settings
   routes/api/                /api/auth/*, /api/user, /api/chess/*
   controllers/
-    pageController.js        Picks the page (home, guest, play, settings) from the session cookie, PENDING invites go Home
+    pageController.js        Picks the page (home, guest, play, settings) from the session cookie, PENDING invites go Home, no username yet goes to settings
     authController.js        login, callback, logout, refresh, resume
-    userController.js        getUser, saveSettings, deleteUserData (Delete my data)
+    userController.js        getUser (with the username), saveSettings, saveUsername, deleteUserData (Delete my data)
     chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
   middleware/auth.js         JWT session cookies, requireAuth, optionalAuth, the guest_game cookie
   middleware/rateLimit.js    New game limits per session, IP and site (429)
@@ -729,7 +742,8 @@ server/
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
   utils/rating.js            Elo ratings: the math & which games are rated
-  test/                      Server tests (npm test): validate, ai, dynamoDB, games, startPosition, settings, plus helpers/ (test settings, in-memory tables, test server)
+  utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
+  test/                      Server tests (npm test): validate, ai, undo, dynamoDB, games, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, in-memory tables, test server)
 .github/
   workflows/ci.yml           GitHub Actions: server tests and the client build on every pull request
 deploy/
