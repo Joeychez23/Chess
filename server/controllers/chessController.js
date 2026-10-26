@@ -322,7 +322,7 @@ async function rematchGame(req, res) {
 	const params = startParams(gameData);
 	const inviter = inviterId(gameData);
 	const sides = pickSides(params, inviter, inviter == players[0] ? players[1] : players[0]);
-	const names = { [players[0]]: playerName(gameData, "w"), [players[1]]: playerName(gameData, "b") }; // THE SCREENNAMES FOLLOW THE PLAYERS
+	const names = { [players[0]]: (await playerUsername(players[0])) || playerName(gameData, "w"), [players[1]]: (await playerUsername(players[1])) || playerName(gameData, "b") }; // THE NAMES FOLLOW THE PLAYERS, A NEW USERNAME SHOWS FROM THE REMATCH ON
 	const created = await initalizeGame(newGameId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter }); // CREATE NEW GAME
 	if (!created.game_data) { return res.json({ status: created.status, message: created.message }); }
 
@@ -371,8 +371,8 @@ async function inviteGame(req, res) {
 
 	const params = readStartParams(req.body, position.fen);
 	const sides = pickSides(params, challengerId, opponentId); // RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
-	const challengerName = req.user.user_metadata?.screenname;
-	const opponentName = opponentData.user_metadata?.screenname;
+	const challengerName = (await playerUsername(challengerId)) || req.user.user_metadata?.screenname; // THEIR USERNAME, OR THEIR AUTH0 SCREENNAME UNTIL THEY PICK ONE
+	const opponentName = (await playerUsername(opponentId)) || opponentData.user_metadata?.screenname;
 	const names = sides.white == challengerId ? { w: challengerName, b: opponentName } : { w: opponentName, b: challengerName };
 	const response = await initalizeGame(game_id || false, sides.white, sides.black, false, { names, pending: true, start_params: params, inviter_id: challengerId }); // CREATE NEW GAME, PENDING UNTIL THEY ACCEPT
 	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); }
@@ -585,6 +585,16 @@ async function leaveAllGames(playerId) {
 }
 
 /**
+ * @description A player's username (the settings page), the name friends see on new invites & rematches. Games keep the name they were made with
+ * @param  {[string]} playerId [auth0 user id without "auth0|"]
+ * @return {[string]} username [null when they haven't picked one]
+ */
+async function playerUsername(playerId) {
+	const user = await retrieveUser(playerId);
+	return user.user_data?.username?.S || null;
+}
+
+/**
  * @description Tells both players' Homes a friend game or invite changed (socket "games"), Home redraws Play a friend, Invites & Your games
  * @param  {[object]} gameData [game item]
  */
@@ -727,10 +737,10 @@ function gameSummary(gameData, playerId) {
 }
 
 /**
- * @description A friend game player's screenname, saved when the game was made (inviteGame & rematchGame)
+ * @description A friend game player's name (their username, or their Auth0 screenname before they picked one), saved when the game was made (inviteGame & rematchGame)
  * @param  {[object]} gameData [game item]
  * @param  {[string]} color ["w" or "b"]
- * @return {[string]} name [null for AI games & players without a screenname, Home shows "Friend"]
+ * @return {[string]} name [null for AI games & players without either, Home shows "Friend"]
  */
 function playerName(gameData, color) {
 	return (color == "w" ? gameData.white_name?.S : gameData.black_name?.S) || null;

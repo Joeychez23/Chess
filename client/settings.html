@@ -38,14 +38,25 @@
 		<section class="hero heroPlain">
 			<div class="heroText">
 				<p class="spec" id="signedInAs">Signed in</p>
-				<h1 class="title">Settings</h1>
-				<p class="lead">Your account, the start settings Home begins with, and your data.</p>
+				<h1 class="title" id="settingsTitle">Settings</h1>
+				<p class="lead" id="settingsLead">Your username, your account, the start settings Home begins with, and your data.</p>
 			</div>
 		</section>
 
 		<section class="boxes" aria-label="Settings">
-			<div class="box boxBaize" id="accountBox">
-				<div class="boxHead"><h2 class="label">Account</h2><span class="spec">No. 01</span></div>
+			<div class="box boxBaize" id="usernameBox">
+				<div class="boxHead"><h2 class="label">Username</h2><span class="spec">No. 01</span></div>
+				<p class="boxText">The name friends see on your invites and games. 3 to 20 letters, numbers, _ or -, and nobody else can have it.</p>
+				<form id="usernameForm" class="boxBottom">
+					<div class="field fieldStack">
+						<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="20" id="usernameInput" placeholder="Username" aria-label="Username">
+						<button class="btn btnCream" id="saveUsername" type="submit">Save</button>
+					</div>
+					<p class="spec note" id="usernameNote" role="status"></p>
+				</form>
+			</div>
+			<div class="box boxWalnut" id="accountBox">
+				<div class="boxHead"><h2 class="label">Account</h2><span class="spec">No. 02</span></div>
 				<p class="boxText">You sign in with <span id="accountEmail">your email</span>. Signed in games are kept on your account.</p>
 				<p class="spec" id="gamesFinished">Games finished // 0</p>
 				<div class="actions boxBottom">
@@ -53,7 +64,7 @@
 				</div>
 			</div>
 			<div class="box boxWalnut" id="startBox">
-				<div class="boxHead"><h2 class="label">Default start settings</h2><span class="spec">No. 02</span></div>
+				<div class="boxHead"><h2 class="label">Default start settings</h2><span class="spec">No. 03</span></div>
 				<p class="boxText">What Home's Play the AI and Play a friend start on. You can still change them for each game.</p>
 				<div class="field fieldStack boxBottom">
 					<select id="aiLevel" aria-label="AI level"></select>
@@ -71,19 +82,19 @@
 				</div>
 				<p class="spec note" id="settingsNote" role="status"></p>
 			</div>
-			<div class="box boxWalnut" id="friendsBox">
-				<div class="boxHead"><h2 class="label">Friends</h2><span class="spec">No. 03</span></div>
+			<div class="box boxMaple" id="friendsBox">
+				<div class="boxHead"><h2 class="label">Friends</h2><span class="spec">No. 04</span></div>
 				<p class="boxText">The friends you play will be listed here, so you can invite them without typing their email.</p>
 				<p class="spec boxBottom">Coming soon</p>
 			</div>
 			<div class="box boxMaple" id="closedBox">
-				<div class="boxHead"><h2 class="label">Closed games</h2><span class="spec">No. 04</span></div>
+				<div class="boxHead"><h2 class="label">Closed games</h2><span class="spec">No. 05</span></div>
 				<p class="boxText">Your finished games will be here, ready to go through move by move once game analysis is added.</p>
 				<p class="spec boxBottom">Coming soon</p>
 			</div>
 			<div class="box boxWalnut" id="deleteBox">
-				<div class="boxHead"><h2 class="label">Delete my data</h2><span class="spec">No. 05</span></div>
-				<p class="boxText">Forfeits your open games, cancels and declines your invites, then deletes your game lists and settings, and signs you out. Finished friend games stay for your opponents. Your sign in (Auth0) isn't deleted, so you can come back later and start fresh.</p>
+				<div class="boxHead"><h2 class="label">Delete my data</h2><span class="spec">No. 06</span></div>
+				<p class="boxText">Forfeits your open games, cancels and declines your invites, then deletes your game lists, settings and rating, frees your username, and signs you out. Finished friend games stay for your opponents. Your sign in (Auth0) isn't deleted, so you can come back later and start fresh.</p>
 				<div class="actions boxBottom">
 					<button class="btn btnLine" id="deleteData" type="button">Delete my data</button>
 				</div>

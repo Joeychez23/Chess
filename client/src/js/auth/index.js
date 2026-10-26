@@ -34,17 +34,21 @@ export class InternalAuth {
 	// Get User
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description Asks the server who is signed in. If the access token expired, re-ups it with the refresh token first
+	 * @description Asks the server who is signed in. If the access token expired, re-ups it with the refresh token, then asks again
 	 * @return {[object]} userData [signed in user, or null for guests]
 	 */
 	async getUser() {
 		let response = await request("/api/user", "GET");
-		if (response?.status == 401) { response = await this.refresh(); } // ACCESS TOKEN EXPIRED OR MISSING -> RE-UP
+		if (response?.status == 401) { // ACCESS TOKEN EXPIRED OR MISSING -> RE-UP
+			const refreshed = await this.refresh();
+			response = refreshed?.status == 200 ? await request("/api/user", "GET") : refreshed; // THE USERNAME ONLY COMES FROM /api/user
+		}
 
 		if (response?.status == 200 && response.userData) {
 			this.userData = {
 				userId: response.userData.user_id,
 				screenname: response.userData.user_metadata?.screenname || '',
+				username: response.username || null, // PICKED ON THE SETTINGS PAGE, null UNTIL THEN
 				email: response.userData.email,
 				emailVerified: response.userData.email_verified,
 				firstName: response.userData.user_metadata?.first_name,
