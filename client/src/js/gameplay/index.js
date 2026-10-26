@@ -10,7 +10,7 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { Chess } = require("chess.js"); // RULES, LEGAL MOVES & FEN (SAME VERSION AS THE SERVER)
+const { game, canvas, ctx, chessInst, validateState } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
 const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playerMove } = require("./user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
@@ -24,7 +24,6 @@ const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
-const canvas = document.createElement("canvas"); // THE WHOLE GAME IS DRAWN ON THIS
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 
 const OVERRIDE_TV = false; // TRUE TURNS ON THE TV REMOTE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
@@ -90,74 +89,37 @@ export function imageProgress() {
 /* ---------------------------------------------------------------- */
 /**
  * @description Starts a game: adds the canvas to main, loads the game from the server & runs the render loop.
- * Holds all of the game's state & every function that uses it
+ * Holds every function of the game, the state they share is game (gameplay/state/index.js)
  * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, TV_BOOL }, TV_BOOL = TV REMOTE CONTROLS INSTEAD OF THE MOUSE]
  */
 export async function renderCanvas(playerData) {
-	const { GAME_URL, PLAYER_ID, TV_BOOL } = playerData; // SETS CONSTANT GAME VARIABLES
-	let GAME_ID = playerData.GAME_ID; // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
+	game.GAME_URL = playerData.GAME_URL; // SETS CONSTANT GAME VARIABLES
+	game.PLAYER_ID = playerData.PLAYER_ID;
+	game.TV_BOOL = playerData.TV_BOOL;
+	game.GAME_ID = playerData.GAME_ID; // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
 
 	optBtn.style.display = "flex"; // SHOW THE MENU BUTTON
 
-	const ctx = canvas.getContext("2d"); // EVERYTHING IS DRAWN WITH THIS
 	canvas.id = "canvas";
 
-	const chessInst = new Chess(); // THE BOARD THAT'S DRAWN, LOADED FROM THE SERVER'S FEN
-	const validateState = new Chess(); // SCRATCH BOARD, TESTS A MOVE WITHOUT CHANGING chessInst
-	let cw = (canvas.width = window.innerWidth); // CANVAS WIDTH (CSS PIXELS)
-	let ch = (canvas.height = window.innerHeight); // CANVAS HEIGHT (CSS PIXELS)
+	game.cw = (canvas.width = window.innerWidth); // CANVAS WIDTH (CSS PIXELS)
+	game.ch = (canvas.height = window.innerHeight); // CANVAS HEIGHT (CSS PIXELS)
 	let bw; // WIDTH OF THE 64 SQUARES (BOARD WITHOUT ITS WOOD BORDER)
 	let bh; // HEIGHT OF THE 64 SQUARES
-	let drawScreen; // DRAWS ONE FRAME, SET BY handleInitialData() FOR THE PLAYER'S COLOR
-	let refresh = true; // TRUE DRAWS A FRAME ON THE NEXT TICK OF THE RENDER LOOP
-	let tileWidth; // WIDTH OF ONE SQUARE
-	let tileHeight; // HEIGHT OF ONE SQUARE
-	let tileX; // SCREEN COLUMN UNDER THE MOUSE (0 - 7 ON THE BOARD)
-	let tileY; // SCREEN ROW UNDER THE MOUSE (0 - 7 ON THE BOARD)
 	let clickX; // PIXEL X OF tileX, A HELD PIECE IS DRAWN THERE
 	let clickY; // PIXEL Y OF tileY
-	let opponentColor; // 'w' OR 'b'
-	let ai // TRUE IN AI GAMES
-	let aiTurn = false; // TRUE WHEN THE RENDER LOOP SHOULD ASK THE SERVER FOR THE AI'S MOVE
-	let response; // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
-	let revert; // GAME TO GO BACK TO IF A MOVE FAILS
-	let playerColor; // 'w' OR 'b', BLACK FLIPS THE BOARD SO THE PLAYER IS ALWAYS AT THE BOTTOM
-	let moveObj = [null, null] // MOVE BEING PLAYED { from, to, promotion }, THE AI'S ALSO HAS response
-	let tiles = setTiles(); // 64 TILE STATES IN SCREEN ORDER (ROW * 8 + COLUMN), FILLED WITH THE PIECE ON EACH SQUARE WHILE DRAWING
 	let boardWidth; // BOARD IMAGE WIDTH (WITH THE WOOD BORDER)
 	let boardHeight; // BOARD IMAGE HEIGHT
 	let xBoardStart; // LEFT OF THE BOARD IMAGE
 	let yBoardStart; // TOP OF THE BOARD IMAGE
-	let xBoardOff; // LEFT OF THE SQUARES (SCREEN COLUMN 0)
-	let yBoardOff; // TOP OF THE SQUARES (SCREEN ROW 0)
 	let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
-	let wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // WHITE PIECES DRAWN THIS FRAME, TAKEN PIECES = START COUNT - THIS
-	let bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // BLACK PIECES DRAWN THIS FRAME
-	let startPieceCount = countStartPieces(); // { w, b } PIECES EACH SIDE STARTED WITH (THE STANDARD SET, OR A SET POSITION'S, setInitialData())
-	let wTakenPieces; // WHITE PIECES THAT WERE TAKEN [{ color, type, x, y }]
-	let bTakenPieces; // BLACK PIECES THAT WERE TAKEN
-	let clickedTile = false; // TILE PICKED UP BY A CLICK (OR A FINISHED DRAG)
-	let mousedownTile = false; // TILE BEING DRAGGED
-	let currPromotion = false; // TRUE WHILE THE PLAYER PICKS THEIR PROMOTION PIECE
-	let currSlide = false; // TRUE WHILE A PIECE SLIDES TO ITS NEW SQUARE
 	let slidePos; // SQUARE THE SLIDING PIECE IS CROSSING (trackSlidePosition)
-	let slideStart = false; // FIRST FRAME OF A SLIDE, A KNIGHT STOPS FOR 100MS BEFORE ITS HOP
-	let knightHop = 0; // HOW HIGH A HOPPING KNIGHT IS: 0 ON THE BOARD, 1 AT THE TOP (HALF A SQUARE UP), SET BY handleKnightHop()
 	let knightPause = false; // TRUE FOR THE 100MS A KNIGHT STOPS BEFORE ITS HOP (currSlide IS OFF), SO A FRAME DRAWN THEN STILL PUTS IT ON TOP
-	let menuToggled = false; // MENU IS OPEN
-	let mouseDownCount = 0; // FRAMES THE MOUSE HAS BEEN HELD ON A PIECE, MORE THAN 3 MAKES IT A DRAG
-	let opposingMove = false; // TRUE WHILE IT'S NOT THE PLAYER'S TURN, LOCKS THE BOARD
-	let boardReset = false; // TRUE WHILE A NEW BOARD LOADS & ITS PIECES SLIDE HOME (RESTART & REMATCH), STOPS THE NORMAL FRAMES (THE OLD BOARD STAYS ON SCREEN)
-	let restartSlide = null; // PIECES SLIDING HOME AFTER RESTART & REMATCH: { pieces, startTime } (startRestartSlide)
 	const RESTART_SLIDE_MS = 800; // HOW LONG THE PIECES TAKE TO SLIDE HOME
-	let gameOver = false; // THE SERVER CLOSED THE GAME (CHECKMATE, DRAW OR FORFEIT)
 	let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 	let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
 	let availableMoves; // LEGAL MOVES OF THE SELECTED PIECE (chess.js VERBOSE MOVES)
 	let currInst; // 8 x 8 BOARD FROM chessInst.board(), FLIPPED WHEN PLAYING BLACK
-	let availableMovesData = { piece: null, square: null } // PIECE & SQUARE availableMoves IS FOR, SO THE MOVES ARE ONLY FOUND ONCE
-	let widthGreater; // WIDE SCREEN: TAKEN PIECES GO TO THE RIGHT OF THE BOARD
-	let portraitBoard = false; // TALL SCREEN (MOBILE)
 	let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
 	const frameRate = 1000 / 33; // MS BETWEEN FRAMES (ABOUT 33 A SECOND)
 	const moveAudio = new Audio(`${process.env.CHESS_ASSESTS_URL}/audio/piece-jump.mp4`); // MOVE SOUND
@@ -173,6 +135,7 @@ export async function renderCanvas(playerData) {
 	// !NOTE: IMAGE NUMBERS EQUALS INDEX USED TO CHECK IF ALL IMAGES ARE LOADING IN THE BACKGROUND
 	// EACH NUMBER IS THE IMAGE'S INDEX IN images[], SO IT HAS TO MATCH THE ORDER OF preloadImages()
 	// PIECES ARE DRAWN AS 3 LAYERS: REFLECTION (ON THE BOARD BELOW THE PIECE), SHADOW, THEN THE PIECE
+	// THE ONE OF EACH BEING DRAWN (FRONT OR BACK, RIGHT OR LEFT) IS ON game (game.wKingImg, ...), SET BY THE handle...Direction FUNCTIONS
 	// TABLE = 0
 	const tableShdw = 1; // table-shdw.png
 
@@ -183,127 +146,89 @@ export async function renderCanvas(playerData) {
 	const xBoardShadowRatio = 0.985; // NUDGES THE SQUARES RIGHT A LITTLE TO LINE UP WITH THE BOARD IMAGE
 
 	// WHITE IMAGES
-	let wKingImg; // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionW)
 	const wFrontKingImg = 5; // wk-e1.png, FACES THE PLAYER
 	const wBackKingImg = 58; // wk-back.png, FACES AWAY
-	let wQueenImg; // SET WITH wKingImg
 	const wFrontQueenImg = 6; // wq-d1.png
 	const wBackQueenImg = 59; // wq-back.png
-	let wBishopBlackSqImg; // SET WITH wKingImg
-	let wBishopWhiteSqImg; // SET WITH wKingImg
 	const wFrontBishopBlackSqImg = 7; // wb-c1.png, BISHOP ON A DARK SQUARE
 	const wFrontBishopWhiteSqImg = 8; // wb-f1.png, BISHOP ON A LIGHT SQUARE
 	const wBackBishopImg = 60; // wb-back.png (BOTH SQUARE COLORS)
-	let wKnightImg; // KNIGHT IMAGE BEING DRAWN, SET TO THE RIGHT OR LEFT ONE BEFORE EACH DRAW (BOTH WHITE KNIGHTS SHARE IT)
 	const wRightKnightImg = 9; // wn-b1.png, FACES RIGHT
 	const wLeftKnightImg = 10; // wn-g1.png, FACES LEFT
-	let wRookImg; // SET WITH wKingImg
 	const wFrontRookImg = 11; // wr-h1.png
 	const wBackRookImg = 61; // wr-back.png
-	let wPawnImg; // PAWN IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePawnDirection)
 	const wFrontPawnImg = 12; // wp-a2.png, FACES THE PLAYER
 	const wBackPawnImg = 82; // wp-back.png, FACES AWAY
 
 	// WHITE SHADOW
-	let wKingShdw; // SET WITH wKingImg
 	const wFrontKingShdw = 13; // wk-shdw.png
 	const wBackKingShdw = 62; // wk-back-shdw.png
-	let wQueenShdw; // SET WITH wKingImg
 	const wFrontQueenShdw = 14; // wq-shdw.png
 	const wBackQueenShdw = 63; // wq-back-shdw.png
-	let wBishopShdw; // SET WITH wKingImg
 	const wFrontBishopShdw = 15; // wb-shdw.png (BOTH BISHOPS)
 	const wBackBishopShdw = 64; // wb-back-shdw.png
-	let wKnightShdw // SET WITH wKnightImg
 	const wRightKnightShdw = 16; // wn-b1-shdw.png
 	const wLeftKnightShdw = 17; // wn-g1-shdw.png
-	let wRookShdw; // SET WITH wKingImg
 	const wFrontRookShdw = 18; // wr-shdw.png
 	const wBackRookShdw = 65; // wr-back-shdw.png
-	let wPawnShdw; // SET WITH wPawnImg
 	const wFrontPawnShdw = 19; // wp-shdw.png
 	const wBackPawnShdw = 83; // wp-back-shdw.png
 
 	// WHITE REFLECT
-	let wKingRefl; // SET WITH wKingImg
 	const wFrontKingRefl = 20; // wk-refl.png
 	const wBackKingRefl = 66; // wk-back-refl.png
-	let wQueenRefl; // SET WITH wKingImg
 	const wFrontQueenRefl = 21; // wq-refl.png
 	const wBackQueenRefl = 67; // wq-back-refl.png
-	let wBishopRefl; // SET WITH wKingImg
 	const wFrontBishopRefl = 22; // wb-refl.png (BOTH BISHOPS)
 	const wBackBishopRefl = 68; // wb-back-refl.png
-	let wKnightRefl // SET WITH wKnightImg
 	const wRightKnightRefl = 23; // wn-b1-refl.png
 	const wLeftKnightRefl = 24; // wn-g1-refl.png
-	let wRookRefl; // SET WITH wKingImg
 	const wFrontRookRefl = 25; // wr-refl.png
 	const wBackRookRefl = 69; // wr-back-refl.png
-	let wPawnRefl; // SET WITH wPawnImg
 	const wFrontPawnRefl = 26; // wp-refl.png
 	const wBackPawnRefl = 84; // wp-back-refl.png
 
 	// BLACK IMAGES
-	let bKingImg; // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionB)
 	const bFrontKingImg = 27; // bk-e8.png, FACES THE PLAYER (WHEN PLAYING WHITE)
 	const bBackKingImg = 70; // bk-back.png, FACES AWAY
-	let bQueenImg; // SET WITH bKingImg
 	const bFrontQueenImg = 28; // bq-d8.png
 	const bBackQueenImg = 71; // bq-back.png
-	let bBishopBlackSqImg; // SET WITH bKingImg
-	let bBishopWhiteSqImg; // SET WITH bKingImg
 	const bFrontBishopBlackSqImg = 29; // bb-f8.png, BISHOP ON A DARK SQUARE
 	const bFrontBishopWhiteSqImg = 30; // bb-c8.png, BISHOP ON A LIGHT SQUARE
 	const bBackBishopImg = 72; // bb-back.png (BOTH SQUARE COLORS)
-	let bKnightImg; // KNIGHT IMAGE BEING DRAWN, SET TO THE RIGHT OR LEFT ONE BEFORE EACH DRAW (BOTH BLACK KNIGHTS SHARE IT)
 	const bRightKnightImg = 31; // bn-b8.png, FACES RIGHT
 	const bLeftKnightImg = 32; // bn-g8.png, FACES LEFT
-	let bRookImg; // SET WITH bKingImg
 	const bFrontRookImg = 33; // br-h8.png
 	const bBackRookImg = 73; // br-back.png
-	let bPawnImg; // PAWN IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePawnDirection)
 	const bFrontPawnImg = 34; // bp-a7.png, FACES THE PLAYER (WHEN PLAYING WHITE)
 	const bBackPawnImg = 85; // bp-back.png, FACES AWAY
 
 	// BLACK SHADOW
-	let bKingShdw; // SET WITH bKingImg
 	const bFrontKingShdw = 35; // bk-shdw.png
 	const bBackKingShdw = 74; // bk-back-shdw.png
-	let bQueenShdw; // SET WITH bKingImg
 	const bFrontQueenShdw = 36; // bq-shdw.png
 	const bBackQueenShdw = 75; // bq-back-shdw.png
-	let bBishopShdw; // SET WITH bKingImg
 	const bFrontBishopShdw = 37; // bb-shdw.png (BOTH BISHOPS)
 	const bBackBishopShdw = 76; // bb-back-shdw.png
 
-	let bKnightShdw; // SET WITH bKnightImg
 	const bRightKnightShdw = 38; // bn-b8-shdw.png
 	const bLeftKnightShdw = 39; // bn-g8-shdw.png
-	let bRookShdw; // SET WITH bKingImg
 	const bFrontRookShdw = 40; // br-shdw.png
 	const bBackRookShdw = 77; // br-back-shdw.png
-	let bPawnShdw; // SET WITH bPawnImg
 	const bFrontPawnShdw = 41; // bp-shdw.png
 	const bBackPawnShdw = 86; // bp-back-shdw.png
 
 	// BLACK REFLECT
-	let bKingRefl; // SET WITH bKingImg
 	const bFrontKingRefl = 42; // bk-refl.png
 	const bBackKingRefl = 78; // bk-back-refl.png
-	let bQueenRefl; // SET WITH bKingImg
 	const bFrontQueenRefl = 43; // bq-refl.png
 	const bBackQueenRefl = 79; // bq-back-refl.png
-	let bBishopRefl; // SET WITH bKingImg
 	const bFrontBishopRefl = 44; // bb-refl.png (BOTH BISHOPS)
 	const bBackBishopRefl = 80; // bb-back-refl.png
-	let bKnightRefl; // SET WITH bKnightImg
 	const bRightKnightRefl = 45; // bn-b8-refl.png
 	const bLeftKnightRefl = 46; // bn-g8-refl.png
-	let bRookRefl; // SET WITH bKingImg
 	const bFrontRookRefl = 47; // br-refl.png
 	const bBackRookRefl = 81; // br-back-refl.png
-	let bPawnRefl; // SET WITH bPawnImg
 	const bFrontPawnRefl = 48; // bp-refl.png
 	const bBackPawnRefl = 87; // bp-back-refl.png
 
@@ -354,11 +279,8 @@ export async function renderCanvas(playerData) {
 		let coffeeStartTime = Date.now(); // CLOCK OF THE COFFEE STEAM ANIMATION
 		let renderCoffeeImg = false; // THE SCREEN IS WIDE ENOUGH FOR THE TABLE PROPS
 
-		wTakenPieces = setTakenPieceArr("b");
-		bTakenPieces = setTakenPieceArr("w");
-
-		let xPieceOffset; // Width of the tile proportionality to the board width (PIECE IMAGES ARE THIS MUCH WIDER THAN A SQUARE, THEY OVERHANG IT)
-		let yPieceOffset; // Height of the tile proportionality to the board height (PIECES ARE TALLER THAN A SQUARE)
+		game.wTakenPieces = setTakenPieceArr("b");
+		game.bTakenPieces = setTakenPieceArr("w");
 
 		let xPos; // TAKEN PIECE TRAY COLUMN (renderTakenPieces)
 		let yPos; // TAKEN PIECE TRAY ROW
@@ -368,15 +290,15 @@ export async function renderCanvas(playerData) {
 		let yPositive = false; // THE SLIDING PIECE IS GOING DOWN THE SCREEN
 		let xPositive = false; // THE SLIDING PIECE IS GOING RIGHT
 
-		cw = 0; // SET BY renderBoard()
-		ch = 0;
+		game.cw = 0; // SET BY renderBoard()
+		game.ch = 0;
 
 		await setInitialData(); // SETS INITIAL DATA
 		handleInitialData(); // HANDLES INITIAL DATA
 		const socketHandlers = { move: checkOpponentMove, gameOver: showGameOver, rematch: loadRematch }; // SOCKET EVENT -> HANDLER
-		if (!ai && response?.status == 200) { // FRIEND GAME
-			joinGame(GAME_ID, PLAYER_ID, socketHandlers); // THE SERVER PUSHES MOVES, FORFEITS & REMATCHES (server/socket.js)
-			if (!gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // RESTART IS FORFEIT IN FRIEND GAMES
+		if (!game.ai && game.response?.status == 200) { // FRIEND GAME
+			joinGame(game.GAME_ID, game.PLAYER_ID, socketHandlers); // THE SERVER PUSHES MOVES, FORFEITS & REMATCHES (server/socket.js)
+			if (!game.gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // RESTART IS FORFEIT IN FRIEND GAMES
 		}
 
 		
@@ -399,48 +321,48 @@ export async function renderCanvas(playerData) {
 		 * otherwise it draws a frame when something changed (refresh) or a piece is sliding (currSlide)
 		 */
 		async function renderLoop() {
-			if (restartSlide) { return drawRestartSlide(); } // RESTART & REMATCH: THE PIECES SLIDE HOME
-			if ((refresh || currSlide) && !boardReset) {
+			if (game.restartSlide) { return drawRestartSlide(); } // RESTART & REMATCH: THE PIECES SLIDE HOME
+			if ((game.refresh || game.currSlide) && !game.boardReset) {
 				try {
-					if (ai && chessInst.turn() != playerColor && aiTurn) { // IF AI
-						revert = response; // GO BACK TO THIS IF THE AI MOVE FAILS
-						clearInterval(drawInterval) // NO FRAMES WHILE THE SERVER PICKS THE MOVE
-						moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
+					if (game.ai && chessInst.turn() != game.playerColor && game.aiTurn) { // IF AI
+						game.revert = game.response; // GO BACK TO THIS IF THE AI MOVE FAILS
+						clearInterval(game.drawInterval) // NO FRAMES WHILE THE SERVER PICKS THE MOVE
+						game.moveObj = await playAi(game.GAME_URL, game.GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
 
-						validateState.load(response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
-						validateState.move(moveObj);
-						for (let i = 0; i < tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
-							if (tiles[i].square == moveObj.from) {
-								slideStart = true;
-								tiles[i].isSliding = true;
-								if (playerColor == 'w') { // SCREEN COLUMN & ROW OF moveObj.to (a8 IS 0, 0)
-									tiles[i].xSlideTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-									tiles[i].ySlideTo = 8 - moveObj.to.split("")[1];
-								} else if (playerColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
-									tiles[i].xSlideTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
-									tiles[i].ySlideTo = moveObj.to.split("")[1] - 1;
+						validateState.load(game.response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
+						validateState.move(game.moveObj);
+						for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
+							if (game.tiles[i].square == game.moveObj.from) {
+								game.slideStart = true;
+								game.tiles[i].isSliding = true;
+								if (game.playerColor == 'w') { // SCREEN COLUMN & ROW OF moveObj.to (a8 IS 0, 0)
+									game.tiles[i].xSlideTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+									game.tiles[i].ySlideTo = 8 - game.moveObj.to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
+									game.tiles[i].xSlideTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
+									game.tiles[i].ySlideTo = game.moveObj.to.split("")[1] - 1;
 								}
-								tiles[i].xDiff = 0; // PIXELS MOVED SO FAR
-								tiles[i].yDiff = 0;
-							} else if (tiles[i].isSliding) { // STOP ANY OTHER SLIDE
-								tiles[i].isSliding = false;
-								tiles[i].xDiff = 0;
-								tiles[i].yDiff = 0;
+								game.tiles[i].xDiff = 0; // PIXELS MOVED SO FAR
+								game.tiles[i].yDiff = 0;
+							} else if (game.tiles[i].isSliding) { // STOP ANY OTHER SLIDE
+								game.tiles[i].isSliding = false;
+								game.tiles[i].xDiff = 0;
+								game.tiles[i].yDiff = 0;
 							}
 						}
-						aiTurn = false;
-						currSlide = true;
-						drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // FRAMES AGAIN, THE SLIDE PLAYS
+						game.aiTurn = false;
+						game.currSlide = true;
+						game.drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // FRAMES AGAIN, THE SLIDE PLAYS
 						return;
 					}
-					drawScreen(); // DRAW ONE FRAME
+					game.drawScreen(); // DRAW ONE FRAME
 					document.documentElement.classList.remove("loadingPage"); // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT
-					refresh = false;
+					game.refresh = false;
 				} catch (err) { console.log(err); }
 			}
 		}
 
-		let drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // THE RENDER LOOP, ABOUT 33 FRAMES A SECOND
+		game.drawInterval = setInterval(async function () { await renderLoop() }, frameRate); // THE RENDER LOOP, ABOUT 33 FRAMES A SECOND
 
 		/*____________________________________________________________________________________________________________________________*/
 
@@ -459,34 +381,34 @@ export async function renderCanvas(playerData) {
 		 * @return {[boolean]} false [the game couldn't be loaded]
 		 */
 		async function setInitialData() {
-			if (PLAYER_ID === GAME_ID && PLAYER_ID && GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
-				response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false);
-				if (!response?.game_board) { response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, 'b'); } // NO GAME YET: NEW GAME VS THE AI
+			if (game.PLAYER_ID === game.GAME_ID && game.PLAYER_ID && game.GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
+				game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false);
+				if (!game.response?.game_board) { game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, 'b'); } // NO GAME YET: NEW GAME VS THE AI
 			}
-			response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false); // GET THE GAME
-			playerColor = response?.player_color || null;
-			if (response.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
-				opponentColor = response?.opponent_color || false;
-				chessInst.load(response.game_board); // THE BOARD TO DRAW
-				startPieceCount = countStartPieces(response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
-				if (response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
-					ai = response.ai;
-					showGameOver(response);
+			game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
+			game.playerColor = game.response?.player_color || null;
+			if (game.response.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
+				game.opponentColor = game.response?.opponent_color || false;
+				chessInst.load(game.response.game_board); // THE BOARD TO DRAW
+				game.startPieceCount = countStartPieces(game.response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
+				if (game.response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
+					game.ai = game.response.ai;
+					showGameOver(game.response);
 					return;
 				}
 
 				// NOTE : CONDITONALIZE BACK END TO SUPPORT DETIRMINING AI COLOR OR REAL OPPONENT COLOR
 				// THEN : CONDITIONALIZE BOARD ACCORDINGLY
 
-				if (chessInst.turn() == playerColor) { opposingMove = false; } else { opposingMove = true; } // LOCK THE BOARD ON THE OPPONENT'S TURN
-				if (response.ai) {
-					ai = true;
-					if (opponentColor == chessInst.turn()) { //PLAY AI MOVE
-						moveObj = await playAi(GAME_URL, GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE (renderLoop ASKS AGAIN, GETS THE SAME MOVE & SLIDES IT IN)
-						tiles = await setTiles();
-						aiTurn = true;
-						refresh = true;
-						setTimeout(function () { aiTurn = true; refresh = true; }, 500);
+				if (chessInst.turn() == game.playerColor) { game.opposingMove = false; } else { game.opposingMove = true; } // LOCK THE BOARD ON THE OPPONENT'S TURN
+				if (game.response.ai) {
+					game.ai = true;
+					if (game.opponentColor == chessInst.turn()) { //PLAY AI MOVE
+						game.moveObj = await playAi(game.GAME_URL, game.GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE (renderLoop ASKS AGAIN, GETS THE SAME MOVE & SLIDES IT IN)
+						game.tiles = await setTiles();
+						game.aiTurn = true;
+						game.refresh = true;
+						setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500);
 						return;
 					}
 
@@ -505,33 +427,33 @@ export async function renderCanvas(playerData) {
 		 * Black's board is flipped (rows & columns reversed) so the player is always at the bottom
 		 */
 		function handleInitialData() {
-			if (playerColor == "w") { // DRAW SCREEN W
+			if (game.playerColor == "w") { // DRAW SCREEN W
 				currInst = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
-				drawScreen = async function () {
+				game.drawScreen = async function () {
 					const boardData = renderBoard();
 					clickX = boardData.clickX;
 					clickY = boardData.clickY;
 					currInst = chessInst.board();
 					overlapSlideObj = null
 					renderPiecesToBoard(currInst, clickX, clickY, true);
-					if (currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
-						if (playerColor == 'w') { bTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(bTakenPieces, opponentColor); }
-						else if (playerColor == 'b') { wTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(wTakenPieces, opponentColor); }
+					if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
+						if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
+						else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
 					} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
-						wTakenPieces = setTakenPieceArr(playerColor);
-						bTakenPieces = setTakenPieceArr(opponentColor);
-						renderTakenPieces(wTakenPieces, opponentColor);
-						renderTakenPieces(bTakenPieces, playerColor)
+						game.wTakenPieces = setTakenPieceArr(game.playerColor);
+						game.bTakenPieces = setTakenPieceArr(game.opponentColor);
+						renderTakenPieces(game.wTakenPieces, game.opponentColor);
+						renderTakenPieces(game.bTakenPieces, game.playerColor)
 					}
 
 					ctx.globalAlpha = 0.05
-					ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
+					ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 					ctx.globalAlpha = 1;
 				}
-			} else if (playerColor == "b") { // DRAW SCREEN B
+			} else if (game.playerColor == "b") { // DRAW SCREEN B
 				currInst = chessInst.board().reverse(); // ROW 0 IS RANK 1
 				for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); } // COLUMN 0 IS THE h FILE
-				drawScreen = async function () {
+				game.drawScreen = async function () {
 					const boardData = renderBoard();
 					clickX = boardData.clickX;
 					clickY = boardData.clickY;
@@ -539,18 +461,18 @@ export async function renderCanvas(playerData) {
 					for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); }
 					overlapSlideObj = null
 					renderPiecesToBoard(currInst, clickX, clickY, true);
-					if (currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
-						if (playerColor == 'w') { bTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(bTakenPieces, opponentColor); }
-						else if (playerColor == 'b') { wTakenPieces = setTakenPieceArr(playerColor); renderTakenPieces(wTakenPieces, opponentColor); }
+					if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
+						if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
+						else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
 					} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
-						wTakenPieces = setTakenPieceArr(opponentColor);
-						bTakenPieces = setTakenPieceArr(playerColor);
-						renderTakenPieces(wTakenPieces, playerColor);
-						renderTakenPieces(bTakenPieces, opponentColor);
+						game.wTakenPieces = setTakenPieceArr(game.opponentColor);
+						game.bTakenPieces = setTakenPieceArr(game.playerColor);
+						renderTakenPieces(game.wTakenPieces, game.playerColor);
+						renderTakenPieces(game.bTakenPieces, game.opponentColor);
 					}
 
 					ctx.globalAlpha = 0.05
-					ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
+					ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 					ctx.globalAlpha = 1;
 				}
 			}
@@ -566,77 +488,77 @@ export async function renderCanvas(playerData) {
 		 * @return {[object]} { clickX, clickY } [pixel position of the square under the mouse, from the board's top left]
 		 */
 		function renderBoard() {
-			cw = window.innerWidth;
-			ch = window.innerHeight;
+			game.cw = window.innerWidth;
+			game.ch = window.innerHeight;
 			const dpr = Math.min(window.devicePixelRatio || 1, 2); // RENDER AT DEVICE RESOLUTION (CAPPED) SO THE BOARD IS SHARP ON HIGH DPI / MOBILE SCREENS
-			canvas.width = Math.round(cw * dpr);
-			canvas.height = Math.round(ch * dpr);
-			canvas.style.width = `${cw}px`;
-			canvas.style.height = `${ch}px`;
+			canvas.width = Math.round(game.cw * dpr);
+			canvas.height = Math.round(game.ch * dpr);
+			canvas.style.width = `${game.cw}px`;
+			canvas.style.height = `${game.ch}px`;
 			ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // ALL DRAWING STAYS IN CSS PIXELS
-			portraitBoard = cw < ch;
+			game.portraitBoard = game.cw < game.ch;
 			let boardPadding = 1.4; // SCREEN SIZE / BOARD SIZE, BIGGER = SMALLER BOARD
-			boardWidth = cw / boardPadding;
-			boardHeight = (9 * (cw / boardPadding)) / 11; // THE BOARD IMAGE IS 11:9 (WIDE)
+			boardWidth = game.cw / boardPadding;
+			boardHeight = (9 * (game.cw / boardPadding)) / 11; // THE BOARD IMAGE IS 11:9 (WIDE)
 			// THE MENU IS SIZED BY CSS (css/nav.css)
 
 			let widthOverHeight, smBoard = false;
 			if (canvas.width) { // ASPECT RATIO OF BOARD WITH MARBLE IF CANVAS WIDTH > HEIGHT
-				if (cw > ch * (boardPadding - 0.2)) { // LANDSCAPE: THE HEIGHT SIZES THE BOARD
+				if (game.cw > game.ch * (boardPadding - 0.2)) { // LANDSCAPE: THE HEIGHT SIZES THE BOARD
 					widthOverHeight = true;
-					boardHeight = ch / boardPadding;
-					boardWidth = (11 * (ch / boardPadding)) / 9;
-					if (cw * .5875 > ch) { // LARGE BOARD
+					boardHeight = game.ch / boardPadding;
+					boardWidth = (11 * (game.ch / boardPadding)) / 9;
+					if (game.cw * .5875 > game.ch) { // LARGE BOARD
 						renderCoffeeImg = true;
-						widthGreater = true;
+						game.widthGreater = true;
 						boardPadding = 1.2;
-						boardHeight = ch / boardPadding;
-						boardWidth = (11 * (ch / boardPadding)) / 9;
-					} else if (cw > ch * (boardPadding + 0.215)) { // MEDIUM BOARD
+						boardHeight = game.ch / boardPadding;
+						boardWidth = (11 * (game.ch / boardPadding)) / 9;
+					} else if (game.cw > game.ch * (boardPadding + 0.215)) { // MEDIUM BOARD
 						renderCoffeeImg = true;
-						widthGreater = true;
+						game.widthGreater = true;
 						boardPadding = 1.25;
-						boardHeight = ch / boardPadding;
-						boardWidth = (11 * (ch / boardPadding)) / 9;
+						boardHeight = game.ch / boardPadding;
+						boardWidth = (11 * (game.ch / boardPadding)) / 9;
 					} else { // SMALL BOARD
 						smBoard = true;
 						renderCoffeeImg = false;
-						widthGreater = false;
+						game.widthGreater = false;
 						boardPadding = 1.4;
-						boardHeight = ch / boardPadding;
-						boardWidth = (11 * (ch / boardPadding)) / 9;
+						boardHeight = game.ch / boardPadding;
+						boardWidth = (11 * (game.ch / boardPadding)) / 9;
 					}
 				} else { // NARROW: THE WIDTH SIZES THE BOARD, TAKEN PIECES GO ABOVE & BELOW IT
 					renderCoffeeImg = false;
-					widthGreater = false;
-					if (portraitBoard) { // PORTRAIT (MOBILE) BOARD: FILL THE WIDTH, LEAVING HEIGHT FOR THE TAKEN PIECE ROWS ABOVE & BELOW
-						boardWidth = Math.min(cw * 0.98, ch * 0.8);
+					game.widthGreater = false;
+					if (game.portraitBoard) { // PORTRAIT (MOBILE) BOARD: FILL THE WIDTH, LEAVING HEIGHT FOR THE TAKEN PIECE ROWS ABOVE & BELOW
+						boardWidth = Math.min(game.cw * 0.98, game.ch * 0.8);
 						boardHeight = (9 * boardWidth) / 11;
 					}
 				}
 			}
 
-			xBoardStart = (cw - boardWidth) / 2; // DIFFERENCE OF THE X AXIS MARBLE EDGES OF THE BOARD TO JUST THE BOARD
-			yBoardStart = (ch - boardHeight) / 2; // DIFFERENCE OF THE Y AXIS MARBLE EDGES OF THE BOARD TO JUST THE BOARD
+			xBoardStart = (game.cw - boardWidth) / 2; // DIFFERENCE OF THE X AXIS MARBLE EDGES OF THE BOARD TO JUST THE BOARD
+			yBoardStart = (game.ch - boardHeight) / 2; // DIFFERENCE OF THE Y AXIS MARBLE EDGES OF THE BOARD TO JUST THE BOARD
 
-			ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
+			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 			ctx.drawImage(images[boardShdw].image, xBoardStart, yBoardStart, boardWidth, boardHeight); // RENDER BOARD SHADOW
 			ctx.drawImage(images[boardImg].image, xBoardStart, yBoardStart, boardWidth, boardHeight); // RENDER BOARD
 
 			bw = (boardWidth - (boardWidth * (images[boardImg].image.naturalWidth - images[rawBoardImg].image.naturalWidth) / images[boardImg].image.naturalWidth)) // THE WIDTH OF THE CHESS BOARD NO MARBLE
 			bh = (boardHeight - (boardHeight * (images[boardImg].image.naturalHeight - images[rawBoardImg].image.naturalHeight) / images[boardImg].image.naturalHeight)) // THE HEIGHT OF THE CHESS BOARD NO MARBLE
-			xBoardOff = ((cw - (bw * xBoardShadowRatio)) / 2); // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS X
-			yBoardOff = (ch - bh) / 2; // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS Y
-			tileWidth = bw / 8;
-			tileHeight = bh / 8;
+			game.xBoardOff = ((game.cw - (bw * xBoardShadowRatio)) / 2); // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS X
+			game.yBoardOff = (game.ch - bh) / 2; // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS Y
+			game.tileWidth = bw / 8;
+			game.tileHeight = bh / 8;
 
-			xPieceOffset = bw / 5.75; // PIECE IMAGES ARE A SQUARE PLUS THIS, CENTERED ON THE SQUARE
-			yPieceOffset = bh / 4.25;
+			game.xPieceOffset = bw / 5.75; // PIECE IMAGES ARE A SQUARE PLUS THIS, CENTERED ON THE SQUARE
+			game.yPieceOffset = bh / 4.25;
 
-			let clickX = tileX * tileWidth; // SQUARE UNDER THE MOUSE IN PIXELS
-			let clickY = tileY * tileHeight;
-			wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF THE PIECES ON THE BOARD FOR WHITE, COUNTED AS THEY'RE DRAWN (TAKEN = START COUNT - THIS)
-			bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF THE PIECES ON THE BOARD FOR BLACK
+			let clickX = game.tileX * game.tileWidth; // SQUARE UNDER THE MOUSE IN PIXELS
+			let clickY = game.tileY * game.tileHeight;
+			game.wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF THE PIECES ON THE BOARD FOR WHITE, COUNTED AS THEY'RE DRAWN (TAKEN = START COUNT - THIS)
+			game.bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF THE PIECES ON THE BOARD FOR BLACK
 
 			if (widthOverHeight) {
 				/* Board Extras */
@@ -697,10 +619,10 @@ export async function renderCanvas(playerData) {
 			// IN FRONT OF IT & OVER THE ONES BEHIND IT, LIKE A PIECE STANDING THERE (ITS IMAGE IS DRAWN AGAIN ON TOP AT THE END OF THE FRAME, drawSlideBox)
 			// !NOTE: IN ITS START SQUARE'S TURN IT PAINTED ITS SHADOW OVER THE PAWNS IT JUMPED (DRAWN BEFORE IT) UNTIL IT LANDED, SO THEY FLASHED
 			let hopTurn = null; // { index: THE KNIGHT'S TILE, square: TILE OF THE SQUARE IT'S OVER (row * 8 + column) }, null WHEN IT'S OVER ITS OWN
-			for (let q = 0; q < tiles.length; q++) {
-				if (tiles[q].isSliding && tiles[q].type == 'n' && (tiles[q].xDiff || tiles[q].yDiff)) {
-					const row = Math.min(Math.max(Math.round(tiles[q].y - tiles[q].yDiff / tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
-					const column = Math.min(Math.max(Math.round(tiles[q].x + tiles[q].xDiff / tileWidth), 0), 7);
+			for (let q = 0; q < game.tiles.length; q++) {
+				if (game.tiles[q].isSliding && game.tiles[q].type == 'n' && (game.tiles[q].xDiff || game.tiles[q].yDiff)) {
+					const row = Math.min(Math.max(Math.round(game.tiles[q].y - game.tiles[q].yDiff / game.tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
+					const column = Math.min(Math.max(Math.round(game.tiles[q].x + game.tiles[q].xDiff / game.tileWidth), 0), 7);
 					if (row * 8 + column != q) { hopTurn = { index: q, square: row * 8 + column }; }
 					break;
 				}
@@ -713,20 +635,20 @@ export async function renderCanvas(playerData) {
 
 			for (let i = 0; i < inst.length; i++) { // ROW
 				for (let j = 0; j < inst[i].length; j++, index++) { // COLUMN
-					tiles[index] = { ...inst[i][j], ...tiles[index], x: j, y: i }; // TILE[INDEX] = DECONSTRUCTED ARRAY OF CHESS BOARD ROW/COLUMN, TILE[INDEX] INIT VALUES, X, Y
+					game.tiles[index] = { ...inst[i][j], ...game.tiles[index], x: j, y: i }; // TILE[INDEX] = DECONSTRUCTED ARRAY OF CHESS BOARD ROW/COLUMN, TILE[INDEX] INIT VALUES, X, Y
 					if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
-						if (tiles[index].isMousedown) { // IF MOUSEDOWN SET PIECE TO MOUSE POSITION
-							if (mouseDownCount > 3) { tiles[index].isClicked = true; } else { mouseDownCount += 1; } // HELD FOR MORE THAN 3 FRAMES = A DRAG, THE CLICK HANDLER DROPS IT
-							tiles[index].x = tileX;
-							tiles[index].y = tileY;
-							x = clickX + xBoardOff;
-							y = clickY - tileHeight / 5 + yBoardOff; // LIFTED (A FIFTH OF A SQUARE UP)
-						} else if (tiles[index].isClicked) { // IF CLICKED
-							x = tiles[index].x * tileWidth + xBoardOff;
-							y = tiles[index].y * tileHeight - tileHeight / 5 + yBoardOff; // LIFTED
+						if (game.tiles[index].isMousedown) { // IF MOUSEDOWN SET PIECE TO MOUSE POSITION
+							if (game.mouseDownCount > 3) { game.tiles[index].isClicked = true; } else { game.mouseDownCount += 1; } // HELD FOR MORE THAN 3 FRAMES = A DRAG, THE CLICK HANDLER DROPS IT
+							game.tiles[index].x = game.tileX;
+							game.tiles[index].y = game.tileY;
+							x = clickX + game.xBoardOff;
+							y = clickY - game.tileHeight / 5 + game.yBoardOff; // LIFTED (A FIFTH OF A SQUARE UP)
+						} else if (game.tiles[index].isClicked) { // IF CLICKED
+							x = game.tiles[index].x * game.tileWidth + game.xBoardOff;
+							y = game.tiles[index].y * game.tileHeight - game.tileHeight / 5 + game.yBoardOff; // LIFTED
 						} else { // IF CLICKED IS FALSE SET PIECE BASED ON POSITION DEFINED BY FEN
-							x = tiles[index].x * tileWidth + xBoardOff;
-							y = tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff; // RESTING PIECES SIT A TENTH OF A SQUARE UP SO THEIR BASE IS ON THE SQUARE
+							x = game.tiles[index].x * game.tileWidth + game.xBoardOff;
+							y = game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff; // RESTING PIECES SIT A TENTH OF A SQUARE UP SO THEIR BASE IS ON THE SQUARE
 						}
 					}
 
@@ -767,41 +689,41 @@ export async function renderCanvas(playerData) {
 										else if (pieceColor == 'b') { handlePieceDirectionB(tile.originY, tile.yAvailInt); }
 									}
 									if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-										if (pieceColor == "w") { drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, false); wPieceCount.king++; }
-										else if (pieceColor == "b") { drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, false); bPieceCount.king++; }
+										if (pieceColor == "w") { drawActivePiece([game.wKingRefl, game.wKingShdw, game.wKingImg], x, y, false); game.wPieceCount.king++; }
+										else if (pieceColor == "b") { drawActivePiece([game.bKingRefl, game.bKingShdw, game.bKingImg], x, y, false); game.bPieceCount.king++; }
 									} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-										if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, false); wPieceCount.queen++; }
-										else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, false); bPieceCount.queen++; }
+										if (pieceColor == "w") { drawActivePiece([game.wQueenRefl, game.wQueenShdw, game.wQueenImg], x, y, false); game.wPieceCount.queen++; }
+										else if (pieceColor == "b") { drawActivePiece([game.bQueenRefl, game.bQueenShdw, game.bQueenImg], x, y, false); game.bPieceCount.queen++; }
 									} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
 										if (pieceColor == "w") {
-											if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, false); wPieceCount.bishop++; }
-											else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, false); wPieceCount.bishop++; }
+											if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopWhiteSqImg], x, y, false); game.wPieceCount.bishop++; }
+											else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopBlackSqImg], x, y, false); game.wPieceCount.bishop++; }
 										} else if (pieceColor == "b") {
-											if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, false); bPieceCount.bishop++; }
-											else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, false); bPieceCount.bishop++; }
+											if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopWhiteSqImg], x, y, false); game.bPieceCount.bishop++; }
+											else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopBlackSqImg], x, y, false); game.bPieceCount.bishop++; }
 										}
 									} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-										if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, false); wPieceCount.rook++; }
-										else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, false); bPieceCount.rook++; }
+										if (pieceColor == "w") { drawActivePiece([game.wRookRefl, game.wRookShdw, game.wRookImg], x, y, false); game.wPieceCount.rook++; }
+										else if (pieceColor == "b") { drawActivePiece([game.bRookRefl, game.bRookShdw, game.bRookImg], x, y, false); game.bPieceCount.rook++; }
 									}
 								}
 								// THE WAY IT FACES NOW, SAME AS THE BOARD (w_piece / b_piece)
 								if (pieceColor == "w") {
 									let yFrom; // SCREEN ROW IT CAME FROM
 									let yTo; // SCREEN ROW IT WENT TO
-									for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
-										if (JSON.parse(response.w_piece)[n].from && JSON.parse(response.w_piece)[n].to == tile.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-											if (playerColor == 'w') {
-												yFrom = 8 - JSON.parse(response.w_piece)[n].from.split("")[1];
-												yTo = 8 - JSON.parse(response.w_piece)[n].to.split("")[1];
-											} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-												yFrom = JSON.parse(response.w_piece)[n].from.split("")[1] - 1;
-												yTo = JSON.parse(response.w_piece)[n].to.split("")[1] - 1;
+									for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
+										if (JSON.parse(game.response.w_piece)[n].from && JSON.parse(game.response.w_piece)[n].to == tile.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+											if (game.playerColor == 'w') {
+												yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
+												yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
+											} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+												yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
+												yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
 											}
 											handlePieceDirectionW(yFrom, yTo);
 											drawPiece();
 											break;
-										} else if (JSON.parse(response.w_piece)[n].from == null && JSON.parse(response.w_piece)[n].to == tile.square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
+										} else if (JSON.parse(game.response.w_piece)[n].from == null && JSON.parse(game.response.w_piece)[n].to == tile.square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
 											handlePieceDirectionW(null, null);
 											drawPiece();
 											break;
@@ -810,19 +732,19 @@ export async function renderCanvas(playerData) {
 								} else if (pieceColor == "b") {
 									let yFrom; // SCREEN ROW IT CAME FROM
 									let yTo; // SCREEN ROW IT WENT TO
-									for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
-										if (JSON.parse(response.b_piece)[n].from && JSON.parse(response.b_piece)[n].to == tile.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-											if (playerColor == 'w') {
-												yFrom = 8 - JSON.parse(response.b_piece)[n].from.split("")[1];
-												yTo = 8 - JSON.parse(response.b_piece)[n].to.split("")[1];
-											} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-												yFrom = JSON.parse(response.b_piece)[n].from.split("")[1] - 1;
-												yTo = JSON.parse(response.b_piece)[n].to.split("")[1] - 1;
+									for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
+										if (JSON.parse(game.response.b_piece)[n].from && JSON.parse(game.response.b_piece)[n].to == tile.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+											if (game.playerColor == 'w') {
+												yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
+												yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
+											} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+												yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
+												yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
 											}
 											handlePieceDirectionB(yFrom, yTo);
 											drawPiece();
 											break;
-										} else if (JSON.parse(response.b_piece)[n].from == null && JSON.parse(response.b_piece)[n].to == tile.square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
+										} else if (JSON.parse(game.response.b_piece)[n].from == null && JSON.parse(game.response.b_piece)[n].to == tile.square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
 											handlePieceDirectionB(null, null);
 											drawPiece();
 											break;
@@ -831,38 +753,38 @@ export async function renderCanvas(playerData) {
 								}
 							} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 								if (pieceColor == "w") {
-									if (tileX < tile.x && playerColor == pieceColor) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, false); }
-									else { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, false); }
-									wPieceCount.knight++;
+									if (game.tileX < tile.x && game.playerColor == pieceColor) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false); }
+									else { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false); }
+									game.wPieceCount.knight++;
 								} else if (pieceColor == "b") {
-									if (tileX < tile.x && playerColor == pieceColor) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, false); }
-									else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, false); }
-									bPieceCount.knight++;
+									if (game.tileX < tile.x && game.playerColor == pieceColor) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false); }
+									else { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false); }
+									game.bPieceCount.knight++;
 								}
 							} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 								handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
-								if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, false); wPieceCount.pawn++; }
-								else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, false); bPieceCount.pawn++; }
+								if (pieceColor == "w") { drawActivePiece([game.wPawnRefl, game.wPawnShdw, game.wPawnImg], x, y, false); game.wPieceCount.pawn++; }
+								else if (pieceColor == "b") { drawActivePiece([game.bPawnRefl, game.bPawnShdw, game.bPawnImg], x, y, false); game.bPieceCount.pawn++; }
 							}
 						}
 
-						if ((clickedTile || mousedownTile) && !currSlide) { // MOVES FOR PIECE TOGGLED BY USER
+						if ((game.clickedTile || game.mousedownTile) && !game.currSlide) { // MOVES FOR PIECE TOGGLED BY USER
 							let xLet;
 							let piecePos; // THIS SQUARE'S NAME (e4)
-							if (playerColor == 'w') {
+							if (game.playerColor == 'w') {
 								xLet = String.fromCharCode(97 + j);
 								piecePos = `${xLet}${8 - i}`
-							} else if (playerColor == 'b') { // FLIPPED BOARD
+							} else if (game.playerColor == 'b') { // FLIPPED BOARD
 								xLet = String.fromCharCode(96 + (8 - j));
 								piecePos = `${xLet}${i + 1}`
 							}
 							let tile; // THE SELECTED PIECE, A HELD PIECE COMES FIRST
-							if (mousedownTile) { tile = mousedownTile }
-							else if (clickedTile) { tile = clickedTile }
+							if (game.mousedownTile) { tile = game.mousedownTile }
+							else if (game.clickedTile) { tile = game.clickedTile }
 
-							if (availableMovesData.piece == tile.type && availableMovesData.square == tile.square) { } // SAME PIECE AS BEFORE, KEEP ITS MOVES
+							if (game.availableMovesData.piece == tile.type && game.availableMovesData.square == tile.square) { } // SAME PIECE AS BEFORE, KEEP ITS MOVES
 							else {
-								availableMovesData = { piece: tile.type, square: tile.square }
+								game.availableMovesData = { piece: tile.type, square: tile.square }
 								availableMoves = chessInst.moves({ piece: tile.type, square: tile.square, verbose: true });
 							}
 							for (let r = 0; r < availableMoves.length; r++) { // RENDER ALL POSSIBLE MOVES
@@ -870,53 +792,53 @@ export async function renderCanvas(playerData) {
 									let xAvailInt; // SCREEN COLUMN & ROW OF THE MOVE
 									let yAvailInt;
 
-									if (playerColor == 'w') {
+									if (game.playerColor == 'w') {
 										xAvailInt = availableMoves[r].to.split("")[0].charCodeAt(0) - 96 - 1;
 										yAvailInt = 8 - availableMoves[r].to.split("")[1];
-									} else if (playerColor == 'b') {
+									} else if (game.playerColor == 'b') {
 										xAvailInt = 8 - (availableMoves[r].to.split("")[0].charCodeAt(0) - 96);
 										yAvailInt = availableMoves[r].to.split("")[1] - 1;
 									}
 
-									let availX = xAvailInt * tileWidth + xBoardOff;
-									let availY = yAvailInt * tileHeight - tileHeight / 10 + yBoardOff;
+									let availX = xAvailInt * game.tileWidth + game.xBoardOff;
+									let availY = yAvailInt * game.tileHeight - game.tileHeight / 10 + game.yBoardOff;
 									for (let a = 0; a < availableMoves.length; a++) { // CLEARS THE HELD PIECE'S PREVIEW SQUARE WHEN THE MOUSE ISN'T ON ANY LEGAL MOVE
 										let xAvailInt;
 										let yAvailInt;
-										if (playerColor == 'w') {
+										if (game.playerColor == 'w') {
 											xAvailInt = availableMoves[a].to.split("")[0].charCodeAt(0) - 96 - 1;
 											yAvailInt = 8 - availableMoves[a].to.split("")[1];
-										} else if (playerColor == 'b') {
+										} else if (game.playerColor == 'b') {
 											xAvailInt = 8 - (availableMoves[a].to.split("")[0].charCodeAt(0) - 96);
 											yAvailInt = availableMoves[a].to.split("")[1] - 1;
 										}
-										if (tileX == xAvailInt && tileY == yAvailInt && mousedownTile) { break }
+										if (game.tileX == xAvailInt && game.tileY == yAvailInt && game.mousedownTile) { break }
 										else if ((a + 1) == availableMoves.length) { tile.xAvailInt = null; tile.yAvailInt = null; }
 									}
 									if (availableMoves[r].san.lastIndexOf("x") != -1) { // RENDERS TILE WHICH CAN BE MOVE TO THAT TAKE AN OPPOSING PIECES
 										ctx.globalAlpha = 0.50;
-										ctx.drawImage(images[takeableHighlight].image, availX, availY, tileWidth, tileHeight);
+										ctx.drawImage(images[takeableHighlight].image, availX, availY, game.tileWidth, game.tileHeight);
 										ctx.globalAlpha = 1.00;
-										if (tileX == xAvailInt && tileY == yAvailInt && mousedownTile) { // THE HELD PIECE IS OVER THIS MOVE: DRAW IT HERE (PREVIEW)
+										if (game.tileX == xAvailInt && game.tileY == yAvailInt && game.mousedownTile) { // THE HELD PIECE IS OVER THIS MOVE: DRAW IT HERE (PREVIEW)
 											tile.xAvailInt = xAvailInt;
 											tile.yAvailInt = yAvailInt;
 											const pieceType = tile.type
 											const pieceColor = tile.color;
-											let x = xAvailInt * tileWidth + xBoardOff;
-											let y = yAvailInt * tileHeight - tileHeight / 6 + yBoardOff;
+											let x = xAvailInt * game.tileWidth + game.xBoardOff;
+											let y = yAvailInt * game.tileHeight - game.tileHeight / 6 + game.yBoardOff;
 											drawTiles(tile, pieceType, pieceColor, x, y);
 										}
 									} else { // RENDERS TILE WHICH CAN BE MOVED TO
 										ctx.globalAlpha = 0.50;
-										ctx.drawImage(images[moveHighlight].image, availX, availY, tileWidth, tileHeight);
+										ctx.drawImage(images[moveHighlight].image, availX, availY, game.tileWidth, game.tileHeight);
 										ctx.globalAlpha = 1.00;
-										if (tileX == xAvailInt && tileY == yAvailInt && mousedownTile) { // THE HELD PIECE IS OVER THIS MOVE: DRAW IT HERE (PREVIEW)
+										if (game.tileX == xAvailInt && game.tileY == yAvailInt && game.mousedownTile) { // THE HELD PIECE IS OVER THIS MOVE: DRAW IT HERE (PREVIEW)
 											tile.xAvailInt = xAvailInt;
 											tile.yAvailInt = yAvailInt;
 											const pieceType = tile.type
 											const pieceColor = tile.color;
-											let x = xAvailInt * tileWidth + xBoardOff;
-											let y = yAvailInt * tileHeight - tileHeight / 6 + yBoardOff;
+											let x = xAvailInt * game.tileWidth + game.xBoardOff;
+											let y = yAvailInt * game.tileHeight - game.tileHeight / 6 + game.yBoardOff;
 											drawTiles(tile, pieceType, pieceColor, x, y);
 										}
 									}
@@ -925,7 +847,7 @@ export async function renderCanvas(playerData) {
 						}
 					}
 
-					if (!currPromotion && !opposingMove) { checkAvailableMoves() } // ONLY ON THE PLAYER'S TURN
+					if (!game.currPromotion && !game.opposingMove) { checkAvailableMoves() } // ONLY ON THE PLAYER'S TURN
 
 
 					/**
@@ -941,10 +863,10 @@ export async function renderCanvas(playerData) {
 					async function drawActivePiece(imgArr, x, y, opacity) {
 						let completeSlide = false; // THE SLIDE REACHED ITS SQUARE THIS FRAME
 						for (let w = 0; w < imgArr.length; w++) { // w: 0 REFLECTION, 1 SHADOW, 2 PIECE
-							if ((tiles[index].isMousedown || tiles[index].isClicked || tiles[index].isHovering) && opacity && !tiles[index].isSliding && !opposingMove) { ctx.globalAlpha = 0.85 }
+							if ((game.tiles[index].isMousedown || game.tiles[index].isClicked || game.tiles[index].isHovering) && opacity && !game.tiles[index].isSliding && !game.opposingMove) { ctx.globalAlpha = 0.85 }
 							if (w == 0) { ctx.globalAlpha = 0.30 }
 							else if (w == 1) { ctx.globalAlpha = 0.75 }
-							if (tiles[index].isSliding) { // IF TILE IS SLIDING
+							if (game.tiles[index].isSliding) { // IF TILE IS SLIDING
 								// IF Y IS NEGITIVE ITS UNDER THE OVER PIECE
 								// IF Y IS POSITIVE ITS OVER THE UNDER PIECE
 								let slideOverlap = true;
@@ -960,46 +882,46 @@ export async function renderCanvas(playerData) {
 									let yChange = 0; // SCREEN ROW BEING CROSSED
 									yPositive = false
 									xPositive = false
-									if (tiles[index].type == 'r') { // ROOKS SKIP THE OVERLAP REDRAW
+									if (game.tiles[index].type == 'r') { // ROOKS SKIP THE OVERLAP REDRAW
 										slideOverlap = false;
-									} else if (tiles[index].xSlideTo > tiles[index].x) {
+									} else if (game.tiles[index].xSlideTo > game.tiles[index].x) {
 										xPositive = true;
 										// X IS GOING TO THE RIGHT
-										if (tiles[index].ySlideTo > tiles[index].y) {
+										if (game.tiles[index].ySlideTo > game.tiles[index].y) {
 											// Y GOING DOWN THE BOARD
-											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight);
-											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth);
-											xChange = tiles[index].x + xTilesMoved;
-											yChange = tiles[index].y - yTilesMoved;
+											let yTilesMoved = Math.floor(game.tiles[index].yDiff / game.tileHeight);
+											let xTilesMoved = Math.floor(game.tiles[index].xDiff / game.tileWidth);
+											xChange = game.tiles[index].x + xTilesMoved;
+											yChange = game.tiles[index].y - yTilesMoved;
 											xLet = String.fromCharCode(97 + xChange);
 											slidePos = `${xLet}${9 - yChange}`
 											yPositive = true;
-										} else if (tiles[index].ySlideTo < tiles[index].y) {
+										} else if (game.tiles[index].ySlideTo < game.tiles[index].y) {
 											// Y GOING UP THE BOARD
-											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE (339.99 OF 340)
-											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth + 0.001);
-											xChange = tiles[index].x + xTilesMoved; // THE SQUARE IT'S LEAVING, LIKE UP TO LEFT (WAS + 1 / - 1, THE SQUARE IT'S ENTERING,
-											yChange = tiles[index].y - yTilesMoved; // SO THE PIECE BELOW THE SQUARE IT LEFT WASN'T DRAWN AGAIN & IT SLID OVER IT)
+											let yTilesMoved = Math.floor(game.tiles[index].yDiff / game.tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE (339.99 OF 340)
+											let xTilesMoved = Math.floor(game.tiles[index].xDiff / game.tileWidth + 0.001);
+											xChange = game.tiles[index].x + xTilesMoved; // THE SQUARE IT'S LEAVING, LIKE UP TO LEFT (WAS + 1 / - 1, THE SQUARE IT'S ENTERING,
+											yChange = game.tiles[index].y - yTilesMoved; // SO THE PIECE BELOW THE SQUARE IT LEFT WASN'T DRAWN AGAIN & IT SLID OVER IT)
 											xLet = String.fromCharCode(97 + xChange);
 											slidePos = `${xLet}${8 - yChange}`
 										} else { slideOverlap = false; }
-									} else if ((tiles[index].xSlideTo < tiles[index].x)) {
+									} else if ((game.tiles[index].xSlideTo < game.tiles[index].x)) {
 										// X IS GOING TO THE LEFT
-										if (tiles[index].ySlideTo > tiles[index].y) {
+										if (game.tiles[index].ySlideTo > game.tiles[index].y) {
 											// Y GOING DOWN THE BOARD
-											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight);
-											let xTilesMoved = Math.floor(tiles[index].xDiff / tileWidth);
-											xChange = tiles[index].x + xTilesMoved;
-											yChange = tiles[index].y - yTilesMoved;
+											let yTilesMoved = Math.floor(game.tiles[index].yDiff / game.tileHeight);
+											let xTilesMoved = Math.floor(game.tiles[index].xDiff / game.tileWidth);
+											xChange = game.tiles[index].x + xTilesMoved;
+											yChange = game.tiles[index].y - yTilesMoved;
 											xLet = String.fromCharCode(98 + xChange);
 											slidePos = `${xLet}${9 - yChange}`
 											yPositive = true;
-										} else if (tiles[index].ySlideTo < tiles[index].y) {
+										} else if (game.tiles[index].ySlideTo < game.tiles[index].y) {
 											// Y GOING UP THE BOARD
-											let yTilesMoved = Math.floor(tiles[index].yDiff / tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE
-											let xTilesMoved = Math.ceil(tiles[index].xDiff / tileWidth - 0.001); // CEIL: ON A SQUARE (FIRST & LANDING FRAME) IT'S THAT SQUARE, NOT THE ONE TO ITS RIGHT
-											xChange = tiles[index].x + xTilesMoved;
-											yChange = tiles[index].y - yTilesMoved;
+											let yTilesMoved = Math.floor(game.tiles[index].yDiff / game.tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE
+											let xTilesMoved = Math.ceil(game.tiles[index].xDiff / game.tileWidth - 0.001); // CEIL: ON A SQUARE (FIRST & LANDING FRAME) IT'S THAT SQUARE, NOT THE ONE TO ITS RIGHT
+											xChange = game.tiles[index].x + xTilesMoved;
+											yChange = game.tiles[index].y - yTilesMoved;
 											xLet = String.fromCharCode(97 + xChange);
 											slidePos = `${xLet}${8 - yChange}`
 										} else {
@@ -1010,52 +932,52 @@ export async function renderCanvas(playerData) {
 
 								trackSlidePosition();
 
-								let xChange = (tileWidth / frameRate) * 3.48513659; // PIXELS MOVED PER FRAME, ABOUT 9 FRAMES PER SQUARE
-								let yChange = (tileHeight / frameRate) * 3.48513659;
+								let xChange = (game.tileWidth / frameRate) * 3.48513659; // PIXELS MOVED PER FRAME, ABOUT 9 FRAMES PER SQUARE
+								let yChange = (game.tileHeight / frameRate) * 3.48513659;
 
-								let endTileX = Math.abs(tiles[index].xSlideTo - tiles[index].x); // SQUARES TO GO ACROSS
-								let endTileY = Math.abs(tiles[index].ySlideTo - tiles[index].y); // SQUARES TO GO UP OR DOWN
-								if (tiles[index].type.match(/[n]/) && endTileX > endTileY) { xChange = xChange * 2; } // KNIGHTS MOVE TWICE AS FAST ALONG THEIR LONG SIDE SO BOTH SIDES FINISH TOGETHER
-								else if (tiles[index].type.match(/[n]/) && endTileY > endTileX) { yChange = yChange * 2; } // (SET BEFORE THE CHECKS BELOW SO THEY SNAP ON THE REAL STEP)
+								let endTileX = Math.abs(game.tiles[index].xSlideTo - game.tiles[index].x); // SQUARES TO GO ACROSS
+								let endTileY = Math.abs(game.tiles[index].ySlideTo - game.tiles[index].y); // SQUARES TO GO UP OR DOWN
+								if (game.tiles[index].type.match(/[n]/) && endTileX > endTileY) { xChange = xChange * 2; } // KNIGHTS MOVE TWICE AS FAST ALONG THEIR LONG SIDE SO BOTH SIDES FINISH TOGETHER
+								else if (game.tiles[index].type.match(/[n]/) && endTileY > endTileX) { yChange = yChange * 2; } // (SET BEFORE THE CHECKS BELOW SO THEY SNAP ON THE REAL STEP)
 								let xBool = false; // ARRIVED ACROSS
 								let yBool = false; // ARRIVED UP OR DOWN
 								// THE SLIDE MOVES ON THE REFLECTION LAYER (w == 0), THE SHADOW & PIECE ARE DRAWN AT THE SAME SPOT
 								// X
 
-								if (tiles[index].xSlideTo > tiles[index].x && w == 0) { // X: Greater
-									endTileX = tiles[index].xSlideTo - tiles[index].x;
-									if (Math.floor((tiles[index].x * tileWidth) + tiles[index].xDiff) == Math.floor((tiles[index].x * tileWidth) + (tileWidth * endTileX))) { // ARRIVED
+								if (game.tiles[index].xSlideTo > game.tiles[index].x && w == 0) { // X: Greater
+									endTileX = game.tiles[index].xSlideTo - game.tiles[index].x;
+									if (Math.floor((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) == Math.floor((game.tiles[index].x * game.tileWidth) + (game.tileWidth * endTileX))) { // ARRIVED
 										xBool = true
-									} else if (((tiles[index].x * tileWidth) + (tiles[index].xDiff + xChange)) >= ((tiles[index].x * tileWidth) + (tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
-										const remainder = (tiles[index].x * tileWidth) + tiles[index].xDiff - ((tiles[index].x * tileWidth) + (tileWidth * endTileX));
-										tiles[index].xDiff = tiles[index].xDiff - remainder;
-									} else { tiles[index].xDiff = tiles[index].xDiff + xChange } // (A KNIGHT'S LONG SIDE IS ALREADY DOUBLED ABOVE)
-								} else if (tiles[index].xSlideTo < tiles[index].x && w == 0) { // X: Less
-									endTileX = tiles[index].x - tiles[index].xSlideTo;
-									if (Math.floor((tiles[index].x * tileWidth) + tiles[index].xDiff) == Math.floor((tiles[index].x * tileWidth) - (tileWidth * endTileX))) { // ARRIVED
+									} else if (((game.tiles[index].x * game.tileWidth) + (game.tiles[index].xDiff + xChange)) >= ((game.tiles[index].x * game.tileWidth) + (game.tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
+										const remainder = (game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff - ((game.tiles[index].x * game.tileWidth) + (game.tileWidth * endTileX));
+										game.tiles[index].xDiff = game.tiles[index].xDiff - remainder;
+									} else { game.tiles[index].xDiff = game.tiles[index].xDiff + xChange } // (A KNIGHT'S LONG SIDE IS ALREADY DOUBLED ABOVE)
+								} else if (game.tiles[index].xSlideTo < game.tiles[index].x && w == 0) { // X: Less
+									endTileX = game.tiles[index].x - game.tiles[index].xSlideTo;
+									if (Math.floor((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) == Math.floor((game.tiles[index].x * game.tileWidth) - (game.tileWidth * endTileX))) { // ARRIVED
 										xBool = true
-									} else if (((tiles[index].x * tileWidth) + (tiles[index].xDiff - xChange)) <= ((tiles[index].x * tileWidth) - (tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
-										const remainder = (((tiles[index].x * tileWidth) + tiles[index].xDiff) - ((tiles[index].x * tileWidth) - (tileWidth * endTileX)));
-										tiles[index].xDiff = tiles[index].xDiff - remainder;
-									} else { tiles[index].xDiff = tiles[index].xDiff - xChange; }
+									} else if (((game.tiles[index].x * game.tileWidth) + (game.tiles[index].xDiff - xChange)) <= ((game.tiles[index].x * game.tileWidth) - (game.tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
+										const remainder = (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) - ((game.tiles[index].x * game.tileWidth) - (game.tileWidth * endTileX)));
+										game.tiles[index].xDiff = game.tiles[index].xDiff - remainder;
+									} else { game.tiles[index].xDiff = game.tiles[index].xDiff - xChange; }
 								} else if (w == 0) { xBool = true } // X: Zero
 								// Y (yDiff IS SUBTRACTED, SO GOING DOWN THE SCREEN MAKES IT NEGATIVE)
-								if (tiles[index].ySlideTo > tiles[index].y && w == 0) { // Y: Greater
-									endTileY = tiles[index].ySlideTo - tiles[index].y;
-									if (Math.floor((tiles[index].y * tileHeight) - tiles[index].yDiff) == Math.floor((tiles[index].y * tileHeight) + (tileHeight * endTileY))) { // ARRIVED
+								if (game.tiles[index].ySlideTo > game.tiles[index].y && w == 0) { // Y: Greater
+									endTileY = game.tiles[index].ySlideTo - game.tiles[index].y;
+									if (Math.floor((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) == Math.floor((game.tiles[index].y * game.tileHeight) + (game.tileHeight * endTileY))) { // ARRIVED
 										yBool = true;
-									} else if (((tiles[index].y * tileHeight) - (tiles[index].yDiff - yChange)) >= ((tiles[index].y * tileHeight) + (tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
-										const remainder = (((tiles[index].y * tileHeight) + (tileHeight * endTileY)) - ((tiles[index].y * tileHeight) - tiles[index].yDiff));
-										tiles[index].yDiff = tiles[index].yDiff - remainder;
-									} else { tiles[index].yDiff = tiles[index].yDiff - yChange; }
-								} else if (tiles[index].ySlideTo < tiles[index].y && w == 0) { // Y: Less
-									endTileY = tiles[index].y - tiles[index].ySlideTo;
-									if (Math.floor((tiles[index].y * tileHeight) - tiles[index].yDiff) == Math.floor((tiles[index].y * tileHeight) - (tileHeight * endTileY))) { // ARRIVED
+									} else if (((game.tiles[index].y * game.tileHeight) - (game.tiles[index].yDiff - yChange)) >= ((game.tiles[index].y * game.tileHeight) + (game.tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
+										const remainder = (((game.tiles[index].y * game.tileHeight) + (game.tileHeight * endTileY)) - ((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff));
+										game.tiles[index].yDiff = game.tiles[index].yDiff - remainder;
+									} else { game.tiles[index].yDiff = game.tiles[index].yDiff - yChange; }
+								} else if (game.tiles[index].ySlideTo < game.tiles[index].y && w == 0) { // Y: Less
+									endTileY = game.tiles[index].y - game.tiles[index].ySlideTo;
+									if (Math.floor((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) == Math.floor((game.tiles[index].y * game.tileHeight) - (game.tileHeight * endTileY))) { // ARRIVED
 										yBool = true
-									} else if (((tiles[index].y * tileHeight) - (tiles[index].yDiff + yChange)) <= ((tiles[index].y * tileHeight) - (tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
-										const remainder = (((tiles[index].y * tileHeight) - (tileHeight * endTileY)) - ((tiles[index].y * tileHeight) - tiles[index].yDiff));
-										tiles[index].yDiff = tiles[index].yDiff - remainder;
-									} else { tiles[index].yDiff = tiles[index].yDiff + yChange; }
+									} else if (((game.tiles[index].y * game.tileHeight) - (game.tiles[index].yDiff + yChange)) <= ((game.tiles[index].y * game.tileHeight) - (game.tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
+										const remainder = (((game.tiles[index].y * game.tileHeight) - (game.tileHeight * endTileY)) - ((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff));
+										game.tiles[index].yDiff = game.tiles[index].yDiff - remainder;
+									} else { game.tiles[index].yDiff = game.tiles[index].yDiff + yChange; }
 								} else if (w == 0) { yBool = true } // Y: Zero
 
 
@@ -1068,7 +990,7 @@ export async function renderCanvas(playerData) {
 										let yPos; // RANK OF slidePos
 										let y1x1, y1x2, y1x3, y2x1, y2x2, y2x3, y3x1, y3x2, y3x3 = null;
 
-										if (playerColor == 'w') {
+										if (game.playerColor == 'w') {
 											xPos = slidePos.split("")[0].charCodeAt(0) - 97;
 											yPos = Number(slidePos.split("")[1])
 
@@ -1077,23 +999,23 @@ export async function renderCanvas(playerData) {
 											// X3 = x + 1
 
 											// Y1 = y - 1
-											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos - 1}` != tiles[index].square)) { y1x1 = `${String.fromCharCode(97 + (xPos - 1))}${yPos - 1}` }
-											if (((xPos) >= 0 && (xPos) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos - 1}` != tiles[index].square)) { y1x2 = `${String.fromCharCode(97 + (xPos))}${yPos - 1}` }
-											if (((xPos + 1) >= 0 && (xPos + 1) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos + 1))}${yPos - 1}` != tiles[index].square)) { y1x3 = `${String.fromCharCode(97 + (xPos + 1))}${yPos - 1}` }
+											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos - 1}` != game.tiles[index].square)) { y1x1 = `${String.fromCharCode(97 + (xPos - 1))}${yPos - 1}` }
+											if (((xPos) >= 0 && (xPos) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos - 1}` != game.tiles[index].square)) { y1x2 = `${String.fromCharCode(97 + (xPos))}${yPos - 1}` }
+											if (((xPos + 1) >= 0 && (xPos + 1) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos + 1))}${yPos - 1}` != game.tiles[index].square)) { y1x3 = `${String.fromCharCode(97 + (xPos + 1))}${yPos - 1}` }
 
 											// Y2 = y
-											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos) >= 0 && (yPos) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos}` != tiles[index].square)) { y2x1 = `${String.fromCharCode(97 + (xPos - 1))}${yPos}` }
-											if ((xPos) >= 0 && (xPos) <= 8 && (yPos) >= 0 && (yPos) <= 8) { y2x2 = tiles[index].square }
-											if (((xPos + 1) >= 0 && (xPos + 1) <= 8 && (yPos) >= 0 && (yPos) <= 8) && (`${String.fromCharCode(97 + (xPos + 1))}${yPos}` != tiles[index].square)) { y2x3 = `${String.fromCharCode(97 + (xPos + 1))}${yPos}` }
+											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos) >= 0 && (yPos) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos}` != game.tiles[index].square)) { y2x1 = `${String.fromCharCode(97 + (xPos - 1))}${yPos}` }
+											if ((xPos) >= 0 && (xPos) <= 8 && (yPos) >= 0 && (yPos) <= 8) { y2x2 = game.tiles[index].square }
+											if (((xPos + 1) >= 0 && (xPos + 1) <= 8 && (yPos) >= 0 && (yPos) <= 8) && (`${String.fromCharCode(97 + (xPos + 1))}${yPos}` != game.tiles[index].square)) { y2x3 = `${String.fromCharCode(97 + (xPos + 1))}${yPos}` }
 											// Y3 = y + 1
-											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos + 1}` != tiles[index].square)) { y3x1 = `${String.fromCharCode(97 + (xPos - 1))}${yPos + 1}` }
-											if (((xPos) >= 0 && (xPos) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos + 1}` != tiles[index].square)) { y3x2 = `${String.fromCharCode(97 + (xPos))}${yPos + 1}` }
-											if (((xPos + 1) >= 0 && (xPos + 1) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos + 1))}${yPos + 1}` != tiles[index].square)) { y3x3 = `${String.fromCharCode(97 + (xPos + 1))}${yPos + 1}` }
+											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos + 1}` != game.tiles[index].square)) { y3x1 = `${String.fromCharCode(97 + (xPos - 1))}${yPos + 1}` }
+											if (((xPos) >= 0 && (xPos) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos + 1}` != game.tiles[index].square)) { y3x2 = `${String.fromCharCode(97 + (xPos))}${yPos + 1}` }
+											if (((xPos + 1) >= 0 && (xPos + 1) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos + 1))}${yPos + 1}` != game.tiles[index].square)) { y3x3 = `${String.fromCharCode(97 + (xPos + 1))}${yPos + 1}` }
 
 											overlapSlideObj = { y1x1, y1x2, y1x3, y2x1, y2x2, y2x3, y3x1, y3x2, y3x3 }
 										}
 
-										else if (playerColor == 'b') { // FLIPPED BOARD: TURN slidePos (WHITE'S LETTERS) INTO BLACK'S SQUARE NAMES
+										else if (game.playerColor == 'b') { // FLIPPED BOARD: TURN slidePos (WHITE'S LETTERS) INTO BLACK'S SQUARE NAMES
 											xPos = (8 - (slidePos.split("")[0].charCodeAt(0) - 97))
 											yPos = 9 - Number(slidePos.split("")[1])
 
@@ -1102,19 +1024,19 @@ export async function renderCanvas(playerData) {
 											// X3 = x - 2
 
 											// Y1 = y - 1
-											if (((xPos) >= 0 && (xPos) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos - 1}` != tiles[index].square)) { y1x1 = `${String.fromCharCode(97 + (xPos))}${yPos - 1}` }
-											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos - 1}` != tiles[index].square)) { y1x2 = `${String.fromCharCode(97 + (xPos - 1))}${yPos - 1}` }
-											if (((xPos - 2) >= 0 && (xPos - 2) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 2))}${yPos - 1}` != tiles[index].square)) { y1x3 = `${String.fromCharCode(97 + (xPos - 2))}${yPos - 1}` }
+											if (((xPos) >= 0 && (xPos) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos - 1}` != game.tiles[index].square)) { y1x1 = `${String.fromCharCode(97 + (xPos))}${yPos - 1}` }
+											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos - 1}` != game.tiles[index].square)) { y1x2 = `${String.fromCharCode(97 + (xPos - 1))}${yPos - 1}` }
+											if (((xPos - 2) >= 0 && (xPos - 2) <= 8 && (yPos - 1) >= 0 && (yPos - 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 2))}${yPos - 1}` != game.tiles[index].square)) { y1x3 = `${String.fromCharCode(97 + (xPos - 2))}${yPos - 1}` }
 
 											// Y2 = y
-											if (((xPos) >= 0 && (xPos) <= 8 && (yPos) >= 0 && (yPos) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos}` != tiles[index].square)) { y2x1 = `${String.fromCharCode(97 + (xPos))}${yPos}` }
-											if ((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos) >= 0 && (yPos) <= 8) { y2x2 = tiles[index].square }
-											if (((xPos - 2) >= 0 && (xPos - 2) <= 8 && (yPos) >= 0 && (yPos) <= 8) && (`${String.fromCharCode(97 + (xPos - 2))}${yPos}` != tiles[index].square)) { y2x3 = `${String.fromCharCode(97 + (xPos - 2))}${yPos}` }
+											if (((xPos) >= 0 && (xPos) <= 8 && (yPos) >= 0 && (yPos) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos}` != game.tiles[index].square)) { y2x1 = `${String.fromCharCode(97 + (xPos))}${yPos}` }
+											if ((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos) >= 0 && (yPos) <= 8) { y2x2 = game.tiles[index].square }
+											if (((xPos - 2) >= 0 && (xPos - 2) <= 8 && (yPos) >= 0 && (yPos) <= 8) && (`${String.fromCharCode(97 + (xPos - 2))}${yPos}` != game.tiles[index].square)) { y2x3 = `${String.fromCharCode(97 + (xPos - 2))}${yPos}` }
 
 											// Y3 = y + 1
-											if (((xPos) >= 0 && (xPos) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos + 1}` != tiles[index].square)) { y3x1 = `${String.fromCharCode(97 + (xPos))}${yPos + 1}` }
-											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos + 1}` != tiles[index].square)) { y3x2 = `${String.fromCharCode(97 + (xPos - 1))}${yPos + 1}` }
-											if (((xPos - 2) >= 0 && (xPos - 2) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 2))}${yPos + 1}` != tiles[index].square)) { y3x3 = `${String.fromCharCode(97 + (xPos - 2))}${yPos + 1}` }
+											if (((xPos) >= 0 && (xPos) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos))}${yPos + 1}` != game.tiles[index].square)) { y3x1 = `${String.fromCharCode(97 + (xPos))}${yPos + 1}` }
+											if (((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 1))}${yPos + 1}` != game.tiles[index].square)) { y3x2 = `${String.fromCharCode(97 + (xPos - 1))}${yPos + 1}` }
+											if (((xPos - 2) >= 0 && (xPos - 2) <= 8 && (yPos + 1) >= 0 && (yPos + 1) <= 8) && (`${String.fromCharCode(97 + (xPos - 2))}${yPos + 1}` != game.tiles[index].square)) { y3x3 = `${String.fromCharCode(97 + (xPos - 2))}${yPos + 1}` }
 
 											overlapSlideObj = { y1x1, y1x2, y1x3, y2x1, y2x2, y2x3, y3x1, y3x2, y3x3 }
 										}
@@ -1122,46 +1044,46 @@ export async function renderCanvas(playerData) {
 
 									if (xBool && yBool) { completeSlide = true; } // ARRIVED BOTH WAYS
 
-									if (tiles[index].type.match(/[n]/)) { // KNIGHT SLIDE
-										handleKnightHop(tiles[index]); // HOW HIGH IT IS THIS FRAME (knightHop)
+									if (game.tiles[index].type.match(/[n]/)) { // KNIGHT SLIDE
+										handleKnightHop(game.tiles[index]); // HOW HIGH IT IS THIS FRAME (knightHop)
 										if ((w == 0 || w == 1) && lightObstruction) { // REFLECTION & SHADOW STAY ON THE BOARD, SHIFTED UP TO A FIFTH OF A SQUARE LEFT AS IT RISES
-											ctx.drawImage(images[imgArr[w]].image, ((((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2) - (tileWidth / 5) * knightHop, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2), tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+											ctx.drawImage(images[imgArr[w]].image, ((((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2) - (game.tileWidth / 5) * game.knightHop, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2), game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
 										} // DRAW SHADOW OF KNIGHT
 										else if (w == 2) { // DRAW PIECE, UP TO HALF A SQUARE UP WHILE IT HOPS
-											if (slideStart == true) { // FIRST FRAME: LIFT THE KNIGHT & PAUSE 100MS
-												ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset); // DRAW KNIGHT AS WITH STOP
-												currSlide = false; // SO THE TIMEOUT STOPS THE ANIMATION
+											if (game.slideStart == true) { // FIRST FRAME: LIFT THE KNIGHT & PAUSE 100MS
+												ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset); // DRAW KNIGHT AS WITH STOP
+												game.currSlide = false; // SO THE TIMEOUT STOPS THE ANIMATION
 												knightPause = true; // THE END OF THE FRAME STILL DRAWS IT ON TOP (currSlide IS OFF NOW, IT WAS HELD UNDER THE PIECES IN FRONT FOR 100MS)
-												slideStart = false;
-												setTimeout(function () { currSlide = true; knightPause = false; }, 100) // SO THE TIMEOUT RESTARTS THE ANIMATION
+												game.slideStart = false;
+												setTimeout(function () { game.currSlide = true; knightPause = false; }, 100) // SO THE TIMEOUT RESTARTS THE ANIMATION
 											} else {
 												if (completeSlide) { // LANDED: DRAW IT ON THE SQUARE & FINISH THE MOVE
-													tiles[index].isSliding = null;
+													game.tiles[index].isSliding = null;
 													overlapSlideObj = null; // SO THE END OF THE FRAME USES THE LANDED REDRAW (IN FRONT OF & BEHIND THE RIGHT PIECES), NOT THE HOP'S (ON TOP OF EVERYTHING)
-													ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2), tileWidth + xPieceOffset, tileHeight + yPieceOffset)
-													if (tiles[index].color == playerColor) {
+													ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2), game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
+													if (game.tiles[index].color == game.playerColor) {
 														await updateUserStateSlide(index); // SENDS THE PLAYER'S MOVE
 													}
-													else if (tiles[index].color == opponentColor) {
+													else if (game.tiles[index].color == game.opponentColor) {
 														await updateOpponentStateSlide(index); // FINISHES THE OPPONENT'S MOVE
 													}
 												} else { // IN THE AIR
-													if (knightHop == 0) { overlapSlideObj = null; } // ON ITS NEW SQUARE (THE FRAME BEFORE IT LANDS): DRAWN AGAIN LIKE A LANDED PIECE AT THE END OF THE FRAME, NOT ON TOP
-													ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, (((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+													if (game.knightHop == 0) { overlapSlideObj = null; } // ON ITS NEW SQUARE (THE FRAME BEFORE IT LANDS): DRAWN AGAIN LIKE A LANDED PIECE AT THE END OF THE FRAME, NOT ON TOP
+													ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 												}
 											} // DRAW KNIGHT AS USUAL
 										}
 									} else {
 										if ((w == 0 || w == 1) && lightObstruction) {
-											ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, ((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+											ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
 										} else if (w == 2) {
-											ctx.drawImage(images[imgArr[w]].image, (((tiles[index].x * tileWidth) + tiles[index].xDiff) + xBoardOff) - xPieceOffset / 2, ((((tiles[index].y * tileHeight) - tiles[index].yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+											ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 											if (completeSlide) { // ARRIVED: FINISH THE MOVE
-												tiles[index].isSliding = null;
-												if (tiles[index].color == playerColor) {
+												game.tiles[index].isSliding = null;
+												if (game.tiles[index].color == game.playerColor) {
 													await updateUserStateSlide(index); // SENDS THE PLAYER'S MOVE
 												}
-												else if (tiles[index].color == opponentColor) {
+												else if (game.tiles[index].color == game.opponentColor) {
 													await updateOpponentStateSlide(index); // FINISHES THE OPPONENT'S MOVE
 												}
 											}
@@ -1172,12 +1094,12 @@ export async function renderCanvas(playerData) {
 							}
 							else {
 								if ((w == 0 || w == 1) && lightObstruction) {
-									ctx.drawImage(images[imgArr[w]].image, x - xPieceOffset / 2, y - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+									ctx.drawImage(images[imgArr[w]].image, x - game.xPieceOffset / 2, y - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
 								} else if (w == 2) {
-									ctx.drawImage(images[imgArr[w]].image, x - xPieceOffset / 2, y - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+									ctx.drawImage(images[imgArr[w]].image, x - game.xPieceOffset / 2, y - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
 								}
 							} // DRAWING IMAGE WITH SLIDING FALSE
-							if (((tiles[index]?.isMousedown || null || tiles[index]?.isClicked || null || tiles[index]?.isHovering || null) && opacity && !tiles[index]?.isSliding || null) || w == 0 || w == 1) { ctx.globalAlpha = 1 } // BACK TO SOLID FOR THE NEXT LAYER
+							if (((game.tiles[index]?.isMousedown || null || game.tiles[index]?.isClicked || null || game.tiles[index]?.isHovering || null) && opacity && !game.tiles[index]?.isSliding || null) || w == 0 || w == 1) { ctx.globalAlpha = 1 } // BACK TO SOLID FOR THE NEXT LAYER
 						}
 					}
 
@@ -1191,29 +1113,29 @@ export async function renderCanvas(playerData) {
 					function drawHoppingKnight() {
 						const squareIndex = index; // THIS SQUARE'S TILE
 						index = hopTurn.index;
-						let xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT CAME FROM (a = 0)
-						let xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT'S GOING TO
-						if (tiles[index].color == 'w') { // SAME FOR BOTH COLORS, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
+						let xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT CAME FROM (a = 0)
+						let xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT'S GOING TO
+						if (game.tiles[index].color == 'w') { // SAME FOR BOTH COLORS, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
 							handleKnightDirectionW(xFrom, xTo);
-							drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, false);
-						} else if (tiles[index].color == 'b') {
-							if (playerColor == 'b') { xFrom = 7 - xFrom; xTo = 7 - xTo; } // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
+							drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false);
+						} else if (game.tiles[index].color == 'b') {
+							if (game.playerColor == 'b') { xFrom = 7 - xFrom; xTo = 7 - xTo; } // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
 							handleKnightDirectionB(xFrom, xTo);
-							drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, false);
+							drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false);
 						}
 						index = squareIndex;
 					}
 					if (hopTurn && hopTurn.square == index) { drawHoppingKnight(); } // THE HOPPING KNIGHT IS OVER THIS SQUARE: UNDER THIS SQUARE'S PIECE & THE ONES AFTER IT
 
 					if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
-						tiles[index].originX = j; // THE PIECE'S OWN SQUARE (x, y FOLLOW THE MOUSE WHILE IT'S HELD)
-						tiles[index].originY = i;
+						game.tiles[index].originX = j; // THE PIECE'S OWN SQUARE (x, y FOLLOW THE MOUSE WHILE IT'S HELD)
+						game.tiles[index].originY = i;
 						const pieceType = inst[i][j].type;
 						const pieceColor = inst[i][j].color;
-						if (!currPromotion) { // NO PIECES ON THE BOARD WHILE THE PROMOTION PICKER IS UP
-							if (!(mousedownTile.xAvailInt == tiles[index].x && mousedownTile.yAvailInt == tiles[index].y)) { // IF A MOUSE DOWN TILE IS ON AVAILABLE MOVE TILE RENDERING OF THE PIECE FALLS ON THE RESPONSIBILITY OF "checkAvailableMoves()"
+						if (!game.currPromotion) { // NO PIECES ON THE BOARD WHILE THE PROMOTION PICKER IS UP
+							if (!(game.mousedownTile.xAvailInt == game.tiles[index].x && game.mousedownTile.yAvailInt == game.tiles[index].y)) { // IF A MOUSE DOWN TILE IS ON AVAILABLE MOVE TILE RENDERING OF THE PIECE FALLS ON THE RESPONSIBILITY OF "checkAvailableMoves()"
 								let opacity = true
-								if (tiles[index].isClicked && (tiles[index].x == tiles[index].originX && tiles[index].y == tiles[index].originY)) { opacity = false } // IF TILE IS IN ORIGINAL POSITION SET OPACITY TO FALSE
+								if (game.tiles[index].isClicked && (game.tiles[index].x == game.tiles[index].originX && game.tiles[index].y == game.tiles[index].originY)) { opacity = false } // IF TILE IS IN ORIGINAL POSITION SET OPACITY TO FALSE
 								if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
 									/* ---------------------------------------------------------------- */
 									// Draw Piece (Draw Screen)
@@ -1223,43 +1145,43 @@ export async function renderCanvas(playerData) {
 									 * While the player holds their piece it faces the way it's dragged (up or down from its square)
 									 */
 									function drawPiece() {
-										if (tiles[index].isMousedown && tiles[index].y != tiles[index].originY && playerColor == pieceColor) { // HELD: FACE THE WAY IT'S DRAGGED (UP OR DOWN)
-											if (pieceColor == 'w') { handlePieceDirectionW(tiles[index].originY, tiles[index].y); }
-											else if (pieceColor == 'b') { handlePieceDirectionB(tiles[index].originY, tiles[index].y); }
+										if (game.tiles[index].isMousedown && game.tiles[index].y != game.tiles[index].originY && game.playerColor == pieceColor) { // HELD: FACE THE WAY IT'S DRAGGED (UP OR DOWN)
+											if (pieceColor == 'w') { handlePieceDirectionW(game.tiles[index].originY, game.tiles[index].y); }
+											else if (pieceColor == 'b') { handlePieceDirectionB(game.tiles[index].originY, game.tiles[index].y); }
 										}
 										if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
 											if (pieceColor == "w") {
 												if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
 													ctx.globalAlpha = 0.70;
-													ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
+													ctx.drawImage(images[checkHighlight].image, (game.tiles[index].x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
 													ctx.globalAlpha = 1.00;
 												}
-												drawActivePiece([wKingRefl, wKingShdw, wKingImg], x, y, opacity);
-												wPieceCount.king++;
+												drawActivePiece([game.wKingRefl, game.wKingShdw, game.wKingImg], x, y, opacity);
+												game.wPieceCount.king++;
 											}
 											else if (pieceColor == "b") {
 												if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
 													ctx.globalAlpha = 0.70;
-													ctx.drawImage(images[checkHighlight].image, (tiles[index].x * tileWidth + xBoardOff) + ((tileWidth * 0.0243) / 2), (tiles[index].y * tileHeight - tileHeight / 10 + yBoardOff) + ((tileHeight * 0.1034) / 2), tileWidth, tileHeight);
+													ctx.drawImage(images[checkHighlight].image, (game.tiles[index].x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
 													ctx.globalAlpha = 1.00;
 												}
-												drawActivePiece([bKingRefl, bKingShdw, bKingImg], x, y, opacity);
-												bPieceCount.king++;
+												drawActivePiece([game.bKingRefl, game.bKingShdw, game.bKingImg], x, y, opacity);
+												game.bPieceCount.king++;
 											}
 										} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-											if (pieceColor == "w") { drawActivePiece([wQueenRefl, wQueenShdw, wQueenImg], x, y, opacity); wPieceCount.queen++; }
-											else if (pieceColor == "b") { drawActivePiece([bQueenRefl, bQueenShdw, bQueenImg], x, y, opacity); bPieceCount.queen++; }
+											if (pieceColor == "w") { drawActivePiece([game.wQueenRefl, game.wQueenShdw, game.wQueenImg], x, y, opacity); game.wPieceCount.queen++; }
+											else if (pieceColor == "b") { drawActivePiece([game.bQueenRefl, game.bQueenShdw, game.bQueenImg], x, y, opacity); game.bPieceCount.queen++; }
 										} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
 											if (pieceColor == "w") { // THE IMAGE GOES BY THE COLOR OF THE BISHOP'S SQUARE
-												if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopWhiteSqImg], x, y, opacity); wPieceCount.bishop++; }
-												else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([wBishopRefl, wBishopShdw, wBishopBlackSqImg], x, y, opacity); wPieceCount.bishop++; }
+												if (chessInst.squareColor(game.tiles[index].square) == 'light') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopWhiteSqImg], x, y, opacity); game.wPieceCount.bishop++; }
+												else if (chessInst.squareColor(game.tiles[index].square) == 'dark') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopBlackSqImg], x, y, opacity); game.wPieceCount.bishop++; }
 											} else if (pieceColor == "b") {
-												if (chessInst.squareColor(tiles[index].square) == 'light') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopWhiteSqImg], x, y, opacity); bPieceCount.bishop++; }
-												else if (chessInst.squareColor(tiles[index].square) == 'dark') { drawActivePiece([bBishopRefl, bBishopShdw, bBishopBlackSqImg], x, y, opacity); bPieceCount.bishop++; }
+												if (chessInst.squareColor(game.tiles[index].square) == 'light') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopWhiteSqImg], x, y, opacity); game.bPieceCount.bishop++; }
+												else if (chessInst.squareColor(game.tiles[index].square) == 'dark') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopBlackSqImg], x, y, opacity); game.bPieceCount.bishop++; }
 											}
 										} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-											if (pieceColor == "w") { drawActivePiece([wRookRefl, wRookShdw, wRookImg], x, y, opacity); wPieceCount.rook++; }
-											else if (pieceColor == "b") { drawActivePiece([bRookRefl, bRookShdw, bRookImg], x, y, opacity); bPieceCount.rook++; }
+											if (pieceColor == "w") { drawActivePiece([game.wRookRefl, game.wRookShdw, game.wRookImg], x, y, opacity); game.wPieceCount.rook++; }
+											else if (pieceColor == "b") { drawActivePiece([game.bRookRefl, game.bRookShdw, game.bRookImg], x, y, opacity); game.bPieceCount.rook++; }
 										}
 									}
 									// WHICH WAY A KING, QUEEN, BISHOP OR ROOK FACES COMES FROM THE SERVER'S PIECE LIST (w_piece / b_piece):
@@ -1268,30 +1190,30 @@ export async function renderCanvas(playerData) {
 									if (pieceColor == "w") {
 										let yFrom; // SCREEN ROW IT CAME FROM
 										let yTo; // SCREEN ROW IT WENT TO
-										for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
-											if (tiles[index].isSliding && moveObj.from.split("")[1] != moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-												if (playerColor == 'w') {
-													yFrom = 8 - moveObj.from.split("")[1];
-													yTo = 8 - moveObj.to.split("")[1];
-												} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-													yFrom = moveObj.from.split("")[1] - 1;
-													yTo = moveObj.to.split("")[1] - 1;
+										for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
+											if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+												if (game.playerColor == 'w') {
+													yFrom = 8 - game.moveObj.from.split("")[1];
+													yTo = 8 - game.moveObj.to.split("")[1];
+												} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+													yFrom = game.moveObj.from.split("")[1] - 1;
+													yTo = game.moveObj.to.split("")[1] - 1;
 												}
 												handlePieceDirectionW(yFrom, yTo);
 												drawPiece();
 												break;
-											} else if (JSON.parse(response.w_piece)[n].from && JSON.parse(response.w_piece)[n].to == tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-												if (playerColor == 'w') {
-													yFrom = 8 - JSON.parse(response.w_piece)[n].from.split("")[1];
-													yTo = 8 - JSON.parse(response.w_piece)[n].to.split("")[1];
-												} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-													yFrom = JSON.parse(response.w_piece)[n].from.split("")[1] - 1;
-													yTo = JSON.parse(response.w_piece)[n].to.split("")[1] - 1;
+											} else if (JSON.parse(game.response.w_piece)[n].from && JSON.parse(game.response.w_piece)[n].to == game.tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+												if (game.playerColor == 'w') {
+													yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
+													yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
+												} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+													yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
+													yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
 												}
 												handlePieceDirectionW(yFrom, yTo);
 												drawPiece();
 												break;
-											} else if (JSON.parse(response.w_piece)[n].from == null && JSON.parse(response.w_piece)[n].to == tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
+											} else if (JSON.parse(game.response.w_piece)[n].from == null && JSON.parse(game.response.w_piece)[n].to == game.tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
 												handlePieceDirectionW(null, null);
 												drawPiece();
 												break;
@@ -1300,30 +1222,30 @@ export async function renderCanvas(playerData) {
 									} else if (pieceColor == "b") {
 										let yFrom; // SCREEN ROW IT CAME FROM
 										let yTo; // SCREEN ROW IT WENT TO
-										for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
-											if (tiles[index].isSliding && moveObj.from.split("")[1] != moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-												if (playerColor == 'w') {
-													yFrom = 8 - moveObj.from.split("")[1];
-													yTo = 8 - moveObj.to.split("")[1];
-												} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-													yFrom = moveObj.from.split("")[1] - 1;
-													yTo = moveObj.to.split("")[1] - 1;
+										for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
+											if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+												if (game.playerColor == 'w') {
+													yFrom = 8 - game.moveObj.from.split("")[1];
+													yTo = 8 - game.moveObj.to.split("")[1];
+												} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+													yFrom = game.moveObj.from.split("")[1] - 1;
+													yTo = game.moveObj.to.split("")[1] - 1;
 												}
 												handlePieceDirectionB(yFrom, yTo);
 												drawPiece();
 												break;
-											} else if (JSON.parse(response.b_piece)[n].from && JSON.parse(response.b_piece)[n].to == tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-												if (playerColor == 'w') {
-													yFrom = 8 - JSON.parse(response.b_piece)[n].from.split("")[1];
-													yTo = 8 - JSON.parse(response.b_piece)[n].to.split("")[1];
-												} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-													yFrom = JSON.parse(response.b_piece)[n].from.split("")[1] - 1;
-													yTo = JSON.parse(response.b_piece)[n].to.split("")[1] - 1;
+											} else if (JSON.parse(game.response.b_piece)[n].from && JSON.parse(game.response.b_piece)[n].to == game.tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+												if (game.playerColor == 'w') {
+													yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
+													yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
+												} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+													yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
+													yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
 												}
 												handlePieceDirectionB(yFrom, yTo);
 												drawPiece();
 												break;
-											} else if (JSON.parse(response.b_piece)[n].from == null && JSON.parse(response.b_piece)[n].to == tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
+											} else if (JSON.parse(game.response.b_piece)[n].from == null && JSON.parse(game.response.b_piece)[n].to == game.tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
 												handlePieceDirectionB(null, null);
 												drawPiece();
 												break;
@@ -1340,17 +1262,17 @@ export async function renderCanvas(playerData) {
 									 */
 									function drawKnight() {
 										if (pieceColor == 'w') {
-											if (tiles[index].isMousedown) { // HELD: FACE THE WAY IT'S DRAGGED
-												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
-												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
-												else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
-											} else { drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity); }
+											if (game.tiles[index].isMousedown) { // HELD: FACE THE WAY IT'S DRAGGED
+												if (game.tiles[index].x < game.tiles[index].originX && game.playerColor == pieceColor) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); }
+												else if (game.tiles[index].x > game.tiles[index].originX && game.playerColor == pieceColor) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); }
+												else { drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); }
+											} else { drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); }
 										} else if (pieceColor == 'b') {
-											if (tiles[index].isMousedown) {
-												if (tiles[index].x < tiles[index].originX && playerColor == pieceColor) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
-												else if (tiles[index].x > tiles[index].originX && playerColor == pieceColor) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
-												else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
-											} else { drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity); }
+											if (game.tiles[index].isMousedown) {
+												if (game.tiles[index].x < game.tiles[index].originX && game.playerColor == pieceColor) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); }
+												else if (game.tiles[index].x > game.tiles[index].originX && game.playerColor == pieceColor) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); }
+												else { drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); }
+											} else { drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); }
 										}
 									}
 									// WHICH WAY A KNIGHT FACES COMES FROM THE SERVER'S KNIGHT LIST (w_knight / b_knight):
@@ -1358,84 +1280,84 @@ export async function renderCanvas(playerData) {
 									if (pieceColor == "w") {
 										let xFrom; // FILE IT CAME FROM (a = 0)
 										let xTo; // FILE IT WENT TO
-										for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
-											if (tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
+										for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
+											if (game.tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
 												if (hopTurn) { break; } // OVER ANOTHER SQUARE: DRAWN IN THAT SQUARE'S TURN (drawHoppingKnight), STILL COUNTED BELOW
-												if (playerColor == 'w') {
-													xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-												} else if (playerColor == 'b') { // SAME AS WHITE, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
-													xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+												if (game.playerColor == 'w') {
+													xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
+													xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+												} else if (game.playerColor == 'b') { // SAME AS WHITE, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
+													xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
+													xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 												}
 												handleKnightDirectionW(xFrom, xTo);
-												drawActivePiece([wKnightRefl, wKnightShdw, wKnightImg], x, y, opacity);
+												drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity);
 												break;
-											} else if (JSON.parse(response.w_knight)[n].from && (JSON.parse(response.w_knight)[n].to == tiles[index].square)) { // THIS KNIGHT HAS MOVED: FACE THE WAY ITS LAST MOVE WENT
-												if (playerColor == 'w') {
-													xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-												} else if (playerColor == 'b') {
-													xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+											} else if (JSON.parse(game.response.w_knight)[n].from && (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square)) { // THIS KNIGHT HAS MOVED: FACE THE WAY ITS LAST MOVE WENT
+												if (game.playerColor == 'w') {
+													xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
+													xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+												} else if (game.playerColor == 'b') {
+													xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
+													xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
 												}
 												handleKnightDirectionW(xFrom, xTo);
 												drawKnight();
 												break;
-											} else if (JSON.parse(response.w_knight)[n].from == null && JSON.parse(response.w_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT (b1 RIGHT, g1 LEFT), FLIPPED WHEN PLAYING BLACK
-												if (playerColor == 'w') {
-													if (JSON.parse(response.w_knight)[n].to == tiles[index].square && tiles[index].square.split("")[0] < 'e') { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
-													else if (JSON.parse(response.w_knight)[n].to == tiles[index].square) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
-												} else if (playerColor == 'b') {
-													if (JSON.parse(response.w_knight)[n].to == tiles[index].square && tiles[index].square.split("")[0] < 'e') { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
-													else if (JSON.parse(response.w_knight)[n].to == tiles[index].square) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
+											} else if (JSON.parse(game.response.w_knight)[n].from == null && JSON.parse(game.response.w_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT (b1 RIGHT, g1 LEFT), FLIPPED WHEN PLAYING BLACK
+												if (game.playerColor == 'w') {
+													if (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square && game.tiles[index].square.split("")[0] < 'e') { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawKnight(); break; }
+													else if (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
+												} else if (game.playerColor == 'b') {
+													if (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square && game.tiles[index].square.split("")[0] < 'e') { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
+													else if (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 												}
 											}
 										}
-										wPieceCount.knight++;
+										game.wPieceCount.knight++;
 									} else if (pieceColor == "b") {
 										let xFrom; // SCREEN COLUMN IT CAME FROM
 										let xTo; // SCREEN COLUMN IT WENT TO
-										for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
-											if (tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
+										for (let n = 0; n < JSON.parse(game.response.b_knight).length; n++) {
+											if (game.tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
 												if (hopTurn) { break; } // OVER ANOTHER SQUARE: DRAWN IN THAT SQUARE'S TURN (drawHoppingKnight), STILL COUNTED BELOW
-												if (playerColor == 'w') {
-													xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-												} else if (playerColor == 'b') { // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
-													xFrom = 8 - (moveObj.from.split("")[0].charCodeAt(0) - 96);
-													xTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
+												if (game.playerColor == 'w') {
+													xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
+													xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+												} else if (game.playerColor == 'b') { // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
+													xFrom = 8 - (game.moveObj.from.split("")[0].charCodeAt(0) - 96);
+													xTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
 												}
 												handleKnightDirectionB(xFrom, xTo);
-												drawActivePiece([bKnightRefl, bKnightShdw, bKnightImg], x, y, opacity);
+												drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity);
 												break;
-											} else if (JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == tiles[index].square) { // THIS KNIGHT HAS MOVED: FACE THE WAY ITS LAST MOVE WENT
-												if (playerColor == 'w') {
-													xFrom = JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-													xTo = JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-												} else if (playerColor == 'b') {
-													xFrom = 8 - (JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
-													xTo = 8 - (JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
+											} else if (JSON.parse(game.response.b_knight)[n].from && JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square) { // THIS KNIGHT HAS MOVED: FACE THE WAY ITS LAST MOVE WENT
+												if (game.playerColor == 'w') {
+													xFrom = JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
+													xTo = JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+												} else if (game.playerColor == 'b') {
+													xFrom = 8 - (JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
+													xTo = 8 - (JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
 												}
 												handleKnightDirectionB(xFrom, xTo);
 												drawKnight();
 												break;
-											} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT FROM WHITE'S SIDE (b8 RIGHT, g8 LEFT), FLIPPED WHEN PLAYING BLACK
-												if (playerColor == 'w') {
-													if (JSON.parse(response.b_knight)[n].to == tiles[index].square && tiles[index].square.split("")[0] < 'e') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
-													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
-												} else if (playerColor == 'b') {
-													if (JSON.parse(response.b_knight)[n].to == tiles[index].square && tiles[index].square.split("")[0] < 'e') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
-													else if (JSON.parse(response.b_knight)[n].to == tiles[index].square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+											} else if (JSON.parse(game.response.b_knight)[n].from == null && JSON.parse(game.response.b_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT FROM WHITE'S SIDE (b8 RIGHT, g8 LEFT), FLIPPED WHEN PLAYING BLACK
+												if (game.playerColor == 'w') {
+													if (JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square && game.tiles[index].square.split("")[0] < 'e') { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+													else if (JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+												} else if (game.playerColor == 'b') {
+													if (JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square && game.tiles[index].square.split("")[0] < 'e') { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+													else if (JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 												}
 											}
 										}
-										bPieceCount.knight++;
+										game.bPieceCount.knight++;
 									}
 								} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 									handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
-									if (pieceColor == "w") { drawActivePiece([wPawnRefl, wPawnShdw, wPawnImg], x, y, opacity); wPieceCount.pawn++; }
-									else if (pieceColor == "b") { drawActivePiece([bPawnRefl, bPawnShdw, bPawnImg], x, y, opacity); bPieceCount.pawn++; }
+									if (pieceColor == "w") { drawActivePiece([game.wPawnRefl, game.wPawnShdw, game.wPawnImg], x, y, opacity); game.wPieceCount.pawn++; }
+									else if (pieceColor == "b") { drawActivePiece([game.bPawnRefl, game.bPawnShdw, game.bPawnImg], x, y, opacity); game.bPieceCount.pawn++; }
 								}
 							}
 						}
@@ -1470,22 +1392,22 @@ export async function renderCanvas(playerData) {
 					 */
 					function drawPiece() {
 						if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-							if (pieceColor == "w") { ctx.drawImage(images[wKingImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-							else if (pieceColor == "b") { ctx.drawImage(images[bKingImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+							if (pieceColor == "w") { ctx.drawImage(images[game.wKingImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
+							else if (pieceColor == "b") { ctx.drawImage(images[game.bKingImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
 						} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-							if (pieceColor == "w") { ctx.drawImage(images[wQueenImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-							else if (pieceColor == "b") { ctx.drawImage(images[bQueenImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+							if (pieceColor == "w") { ctx.drawImage(images[game.wQueenImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
+							else if (pieceColor == "b") { ctx.drawImage(images[game.bQueenImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
 						} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
 							if (pieceColor == "w") {
-								if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[wBishopWhiteSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-								else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[wBishopBlackSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+								if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[game.wBishopWhiteSqImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
+								else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[game.wBishopBlackSqImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
 							} else if (pieceColor == "b") {
-								if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[bBishopWhiteSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-								else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[bBishopBlackSqImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+								if (chessInst.squareColor(pieceObj.square) == 'light') { ctx.drawImage(images[game.bBishopWhiteSqImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
+								else if (chessInst.squareColor(pieceObj.square) == 'dark') { ctx.drawImage(images[game.bBishopBlackSqImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
 							}
 						} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-							if (pieceColor == "w") { ctx.drawImage(images[wRookImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-							else if (pieceColor == "b") { ctx.drawImage(images[bRookImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+							if (pieceColor == "w") { ctx.drawImage(images[game.wRookImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
+							else if (pieceColor == "b") { ctx.drawImage(images[game.bRookImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
 						}
 					}
 					// SAME FACING RULES AS THE BOARD: THIS MOVE WHILE SLIDING UP OR DOWN, ELSE ITS LAST MOVE UP OR DOWN, ELSE ITS START SIDE
@@ -1494,41 +1416,41 @@ export async function renderCanvas(playerData) {
 					if (pieceColor == "w") {
 						let yFrom; // SCREEN ROW IT CAME FROM
 						let yTo; // SCREEN ROW IT WENT TO
-						for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
-							if (pieceObj.isSliding && moveObj.from.split("")[1] != moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-								if (playerColor == 'w') {
-									yFrom = 8 - moveObj.from.split("")[1];
-									yTo = 8 - moveObj.to.split("")[1];
-								} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-									yFrom = moveObj.from.split("")[1] - 1;
-									yTo = moveObj.to.split("")[1] - 1;
+						for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
+							if (pieceObj.isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+								if (game.playerColor == 'w') {
+									yFrom = 8 - game.moveObj.from.split("")[1];
+									yTo = 8 - game.moveObj.to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = game.moveObj.from.split("")[1] - 1;
+									yTo = game.moveObj.to.split("")[1] - 1;
 								}
 								handlePieceDirectionW(yFrom, yTo);
 								drawPiece();
 								break;
-							} else if (JSON.parse(response.w_piece)[n].from && JSON.parse(response.w_piece)[n].to == pieceObj.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-								if (playerColor == 'w') {
-									yFrom = 8 - JSON.parse(response.w_piece)[n].from.split("")[1];
-									yTo = 8 - JSON.parse(response.w_piece)[n].to.split("")[1];
-								} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-									yFrom = JSON.parse(response.w_piece)[n].from.split("")[1] - 1;
-									yTo = JSON.parse(response.w_piece)[n].to.split("")[1] - 1;
+							} else if (JSON.parse(game.response.w_piece)[n].from && JSON.parse(game.response.w_piece)[n].to == pieceObj.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+								if (game.playerColor == 'w') {
+									yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
+									yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
+									yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
 								}
 								handlePieceDirectionW(yFrom, yTo);
 								drawPiece();
 								break;
-							} else if (JSON.parse(response.w_piece)[n].from == null && JSON.parse(response.w_piece)[n].to == pieceObj.square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
+							} else if (JSON.parse(game.response.w_piece)[n].from == null && JSON.parse(game.response.w_piece)[n].to == pieceObj.square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
 								handlePieceDirectionW(null, null);
 								drawPiece();
 								break;
-							} else if (pieceObj.square == moveObj.from && JSON.parse(response.w_piece)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY IT LAST WENT UP OR DOWN
-								if (JSON.parse(response.w_piece)[n].from) {
-									if (playerColor == 'w') {
-										yFrom = 8 - JSON.parse(response.w_piece)[n].from.split("")[1];
-										yTo = 8 - JSON.parse(response.w_piece)[n].to.split("")[1];
-									} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-										yFrom = JSON.parse(response.w_piece)[n].from.split("")[1] - 1;
-										yTo = JSON.parse(response.w_piece)[n].to.split("")[1] - 1;
+							} else if (pieceObj.square == game.moveObj.from && JSON.parse(game.response.w_piece)[n].to == game.moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY IT LAST WENT UP OR DOWN
+								if (JSON.parse(game.response.w_piece)[n].from) {
+									if (game.playerColor == 'w') {
+										yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
+										yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
+									} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+										yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
+										yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
 									}
 								}
 								handlePieceDirectionW(yFrom, yTo);
@@ -1539,41 +1461,41 @@ export async function renderCanvas(playerData) {
 					} else if (pieceColor == "b") {
 						let yFrom; // SCREEN ROW IT CAME FROM
 						let yTo; // SCREEN ROW IT WENT TO
-						for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
-							if (pieceObj.isSliding && moveObj.from.split("")[1] != moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-								if (playerColor == 'w') {
-									yFrom = 8 - moveObj.from.split("")[1];
-									yTo = 8 - moveObj.to.split("")[1];
-								} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-									yFrom = moveObj.from.split("")[1] - 1;
-									yTo = moveObj.to.split("")[1] - 1;
+						for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
+							if (pieceObj.isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+								if (game.playerColor == 'w') {
+									yFrom = 8 - game.moveObj.from.split("")[1];
+									yTo = 8 - game.moveObj.to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = game.moveObj.from.split("")[1] - 1;
+									yTo = game.moveObj.to.split("")[1] - 1;
 								}
 								handlePieceDirectionB(yFrom, yTo);
 								drawPiece();
 								break;
-							} else if (JSON.parse(response.b_piece)[n].from && JSON.parse(response.b_piece)[n].to == pieceObj.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-								if (playerColor == 'w') {
-									yFrom = 8 - JSON.parse(response.b_piece)[n].from.split("")[1];
-									yTo = 8 - JSON.parse(response.b_piece)[n].to.split("")[1];
-								} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-									yFrom = JSON.parse(response.b_piece)[n].from.split("")[1] - 1;
-									yTo = JSON.parse(response.b_piece)[n].to.split("")[1] - 1;
+							} else if (JSON.parse(game.response.b_piece)[n].from && JSON.parse(game.response.b_piece)[n].to == pieceObj.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+								if (game.playerColor == 'w') {
+									yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
+									yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
+									yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
 								}
 								handlePieceDirectionB(yFrom, yTo);
 								drawPiece();
 								break;
-							} else if (JSON.parse(response.b_piece)[n].from == null && JSON.parse(response.b_piece)[n].to == pieceObj.square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
+							} else if (JSON.parse(game.response.b_piece)[n].from == null && JSON.parse(game.response.b_piece)[n].to == pieceObj.square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
 								handlePieceDirectionB(null, null);
 								drawPiece();
 								break;
-							} else if (pieceObj.square == moveObj.from && JSON.parse(response.b_piece)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY IT LAST WENT UP OR DOWN
-								if (JSON.parse(response.b_piece)[n].from) {
-									if (playerColor == 'w') {
-										yFrom = 8 - JSON.parse(response.b_piece)[n].from.split("")[1];
-										yTo = 8 - JSON.parse(response.b_piece)[n].to.split("")[1];
-									} else if (playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-										yFrom = JSON.parse(response.b_piece)[n].from.split("")[1] - 1;
-										yTo = JSON.parse(response.b_piece)[n].to.split("")[1] - 1;
+							} else if (pieceObj.square == game.moveObj.from && JSON.parse(game.response.b_piece)[n].to == game.moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY IT LAST WENT UP OR DOWN
+								if (JSON.parse(game.response.b_piece)[n].from) {
+									if (game.playerColor == 'w') {
+										yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
+										yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
+									} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+										yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
+										yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
 									}
 								}
 								handlePieceDirectionB(yFrom, yTo);
@@ -1594,59 +1516,59 @@ export async function renderCanvas(playerData) {
 					function drawKnight() {
 						if (pieceColor == 'w') {
 							if (pieceObj.isSliding) { // HOPPING
-								ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+								ctx.drawImage(images[game.wKnightImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 							} else {
-								ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+								ctx.drawImage(images[game.wKnightImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
 							}
 						} else if (pieceColor == 'b') {
 							if (pieceObj.isSliding) {
-								ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+								ctx.drawImage(images[game.bKnightImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 							} else {
-								ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+								ctx.drawImage(images[game.bKnightImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
 							}
 						}
 					}
 					if (pieceColor == "w") { // SAME FACING RULES AS THE BOARD: THIS MOVE WHILE SLIDING, ELSE ITS LAST MOVE, ELSE ITS START SQUARE
 						let xFrom;
 						let xTo;
-						for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
+						for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
 							if (pieceObj.isSliding) {
-								if (playerColor == 'w') {
-									xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-									xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-								} else if (playerColor == 'b') {
-									xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-									xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+								if (game.playerColor == 'w') {
+									xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
+									xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+								} else if (game.playerColor == 'b') {
+									xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
+									xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 								}
 								handleKnightDirectionW(xFrom, xTo);
 								if (pieceObj.isSliding) {
-									ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+									ctx.drawImage(images[game.wKnightImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 								} else {
-									ctx.drawImage(images[wKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+									ctx.drawImage(images[game.wKnightImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
 								}
 								break;
-							} else if (JSON.parse(response.w_knight)[n].from && (JSON.parse(response.w_knight)[n].to == pieceObj.square)) {
-								if (playerColor == 'w') {
-									xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-									xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-								} else if (playerColor == 'b') {
-									xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-									xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+							} else if (JSON.parse(game.response.w_knight)[n].from && (JSON.parse(game.response.w_knight)[n].to == pieceObj.square)) {
+								if (game.playerColor == 'w') {
+									xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
+									xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+								} else if (game.playerColor == 'b') {
+									xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
+									xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
 								}
 								handleKnightDirectionW(xFrom, xTo);
 								drawKnight();
 								break;
-							} else if (JSON.parse(response.w_knight)[n].from == null && JSON.parse(response.w_knight)[n].to) {
-								if (playerColor == 'w') {
-									if (JSON.parse(response.w_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
-									else if (JSON.parse(response.w_knight)[n].to == pieceObj.square) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
-								} else if (playerColor == 'b') {
-									if (JSON.parse(response.w_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
-									else if (JSON.parse(response.w_knight)[n].to == pieceObj.square) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; drawKnight(); break; }
+							} else if (JSON.parse(game.response.w_knight)[n].from == null && JSON.parse(game.response.w_knight)[n].to) {
+								if (game.playerColor == 'w') {
+									if (JSON.parse(game.response.w_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawKnight(); break; }
+									else if (JSON.parse(game.response.w_knight)[n].to == pieceObj.square) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
+								} else if (game.playerColor == 'b') {
+									if (JSON.parse(game.response.w_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
+									else if (JSON.parse(game.response.w_knight)[n].to == pieceObj.square) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 								}
-							} else if (pieceObj.square == moveObj.from && JSON.parse(response.w_knight)[n].from && JSON.parse(response.w_knight)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
-								xFrom = JSON.parse(response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1; // SAME FOR BOTH COLORS, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
-								xTo = JSON.parse(response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+							} else if (pieceObj.square == game.moveObj.from && JSON.parse(game.response.w_knight)[n].from && JSON.parse(game.response.w_knight)[n].to == game.moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
+								xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1; // SAME FOR BOTH COLORS, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
+								xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
 								handleKnightDirectionW(xFrom, xTo);
 								drawKnight();
 								break;
@@ -1655,48 +1577,48 @@ export async function renderCanvas(playerData) {
 					} else if (pieceColor == "b") {
 						let xFrom;
 						let xTo;
-						for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
+						for (let n = 0; n < JSON.parse(game.response.b_knight).length; n++) {
 							if (pieceObj.isSliding) {
-								if (playerColor == 'w') {
-									xFrom = moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-									xTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-								} else if (playerColor == 'b') {
-									xFrom = 8 - (moveObj.from.split("")[0].charCodeAt(0) - 96);
-									xTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
+								if (game.playerColor == 'w') {
+									xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
+									xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+								} else if (game.playerColor == 'b') {
+									xFrom = 8 - (game.moveObj.from.split("")[0].charCodeAt(0) - 96);
+									xTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
 								}
 								handleKnightDirectionB(xFrom, xTo);
 								if (pieceObj.isSliding) {
-									ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, (((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2) - (tileHeight / 2) * knightHop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+									ctx.drawImage(images[game.bKnightImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 								} else {
-									ctx.drawImage(images[bKnightImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset)
+									ctx.drawImage(images[game.bKnightImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
 								}
 								break;
-							} else if (JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == pieceObj.square) {
-								if (playerColor == 'w') {
-									xFrom = JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-									xTo = JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-								} else if (playerColor == 'b') {
-									xFrom = 8 - (JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
-									xTo = 8 - (JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
+							} else if (JSON.parse(game.response.b_knight)[n].from && JSON.parse(game.response.b_knight)[n].to == pieceObj.square) {
+								if (game.playerColor == 'w') {
+									xFrom = JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
+									xTo = JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+								} else if (game.playerColor == 'b') {
+									xFrom = 8 - (JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
+									xTo = 8 - (JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
 								}
 								handleKnightDirectionB(xFrom, xTo);
 								drawKnight();
 								break;
-							} else if (JSON.parse(response.b_knight)[n].from == null && JSON.parse(response.b_knight)[n].to) {
-								if (playerColor == 'w') {
-									if (JSON.parse(response.b_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
-									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
-								} else if (playerColor == 'b') {
-									if (JSON.parse(response.b_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
-									else if (JSON.parse(response.b_knight)[n].to == pieceObj.square) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+							} else if (JSON.parse(game.response.b_knight)[n].from == null && JSON.parse(game.response.b_knight)[n].to) {
+								if (game.playerColor == 'w') {
+									if (JSON.parse(game.response.b_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawKnight(); break; }
+									else if (JSON.parse(game.response.b_knight)[n].to == pieceObj.square) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+								} else if (game.playerColor == 'b') {
+									if (JSON.parse(game.response.b_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
+									else if (JSON.parse(game.response.b_knight)[n].to == pieceObj.square) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 								}
-							} else if (pieceObj.square == moveObj.from && JSON.parse(response.b_knight)[n].from && JSON.parse(response.b_knight)[n].to == moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
-								if (playerColor == 'w') {
-									xFrom = JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
-									xTo = JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-								} else if (playerColor == 'b') {
-									xFrom = 8 - (JSON.parse(response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
-									xTo = 8 - (JSON.parse(response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
+							} else if (pieceObj.square == game.moveObj.from && JSON.parse(game.response.b_knight)[n].from && JSON.parse(game.response.b_knight)[n].to == game.moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
+								if (game.playerColor == 'w') {
+									xFrom = JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
+									xTo = JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
+								} else if (game.playerColor == 'b') {
+									xFrom = 8 - (JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
+									xTo = 8 - (JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
 								}
 								handleKnightDirectionB(xFrom, xTo);
 								drawKnight();
@@ -1706,8 +1628,8 @@ export async function renderCanvas(playerData) {
 					}
 				} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 					handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
-					if (pieceColor == "w") { ctx.drawImage(images[wPawnImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
-					else if (pieceColor == "b") { ctx.drawImage(images[bPawnImg].image, (((x * tileWidth) + pieceObj.xDiff) + xBoardOff) - xPieceOffset / 2, ((((y * tileHeight) - pieceObj.yDiff) - tileHeight / 10) + yBoardOff) - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset) }
+					if (pieceColor == "w") { ctx.drawImage(images[game.wPawnImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
+					else if (pieceColor == "b") { ctx.drawImage(images[game.bPawnImg].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
 				}
 			}
 
@@ -1715,22 +1637,22 @@ export async function renderCanvas(playerData) {
 			// SO THE BOARD DRAWS IT IN ITS OLD SQUARE'S TURN & NO SLIDE BOX IS MADE. ITS BOX IS JUST ITSELF (drawPieceBelow NEEDS y2x2)
 			let landedTile = null;
 			if (!overlapSlideObj) { // currSlide CAN ALREADY BE false HERE (validateMove TURNS IT OFF BEFORE setTiles() IS DONE)
-				for (let q = 0; q < tiles.length; q++) {
-					if (tiles[q].square == moveObj.from && (!tiles[q].isSliding || (tiles[q].type == 'n' && knightHop == 0)) && (tiles[q].xDiff || tiles[q].yDiff) && tiles[q].type) { landedTile = tiles[q]; overlapSlideObj = { y2x2: tiles[q] }; break; } // KNIGHTS TOO, FROM THE FRAME THEY'RE BACK ON THE BOARD (drawSlideBox FINDS A LANDED KNIGHT BY moveObj.to)
+				for (let q = 0; q < game.tiles.length; q++) {
+					if (game.tiles[q].square == game.moveObj.from && (!game.tiles[q].isSliding || (game.tiles[q].type == 'n' && game.knightHop == 0)) && (game.tiles[q].xDiff || game.tiles[q].yDiff) && game.tiles[q].type) { landedTile = game.tiles[q]; overlapSlideObj = { y2x2: game.tiles[q] }; break; } // KNIGHTS TOO, FROM THE FRAME THEY'RE BACK ON THE BOARD (drawSlideBox FINDS A LANDED KNIGHT BY moveObj.to)
 				}
 			}
 
-			if ((currSlide || landedTile || knightPause) && overlapSlideObj) { // A SLIDE IS PASSING OTHER PIECES (OR JUST LANDED, OR A KNIGHT'S 100MS STOP): DRAW THE ONES IN FRONT OF IT AGAIN
-				for (let q = 0; q < tiles.length; q++) { // SWAP EACH SQUARE NAME FOR THE TILE ON IT (SQUARES WITH NO PIECE STAY A NAME)
-					if (tiles[q].square == overlapSlideObj.y1x1 && tiles[q].type) { overlapSlideObj.y1x1 = tiles[q] }
-					else if (tiles[q].square == overlapSlideObj.y1x2 && tiles[q].type) { overlapSlideObj.y1x2 = tiles[q] }
-					else if (tiles[q].square == overlapSlideObj.y1x3 && tiles[q].type) { overlapSlideObj.y1x3 = tiles[q] }
-					else if (tiles[q].square == overlapSlideObj.y2x1 && tiles[q].type) { overlapSlideObj.y2x1 = tiles[q] }
-					else if (tiles[q].square == overlapSlideObj.y2x2 && tiles[q].type) { overlapSlideObj.y2x2 = tiles[q] }
-					else if (tiles[q].square == overlapSlideObj.y2x3 && tiles[q].type) { overlapSlideObj.y2x3 = tiles[q] }
-					else if (tiles[q].square == overlapSlideObj.y3x1 && tiles[q].type) { overlapSlideObj.y3x1 = tiles[q] }
-					else if (tiles[q].square == overlapSlideObj.y3x2 && tiles[q].type) { overlapSlideObj.y3x2 = tiles[q] }
-					else if (tiles[q].square == overlapSlideObj.y3x3 && tiles[q].type) { overlapSlideObj.y3x3 = tiles[q] }
+			if ((game.currSlide || landedTile || knightPause) && overlapSlideObj) { // A SLIDE IS PASSING OTHER PIECES (OR JUST LANDED, OR A KNIGHT'S 100MS STOP): DRAW THE ONES IN FRONT OF IT AGAIN
+				for (let q = 0; q < game.tiles.length; q++) { // SWAP EACH SQUARE NAME FOR THE TILE ON IT (SQUARES WITH NO PIECE STAY A NAME)
+					if (game.tiles[q].square == overlapSlideObj.y1x1 && game.tiles[q].type) { overlapSlideObj.y1x1 = game.tiles[q] }
+					else if (game.tiles[q].square == overlapSlideObj.y1x2 && game.tiles[q].type) { overlapSlideObj.y1x2 = game.tiles[q] }
+					else if (game.tiles[q].square == overlapSlideObj.y1x3 && game.tiles[q].type) { overlapSlideObj.y1x3 = game.tiles[q] }
+					else if (game.tiles[q].square == overlapSlideObj.y2x1 && game.tiles[q].type) { overlapSlideObj.y2x1 = game.tiles[q] }
+					else if (game.tiles[q].square == overlapSlideObj.y2x2 && game.tiles[q].type) { overlapSlideObj.y2x2 = game.tiles[q] }
+					else if (game.tiles[q].square == overlapSlideObj.y2x3 && game.tiles[q].type) { overlapSlideObj.y2x3 = game.tiles[q] }
+					else if (game.tiles[q].square == overlapSlideObj.y3x1 && game.tiles[q].type) { overlapSlideObj.y3x1 = game.tiles[q] }
+					else if (game.tiles[q].square == overlapSlideObj.y3x2 && game.tiles[q].type) { overlapSlideObj.y3x2 = game.tiles[q] }
+					else if (game.tiles[q].square == overlapSlideObj.y3x3 && game.tiles[q].type) { overlapSlideObj.y3x3 = game.tiles[q] }
 				}
 
 				/**
@@ -1741,28 +1663,28 @@ export async function renderCanvas(playerData) {
 				function drawPieceBelow(square) {
 					if (square && overlapSlideObj.y2x2?.square || false) {
 						let sq = square.split("");
-						if (playerColor == 'w') { square = `${sq[0]}${Number(sq[1]) - 1}`; }
-						else if (playerColor == 'b') { square = `${sq[0]}${Number(sq[1]) + 1}`; }
-						for (let a = 0; a < tiles.length; a++) {
-							if (tiles[a].square == square && overlapSlideObj.y2x2.square != square) {
-								drawSlideBox(tiles[a]);
-								drawPieceBelow(tiles[a].square);
+						if (game.playerColor == 'w') { square = `${sq[0]}${Number(sq[1]) - 1}`; }
+						else if (game.playerColor == 'b') { square = `${sq[0]}${Number(sq[1]) + 1}`; }
+						for (let a = 0; a < game.tiles.length; a++) {
+							if (game.tiles[a].square == square && overlapSlideObj.y2x2.square != square) {
+								drawSlideBox(game.tiles[a]);
+								drawPieceBelow(game.tiles[a].square);
 							}
 						}
 					}
 				}
 
 				if (landedTile) { // LANDED: DRAW IT AGAIN OVER THE PIECES BEHIND IT, THEN THE PIECE TO ITS RIGHT (DRAWN AFTER IT ON THE BOARD) & THE PIECES IN FRONT AGAIN
-					const to = moveObj.to.split("");
-					const right = playerColor == 'w' ? 1 : -1; // SCREEN RIGHT IS THE NEXT FILE (WHITE) OR THE ONE BEFORE IT (BLACK, FLIPPED)
+					const to = game.moveObj.to.split("");
+					const right = game.playerColor == 'w' ? 1 : -1; // SCREEN RIGHT IS THE NEXT FILE (WHITE) OR THE ONE BEFORE IT (BLACK, FLIPPED)
 					drawSlideBox(landedTile);
-					for (let q = 0; q < tiles.length; q++) {
-						if (tiles[q].square == `${String.fromCharCode(to[0].charCodeAt(0) + right)}${to[1]}` && tiles[q].type) { drawSlideBox(tiles[q]); }
+					for (let q = 0; q < game.tiles.length; q++) {
+						if (game.tiles[q].square == `${String.fromCharCode(to[0].charCodeAt(0) + right)}${to[1]}` && game.tiles[q].type) { drawSlideBox(game.tiles[q]); }
 					}
-					drawPieceBelow(moveObj.to);
+					drawPieceBelow(game.moveObj.to);
 					drawPieceBelow(`${String.fromCharCode(to[0].charCodeAt(0) - 1)}${to[1]}`);
 					drawPieceBelow(`${String.fromCharCode(to[0].charCodeAt(0) + 1)}${to[1]}`);
-				} else if (playerColor == 'w') {
+				} else if (game.playerColor == 'w') {
 					if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
 						drawSlideBox(overlapSlideObj.y2x2);
 					} else { // DRAW THE PIECES BESIDE & BELOW THE SLIDE (IN FRONT OF IT) AGAIN, BY DIRECTION
@@ -1791,7 +1713,7 @@ export async function renderCanvas(playerData) {
 							if (overlapSlideObj.y1x3 && typeof overlapSlideObj.y1x3 == "string") { drawPieceBelow(overlapSlideObj.y1x3); }
 						}
 					}
-				} else if (playerColor == 'b') {
+				} else if (game.playerColor == 'b') {
 					const slideSquare = `${String.fromCharCode(97 + (7 - (slidePos.split("")[0].charCodeAt(0) - 97)))}${9 - Number(slidePos.split("")[1])}`; // slidePos IN BLACK'S SQUARE NAMES (slidePos USES WHITE'S LETTERS)
 					if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
 						drawSlideBox(overlapSlideObj.y2x2);
@@ -1824,7 +1746,7 @@ export async function renderCanvas(playerData) {
 				}
 				overlapSlideObj = null
 			}
-			if (!currSlide) { refresh = true; overlapSlideObj = null; } // NOTHING SLIDING, CLEAR THE OVERLAP
+			if (!game.currSlide) { game.refresh = true; overlapSlideObj = null; } // NOTHING SLIDING, CLEAR THE OVERLAP
 		}
 
 		/* ---------------------------------------------------------------- */
@@ -1840,8 +1762,8 @@ export async function renderCanvas(playerData) {
 		function setTakenPieceArr(paramColor) { // DRAW ALL TAKEN PIECES
 			let takenArr = new Array();
 			let currPieces; // HOW MANY OF EACH ARE ON THE BOARD
-			if (currPromotion) { currPieces = { king: 1, queen: 0, bishop: 1, knight: 1, rook: 1, pawn: 8 } } // SETS TAKEN PIECES ARRAY TO ONLY CONTAIN ONE OF EACH UNIQUE PIECE THAT ISN'T A KING
-			else { if (paramColor == "w") { currPieces = wPieceCount } else if (paramColor == "b") { currPieces = bPieceCount } }
+			if (game.currPromotion) { currPieces = { king: 1, queen: 0, bishop: 1, knight: 1, rook: 1, pawn: 8 } } // SETS TAKEN PIECES ARRAY TO ONLY CONTAIN ONE OF EACH UNIQUE PIECE THAT ISN'T A KING
+			else { if (paramColor == "w") { currPieces = game.wPieceCount } else if (paramColor == "b") { currPieces = game.bPieceCount } }
 
 			/**
 			 * @description Adds (maxCount - amountOnBoard) pieces of one type to takenArr
@@ -1852,7 +1774,7 @@ export async function renderCanvas(playerData) {
 				for (let i = 1; i < takenCount + 1; i++) { takenArr[takenArr.length] = { color: paramColor, type: type } }
 			}
 
-			const startCount = currPromotion ? countStartPieces().w : startPieceCount[paramColor]; // HOW MANY STARTED, THE PROMOTION PICKER USES THE STANDARD SET (ONE OF EACH)
+			const startCount = game.currPromotion ? countStartPieces().w : game.startPieceCount[paramColor]; // HOW MANY STARTED, THE PROMOTION PICKER USES THE STANDARD SET (ONE OF EACH)
 			countToObj(currPieces.king, "k", startCount.king);
 			countToObj(currPieces.queen, "q", startCount.queen);
 			countToObj(currPieces.bishop, "b", startCount.bishop);
@@ -1883,17 +1805,17 @@ export async function renderCanvas(playerData) {
 			 */
 			function drawTakenPiece(takenPiece, imgArr) {
 				for (let i = 0; i < imgArr.length; i++) { // DRAW TAKEN PIECE IMAGES
-					if (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color))) && currPromotion) { ctx.globalAlpha = 0.8; } // HOVERED PROMOTION CHOICE
-					ctx.drawImage(images[imgArr[i]].image, xPos * tileWidth + xBoardOff - xPieceOffset / 2, yPos * tileHeight + yBoardOff - yPieceOffset / 2, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
-					if (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color))) && currPromotion) { ctx.globalAlpha = 1; }
+					if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && game.currPromotion) { ctx.globalAlpha = 0.8; } // HOVERED PROMOTION CHOICE
+					ctx.drawImage(images[imgArr[i]].image, xPos * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2, yPos * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
+					if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && game.currPromotion) { ctx.globalAlpha = 1; }
 				}
 			}
 
-			if (widthGreater) { // WIDE SCREEN: TRAYS TO THE RIGHT OF THE BOARD (COLUMN 9), THE PLAYER'S AT THE BOTTOM (ROW 6), THE OPPONENT'S AT THE TOP (ROW -1)
-				if (playerColor == 'w') {
+			if (game.widthGreater) { // WIDE SCREEN: TRAYS TO THE RIGHT OF THE BOARD (COLUMN 9), THE PLAYER'S AT THE BOTTOM (ROW 6), THE OPPONENT'S AT THE TOP (ROW -1)
+				if (game.playerColor == 'w') {
 					if (paramColor == "w") { xPos = 9; yPos = 6; }
 					else { xPos = 9; yPos = -1; }
-				} else if (playerColor == 'b') {
+				} else if (game.playerColor == 'b') {
 					if (paramColor == "w") { xPos = 9; yPos = -1; }
 					else { xPos = 9; yPos = 6; }
 				}
@@ -1922,11 +1844,11 @@ export async function renderCanvas(playerData) {
 					}
 				}
 			} else { // NARROW SCREEN: ONE ROW BELOW THE BOARD (ROW 9) FOR THE PLAYER, ONE ABOVE (ROW -2) FOR THE OPPONENT
-				const xStart = portraitBoard ? 0 : -1; // PORTRAIT BOARD FILLS THE WIDTH, SO KEEP TAKEN PIECES ON SCREEN
-				if (playerColor == 'w') {
+				const xStart = game.portraitBoard ? 0 : -1; // PORTRAIT BOARD FILLS THE WIDTH, SO KEEP TAKEN PIECES ON SCREEN
+				if (game.playerColor == 'w') {
 					if (paramColor == "w") { xPos = xStart; yPos = 9; }
 					else { xPos = xStart; yPos = -2; }
-				} else if (playerColor == 'b') {
+				} else if (game.playerColor == 'b') {
 					if (paramColor == "w") { xPos = xStart; yPos = -2; }
 					else { xPos = xStart; yPos = 9; }
 				}
@@ -1968,48 +1890,48 @@ export async function renderCanvas(playerData) {
 		 */
 		async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
 			try {
-				revert = response
-				const updatedResponse = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false); // GET THE GAME
-				if (updatedResponse.game_board != revert.game_board && opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
+				game.revert = game.response
+				const updatedResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
+				if (updatedResponse.game_board != game.revert.game_board && game.opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
 					if (chessInst.isGameOver()) { // THIS BOARD WAS ALREADY OVER
-						menuToggled = true;
+						game.menuToggled = true;
 						menu.style.display = "flex"
 						optResumeBtn.parentElement.style.display = 'none';
-						if (playerColor == 'w') { resultDisplay.innerText = "White Wins!" }
-						else if (playerColor == 'b') { resultDisplay.innerText = "Black Wins!" }
+						if (game.playerColor == 'w') { resultDisplay.innerText = "White Wins!" }
+						else if (game.playerColor == 'b') { resultDisplay.innerText = "Black Wins!" }
 						handleRemoteMenuEnter(optRestartBtn);
 					}
 
 					validateState.load(updatedResponse.game_board);
 					const serverPiece = validateState.get(updatedResponse.prev_move[1]) // PIECE RETURNED FROM THE SERVER GAME BOARD
 
-					validateState.load(revert.game_board);
+					validateState.load(game.revert.game_board);
 					const clientPiece = validateState.get(updatedResponse.prev_move[0]); // PIECE RETURNED FROM LOCAL/CLIENT GAME BOARD
 
 					if ((serverPiece.color == clientPiece.color) && (serverPiece.type != 'p' && clientPiece.type == 'p')) { // PROMOTION
-						moveObj = { from: updatedResponse.prev_move[0], to: updatedResponse.prev_move[1], promotion: serverPiece.type }
+						game.moveObj = { from: updatedResponse.prev_move[0], to: updatedResponse.prev_move[1], promotion: serverPiece.type }
 					} else {
-						moveObj = { from: updatedResponse.prev_move[0], to: updatedResponse.prev_move[1] }
+						game.moveObj = { from: updatedResponse.prev_move[0], to: updatedResponse.prev_move[1] }
 					}
 
-					validateState.move(moveObj); // CHECK IT ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
-					for (let i = 0; i < tiles.length; i++) { // START THE SLIDE (SAME AS THE AI'S IN renderLoop)
-						if (tiles[i].square == moveObj.from) {
-							slideStart = true;
-							tiles[i].isSliding = true
-							if (playerColor == 'w') {
-								tiles[i].xSlideTo = moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-								tiles[i].ySlideTo = 8 - moveObj.to.split("")[1];
-							} else if (playerColor == 'b') {
-								tiles[i].xSlideTo = 8 - (moveObj.to.split("")[0].charCodeAt(0) - 96);
-								tiles[i].ySlideTo = moveObj.to.split("")[1] - 1;
+					validateState.move(game.moveObj); // CHECK IT ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
+					for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE (SAME AS THE AI'S IN renderLoop)
+						if (game.tiles[i].square == game.moveObj.from) {
+							game.slideStart = true;
+							game.tiles[i].isSliding = true
+							if (game.playerColor == 'w') {
+								game.tiles[i].xSlideTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+								game.tiles[i].ySlideTo = 8 - game.moveObj.to.split("")[1];
+							} else if (game.playerColor == 'b') {
+								game.tiles[i].xSlideTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
+								game.tiles[i].ySlideTo = game.moveObj.to.split("")[1] - 1;
 							}
-							tiles[i].xDiff = 0;
-							tiles[i].yDiff = 0;
+							game.tiles[i].xDiff = 0;
+							game.tiles[i].yDiff = 0;
 						}
 					}
-					currSlide = true;
-					refresh = true;
+					game.currSlide = true;
+					game.refresh = true;
 				}
 			} catch (err) { console.log(err); }
 		}
@@ -2024,13 +1946,13 @@ export async function renderCanvas(playerData) {
 		 */
 		async function updateUserStateSlide(index) {
 			try {
-				tiles[index].xSlideTo = 0;
-				tiles[index].ySlideTo = 0;
-				if (moveObj.promotion) { currPromotion = true; refresh = true; return; } // OPEN THE PROMOTION 
+				game.tiles[index].xSlideTo = 0;
+				game.tiles[index].ySlideTo = 0;
+				if (game.moveObj.promotion) { game.currPromotion = true; game.refresh = true; return; } // OPEN THE PROMOTION 
 				
 				await validateMove(); // SEND THE MOVE
-				tiles[index].isSliding = null;
-			} catch (err) { console.log(err); currSlide = false; return refreshData(response); }
+				game.tiles[index].isSliding = null;
+			} catch (err) { console.log(err); game.currSlide = false; return refreshData(game.response); }
 		}
 
 		/* ---------------------------------------------------------------- */
@@ -2045,94 +1967,94 @@ export async function renderCanvas(playerData) {
 			try {
 				moveAudio.load();
 				moveAudio.play().catch((err) => { console.log(err) });
-				revert = { ...response }; // GO BACK TO THIS IF THE SERVER SAYS NO (A COPY, THE LISTS BELOW CHANGE response)
-				opposingMove = true; // LOCK THE BOARD
-				chessInst.move(moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
-				if (playerColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP UNTIL THE SERVER'S COMES BACK
-					for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
-						if (moveObj.from == JSON.parse(response.w_knight)[n].to) {
-							let w_knight = JSON.parse(response.w_knight)
-							w_knight[n].from = moveObj.from;
-							w_knight[n].to = moveObj.to;
-							response.w_knight = JSON.stringify(w_knight);
+				game.revert = { ...game.response }; // GO BACK TO THIS IF THE SERVER SAYS NO (A COPY, THE LISTS BELOW CHANGE response)
+				game.opposingMove = true; // LOCK THE BOARD
+				chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
+				if (game.playerColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP UNTIL THE SERVER'S COMES BACK
+					for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
+						if (game.moveObj.from == JSON.parse(game.response.w_knight)[n].to) {
+							let w_knight = JSON.parse(game.response.w_knight)
+							w_knight[n].from = game.moveObj.from;
+							w_knight[n].to = game.moveObj.to;
+							game.response.w_knight = JSON.stringify(w_knight);
 							break;
 						}
 					}
-					for (let n = 0; n < JSON.parse(response.w_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
-						if (moveObj.from == JSON.parse(response.w_piece)[n].to) {
-							let w_piece = JSON.parse(response.w_piece)
-							if (moveObj.from.split("")[1] != moveObj.to.split("")[1]) { w_piece[n].from = moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
-							w_piece[n].to = moveObj.to;
-							response.w_piece = JSON.stringify(w_piece);
+					for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+						if (game.moveObj.from == JSON.parse(game.response.w_piece)[n].to) {
+							let w_piece = JSON.parse(game.response.w_piece)
+							if (game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { w_piece[n].from = game.moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+							w_piece[n].to = game.moveObj.to;
+							game.response.w_piece = JSON.stringify(w_piece);
 							break;
 						}
 					}
 					// !NOTE: THE OLD ROOK SQUARE STAYS UNTIL THE SERVER'S LIST COMES BACK. THE MOVE LANDS HALFWAY THROUGH DRAWING A FRAME
 					// & THE REST OF THAT FRAME STILL DRAWS THE OLD BOARD, SO THE ROOK WOULD DISAPPEAR FOR A FRAME IF ITS SQUARE WAS GONE
-					if (chessInst.get(moveObj.to).type == 'k' && moveObj.from == 'e1' && (moveObj.to == 'g1' || moveObj.to == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
-						for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
-							let w_piece = JSON.parse(response.w_piece)
-							if (moveObj.to == 'g1' && w_piece[n].to == 'h1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'f1' }; response.w_piece = JSON.stringify(w_piece); break; } // KING SIDE
-							else if (moveObj.to == 'c1' && w_piece[n].to == 'a1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'd1' }; response.w_piece = JSON.stringify(w_piece); break; } // QUEEN SIDE
+					if (chessInst.get(game.moveObj.to).type == 'k' && game.moveObj.from == 'e1' && (game.moveObj.to == 'g1' || game.moveObj.to == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+						for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
+							let w_piece = JSON.parse(game.response.w_piece)
+							if (game.moveObj.to == 'g1' && w_piece[n].to == 'h1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'f1' }; game.response.w_piece = JSON.stringify(w_piece); break; } // KING SIDE
+							else if (game.moveObj.to == 'c1' && w_piece[n].to == 'a1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'd1' }; game.response.w_piece = JSON.stringify(w_piece); break; } // QUEEN SIDE
 						}
 					}
-					if (moveObj.promotion && moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
-						let w_piece = JSON.parse(response.w_piece)
-						w_piece[w_piece.length] = { from: moveObj.from, to: moveObj.to };
-						response.w_piece = JSON.stringify(w_piece);
+					if (game.moveObj.promotion && game.moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+						let w_piece = JSON.parse(game.response.w_piece)
+						w_piece[w_piece.length] = { from: game.moveObj.from, to: game.moveObj.to };
+						game.response.w_piece = JSON.stringify(w_piece);
 					}
-				} else if (playerColor == 'b') {
-					for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
-						if (moveObj.from == JSON.parse(response.b_knight)[n].to) {
-							let b_knight = JSON.parse(response.b_knight)
-							b_knight[n].from = moveObj.from;
-							b_knight[n].to = moveObj.to;
-							response.b_knight = JSON.stringify(b_knight);
+				} else if (game.playerColor == 'b') {
+					for (let n = 0; n < JSON.parse(game.response.b_knight).length; n++) {
+						if (game.moveObj.from == JSON.parse(game.response.b_knight)[n].to) {
+							let b_knight = JSON.parse(game.response.b_knight)
+							b_knight[n].from = game.moveObj.from;
+							b_knight[n].to = game.moveObj.to;
+							game.response.b_knight = JSON.stringify(b_knight);
 							break;
 						}
 					}
-					for (let n = 0; n < JSON.parse(response.b_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
-						if (moveObj.from == JSON.parse(response.b_piece)[n].to) {
-							let b_piece = JSON.parse(response.b_piece)
-							if (moveObj.from.split("")[1] != moveObj.to.split("")[1]) { b_piece[n].from = moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
-							b_piece[n].to = moveObj.to;
-							response.b_piece = JSON.stringify(b_piece);
+					for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+						if (game.moveObj.from == JSON.parse(game.response.b_piece)[n].to) {
+							let b_piece = JSON.parse(game.response.b_piece)
+							if (game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { b_piece[n].from = game.moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+							b_piece[n].to = game.moveObj.to;
+							game.response.b_piece = JSON.stringify(b_piece);
 							break;
 						}
 					}
-					if (chessInst.get(moveObj.to).type == 'k' && moveObj.from == 'e8' && (moveObj.to == 'g8' || moveObj.to == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
-						for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
-							let b_piece = JSON.parse(response.b_piece)
-							if (moveObj.to == 'g8' && b_piece[n].to == 'h8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'f8' }; response.b_piece = JSON.stringify(b_piece); break; } // KING SIDE
-							else if (moveObj.to == 'c8' && b_piece[n].to == 'a8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'd8' }; response.b_piece = JSON.stringify(b_piece); break; } // QUEEN SIDE
+					if (chessInst.get(game.moveObj.to).type == 'k' && game.moveObj.from == 'e8' && (game.moveObj.to == 'g8' || game.moveObj.to == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+						for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
+							let b_piece = JSON.parse(game.response.b_piece)
+							if (game.moveObj.to == 'g8' && b_piece[n].to == 'h8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'f8' }; game.response.b_piece = JSON.stringify(b_piece); break; } // KING SIDE
+							else if (game.moveObj.to == 'c8' && b_piece[n].to == 'a8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'd8' }; game.response.b_piece = JSON.stringify(b_piece); break; } // QUEEN SIDE
 						}
 					}
-					if (moveObj.promotion && moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
-						let b_piece = JSON.parse(response.b_piece)
-						b_piece[b_piece.length] = { from: moveObj.from, to: moveObj.to };
-						response.b_piece = JSON.stringify(b_piece);
+					if (game.moveObj.promotion && game.moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+						let b_piece = JSON.parse(game.response.b_piece)
+						b_piece[b_piece.length] = { from: game.moveObj.from, to: game.moveObj.to };
+						game.response.b_piece = JSON.stringify(b_piece);
 					}
 				}
 
 
-				response = await validate(GAME_URL, GAME_ID, PLAYER_ID, [moveObj.from, moveObj.to], moveObj.promotion, false); // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
+				game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, [game.moveObj.from, game.moveObj.to], game.moveObj.promotion, false); // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
 
-				chessInst.load(response.game_board); // THE SERVER'S BOARD
+				chessInst.load(game.response.game_board); // THE SERVER'S BOARD
 
-				if (response.status == 200) {
-					currSlide = false;
-					if (response.state == "CLOSED") { showGameOver(response); return; } // CHECKMATE OR DRAW
+				if (game.response.status == 200) {
+					game.currSlide = false;
+					if (game.response.state == "CLOSED") { showGameOver(game.response); return; } // CHECKMATE OR DRAW
 
-					if (ai) {
-						tiles = await setTiles();
-						refresh = true;
-						setTimeout(function () { aiTurn = true; refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
+					if (game.ai) {
+						game.tiles = await setTiles();
+						game.refresh = true;
+						setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
 						return;
 					}
-					else { return refreshData(response); } // FRIEND GAME: THE SOCKET SAYS WHEN THEY MOVE
+					else { return refreshData(game.response); } // FRIEND GAME: THE SOCKET SAYS WHEN THEY MOVE
 
-				} else { opposingMove = false; return refreshData(revert); } // TURNED DOWN: BACK TO THE OLD BOARD
-			} catch (err) { console.log(err); opposingMove = false; mousedownTile = false; clickedTile = false; return refreshData(revert); }
+				} else { game.opposingMove = false; return refreshData(game.revert); } // TURNED DOWN: BACK TO THE OLD BOARD
+			} catch (err) { console.log(err); game.opposingMove = false; game.mousedownTile = false; game.clickedTile = false; return refreshData(game.revert); }
 		}
 
 		/* ---------------------------------------------------------------- */
@@ -2150,90 +2072,90 @@ export async function renderCanvas(playerData) {
 			try {
 				moveAudio.load();
 				moveAudio.play().catch((err) => { console.log(err) });
-				tiles[index].xSlideTo = 0;
-				tiles[index].ySlideTo = 0;
-				chessInst.move(moveObj); // LOCAL BOARD
+				game.tiles[index].xSlideTo = 0;
+				game.tiles[index].ySlideTo = 0;
+				chessInst.move(game.moveObj); // LOCAL BOARD
 
-				if (opponentColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
-					for (let n = 0; n < JSON.parse(response.w_knight).length; n++) {
-						if (moveObj.from == JSON.parse(response.w_knight)[n].to) {
-							let w_knight = JSON.parse(response.w_knight)
-							w_knight[n].from = moveObj.from;
-							w_knight[n].to = moveObj.to;
-							response.w_knight = JSON.stringify(w_knight);
+				if (game.opponentColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
+					for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
+						if (game.moveObj.from == JSON.parse(game.response.w_knight)[n].to) {
+							let w_knight = JSON.parse(game.response.w_knight)
+							w_knight[n].from = game.moveObj.from;
+							w_knight[n].to = game.moveObj.to;
+							game.response.w_knight = JSON.stringify(w_knight);
 						}
 					}
-					for (let n = 0; n < JSON.parse(response.w_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
-						if (moveObj.from == JSON.parse(response.w_piece)[n].to) {
-							let w_piece = JSON.parse(response.w_piece)
-							if (moveObj.from.split("")[1] != moveObj.to.split("")[1]) { w_piece[n].from = moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
-							w_piece[n].to = moveObj.to;
-							response.w_piece = JSON.stringify(w_piece);
+					for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+						if (game.moveObj.from == JSON.parse(game.response.w_piece)[n].to) {
+							let w_piece = JSON.parse(game.response.w_piece)
+							if (game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { w_piece[n].from = game.moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+							w_piece[n].to = game.moveObj.to;
+							game.response.w_piece = JSON.stringify(w_piece);
 						}
 					}
 					// !NOTE: THE OLD ROOK SQUARE STAYS UNTIL THE SERVER'S LIST COMES BACK. THE MOVE LANDS HALFWAY THROUGH DRAWING A FRAME
 					// & THE REST OF THAT FRAME STILL DRAWS THE OLD BOARD, SO THE ROOK WOULD DISAPPEAR FOR A FRAME IF ITS SQUARE WAS GONE
-					if (chessInst.get(moveObj.to).type == 'k' && moveObj.from == 'e1' && (moveObj.to == 'g1' || moveObj.to == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
-						for (let n = 0; n < JSON.parse(response.w_piece).length; n++) {
-							let w_piece = JSON.parse(response.w_piece)
-							if (moveObj.to == 'g1' && w_piece[n].to == 'h1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'f1' }; response.w_piece = JSON.stringify(w_piece); break; } // KING SIDE
-							else if (moveObj.to == 'c1' && w_piece[n].to == 'a1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'd1' }; response.w_piece = JSON.stringify(w_piece); break; } // QUEEN SIDE
+					if (chessInst.get(game.moveObj.to).type == 'k' && game.moveObj.from == 'e1' && (game.moveObj.to == 'g1' || game.moveObj.to == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+						for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
+							let w_piece = JSON.parse(game.response.w_piece)
+							if (game.moveObj.to == 'g1' && w_piece[n].to == 'h1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'f1' }; game.response.w_piece = JSON.stringify(w_piece); break; } // KING SIDE
+							else if (game.moveObj.to == 'c1' && w_piece[n].to == 'a1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'd1' }; game.response.w_piece = JSON.stringify(w_piece); break; } // QUEEN SIDE
 						}
 					}
-					if (moveObj.promotion && moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
-						let w_piece = JSON.parse(response.w_piece)
-						w_piece[w_piece.length] = { from: moveObj.from, to: moveObj.to };
-						response.w_piece = JSON.stringify(w_piece);
+					if (game.moveObj.promotion && game.moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+						let w_piece = JSON.parse(game.response.w_piece)
+						w_piece[w_piece.length] = { from: game.moveObj.from, to: game.moveObj.to };
+						game.response.w_piece = JSON.stringify(w_piece);
 					}
-				} else if (opponentColor == 'b') {
-					for (let n = 0; n < JSON.parse(response.b_knight).length; n++) {
-						if (moveObj.from == JSON.parse(response.b_knight)[n].to) {
-							let b_knight = JSON.parse(response.b_knight)
-							b_knight[n].from = moveObj.from;
-							b_knight[n].to = moveObj.to;
-							response.b_knight = JSON.stringify(b_knight);
+				} else if (game.opponentColor == 'b') {
+					for (let n = 0; n < JSON.parse(game.response.b_knight).length; n++) {
+						if (game.moveObj.from == JSON.parse(game.response.b_knight)[n].to) {
+							let b_knight = JSON.parse(game.response.b_knight)
+							b_knight[n].from = game.moveObj.from;
+							b_knight[n].to = game.moveObj.to;
+							game.response.b_knight = JSON.stringify(b_knight);
 						}
 					}
-					for (let n = 0; n < JSON.parse(response.b_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
-						if (moveObj.from == JSON.parse(response.b_piece)[n].to) {
-							let b_piece = JSON.parse(response.b_piece)
-							if (moveObj.from.split("")[1] != moveObj.to.split("")[1]) { b_piece[n].from = moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
-							b_piece[n].to = moveObj.to;
-							response.b_piece = JSON.stringify(b_piece);
+					for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+						if (game.moveObj.from == JSON.parse(game.response.b_piece)[n].to) {
+							let b_piece = JSON.parse(game.response.b_piece)
+							if (game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { b_piece[n].from = game.moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+							b_piece[n].to = game.moveObj.to;
+							game.response.b_piece = JSON.stringify(b_piece);
 						}
 					}
-					if (chessInst.get(moveObj.to).type == 'k' && moveObj.from == 'e8' && (moveObj.to == 'g8' || moveObj.to == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
-						for (let n = 0; n < JSON.parse(response.b_piece).length; n++) {
-							let b_piece = JSON.parse(response.b_piece)
-							if (moveObj.to == 'g8' && b_piece[n].to == 'h8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'f8' }; response.b_piece = JSON.stringify(b_piece); break; } // KING SIDE
-							else if (moveObj.to == 'c8' && b_piece[n].to == 'a8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'd8' }; response.b_piece = JSON.stringify(b_piece); break; } // QUEEN SIDE
+					if (chessInst.get(game.moveObj.to).type == 'k' && game.moveObj.from == 'e8' && (game.moveObj.to == 'g8' || game.moveObj.to == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+						for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
+							let b_piece = JSON.parse(game.response.b_piece)
+							if (game.moveObj.to == 'g8' && b_piece[n].to == 'h8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'f8' }; game.response.b_piece = JSON.stringify(b_piece); break; } // KING SIDE
+							else if (game.moveObj.to == 'c8' && b_piece[n].to == 'a8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'd8' }; game.response.b_piece = JSON.stringify(b_piece); break; } // QUEEN SIDE
 						}
 					}
-					if (moveObj.promotion && moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
-						let b_piece = JSON.parse(response.b_piece)
-						b_piece[b_piece.length] = { from: moveObj.from, to: moveObj.to };
-						response.b_piece = JSON.stringify(b_piece);
+					if (game.moveObj.promotion && game.moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+						let b_piece = JSON.parse(game.response.b_piece)
+						b_piece[b_piece.length] = { from: game.moveObj.from, to: game.moveObj.to };
+						game.response.b_piece = JSON.stringify(b_piece);
 					}
 				}
 
-				revert = response;
-				if (ai) { response = await new Promise((resolve) => setTimeout(() => resolve(moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS LIKE THE OLD PUT SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
-				else { response = await validate(GAME_URL, GAME_ID, PLAYER_ID, false, false, false); }
-				chessInst.load(response.game_board); // UPDATE BOARD
-				if (response.status == 200) { // IF VALIDATED UPDATE BOARD STATE
-					currSlide = false;
+				game.revert = game.response;
+				if (game.ai) { game.response = await new Promise((resolve) => setTimeout(() => resolve(game.moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS LIKE THE OLD PUT SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
+				else { game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); }
+				chessInst.load(game.response.game_board); // UPDATE BOARD
+				if (game.response.status == 200) { // IF VALIDATED UPDATE BOARD STATE
+					game.currSlide = false;
 
-					tiles[index].isSliding = null;
-					tiles[index].xDiff = 0;
-					tiles[index].yDiff = 0;
-					tiles[index].x = tiles[index].xSlideTo;
-					tiles[index].y = tiles[index].ySlideTo;
+					game.tiles[index].isSliding = null;
+					game.tiles[index].xDiff = 0;
+					game.tiles[index].yDiff = 0;
+					game.tiles[index].x = game.tiles[index].xSlideTo;
+					game.tiles[index].y = game.tiles[index].ySlideTo;
 
-					opposingMove = false;
-					refreshData(response);
-					if (response.state == "CLOSED") { showGameOver(response); } // CHECKMATE OR DRAW
-				} else { opposingMove = true; return refreshData(revert); } // IF VALIDATION FAILS REVERT BACK TO PREVIOUS BOARD
-			} catch (err) { currSlide = false; console.log(err); return refreshData(response); }
+					game.opposingMove = false;
+					refreshData(game.response);
+					if (game.response.state == "CLOSED") { showGameOver(game.response); } // CHECKMATE OR DRAW
+				} else { game.opposingMove = true; return refreshData(game.revert); } // IF VALIDATION FAILS REVERT BACK TO PREVIOUS BOARD
+			} catch (err) { game.currSlide = false; console.log(err); return refreshData(game.response); }
 		}
 
 		/* ---------------------------------------------------------------- */
@@ -2248,18 +2170,18 @@ export async function renderCanvas(playerData) {
 		function refreshData(response) {
 			try {
 				chessInst.load(response.game_board);
-				tiles = setTiles(); // NEW TILE ARRAY, THE OLD ONE IS DROPPED
-				clickedTile = false;
-				mousedownTile = false;
-				currPromotion = false;
-				currSlide = false;
-				slideStart = false;
-				refresh = true;
-				availableMovesData = { piece: null, square: null }
-				menuToggled = false;
+				game.tiles = setTiles(); // NEW TILE ARRAY, THE OLD ONE IS DROPPED
+				game.clickedTile = false;
+				game.mousedownTile = false;
+				game.currPromotion = false;
+				game.currSlide = false;
+				game.slideStart = false;
+				game.refresh = true;
+				game.availableMovesData = { piece: null, square: null }
+				game.menuToggled = false;
 				
 				return response;
-			} catch (err) { console.log(err); tiles = setTiles(); refresh = true; return response; }
+			} catch (err) { console.log(err); game.tiles = setTiles(); game.refresh = true; return response; }
 		}
 
 
@@ -2282,14 +2204,14 @@ export async function renderCanvas(playerData) {
 		 * @param  {[number]} xTo [file it went to]
 		 */
 		function handleKnightDirectionW(xFrom, xTo) {
-			if (playerColor == 'w') {
-				if (xFrom < xTo) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; } // MOVED RIGHT
-				else if (xFrom > xTo) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; } // MOVED LEFT
-				else { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; } // SAME FILE (A KNIGHT ALWAYS CHANGES FILE, SO THIS DOESN'T HAPPEN)
-			} else if (playerColor == 'b') { // FLIPPED BOARD: A HIGHER FILE IS FURTHER LEFT ON SCREEN
-				if (xFrom > xTo) { wKnightImg = wRightKnightImg; wKnightShdw = wRightKnightShdw; wKnightRefl = wRightKnightRefl; }
-				else if (xFrom < xTo) { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; }
-				else { wKnightImg = wLeftKnightImg; wKnightShdw = wLeftKnightShdw; wKnightRefl = wLeftKnightRefl; }
+			if (game.playerColor == 'w') {
+				if (xFrom < xTo) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; } // MOVED RIGHT
+				else if (xFrom > xTo) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; } // MOVED LEFT
+				else { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; } // SAME FILE (A KNIGHT ALWAYS CHANGES FILE, SO THIS DOESN'T HAPPEN)
+			} else if (game.playerColor == 'b') { // FLIPPED BOARD: A HIGHER FILE IS FURTHER LEFT ON SCREEN
+				if (xFrom > xTo) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; }
+				else if (xFrom < xTo) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; }
+				else { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; }
 			}
 		}
 
@@ -2305,14 +2227,14 @@ export async function renderCanvas(playerData) {
 		 * @param  {[number]} xTo [screen column it went to]
 		 */
 		function handleKnightDirectionB(xFrom, xTo) {
-			if (playerColor == 'w') {
-				if (xFrom < xTo) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; } // MOVED RIGHT
-				else if (xFrom > xTo) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; } // MOVED LEFT
-				else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; } // SAME COLUMN (DOESN'T HAPPEN FOR A KNIGHT)
-			} else if (playerColor == 'b') {
-				if (xFrom < xTo) { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
-				else if (xFrom > xTo) { bKnightImg = bLeftKnightImg; bKnightShdw = bLeftKnightShdw; bKnightRefl = bLeftKnightRefl; }
-				else { bKnightImg = bRightKnightImg; bKnightShdw = bRightKnightShdw; bKnightRefl = bRightKnightRefl; }
+			if (game.playerColor == 'w') {
+				if (xFrom < xTo) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; } // MOVED RIGHT
+				else if (xFrom > xTo) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; } // MOVED LEFT
+				else { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; } // SAME COLUMN (DOESN'T HAPPEN FOR A KNIGHT)
+			} else if (game.playerColor == 'b') {
+				if (xFrom < xTo) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; }
+				else if (xFrom > xTo) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; }
+				else { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; }
 			}
 		}
 
@@ -2330,11 +2252,11 @@ export async function renderCanvas(playerData) {
 			let xMoved = 0; // HOW FAR ACROSS IT'S GONE (0 - 1)
 			let yMoved = 0; // HOW FAR UP OR DOWN IT'S GONE (0 - 1)
 			if (tile.isSliding) {
-				if (tile.xSlideTo != tile.x) { xMoved = Math.abs(tile.xDiff) / (Math.abs(tile.xSlideTo - tile.x) * tileWidth); }
-				if (tile.ySlideTo != tile.y) { yMoved = Math.abs(tile.yDiff) / (Math.abs(tile.ySlideTo - tile.y) * tileHeight); }
-				knightHop = Math.sin(Math.min(Math.max(xMoved, yMoved), 1) * Math.PI); // 0 AT THE START & END, 1 HALFWAY
-				if (knightHop < 0.001) { knightHop = 0; } // BACK ON THE BOARD (sin(PI) ISN'T EXACTLY 0)
-			} else { knightHop = 0; } // ON THE BOARD
+				if (tile.xSlideTo != tile.x) { xMoved = Math.abs(tile.xDiff) / (Math.abs(tile.xSlideTo - tile.x) * game.tileWidth); }
+				if (tile.ySlideTo != tile.y) { yMoved = Math.abs(tile.yDiff) / (Math.abs(tile.ySlideTo - tile.y) * game.tileHeight); }
+				game.knightHop = Math.sin(Math.min(Math.max(xMoved, yMoved), 1) * Math.PI); // 0 AT THE START & END, 1 HALFWAY
+				if (game.knightHop < 0.001) { game.knightHop = 0; } // BACK ON THE BOARD (sin(PI) ISN'T EXACTLY 0)
+			} else { game.knightHop = 0; } // ON THE BOARD
 		}
 
 
@@ -2350,25 +2272,25 @@ export async function renderCanvas(playerData) {
 		 */
 		function handlePieceDirectionW(yFrom, yTo) {
 			if (yFrom > yTo) { // MOVED UP: FACES AWAY
-				wKingImg = wBackKingImg; wKingShdw = wBackKingShdw; wKingRefl = wBackKingRefl;
-				wQueenImg = wBackQueenImg; wQueenShdw = wBackQueenShdw; wQueenRefl = wBackQueenRefl;
-				wBishopBlackSqImg = wBackBishopImg; wBishopWhiteSqImg = wBackBishopImg; wBishopShdw = wBackBishopShdw; wBishopRefl = wBackBishopRefl;
-				wRookImg = wBackRookImg; wRookShdw = wBackRookShdw; wRookRefl = wBackRookRefl;
+				game.wKingImg = wBackKingImg; game.wKingShdw = wBackKingShdw; game.wKingRefl = wBackKingRefl;
+				game.wQueenImg = wBackQueenImg; game.wQueenShdw = wBackQueenShdw; game.wQueenRefl = wBackQueenRefl;
+				game.wBishopBlackSqImg = wBackBishopImg; game.wBishopWhiteSqImg = wBackBishopImg; game.wBishopShdw = wBackBishopShdw; game.wBishopRefl = wBackBishopRefl;
+				game.wRookImg = wBackRookImg; game.wRookShdw = wBackRookShdw; game.wRookRefl = wBackRookRefl;
 			} else if (yFrom < yTo) { // MOVED DOWN: FACES THE PLAYER
-				wKingImg = wFrontKingImg; wKingShdw = wFrontKingShdw; wKingRefl = wFrontKingRefl;
-				wQueenImg = wFrontQueenImg; wQueenShdw = wFrontQueenShdw; wQueenRefl = wFrontQueenRefl;
-				wBishopBlackSqImg = wFrontBishopBlackSqImg; wBishopWhiteSqImg = wFrontBishopWhiteSqImg; wBishopShdw = wFrontBishopShdw; wBishopRefl = wFrontBishopRefl;
-				wRookImg = wFrontRookImg; wRookShdw = wFrontRookShdw; wRookRefl = wFrontRookRefl;
-			} else if (playerColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE (THE TOP OF THE BOARD)
-				wKingImg = wBackKingImg; wKingShdw = wBackKingShdw; wKingRefl = wBackKingRefl;
-				wQueenImg = wBackQueenImg; wQueenShdw = wBackQueenShdw; wQueenRefl = wBackQueenRefl;
-				wBishopBlackSqImg = wBackBishopImg; wBishopWhiteSqImg = wBackBishopImg; wBishopShdw = wBackBishopShdw; wBishopRefl = wBackBishopRefl;
-				wRookImg = wBackRookImg; wRookShdw = wBackRookShdw; wRookRefl = wBackRookRefl;
-			} else if (playerColor == 'b') { // FLIPPED BOARD: BLACK'S SIDE IS THE BOTTOM
-				wKingImg = wFrontKingImg; wKingShdw = wFrontKingShdw; wKingRefl = wFrontKingRefl;
-				wQueenImg = wFrontQueenImg; wQueenShdw = wFrontQueenShdw; wQueenRefl = wFrontQueenRefl;
-				wBishopBlackSqImg = wFrontBishopBlackSqImg; wBishopWhiteSqImg = wFrontBishopWhiteSqImg; wBishopShdw = wFrontBishopShdw; wBishopRefl = wFrontBishopRefl;
-				wRookImg = wFrontRookImg; wRookShdw = wFrontRookShdw; wRookRefl = wFrontRookRefl;
+				game.wKingImg = wFrontKingImg; game.wKingShdw = wFrontKingShdw; game.wKingRefl = wFrontKingRefl;
+				game.wQueenImg = wFrontQueenImg; game.wQueenShdw = wFrontQueenShdw; game.wQueenRefl = wFrontQueenRefl;
+				game.wBishopBlackSqImg = wFrontBishopBlackSqImg; game.wBishopWhiteSqImg = wFrontBishopWhiteSqImg; game.wBishopShdw = wFrontBishopShdw; game.wBishopRefl = wFrontBishopRefl;
+				game.wRookImg = wFrontRookImg; game.wRookShdw = wFrontRookShdw; game.wRookRefl = wFrontRookRefl;
+			} else if (game.playerColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE (THE TOP OF THE BOARD)
+				game.wKingImg = wBackKingImg; game.wKingShdw = wBackKingShdw; game.wKingRefl = wBackKingRefl;
+				game.wQueenImg = wBackQueenImg; game.wQueenShdw = wBackQueenShdw; game.wQueenRefl = wBackQueenRefl;
+				game.wBishopBlackSqImg = wBackBishopImg; game.wBishopWhiteSqImg = wBackBishopImg; game.wBishopShdw = wBackBishopShdw; game.wBishopRefl = wBackBishopRefl;
+				game.wRookImg = wBackRookImg; game.wRookShdw = wBackRookShdw; game.wRookRefl = wBackRookRefl;
+			} else if (game.playerColor == 'b') { // FLIPPED BOARD: BLACK'S SIDE IS THE BOTTOM
+				game.wKingImg = wFrontKingImg; game.wKingShdw = wFrontKingShdw; game.wKingRefl = wFrontKingRefl;
+				game.wQueenImg = wFrontQueenImg; game.wQueenShdw = wFrontQueenShdw; game.wQueenRefl = wFrontQueenRefl;
+				game.wBishopBlackSqImg = wFrontBishopBlackSqImg; game.wBishopWhiteSqImg = wFrontBishopWhiteSqImg; game.wBishopShdw = wFrontBishopShdw; game.wBishopRefl = wFrontBishopRefl;
+				game.wRookImg = wFrontRookImg; game.wRookShdw = wFrontRookShdw; game.wRookRefl = wFrontRookRefl;
 			}
 		}
 
@@ -2385,25 +2307,25 @@ export async function renderCanvas(playerData) {
 		 */
 		function handlePieceDirectionB(yFrom, yTo) {
 			if (yFrom > yTo) { // MOVED UP: FACES AWAY
-				bKingImg = bBackKingImg; bKingShdw = bBackKingShdw; bKingRefl = bBackKingRefl;
-				bQueenImg = bBackQueenImg; bQueenShdw = bBackQueenShdw; bQueenRefl = bBackQueenRefl;
-				bBishopBlackSqImg = bBackBishopImg; bBishopWhiteSqImg = bBackBishopImg; bBishopShdw = bBackBishopShdw; bBishopRefl = bBackBishopRefl;
-				bRookImg = bBackRookImg; bRookShdw = bBackRookShdw; bRookRefl = bBackRookRefl;
+				game.bKingImg = bBackKingImg; game.bKingShdw = bBackKingShdw; game.bKingRefl = bBackKingRefl;
+				game.bQueenImg = bBackQueenImg; game.bQueenShdw = bBackQueenShdw; game.bQueenRefl = bBackQueenRefl;
+				game.bBishopBlackSqImg = bBackBishopImg; game.bBishopWhiteSqImg = bBackBishopImg; game.bBishopShdw = bBackBishopShdw; game.bBishopRefl = bBackBishopRefl;
+				game.bRookImg = bBackRookImg; game.bRookShdw = bBackRookShdw; game.bRookRefl = bBackRookRefl;
 			} else if (yFrom < yTo) { // MOVED DOWN: FACES THE PLAYER
-				bKingImg = bFrontKingImg; bKingShdw = bFrontKingShdw; bKingRefl = bFrontKingRefl;
-				bQueenImg = bFrontQueenImg; bQueenShdw = bFrontQueenShdw; bQueenRefl = bFrontQueenRefl;
-				bBishopBlackSqImg = bFrontBishopBlackSqImg; bBishopWhiteSqImg = bFrontBishopWhiteSqImg; bBishopShdw = bFrontBishopShdw; bBishopRefl = bFrontBishopRefl;
-				bRookImg = bFrontRookImg; bRookShdw = bFrontRookShdw; bRookRefl = bFrontRookRefl;
-			} else if (playerColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE (THE BOTTOM OF THE BOARD)
-				bKingImg = bFrontKingImg; bKingShdw = bFrontKingShdw; bKingRefl = bFrontKingRefl;
-				bQueenImg = bFrontQueenImg; bQueenShdw = bFrontQueenShdw; bQueenRefl = bFrontQueenRefl;
-				bBishopBlackSqImg = bFrontBishopBlackSqImg; bBishopWhiteSqImg = bFrontBishopWhiteSqImg; bBishopShdw = bFrontBishopShdw; bBishopRefl = bFrontBishopRefl;
-				bRookImg = bFrontRookImg; bRookShdw = bFrontRookShdw; bRookRefl = bFrontRookRefl;
-			} else if (playerColor == 'b') { // FLIPPED BOARD: WHITE'S SIDE IS THE TOP
-				bKingImg = bBackKingImg; bKingShdw = bBackKingShdw; bKingRefl = bBackKingRefl;
-				bQueenImg = bBackQueenImg; bQueenShdw = bBackQueenShdw; bQueenRefl = bBackQueenRefl;
-				bBishopBlackSqImg = bBackBishopImg; bBishopWhiteSqImg = bBackBishopImg; bBishopShdw = bBackBishopShdw; bBishopRefl = bBackBishopRefl;
-				bRookImg = bBackRookImg; bRookShdw = bBackRookShdw; bRookRefl = bBackRookRefl;
+				game.bKingImg = bFrontKingImg; game.bKingShdw = bFrontKingShdw; game.bKingRefl = bFrontKingRefl;
+				game.bQueenImg = bFrontQueenImg; game.bQueenShdw = bFrontQueenShdw; game.bQueenRefl = bFrontQueenRefl;
+				game.bBishopBlackSqImg = bFrontBishopBlackSqImg; game.bBishopWhiteSqImg = bFrontBishopWhiteSqImg; game.bBishopShdw = bFrontBishopShdw; game.bBishopRefl = bFrontBishopRefl;
+				game.bRookImg = bFrontRookImg; game.bRookShdw = bFrontRookShdw; game.bRookRefl = bFrontRookRefl;
+			} else if (game.playerColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE (THE BOTTOM OF THE BOARD)
+				game.bKingImg = bFrontKingImg; game.bKingShdw = bFrontKingShdw; game.bKingRefl = bFrontKingRefl;
+				game.bQueenImg = bFrontQueenImg; game.bQueenShdw = bFrontQueenShdw; game.bQueenRefl = bFrontQueenRefl;
+				game.bBishopBlackSqImg = bFrontBishopBlackSqImg; game.bBishopWhiteSqImg = bFrontBishopWhiteSqImg; game.bBishopShdw = bFrontBishopShdw; game.bBishopRefl = bFrontBishopRefl;
+				game.bRookImg = bFrontRookImg; game.bRookShdw = bFrontRookShdw; game.bRookRefl = bFrontRookRefl;
+			} else if (game.playerColor == 'b') { // FLIPPED BOARD: WHITE'S SIDE IS THE TOP
+				game.bKingImg = bBackKingImg; game.bKingShdw = bBackKingShdw; game.bKingRefl = bBackKingRefl;
+				game.bQueenImg = bBackQueenImg; game.bQueenShdw = bBackQueenShdw; game.bQueenRefl = bBackQueenRefl;
+				game.bBishopBlackSqImg = bBackBishopImg; game.bBishopWhiteSqImg = bBackBishopImg; game.bBishopShdw = bBackBishopShdw; game.bBishopRefl = bBackBishopRefl;
+				game.bRookImg = bBackRookImg; game.bRookShdw = bBackRookShdw; game.bRookRefl = bBackRookRefl;
 			}
 		}
 
@@ -2417,12 +2339,12 @@ export async function renderCanvas(playerData) {
 		 * & toward the player for the opponent's
 		 */
 		function handlePawnDirection() {
-			if (playerColor == 'w') { // WHITE PAWNS FACE BLACK'S SIDE (THE TOP OF THE BOARD), BLACK PAWNS FACE THE PLAYER
-				wPawnImg = wBackPawnImg; wPawnShdw = wBackPawnShdw; wPawnRefl = wBackPawnRefl;
-				bPawnImg = bFrontPawnImg; bPawnShdw = bFrontPawnShdw; bPawnRefl = bFrontPawnRefl;
-			} else if (playerColor == 'b') { // FLIPPED BOARD: BLACK PAWNS FACE WHITE'S SIDE (THE TOP), WHITE PAWNS FACE THE PLAYER
-				wPawnImg = wFrontPawnImg; wPawnShdw = wFrontPawnShdw; wPawnRefl = wFrontPawnRefl;
-				bPawnImg = bBackPawnImg; bPawnShdw = bBackPawnShdw; bPawnRefl = bBackPawnRefl;
+			if (game.playerColor == 'w') { // WHITE PAWNS FACE BLACK'S SIDE (THE TOP OF THE BOARD), BLACK PAWNS FACE THE PLAYER
+				game.wPawnImg = wBackPawnImg; game.wPawnShdw = wBackPawnShdw; game.wPawnRefl = wBackPawnRefl;
+				game.bPawnImg = bFrontPawnImg; game.bPawnShdw = bFrontPawnShdw; game.bPawnRefl = bFrontPawnRefl;
+			} else if (game.playerColor == 'b') { // FLIPPED BOARD: BLACK PAWNS FACE WHITE'S SIDE (THE TOP), WHITE PAWNS FACE THE PLAYER
+				game.wPawnImg = wFrontPawnImg; game.wPawnShdw = wFrontPawnShdw; game.wPawnRefl = wFrontPawnRefl;
+				game.bPawnImg = bBackPawnImg; game.bPawnShdw = bBackPawnShdw; game.bPawnRefl = bBackPawnRefl;
 			}
 		}
 
@@ -2454,8 +2376,8 @@ export async function renderCanvas(playerData) {
 		 * @param  {[object]} btn [menu button element]
 		 */
 		function handleRemoteMenuEnter(btn) {
-			if (TV_BOOL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
-			if (TV_BOOL || OVERRIDE_TV) { remoteNavBox.menuHover = false; remoteNavBox.menuBtn = btn; remoteNavBox.menuBtn.style.transition = "ease-in 375ms"; remoteNavBox.menuBtn.style.backgroundColor = "burlywood" }
+			if (game.TV_BOOL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
+			if (game.TV_BOOL || OVERRIDE_TV) { remoteNavBox.menuHover = false; remoteNavBox.menuBtn = btn; remoteNavBox.menuBtn.style.transition = "ease-in 375ms"; remoteNavBox.menuBtn.style.backgroundColor = "burlywood" }
 		}
 
 
@@ -2492,11 +2414,11 @@ export async function renderCanvas(playerData) {
 		 */
 		window.addEventListener("resize", handleWindowResize);
 		function handleWindowResize() {
-			if (boardReset) { return; } // LOADING: THE OLD BOARD STAYS, SLIDING HOME: drawRestartSlide() DRAWS THE NEW SIZE NEXT FRAME
-			refresh = true;
+			if (game.boardReset) { return; } // LOADING: THE OLD BOARD STAYS, SLIDING HOME: drawRestartSlide() DRAWS THE NEW SIZE NEXT FRAME
+			game.refresh = true;
 			try {
-				drawScreen();
-				refresh = false;
+				game.drawScreen();
+				game.refresh = false;
 			} catch (err) { console.log(err); }
 		};
 
@@ -2509,7 +2431,7 @@ export async function renderCanvas(playerData) {
 		 * from the last column moves it onto the menu button & up / down move between menu buttons. Enter clicks the square
 		 * (handleCanvasClick), opens the menu or presses the selected menu button
 		 */
-		if (TV_BOOL || OVERRIDE_TV) { window.addEventListener("keydown", handleKeyPress) }
+		if (game.TV_BOOL || OVERRIDE_TV) { window.addEventListener("keydown", handleKeyPress) }
 		async function handleKeyPress(e) {
 			e.preventDefault();
 			e.stopPropagation();
@@ -2518,66 +2440,66 @@ export async function renderCanvas(playerData) {
 				 * @description Hovers the player's piece under the select box (the remote's version of handleMouseMove)
 				 */
 				function checkBoxOverPiece() {
-					for (let i = 0; i < tiles.length; i++) {
-						let tile = tiles[i];
+					for (let i = 0; i < game.tiles.length; i++) {
+						let tile = game.tiles[i];
 						tile.isHovering = false;
-						tile.isHovering = (!tile.isSliding) && (remoteNavBox.x == tile.originX && remoteNavBox.y == tile.originY) && ((tile.color == playerColor || !tile.color)) && (!opposingMove && !menuToggled)
+						tile.isHovering = (!tile.isSliding) && (remoteNavBox.x == tile.originX && remoteNavBox.y == tile.originY) && ((tile.color == game.playerColor || !tile.color)) && (!game.opposingMove && !game.menuToggled)
 					}
 				}
 
 				if (e.keyCode == 37) { // LEFT
-					if (remoteNavBox.x > 0 && !menuToggled) {
+					if (remoteNavBox.x > 0 && !game.menuToggled) {
 						if (remoteNavBox.menuHover) {
-							if (TV_BOOL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
+							if (game.TV_BOOL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
 							remoteNavBox.menuHover = false;
 						} else {
 							remoteNavBox.x -= 1;
 						}
-						refresh = true;
+						game.refresh = true;
 					}
-					else { refresh = true; }
+					else { game.refresh = true; }
 					checkBoxOverPiece();
 				}
 
 				if (e.keyCode == 39) { // RIGHT
-					if (remoteNavBox.x < 7 && !menuToggled) {
+					if (remoteNavBox.x < 7 && !game.menuToggled) {
 						remoteNavBox.x += 1;
-						refresh = true;
+						game.refresh = true;
 					}
-					else if (remoteNavBox.x == 7 && !menuToggled) { // PAST THE LAST COLUMN: SELECT THE MENU BUTTON
+					else if (remoteNavBox.x == 7 && !game.menuToggled) { // PAST THE LAST COLUMN: SELECT THE MENU BUTTON
 						remoteNavBox.y = 0;
 						remoteNavBox.menuHover = true;
-						if (TV_BOOL) { optBtn.style.transition = "ease-in 375ms"; optBtn.style.color = "white"; }
+						if (game.TV_BOOL) { optBtn.style.transition = "ease-in 375ms"; optBtn.style.color = "white"; }
 					}
 
-					else { refresh = true; }
+					else { game.refresh = true; }
 					checkBoxOverPiece();
 				}
 
 				if (e.keyCode == 38) { // UP
-					if (remoteNavBox.y > 0 && (!remoteNavBox.menuHover && !menuToggled)) { remoteNavBox.y -= 1; refresh = true; }
-					else if (menuToggled) {
+					if (remoteNavBox.y > 0 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y -= 1; game.refresh = true; }
+					else if (game.menuToggled) {
 						if (remoteNavBox.menuBtn == optExitBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 4 -> 3
 						else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 3 -> 2
 						else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optResumeBtn) } // 2 -> 1			
 					}
-					else { refresh = true; }
+					else { game.refresh = true; }
 					checkBoxOverPiece();
 				}
 				if (e.keyCode == 40) { // DOWN
-					if (remoteNavBox.y < 7 && (!remoteNavBox.menuHover && !menuToggled)) { remoteNavBox.y += 1; refresh = true; }
-					else if (menuToggled) {
+					if (remoteNavBox.y < 7 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y += 1; game.refresh = true; }
+					else if (game.menuToggled) {
 						if (remoteNavBox.menuBtn == optResumeBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 1 -> 2
 						else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 2 -> 3
 						else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optExitBtn) } // 3 -> 4
 					}
-					else { refresh = true; }
+					else { game.refresh = true; }
 					checkBoxOverPiece();
 				}
 				if (e.keyCode == 13) { // ENTER
-					if (!remoteNavBox.menuHover && !menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
-					else if (remoteNavBox.menuHover && !menuToggled) { handleMenuBtn(e); handleRemoteMenuEnter(optResumeBtn); } // OPEN THE MENU ON RESUME
-					else if (menuToggled && remoteNavBox.menuBtn) { // PRESS THE SELECTED MENU BUTTON, THEN THE SELECT BOX GOES BACK TO THE TOP RIGHT
+					if (!remoteNavBox.menuHover && !game.menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
+					else if (remoteNavBox.menuHover && !game.menuToggled) { handleMenuBtn(e); handleRemoteMenuEnter(optResumeBtn); } // OPEN THE MENU ON RESUME
+					else if (game.menuToggled && remoteNavBox.menuBtn) { // PRESS THE SELECTED MENU BUTTON, THEN THE SELECT BOX GOES BACK TO THE TOP RIGHT
 						remoteNavBox.menuBtn.style.backgroundColor = "#CD853F"
 						if (remoteNavBox.menuBtn == optResumeBtn) { handleResume(e); }
 						else if (remoteNavBox.menuBtn == optRestartBtn) { handleRestart(e); }
@@ -2586,7 +2508,7 @@ export async function renderCanvas(playerData) {
 						remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false }
 					}
 				}
-				refresh = true
+				game.refresh = true
 			}
 		}
 
@@ -2612,98 +2534,98 @@ export async function renderCanvas(playerData) {
 		 * (or puts it back down on its own square), a click on another square slides the picked up piece there & a dragged piece
 		 * is dropped where it's let go. Mouse up, touch end & the TV remote's enter all end up here
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("click", handleCanvasClick); }
+		if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("click", handleCanvasClick); }
 		async function handleCanvasClick(e) {
 			e.preventDefault();
 			e.stopPropagation();
 			const point = getCanvasPoint(e);
-			tileX = Math.floor((point.x - xBoardOff) / tileWidth); // SCREEN COLUMN CLICKED
-			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // SCREEN ROW CLICKED
+			game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth); // SCREEN COLUMN CLICKED
+			game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // SCREEN ROW CLICKED
 
 			if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (TV REMOTE) ENTER HAS NO POINTER POSITION
-				tileX = remoteNavBox.x; tileY = remoteNavBox.y;
+				game.tileX = remoteNavBox.x; game.tileY = remoteNavBox.y;
 			}
 
-			if (currPromotion) { // IF PROMOTION IS TRUE LOOK FOR USER TO CLICK ON TAKEN PIECES TO UPDATE BOARD
-				revert = response;
+			if (game.currPromotion) { // IF PROMOTION IS TRUE LOOK FOR USER TO CLICK ON TAKEN PIECES TO UPDATE BOARD
+				game.revert = game.response;
 				let takenPieces // THE PICKER (drawScreen PUTS IT IN THIS LIST WHILE PROMOTING)
-				if (playerColor == 'w') { takenPieces = bTakenPieces }
-				else if (playerColor == 'b') { takenPieces = wTakenPieces }
+				if (game.playerColor == 'w') { takenPieces = game.bTakenPieces }
+				else if (game.playerColor == 'b') { takenPieces = game.wTakenPieces }
 				for (let i = 0; i < takenPieces.length; i++) {
 					let takenPiece = takenPieces[i];
-					if (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color))) && takenPiece.type && takenPiece.color == playerColor) { // CLICKED THIS PIECE IN THE PICKER
+					if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && takenPiece.type && takenPiece.color == game.playerColor) { // CLICKED THIS PIECE IN THE PICKER
 						const promotion = takenPiece.type;
 						try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
-							moveObj.promotion = promotion;
-							currPromotion = false;
+							game.moveObj.promotion = promotion;
+							game.currPromotion = false;
 							await validateMove();
-						} catch (err) { console.log(err); opposingMove = false; return refreshData(revert); }
+						} catch (err) { console.log(err); game.opposingMove = false; return refreshData(game.revert); }
 					}
 				}
-			} else if (!currSlide) {
-				revert = response;
-				for (let i = 0; i < tiles.length; i++) {
-					let tile = tiles[i];
-					if (tile.isHovering && tile.type && tile.color == playerColor) { // DRAG AND DROP && IF HOVER IS TRUE
-						if (tile.isClicked && tileX == tile.originX && tileY == tile.originY) { // IF TILE IS CLICKED AND SET BACK IN ORIGINAL POSITION
+			} else if (!game.currSlide) {
+				game.revert = game.response;
+				for (let i = 0; i < game.tiles.length; i++) {
+					let tile = game.tiles[i];
+					if (tile.isHovering && tile.type && tile.color == game.playerColor) { // DRAG AND DROP && IF HOVER IS TRUE
+						if (tile.isClicked && game.tileX == tile.originX && game.tileY == tile.originY) { // IF TILE IS CLICKED AND SET BACK IN ORIGINAL POSITION
 							tile.isClicked = false;
-							clickedTile = false;
-							mousedownTile = false;
-							refresh = true;
+							game.clickedTile = false;
+							game.mousedownTile = false;
+							game.refresh = true;
 							return;
 						}
 
-						if (tile.isClicked && tile.color == playerColor && (tileX != tile.originX || tileY != tile.originY)) { // IF PIECE IS CLICKED AND SET IN A NEW POSITION
+						if (tile.isClicked && tile.color == game.playerColor && (game.tileX != tile.originX || game.tileY != tile.originY)) { // IF PIECE IS CLICKED AND SET IN A NEW POSITION
 							try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
-								moveObj = playerMove(playerColor, tile); // { from, to } FROM WHERE IT WAS DROPPED
-								if (moveObj.promotion) { currPromotion = true; refresh = true; return; } // PAWN ON THE LAST RANK: OPEN THE PICKER
+								game.moveObj = playerMove(game.playerColor, tile); // { from, to } FROM WHERE IT WAS DROPPED
+								if (game.moveObj.promotion) { game.currPromotion = true; game.refresh = true; return; } // PAWN ON THE LAST RANK: OPEN THE PICKER
 								tile.isClicked = false;
-								clickedTile = false;
-								mousedownTile = false;
-								opposingMove = true;
-								refresh = true;
+								game.clickedTile = false;
+								game.mousedownTile = false;
+								game.opposingMove = true;
+								game.refresh = true;
 								return await validateMove(); // DROPPED, SO NO SLIDE: SEND IT NOW
 							} catch (err) {
 								console.log(err);
-								opposingMove = false;
-								return refreshData(revert);
+								game.opposingMove = false;
+								return refreshData(game.revert);
 							}
 						}
 
 						tile.isClicked = true; // PICK IT UP
-						clickedTile = tile;
-						refresh = true;
-					} else if (!tile.isHovering && (tile.isClicked && tile.color == playerColor && (tileX != tile.originX || tileY != tile.originY))) { // CLICK PIECE WHILE MAINTAINING POSITION
+						game.clickedTile = tile;
+						game.refresh = true;
+					} else if (!tile.isHovering && (tile.isClicked && tile.color == game.playerColor && (game.tileX != tile.originX || game.tileY != tile.originY))) { // CLICK PIECE WHILE MAINTAINING POSITION
 						try {
-							for (let z = 0; z < tiles.length; z++) { tiles[z].isClicked = false; clickedTile = false; }
-							for (let j = 0; j < tiles.length; j++) { // CLICKED ANOTHER OF THE PLAYER'S PIECES: PICK THAT ONE UP INSTEAD
-								if ((tiles[j].isHovering && tiles[j].x == tileX && tiles[j].y == tileY) && tiles[j].color == playerColor) {
-									tiles[j].isClicked = true
-									clickedTile = tiles[j];
-									refresh = true;
+							for (let z = 0; z < game.tiles.length; z++) { game.tiles[z].isClicked = false; game.clickedTile = false; }
+							for (let j = 0; j < game.tiles.length; j++) { // CLICKED ANOTHER OF THE PLAYER'S PIECES: PICK THAT ONE UP INSTEAD
+								if ((game.tiles[j].isHovering && game.tiles[j].x == game.tileX && game.tiles[j].y == game.tileY) && game.tiles[j].color == game.playerColor) {
+									game.tiles[j].isClicked = true
+									game.clickedTile = game.tiles[j];
+									game.refresh = true;
 									return;
 								}
 							}
-							tile.x = tileX; // CLICKED A SQUARE: SLIDE THE PICKED UP PIECE THERE (THE MOVE IS SENT WHEN IT LANDS)
-							tile.y = tileY;
-							moveObj = playerMove(playerColor, tile);
-							validateState.load(response.game_board);
-							validateState.move(moveObj); // CHECK MOVE WITHOUT UPDATING THE BOARD SO THE DRAWSCREEN FUNCTION CAN OPERATE WITH THE PREVIOUS MOVE WHILE CHECKING IF THE MOVE IS ALLOWED
-							currSlide = true;
-							slideStart = true;
+							tile.x = game.tileX; // CLICKED A SQUARE: SLIDE THE PICKED UP PIECE THERE (THE MOVE IS SENT WHEN IT LANDS)
+							tile.y = game.tileY;
+							game.moveObj = playerMove(game.playerColor, tile);
+							validateState.load(game.response.game_board);
+							validateState.move(game.moveObj); // CHECK MOVE WITHOUT UPDATING THE BOARD SO THE DRAWSCREEN FUNCTION CAN OPERATE WITH THE PREVIOUS MOVE WHILE CHECKING IF THE MOVE IS ALLOWED
+							game.currSlide = true;
+							game.slideStart = true;
 							tile.isSliding = true;
-							tile.xSlideTo = tileX;
-							tile.ySlideTo = tileY;
+							tile.xSlideTo = game.tileX;
+							tile.ySlideTo = game.tileY;
 							tile.xDiff = 0;
 							tile.yDiff = 0;
-							for (let j = 0; j < tiles.length; j++) { tiles[j].isClicked = false; tiles[j].isMousedown = false }
-							clickedTile = false;
-							mousedownTile = false;
-							opposingMove = true;
-							refresh = true;
+							for (let j = 0; j < game.tiles.length; j++) { game.tiles[j].isClicked = false; game.tiles[j].isMousedown = false }
+							game.clickedTile = false;
+							game.mousedownTile = false;
+							game.opposingMove = true;
+							game.refresh = true;
 
 							return;
-						} catch (err) { console.log(err); clickedTile = false; opposingMove = false; return refreshData(revert); }
+						} catch (err) { console.log(err); game.clickedTile = false; game.opposingMove = false; return refreshData(game.revert); }
 					}
 				}
 			}
@@ -2717,40 +2639,40 @@ export async function renderCanvas(playerData) {
 		 * follows it) & sets isHovering on the player's piece under it, or on the promotion picker while promoting.
 		 * Asks for a new frame when the hover changes
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousemove", handleMouseMove); }
+		if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousemove", handleMouseMove); }
 		function handleMouseMove(e) {
 			e.preventDefault();
 			e.stopPropagation();
 			// IF PIECE IS CLICK TO BE MOVED MOUSE POSITION
 			const point = getCanvasPoint(e);
-			tileX = Math.floor((point.x - xBoardOff) / tileWidth); // SCREEN COLUMN (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
-			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // SCREEN ROW
-			if (!((tileX < 0 || tileX > 7) && (tileY < 0 || tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
-				if (currPromotion) { // HOVER THE PICKER
+			game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth); // SCREEN COLUMN (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
+			game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // SCREEN ROW
+			if (!((game.tileX < 0 || game.tileX > 7) && (game.tileY < 0 || game.tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
+				if (game.currPromotion) { // HOVER THE PICKER
 					let takenPieces
-					if (playerColor == 'w') { takenPieces = bTakenPieces }
-					else if (playerColor == 'b') { takenPieces = wTakenPieces }
+					if (game.playerColor == 'w') { takenPieces = game.bTakenPieces }
+					else if (game.playerColor == 'b') { takenPieces = game.wTakenPieces }
 					for (let i = 0; i < takenPieces.length; i++) {
 						let takenPiece = takenPieces[i];
-						takenPiece.isHovering = (((takenPiece.x === tileX && takenPiece.y === tileY && (takenPiece.color == playerColor || !takenPiece.color)))) && !menuToggled
-						if (takenPiece.isHovering || takenPiece.isClicked) { refresh = true; offBoardRefresh = true; }
-						if (takenPiece.color != playerColor && takenPiece.color) { refresh = true }
+						takenPiece.isHovering = (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color)))) && !game.menuToggled
+						if (takenPiece.isHovering || takenPiece.isClicked) { game.refresh = true; offBoardRefresh = true; }
+						if (takenPiece.color != game.playerColor && takenPiece.color) { game.refresh = true }
 					}
 				} else { // HOVER THE PLAYER'S PIECE UNDER THE MOUSE (ONLY ON THEIR TURN, WITH THE MENU CLOSED)
-					for (let i = 0; i < tiles.length; i++) {
-						let tile = tiles[i];
+					for (let i = 0; i < game.tiles.length; i++) {
+						let tile = game.tiles[i];
 						tile.isHovering =
 							(!tile.isSliding) &&
-							(tile.x === tileX && tile.y === tileY) &&
-							((tile.color == playerColor || !tile.color) || tile.isMousedown) &&
-							(!opposingMove && !menuToggled)
-						if (tile.isHovering || tile.isClicked) { refresh = true; offBoardRefresh = true; }
-						if (tile.color != playerColor && tile.color) { refresh = true }
+							(tile.x === game.tileX && tile.y === game.tileY) &&
+							((tile.color == game.playerColor || !tile.color) || tile.isMousedown) &&
+							(!game.opposingMove && !game.menuToggled)
+						if (tile.isHovering || tile.isClicked) { game.refresh = true; offBoardRefresh = true; }
+						if (tile.color != game.playerColor && tile.color) { game.refresh = true }
 					}
 				}
 			}
-			if (tileX < 0 || tileX > 7 || tileY < 0 || tileY > 7) { // MOUSE OUTSIDE THE BOARD
-				if (offBoardRefresh) { refresh = true }
+			if (game.tileX < 0 || game.tileX > 7 || game.tileY < 0 || game.tileY > 7) { // MOUSE OUTSIDE THE BOARD
+				if (offBoardRefresh) { game.refresh = true }
 			}
 		}
 
@@ -2761,24 +2683,24 @@ export async function renderCanvas(playerData) {
 		 * @description Sets positions / tracks user mousedown drag. Starts a drag on the player's hovered piece (the render loop
 		 * makes it a drag after 3 frames). If another piece was picked up by a click, that one is put down instead
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousedown", handleMouseDown); }
+		if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousedown", handleMouseDown); }
 		async function handleMouseDown(e) {
 			e.preventDefault();
 			e.stopPropagation();
 			const point = getCanvasPoint(e);
-			tileX = Math.floor((point.x - xBoardOff) / tileWidth);
-			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // IF HOVER IS TRUE
-			for (let i = 0; i < tiles.length; i++) {
-				let tile = tiles[i];
-				if ((tile.isHovering && tile.type && tile.color == playerColor)) { // GRAB THE HOVERED PIECE
+			game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth);
+			game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // IF HOVER IS TRUE
+			for (let i = 0; i < game.tiles.length; i++) {
+				let tile = game.tiles[i];
+				if ((tile.isHovering && tile.type && tile.color == game.playerColor)) { // GRAB THE HOVERED PIECE
 					tile.isMousedown = true;
-					mousedownTile = tile;
-					mouseDownCount = 0;
-					for (let j = 0; j < tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
-						if (tiles[j].isClicked && (tiles[j].x != tileX || tiles[j].y != tileY) && tiles[j].color == playerColor) {
-							tiles[j].isClicked = false
-							clickedTile = false;
-							refresh = true;
+					game.mousedownTile = tile;
+					game.mouseDownCount = 0;
+					for (let j = 0; j < game.tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
+						if (game.tiles[j].isClicked && (game.tiles[j].x != game.tileX || game.tiles[j].y != game.tileY) && game.tiles[j].color == game.playerColor) {
+							game.tiles[j].isClicked = false
+							game.clickedTile = false;
+							game.refresh = true;
 							return
 						}
 					}
@@ -2793,21 +2715,21 @@ export async function renderCanvas(playerData) {
 		 * @description Sets positions based on mouse up event position. Lets go of the held piece. The click event comes right
 		 * after & handleCanvasClick() drops it on the square (a drag) or keeps it picked up (a quick click)
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mouseup", handleMouseUp); }
+		if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mouseup", handleMouseUp); }
 		async function handleMouseUp(e) {
 			e.preventDefault();
 			e.stopPropagation();
 			const point = getCanvasPoint(e);
-			tileX = Math.floor((point.x - xBoardOff) / tileWidth);
-			tileY = Math.floor((point.y - yBoardOff) / tileHeight); // IF HOVER IS TRUE
-			for (let i = 0; i < tiles.length; i++) {
-				let tile = tiles[i];
-				if (tile.isMousedown && tile.isHovering && tile.type && tile.color == playerColor) { // LET GO OF THE HELD PIECE
+			game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth);
+			game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // IF HOVER IS TRUE
+			for (let i = 0; i < game.tiles.length; i++) {
+				let tile = game.tiles[i];
+				if (tile.isMousedown && tile.isHovering && tile.type && tile.color == game.playerColor) { // LET GO OF THE HELD PIECE
 					tile.isMousedown = false;
-					mousedownTile = false;
-					tileX = tile.originX
-					tileY = tile.originY
-					refresh = true;
+					game.mousedownTile = false;
+					game.tileX = tile.originX
+					game.tileY = tile.originY
+					game.refresh = true;
 				}
 			}
 		}
@@ -2838,7 +2760,7 @@ export async function renderCanvas(playerData) {
 			moveAudio.play().then(() => { moveAudio.pause(); moveAudio.currentTime = 0; moveAudio.muted = false; }).catch(() => { moveAudio.muted = false; });
 		}
 
-		if (!TV_BOOL || OVERRIDE_TV) {
+		if (!game.TV_BOOL || OVERRIDE_TV) {
 			canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
 			canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
 			canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
@@ -2877,8 +2799,8 @@ export async function renderCanvas(playerData) {
 			unlockAudio();
 			handleMouseMove(point);
 			if (dragging) { // DROP THE DRAGGED PIECE ON THE RELEASE TILE (THE RENDER LOOP ONLY DOES THIS ON ITS NEXT FRAME)
-				for (let i = 0; i < tiles.length; i++) {
-					if (tiles[i].isMousedown && tiles[i].color == playerColor) { tiles[i].x = tileX; tiles[i].y = tileY; tiles[i].isClicked = true; }
+				for (let i = 0; i < game.tiles.length; i++) {
+					if (game.tiles[i].isMousedown && game.tiles[i].color == game.playerColor) { game.tiles[i].x = game.tileX; game.tiles[i].y = game.tileY; game.tiles[i].isClicked = true; }
 				}
 				handleMouseMove(point);
 			}
@@ -2899,13 +2821,13 @@ export async function renderCanvas(playerData) {
 		/**
 		 * @description Toggles menu based on menu state. The menu button (3 lines) opens or closes the menu
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { optBtn.addEventListener("click", handleMenuBtn); }
+		if (!game.TV_BOOL || OVERRIDE_TV) { optBtn.addEventListener("click", handleMenuBtn); }
 		function handleMenuBtn(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			menuToggled = !menuToggled;
-			refresh = false; // THE BOARD STAYS AS IT IS UNDER THE MENU
-			if (menuToggled) { menu.style.display = "flex" }
+			game.menuToggled = !game.menuToggled;
+			game.refresh = false; // THE BOARD STAYS AS IT IS UNDER THE MENU
+			if (game.menuToggled) { menu.style.display = "flex" }
 			else { menu.style.display = "none" }
 		}
 
@@ -2915,14 +2837,14 @@ export async function renderCanvas(playerData) {
 		/**
 		 * @description Opens or closes menu based on menu state. Resume is only seen while the menu is open, so it closes it
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { optResumeBtn.addEventListener("click", handleResume); }
+		if (!game.TV_BOOL || OVERRIDE_TV) { optResumeBtn.addEventListener("click", handleResume); }
 		function handleResume(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			if (boardReset) { return; } // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS (THE OLD BOARD UNDER IT IS LOCKED)
-			menuToggled = !menuToggled;
-			refresh = false;
-			if (menuToggled) { menu.style.display = "flex" }
+			if (game.boardReset) { return; } // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS (THE OLD BOARD UNDER IT IS LOCKED)
+			game.menuToggled = !game.menuToggled;
+			game.refresh = false;
+			if (game.menuToggled) { menu.style.display = "flex" }
 			else { menu.style.display = "none" }
 		}
 
@@ -2934,28 +2856,28 @@ export async function renderCanvas(playerData) {
 		 * under the menu & Restart says Loading & fills up while it loads, then the pieces slide home (startRestartSlide).
 		 * Friend games: the same button is Forfeit, then Rematch once the game is over
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
+		if (!game.TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
 		async function handleRestart(e) {
 			e.preventDefault();
 			e.stopPropagation();
-			if (boardReset) { return; } // ALREADY LOADING A NEW BOARD (A SECOND PRESS, THE TV REMOTE'S ENTER)
-			if (!ai) { return await handleFriendBtn(); } // FORFEIT / REMATCH
+			if (game.boardReset) { return; } // ALREADY LOADING A NEW BOARD (A SECOND PRESS, THE TV REMOTE'S ENTER)
+			if (!game.ai) { return await handleFriendBtn(); } // FORFEIT / REMATCH
 			const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
-			boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN UNDER THE MENU WHILE THE NEW ONE LOADS
-			refresh = false;
+			game.boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN UNDER THE MENU WHILE THE NEW ONE LOADS
+			game.refresh = false;
 			optBtn.style.display = "none"
 			setRestartLoading(0.15); // "Loading" & THE FILL
-			const restartResponse = await restartGame(GAME_URL, GAME_ID); // FORFEITS IF STILL GOING, THEN A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
+			const restartResponse = await restartGame(game.GAME_URL, game.GAME_ID); // FORFEITS IF STILL GOING, THEN A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
 			if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME (THE MENU STAYS OPEN)
-				boardReset = false;
+				game.boardReset = false;
 				setRestartLoading(false);
 				optBtn.style.display = "flex";
-				refresh = true;
+				game.refresh = true;
 				return;
 			}
 			setRestartLoading(0.5);
-			GAME_ID = restartResponse.game_id; // NEW GAME ID (GUESTS KEEP THEIRS)
-			if (playerData.SIGNED_IN) { history.replaceState(null, "", `/play/${GAME_ID}`); } // THE URL FOLLOWS THE NEW GAME, BACK DOESN'T RETURN TO THE OLD ONE (GUESTS STAY ON /play)
+			game.GAME_ID = restartResponse.game_id; // NEW GAME ID (GUESTS KEEP THEIRS)
+			if (playerData.SIGNED_IN) { history.replaceState(null, "", `/play/${game.GAME_ID}`); } // THE URL FOLLOWS THE NEW GAME, BACK DOESN'T RETURN TO THE OLD ONE (GUESTS STAY ON /play)
 			await loadNewBoard(fromPieces);
 			return
 		}
@@ -2966,8 +2888,8 @@ export async function renderCanvas(playerData) {
 		 * @param  {[array]} fromPieces [where the old game's pieces were, getRestartPieces(true)]
 		 */
 		async function loadNewBoard(fromPieces) {
-			gameOver = false;
-			drawScreen = function () { return }; // DRAW NOTHING UNTIL THE NEW BOARD IS IN (THE OLD ONE STAYS ON THE CANVAS)
+			game.gameOver = false;
+			game.drawScreen = function () { return }; // DRAW NOTHING UNTIL THE NEW BOARD IS IN (THE OLD ONE STAYS ON THE CANVAS)
 			await setInitialData(); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
 			handleInitialData(); // NEW drawScreen FOR THE (MAYBE NEW) PLAYER COLOR
 			setRestartLoading(1); // FULL
@@ -2975,8 +2897,8 @@ export async function renderCanvas(playerData) {
 			menu.style.display = "none"
 			optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 			resultDisplay.innerText = "Chess"
-			await refreshData(response); // ALSO SETS menuToggled TO FALSE
-			opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
+			await refreshData(game.response); // ALSO SETS menuToggled TO FALSE
+			game.opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
 			startRestartSlide(fromPieces);
 		}
 
@@ -2993,7 +2915,7 @@ export async function renderCanvas(playerData) {
 		function getRestartPieces(withTrays) {
 			let pieces = [];
 			let board = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
-			if (playerColor == 'b') { // FLIPPED BOARD, SAME AS handleInitialData()
+			if (game.playerColor == 'b') { // FLIPPED BOARD, SAME AS handleInitialData()
 				board = board.reverse();
 				for (let i = board.length - 1; i >= 0; i--) { board[i] = board[i].reverse(); }
 			}
@@ -3002,8 +2924,8 @@ export async function renderCanvas(playerData) {
 					if (board[i][j]) { pieces[pieces.length] = { type: board[i][j].type, color: board[i][j].color, square: board[i][j].square, x: j, y: i - 0.1 }; } // RESTING PIECES SIT A TENTH OF A SQUARE UP
 				}
 			}
-			if (withTrays && !currPromotion) { // WHILE PROMOTING THE TRAY IS THE PROMOTION PICKER
-				const takenPieces = [...(wTakenPieces || []), ...(bTakenPieces || [])];
+			if (withTrays && !game.currPromotion) { // WHILE PROMOTING THE TRAY IS THE PROMOTION PICKER
+				const takenPieces = [...(game.wTakenPieces || []), ...(game.bTakenPieces || [])];
 				for (let i = 0; i < takenPieces.length; i++) {
 					if (takenPieces[i].x !== undefined) { pieces[pieces.length] = { type: takenPieces[i].type, color: takenPieces[i].color, square: null, x: takenPieces[i].x, y: takenPieces[i].y }; } // DRAWN IN A TRAY
 				}
@@ -3020,13 +2942,13 @@ export async function renderCanvas(playerData) {
 			if (load === false) { // DONE OR FAILED
 				optRestartBtn.classList.remove("loading");
 				optRestartBtn.style.removeProperty("--load");
-				optRestartBtn.innerHTML = ai ? "Restart" : "Forfeit";
+				optRestartBtn.innerHTML = game.ai ? "Restart" : "Forfeit";
 				return;
 			}
 			if (!optRestartBtn.classList.contains("loading")) { // FIRST CALL
 				optRestartBtn.innerHTML = "Loading";
 				optRestartBtn.classList.add("loading");
-				setTimeout(function () { if (boardReset) { setRestartLoading(load); } }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)
+				setTimeout(function () { if (game.boardReset) { setRestartLoading(load); } }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)
 				return;
 			}
 			if (load > (Number(optRestartBtn.style.getPropertyValue("--load")) || 0)) { optRestartBtn.style.setProperty("--load", load); }
@@ -3061,7 +2983,7 @@ export async function renderCanvas(playerData) {
 			}
 			for (let t = 0; t < toPieces.length; t++) { if (!toUsed[t]) { pieces[pieces.length] = setSlidePiece(toPieces[t], toPieces[t], 1); } } // FADES IN
 			for (let f = 0; f < fromPieces.length; f++) { if (!fromUsed[f]) { pieces[pieces.length] = setSlidePiece(fromPieces[f], fromPieces[f], -1); } } // FADES OUT
-			restartSlide = { pieces, startTime: Date.now() };
+			game.restartSlide = { pieces, startTime: Date.now() };
 		}
 
 		/**
@@ -3079,7 +3001,7 @@ export async function renderCanvas(playerData) {
 			const square = to.square || from.square; // A BISHOP'S IMAGE FOLLOWS ITS SQUARE COLOR
 			if (to.type == 'p') { // PAWN
 				handlePawnDirection();
-				if (to.color == 'w') { imgArr = [wPawnRefl, wPawnShdw, wPawnImg]; } else { imgArr = [bPawnRefl, bPawnShdw, bPawnImg]; }
+				if (to.color == 'w') { imgArr = [game.wPawnRefl, game.wPawnShdw, game.wPawnImg]; } else { imgArr = [game.bPawnRefl, game.bPawnShdw, game.bPawnImg]; }
 			} else if (to.type == 'n') { // KNIGHT
 				const right = to.x > from.x || (to.x == from.x && to.x < 4);
 				if (to.color == 'w') { imgArr = right ? [wRightKnightRefl, wRightKnightShdw, wRightKnightImg] : [wLeftKnightRefl, wLeftKnightShdw, wLeftKnightImg]; }
@@ -3090,16 +3012,16 @@ export async function renderCanvas(playerData) {
 				const lightSquare = square && chessInst.squareColor(square) == 'light';
 				if (to.color == 'w') {
 					handlePieceDirectionW(yFrom, yTo);
-					if (to.type == 'k') { imgArr = [wKingRefl, wKingShdw, wKingImg]; }
-					else if (to.type == 'q') { imgArr = [wQueenRefl, wQueenShdw, wQueenImg]; }
-					else if (to.type == 'b') { imgArr = [wBishopRefl, wBishopShdw, lightSquare ? wBishopWhiteSqImg : wBishopBlackSqImg]; }
-					else if (to.type == 'r') { imgArr = [wRookRefl, wRookShdw, wRookImg]; }
+					if (to.type == 'k') { imgArr = [game.wKingRefl, game.wKingShdw, game.wKingImg]; }
+					else if (to.type == 'q') { imgArr = [game.wQueenRefl, game.wQueenShdw, game.wQueenImg]; }
+					else if (to.type == 'b') { imgArr = [game.wBishopRefl, game.wBishopShdw, lightSquare ? game.wBishopWhiteSqImg : game.wBishopBlackSqImg]; }
+					else if (to.type == 'r') { imgArr = [game.wRookRefl, game.wRookShdw, game.wRookImg]; }
 				} else {
 					handlePieceDirectionB(yFrom, yTo);
-					if (to.type == 'k') { imgArr = [bKingRefl, bKingShdw, bKingImg]; }
-					else if (to.type == 'q') { imgArr = [bQueenRefl, bQueenShdw, bQueenImg]; }
-					else if (to.type == 'b') { imgArr = [bBishopRefl, bBishopShdw, lightSquare ? bBishopWhiteSqImg : bBishopBlackSqImg]; }
-					else if (to.type == 'r') { imgArr = [bRookRefl, bRookShdw, bRookImg]; }
+					if (to.type == 'k') { imgArr = [game.bKingRefl, game.bKingShdw, game.bKingImg]; }
+					else if (to.type == 'q') { imgArr = [game.bQueenRefl, game.bQueenShdw, game.bQueenImg]; }
+					else if (to.type == 'b') { imgArr = [game.bBishopRefl, game.bBishopShdw, lightSquare ? game.bBishopWhiteSqImg : game.bBishopBlackSqImg]; }
+					else if (to.type == 'r') { imgArr = [game.bRookRefl, game.bRookShdw, game.bRookImg]; }
 				}
 			}
 			return { type: to.type, xFrom: from.x, yFrom: from.y, xTo: to.x, yTo: to.y, fade, imgArr };
@@ -3113,15 +3035,15 @@ export async function renderCanvas(playerData) {
 		 * the new game takes over (its first frame turns the pieces to their start, an AI move slides in after)
 		 */
 		function drawRestartSlide() {
-			const progress = Math.min((Date.now() - restartSlide.startTime) / RESTART_SLIDE_MS, 1); // 0 - 1 OF THE TIME
+			const progress = Math.min((Date.now() - game.restartSlide.startTime) / RESTART_SLIDE_MS, 1); // 0 - 1 OF THE TIME
 			if (progress == 1) { // HOME: THE NEW GAME TAKES OVER
-				restartSlide = null;
+				game.restartSlide = null;
 				setRestartLoading(false);
 				optBtn.style.display = "flex";
-				opposingMove = chessInst.turn() != playerColor; // LOCKED IF THE OPPONENT GOES FIRST
-				boardReset = false;
-				drawScreen(); // THE NEW GAME'S FIRST FRAME, IT ALSO PUTS THE SQUARES ON tiles SO AN AI MOVE FINDS ITS PIECE
-				refresh = true; // AN AI MOVE SLIDES IN NEXT
+				game.opposingMove = chessInst.turn() != game.playerColor; // LOCKED IF THE OPPONENT GOES FIRST
+				game.boardReset = false;
+				game.drawScreen(); // THE NEW GAME'S FIRST FRAME, IT ALSO PUTS THE SQUARES ON tiles SO AN AI MOVE FINDS ITS PIECE
+				game.refresh = true; // AN AI MOVE SLIDES IN NEXT
 				return;
 			}
 			const eased = 0.5 - Math.cos(progress * Math.PI) / 2; // HOW FAR ALONG, SLOW START & LANDING
@@ -3130,8 +3052,8 @@ export async function renderCanvas(playerData) {
 			renderBoard();
 
 			let drawPieces = []; // WHERE EACH PIECE IS THIS FRAME
-			for (let i = 0; i < restartSlide.pieces.length; i++) {
-				const piece = restartSlide.pieces[i];
+			for (let i = 0; i < game.restartSlide.pieces.length; i++) {
+				const piece = game.restartSlide.pieces[i];
 				const moving = piece.xFrom != piece.xTo || piece.yFrom != piece.yTo;
 				drawPieces[i] = {
 					imgArr: piece.imgArr,
@@ -3145,23 +3067,23 @@ export async function renderCanvas(playerData) {
 
 			for (let i = 0; i < drawPieces.length; i++) {
 				const piece = drawPieces[i];
-				const x = piece.x * tileWidth + xBoardOff - xPieceOffset / 2;
-				const y = piece.y * tileHeight + yBoardOff - yPieceOffset / 2;
+				const x = piece.x * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2;
+				const y = piece.y * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2;
 				ctx.globalAlpha = 0.30 * piece.alpha; // REFLECTION & SHADOW STAY ON THE BOARD, SHIFTED UP TO A FIFTH OF A SQUARE LEFT AS A KNIGHT RISES
-				ctx.drawImage(images[piece.imgArr[0]].image, x - (tileWidth / 5) * piece.hop, y, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+				ctx.drawImage(images[piece.imgArr[0]].image, x - (game.tileWidth / 5) * piece.hop, y, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 				ctx.globalAlpha = 0.75 * piece.alpha;
-				ctx.drawImage(images[piece.imgArr[1]].image, x - (tileWidth / 5) * piece.hop, y, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+				ctx.drawImage(images[piece.imgArr[1]].image, x - (game.tileWidth / 5) * piece.hop, y, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 				ctx.globalAlpha = piece.alpha;
-				if (piece.hop == 0) { ctx.drawImage(images[piece.imgArr[2]].image, x, y, tileWidth + xPieceOffset, tileHeight + yPieceOffset); } // PIECE (A KNIGHT IN THE AIR IS DRAWN BELOW)
+				if (piece.hop == 0) { ctx.drawImage(images[piece.imgArr[2]].image, x, y, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset); } // PIECE (A KNIGHT IN THE AIR IS DRAWN BELOW)
 			}
 			for (let i = 0; i < drawPieces.length; i++) { // KNIGHTS IN THE AIR GO OVER EVERYTHING, UP TO HALF A SQUARE UP (ONLY THE IMAGE, LIKE drawSlideBox, THEIR SHADOWS STAYED IN ORDER ABOVE)
 				const piece = drawPieces[i];
 				if (piece.hop == 0) { continue; }
 				ctx.globalAlpha = piece.alpha;
-				ctx.drawImage(images[piece.imgArr[2]].image, piece.x * tileWidth + xBoardOff - xPieceOffset / 2, piece.y * tileHeight + yBoardOff - yPieceOffset / 2 - (tileHeight / 2) * piece.hop, tileWidth + xPieceOffset, tileHeight + yPieceOffset);
+				ctx.drawImage(images[piece.imgArr[2]].image, piece.x * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2, piece.y * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2 - (game.tileHeight / 2) * piece.hop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 			}
 			ctx.globalAlpha = 0.05
-			ctx.drawImage(images[tableShdw].image, 0, 0, cw, ch); // RENDER TABLE SHDW
+			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 			ctx.globalAlpha = 1;
 		}
 
@@ -3172,21 +3094,21 @@ export async function renderCanvas(playerData) {
 		 * @description Game going: Forfeit -> "Are you sure?" -> forfeits. Game over: Rematch, starts when both players press it within 1 minute
 		 */
 		async function handleFriendBtn() {
-			if (!gameOver) {
+			if (!game.gameOver) {
 				if (!confirmForfeit) { // FIRST PRESS ASKS, THE QUESTION GOES AWAY AFTER 5 SECONDS
 					confirmForfeit = true;
 					optRestartBtn.innerHTML = "Are you sure?";
-					setTimeout(function () { if (confirmForfeit && !gameOver) { confirmForfeit = false; optRestartBtn.innerHTML = "Forfeit"; } }, 5000);
+					setTimeout(function () { if (confirmForfeit && !game.gameOver) { confirmForfeit = false; optRestartBtn.innerHTML = "Forfeit"; } }, 5000);
 					return;
 				}
 				confirmForfeit = false;
-				const forfeitResponse = await forfeitGame(GAME_URL, GAME_ID);
+				const forfeitResponse = await forfeitGame(game.GAME_URL, game.GAME_ID);
 				if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
 				optRestartBtn.innerHTML = "Forfeit"; // FORFEIT FAILED, KEEP PLAYING
 				return;
 			}
 			if (rematchWaiting) { return; } // ALREADY ASKED, STILL WAITING
-			const rematchResponse = await rematchGame(GAME_URL, GAME_ID);
+			const rematchResponse = await rematchGame(game.GAME_URL, game.GAME_ID);
 			if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME
 			if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
 			if (rematchResponse?.waiting) { // WAIT 1 MINUTE FOR THE OPPONENT
@@ -3203,17 +3125,17 @@ export async function renderCanvas(playerData) {
 		 * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
 		 */
 		function showGameOver(result) {
-			if (gameOver) { return; } // ALREADY SHOWN
-			gameOver = true;
-			opposingMove = true; // NO MORE MOVES
-			menuToggled = true;
+			if (game.gameOver) { return; } // ALREADY SHOWN
+			game.gameOver = true;
+			game.opposingMove = true; // NO MORE MOVES
+			game.menuToggled = true;
 			menu.style.display = "flex"
 			optResumeBtn.parentElement.style.display = 'none';
 			if (result?.reason == "forfeit") { resultDisplay.innerText = result.winner == 'w' ? "Black Forfeits" : "White Forfeits" } // THE TITLE ONLY FITS ONE LINE
 			else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
 			else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }
 			else { resultDisplay.innerText = "Draw" }
-			if (!ai) { optRestartBtn.innerHTML = "Rematch"; } // FRIEND GAME
+			if (!game.ai) { optRestartBtn.innerHTML = "Rematch"; } // FRIEND GAME
 			handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
 		}
 
@@ -3226,17 +3148,17 @@ export async function renderCanvas(playerData) {
 		 * @param  {[string]} newGameId [rematch game id, from the request or the socket]
 		 */
 		async function loadRematch(newGameId) {
-			if (!newGameId || `${newGameId}` == `${GAME_ID}`) { return; } // ALREADY LOADED (THE REQUEST & THE SOCKET BOTH SEND IT)
+			if (!newGameId || `${newGameId}` == `${game.GAME_ID}`) { return; } // ALREADY LOADED (THE REQUEST & THE SOCKET BOTH SEND IT)
 			const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
-			GAME_ID = newGameId;
-			history.replaceState(null, "", `/play/${GAME_ID}`); // THE URL FOLLOWS THE REMATCH
+			game.GAME_ID = newGameId;
+			history.replaceState(null, "", `/play/${game.GAME_ID}`); // THE URL FOLLOWS THE REMATCH
 			clearTimeout(rematchWaiting); // STOP THE 1 MINUTE WAIT
 			rematchWaiting = false;
-			boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN WHILE THE NEW ONE LOADS
-			refresh = false;
+			game.boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN WHILE THE NEW ONE LOADS
+			game.refresh = false;
 			optBtn.style.display = "none"
 			setRestartLoading(0.5); // "Loading" & THE FILL (THE MENU IS OPEN AFTER A GAME ENDS), "Forfeit" WHEN THE SLIDE IS DONE
-			joinGame(GAME_ID, PLAYER_ID, socketHandlers); // NEW GAME'S ROOM
+			joinGame(game.GAME_ID, game.PLAYER_ID, socketHandlers); // NEW GAME'S ROOM
 			await loadNewBoard(fromPieces);
 		}
 
@@ -3248,12 +3170,12 @@ export async function renderCanvas(playerData) {
 		 * the page load clears everything else (listeners, canvas). Home says Loading & fills up like the buttons into a game,
 		 * then the game stays on screen until Home is drawn & fades into it (home.html, showPage in pages/utils)
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
+		if (!game.TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
 		function handleHomepage(e) {
 			e.preventDefault();
 			e.stopPropagation();
 
-			window.clearInterval(drawInterval); // STOP THE RENDER LOOP
+			window.clearInterval(game.drawInterval); // STOP THE RENDER LOOP
 			leaveGame();
 			optHomepageBtn.innerText = "Loading";
 			optHomepageBtn.classList.add("loading"); // THE FILL (.loading IN nav.css), ONE PRESS
@@ -3267,7 +3189,7 @@ export async function renderCanvas(playerData) {
 		/**
 		 * @description Exits game: a signed in player logs out, a guest logs in (the server's auth routes, server/routes/api/authRoutes.js)
 		 */
-		if (!TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
+		if (!game.TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
 		function handleExit(e) {
 			e.preventDefault();
 			e.stopPropagation();
