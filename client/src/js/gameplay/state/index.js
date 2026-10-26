@@ -80,7 +80,7 @@ export const game = {
 	wTakenPieces: undefined, // WHITE PIECES THAT WERE TAKEN [{ color, type, x, y }]
 	bTakenPieces: undefined, // BLACK PIECES THAT WERE TAKEN
 
-	// WHITE PIECE IMAGES BEING DRAWN (IMAGE NUMBERS, gameplay/index.js), SET BEFORE EACH DRAW BY THE handle...Direction FUNCTIONS
+	// WHITE PIECE IMAGES BEING DRAWN (IMAGE NUMBERS, gameplay/sprites/index.js), SET BEFORE EACH DRAW BY THE handle...Direction FUNCTIONS
 	wKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionW)
 	wQueenImg: undefined, // SET WITH wKingImg
 	wBishopBlackSqImg: undefined, // SET WITH wKingImg

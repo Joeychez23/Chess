@@ -19,7 +19,7 @@ const HEIGHT = 720;
 const BOARD_SCALE = 0.92; // BOARD WIDTH / CANVAS WIDTH, LEAVES ROOM FOR THE TOP ROW'S PIECES (THEY STAND A LITTLE ABOVE THE BOARD)
 const xBoardShadowRatio = 0.985; // SAME AS gameplay/index.js, NUDGES THE SQUARES RIGHT TO LINE UP WITH THE BOARD IMAGE
 
-// IMAGE NUMBERS (THE INDEX IN SPRITES, SAME AS renderCanvas)
+// IMAGE NUMBERS (THE INDEX IN SPRITES, SAME AS THE GAME, gameplay/sprites/index.js)
 const tableImg = 0; // table.webp
 const tableShdw = 1; // table-shdw.png
 const boardImg = 2; // chess-board.png
