@@ -16,7 +16,7 @@ const { handlePieceDirectionW, handlePieceDirectionB, handlePawnDirection } = re
 const {
 	tableShdw, wRightKnightImg, wLeftKnightImg, wRightKnightShdw, wLeftKnightShdw, wRightKnightRefl, wLeftKnightRefl, bRightKnightImg, bLeftKnightImg, bRightKnightShdw, bLeftKnightShdw, bRightKnightRefl, bLeftKnightRefl // TABLE SHADOW & THE KNIGHTS (THE OTHER PIECES' IMAGES COME FROM THE draw FUNCTIONS ABOVE)
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
-const { setRestartLoading } = require("../index.js"); // STILL IN gameplay/index.js (IT MOVES WITH THE MENU), ONLY FUNCTIONS CAN COME FROM THERE
+const { setRestartLoading } = require("../menu/index.js"); // RESTART / REMATCH BUTTON'S LOADING FILL, PUT BACK WHEN THE PIECES ARE HOME
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), SHOWN AGAIN WHEN THE PIECES ARE HOME
 
 const RESTART_SLIDE_MS = 800; // HOW LONG THE PIECES TAKE TO SLIDE HOME

@@ -24,7 +24,7 @@ let loadingStartTime; // WHEN IT STARTED, goToPage() GOES ANYWAY 8 SECONDS AFTER
 /* ---------------------------------------------------------------- */
 /**
  * @description The menu button (3 lines, top right) opens & closes the menu. A click outside it, a link in it or Escape closes it.
- * The play page's game does this itself (handleMenuBtn in gameplay/index.js), so only pages without the game call this
+ * The play page's game does this itself (handleMenuBtn in gameplay/menu/index.js), so only pages without the game call this
  * @return {[function]} toggleNav [toggleNav(true) opens the menu, toggleNav(false) closes it]
  */
 export function startNav() {
