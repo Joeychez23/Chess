@@ -12,7 +12,8 @@
 /* ---------------------------------------------------------------- */
 const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, TV REMOTE FOR TESTING
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
-const { validateMove, refreshData, handleMenuBtn, handleResume, handleRestart, handleHomepage, handleExit } = require("../index.js"); // STILL IN gameplay/index.js (SERVER & MENU), ONLY FUNCTIONS CAN COME FROM THERE
+const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
+const { handleMenuBtn, handleResume, handleRestart, handleHomepage, handleExit } = require("../index.js"); // STILL IN gameplay/index.js (THEY MOVE WITH THE MENU), ONLY FUNCTIONS CAN COME FROM THERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
