@@ -15,7 +15,17 @@ const { validate, restartGame, forfeitGame, rematchGame } = require("./validate/
 const { playerMove } = require("./user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
 const { setTiles, countStartPieces } = require("./utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH
-const { SPRITES } = require("./sprites/index.js"); // EVERY SPRITE URL IN IMAGE NUMBER ORDER (HOME & GUEST USE IT TO WARM THE BROWSER CACHE)
+const { images, imageProgress } = require("./images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER, HOW MANY HAVE LOADED (0 - 1)
+const {
+	tableShdw, boardImg, boardShdw, rawBoardImg, // BOARD
+	wFrontKingImg, wBackKingImg, wFrontQueenImg, wBackQueenImg, wFrontBishopBlackSqImg, wFrontBishopWhiteSqImg, wBackBishopImg, wRightKnightImg, wLeftKnightImg, wFrontRookImg, wBackRookImg, wFrontPawnImg, wBackPawnImg, // WHITE IMAGES
+	wFrontKingShdw, wBackKingShdw, wFrontQueenShdw, wBackQueenShdw, wFrontBishopShdw, wBackBishopShdw, wRightKnightShdw, wLeftKnightShdw, wFrontRookShdw, wBackRookShdw, wFrontPawnShdw, wBackPawnShdw, // WHITE SHADOW
+	wFrontKingRefl, wBackKingRefl, wFrontQueenRefl, wBackQueenRefl, wFrontBishopRefl, wBackBishopRefl, wRightKnightRefl, wLeftKnightRefl, wFrontRookRefl, wBackRookRefl, wFrontPawnRefl, wBackPawnRefl, // WHITE REFLECT
+	bFrontKingImg, bBackKingImg, bFrontQueenImg, bBackQueenImg, bFrontBishopBlackSqImg, bFrontBishopWhiteSqImg, bBackBishopImg, bRightKnightImg, bLeftKnightImg, bFrontRookImg, bBackRookImg, bFrontPawnImg, bBackPawnImg, // BLACK IMAGES
+	bFrontKingShdw, bBackKingShdw, bFrontQueenShdw, bBackQueenShdw, bFrontBishopShdw, bBackBishopShdw, bRightKnightShdw, bLeftKnightShdw, bFrontRookShdw, bBackRookShdw, bFrontPawnShdw, bBackPawnShdw, // BLACK SHADOW
+	bFrontKingRefl, bBackKingRefl, bFrontQueenRefl, bBackQueenRefl, bFrontBishopRefl, bBackBishopRefl, bRightKnightRefl, bLeftKnightRefl, bFrontRookRefl, bBackRookRefl, bFrontPawnRefl, bBackPawnRefl, // BLACK REFLECT
+	moveHighlight, takeableHighlight, checkHighlight // UI
+} = require("./sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
 const { joinGame, leaveGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -27,62 +37,6 @@ const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 
 const OVERRIDE_TV = false; // TRUE TURNS ON THE TV REMOTE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
-
-const imagePaths = [];			// This will hold array of all loaded image resources
-const images = [];				// { path, image } IN LOAD ORDER, THE INDEX IS THE IMAGE NUMBER USED TO DRAW IT (SEE IMAGE NUMBERS IN renderCanvas)
-let imagememory = 0;			// BYTES OF ALL LOADED IMAGES (LOGGED)
-let loadedImages = 0;			// IMAGES FINISHED LOADING, THE GAME STARTS WHEN THIS MATCHES images.length
-/* ---------------------------------------------------------------- */
-// Load Image
-/* ---------------------------------------------------------------- */
-/**
- * @description Loads an image once. It's added to images[] before it finishes loading, so its index is the order loadImage() was called in
- * @param  {[string]} path [image url, ".png" is added when there's no extension]
- * @return {[object]} img [Promise of the loaded Image, or the saved one if this path was already loaded]
- */
-async function loadImage(path) {
-	return new Promise(function (resolve) {
-		if (path.indexOf('.') == -1) path += '.png';			// If no file extension provided, default to .png (lowercase is important for linux)
-		if (imagePaths.indexOf(path) == -1) {					// First, check to see if image is already loaded and available
-			let img = new Image();
-			img.src = path;
-			images.push({ "path": path, "image": img });		// Save it right away
-			img.onload = (() => {
-				imagememory += (img.naturalWidth * img.naturalHeight) * 4;
-				console.log('loadImage():Total Memory allocated:' + imagememory + ' for:' + path);
-				loadedImages += 1
-				resolve(img);
-			});
-			imagePaths.push(path);								// Add the new path to the imagePaths array
-		}
-		else													// It's already been loaded
-			for (let i = 0; i < images.length; i++) { if (images[i].path == path) { resolve(images[i].image); } }
-	})
-}
-
-/* ---------------------------------------------------------------- */
-// Preload Images
-/* ---------------------------------------------------------------- */
-/**
- * @description Loads every image the game draws, from CHESS_ASSESTS_URL (S3 / CloudFront). The list is SPRITES (gameplay/sprites/index.js).
- * !NOTE: THE ORDER MATTERS. EACH IMAGE'S INDEX IN images[] IS ITS IMAGE NUMBER IN renderCanvas (wFrontKingImg = 5, ...),
- * SO NEW IMAGES GO AT THE END OF SPRITES OR EVERY NUMBER AFTER THEM HAS TO CHANGE
- */
-export function preloadImages() {
-	for (let i = 0; i < SPRITES.length; i++) { loadImage(SPRITES[i]); } // IN ORDER, SO images[i] IS SPRITES[i]
-}
-
-/* ---------------------------------------------------------------- */
-// Image Progress
-/* ---------------------------------------------------------------- */
-/**
- * @description How many of the game's images have loaded, Home & guest fill the Loading button with it (startLoading in pages/utils)
- * @return {[number]} progress [0 - 1, 1 when every image preloadImages() started is in]
- */
-export function imageProgress() {
-	if (!images.length) { return 0; } // preloadImages() HASN'T RUN
-	return loadedImages / images.length;
-}
 
 /* ---------------------------------------------------------------- */
 // Render Canvas
@@ -132,121 +86,7 @@ export async function renderCanvas(playerData) {
 
 	let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // TV REMOTE SELECT BOX: SQUARE (x, y), ON THE MENU BUTTON (menuHover) & THE SELECTED MENU BUTTON
 
-	// !NOTE: IMAGE NUMBERS EQUALS INDEX USED TO CHECK IF ALL IMAGES ARE LOADING IN THE BACKGROUND
-	// EACH NUMBER IS THE IMAGE'S INDEX IN images[], SO IT HAS TO MATCH THE ORDER OF preloadImages()
-	// PIECES ARE DRAWN AS 3 LAYERS: REFLECTION (ON THE BOARD BELOW THE PIECE), SHADOW, THEN THE PIECE
-	// THE ONE OF EACH BEING DRAWN (FRONT OR BACK, RIGHT OR LEFT) IS ON game (game.wKingImg, ...), SET BY THE handle...Direction FUNCTIONS
-	// TABLE = 0
-	const tableShdw = 1; // table-shdw.png
-
-	const boardImg = 2; // chess-board.png
-	const boardShdw = 3; // chess-board-shdw.webp
-	const rawBoardImg = 4; // raw-board.png, ITS SIZE GIVES THE WOOD BORDER'S WIDTH
-
 	const xBoardShadowRatio = 0.985; // NUDGES THE SQUARES RIGHT A LITTLE TO LINE UP WITH THE BOARD IMAGE
-
-	// WHITE IMAGES
-	const wFrontKingImg = 5; // wk-e1.png, FACES THE PLAYER
-	const wBackKingImg = 58; // wk-back.png, FACES AWAY
-	const wFrontQueenImg = 6; // wq-d1.png
-	const wBackQueenImg = 59; // wq-back.png
-	const wFrontBishopBlackSqImg = 7; // wb-c1.png, BISHOP ON A DARK SQUARE
-	const wFrontBishopWhiteSqImg = 8; // wb-f1.png, BISHOP ON A LIGHT SQUARE
-	const wBackBishopImg = 60; // wb-back.png (BOTH SQUARE COLORS)
-	const wRightKnightImg = 9; // wn-b1.png, FACES RIGHT
-	const wLeftKnightImg = 10; // wn-g1.png, FACES LEFT
-	const wFrontRookImg = 11; // wr-h1.png
-	const wBackRookImg = 61; // wr-back.png
-	const wFrontPawnImg = 12; // wp-a2.png, FACES THE PLAYER
-	const wBackPawnImg = 82; // wp-back.png, FACES AWAY
-
-	// WHITE SHADOW
-	const wFrontKingShdw = 13; // wk-shdw.png
-	const wBackKingShdw = 62; // wk-back-shdw.png
-	const wFrontQueenShdw = 14; // wq-shdw.png
-	const wBackQueenShdw = 63; // wq-back-shdw.png
-	const wFrontBishopShdw = 15; // wb-shdw.png (BOTH BISHOPS)
-	const wBackBishopShdw = 64; // wb-back-shdw.png
-	const wRightKnightShdw = 16; // wn-b1-shdw.png
-	const wLeftKnightShdw = 17; // wn-g1-shdw.png
-	const wFrontRookShdw = 18; // wr-shdw.png
-	const wBackRookShdw = 65; // wr-back-shdw.png
-	const wFrontPawnShdw = 19; // wp-shdw.png
-	const wBackPawnShdw = 83; // wp-back-shdw.png
-
-	// WHITE REFLECT
-	const wFrontKingRefl = 20; // wk-refl.png
-	const wBackKingRefl = 66; // wk-back-refl.png
-	const wFrontQueenRefl = 21; // wq-refl.png
-	const wBackQueenRefl = 67; // wq-back-refl.png
-	const wFrontBishopRefl = 22; // wb-refl.png (BOTH BISHOPS)
-	const wBackBishopRefl = 68; // wb-back-refl.png
-	const wRightKnightRefl = 23; // wn-b1-refl.png
-	const wLeftKnightRefl = 24; // wn-g1-refl.png
-	const wFrontRookRefl = 25; // wr-refl.png
-	const wBackRookRefl = 69; // wr-back-refl.png
-	const wFrontPawnRefl = 26; // wp-refl.png
-	const wBackPawnRefl = 84; // wp-back-refl.png
-
-	// BLACK IMAGES
-	const bFrontKingImg = 27; // bk-e8.png, FACES THE PLAYER (WHEN PLAYING WHITE)
-	const bBackKingImg = 70; // bk-back.png, FACES AWAY
-	const bFrontQueenImg = 28; // bq-d8.png
-	const bBackQueenImg = 71; // bq-back.png
-	const bFrontBishopBlackSqImg = 29; // bb-f8.png, BISHOP ON A DARK SQUARE
-	const bFrontBishopWhiteSqImg = 30; // bb-c8.png, BISHOP ON A LIGHT SQUARE
-	const bBackBishopImg = 72; // bb-back.png (BOTH SQUARE COLORS)
-	const bRightKnightImg = 31; // bn-b8.png, FACES RIGHT
-	const bLeftKnightImg = 32; // bn-g8.png, FACES LEFT
-	const bFrontRookImg = 33; // br-h8.png
-	const bBackRookImg = 73; // br-back.png
-	const bFrontPawnImg = 34; // bp-a7.png, FACES THE PLAYER (WHEN PLAYING WHITE)
-	const bBackPawnImg = 85; // bp-back.png, FACES AWAY
-
-	// BLACK SHADOW
-	const bFrontKingShdw = 35; // bk-shdw.png
-	const bBackKingShdw = 74; // bk-back-shdw.png
-	const bFrontQueenShdw = 36; // bq-shdw.png
-	const bBackQueenShdw = 75; // bq-back-shdw.png
-	const bFrontBishopShdw = 37; // bb-shdw.png (BOTH BISHOPS)
-	const bBackBishopShdw = 76; // bb-back-shdw.png
-
-	const bRightKnightShdw = 38; // bn-b8-shdw.png
-	const bLeftKnightShdw = 39; // bn-g8-shdw.png
-	const bFrontRookShdw = 40; // br-shdw.png
-	const bBackRookShdw = 77; // br-back-shdw.png
-	const bFrontPawnShdw = 41; // bp-shdw.png
-	const bBackPawnShdw = 86; // bp-back-shdw.png
-
-	// BLACK REFLECT
-	const bFrontKingRefl = 42; // bk-refl.png
-	const bBackKingRefl = 78; // bk-back-refl.png
-	const bFrontQueenRefl = 43; // bq-refl.png
-	const bBackQueenRefl = 79; // bq-back-refl.png
-	const bFrontBishopRefl = 44; // bb-refl.png (BOTH BISHOPS)
-	const bBackBishopRefl = 80; // bb-back-refl.png
-	const bRightKnightRefl = 45; // bn-b8-refl.png
-	const bLeftKnightRefl = 46; // bn-g8-refl.png
-	const bFrontRookRefl = 47; // br-refl.png
-	const bBackRookRefl = 81; // br-back-refl.png
-	const bFrontPawnRefl = 48; // bp-refl.png
-	const bBackPawnRefl = 87; // bp-back-refl.png
-
-	// UI
-	const moveHighlight = 49; // move-highlight.png, A SQUARE THE SELECTED PIECE CAN MOVE TO
-	const takeableHighlight = 50; // takeable-highlight.png, A MOVE THAT TAKES A PIECE
-	const checkHighlight = 51; // check-highlight.png, UNDER A KING IN CHECK
-
-	// COFFEE = 52
-	// COFFEE SHDW = 53
-
-	// CARDS = 54
-	// CARDS SHDW = 55
-
-	// CANDLE = 56
-	// CANDLE SHDW = 57
-
-	// BACKS = 58 - 87 (SET UP WITH THE FRONTS ABOVE)
 
 	// TABLE PROPS: img2 = IMAGE, shdw = SHADOW, img = OLD STEAM ANIMATION FRAMES (EMPTY)
 	// !NOTE: THE PROP SIZES ARE COMMENTED OUT IN renderBoard(), SO THEY DRAW AT 0 x 0 (HIDDEN) RIGHT NOW
@@ -262,7 +102,7 @@ export async function renderCanvas(playerData) {
 	 * @description If all images are loaded start game. Checks every 100ms (Home already loaded them, so they come from the browser cache)
 	 */
 	const startGameCheck = setInterval(async function () {
-		if (loadedImages == images.length) {
+		if (imageProgress() == 1) { // EVERY IMAGE preloadImages() STARTED IS IN (THE PLAY PAGE STARTS THEM BEFORE renderCanvas)
 			startGame();
 			clearInterval(startGameCheck);
 		}

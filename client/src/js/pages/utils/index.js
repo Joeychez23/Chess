@@ -12,7 +12,7 @@
 
 const { drawBoardPicture } = require("./boardPicture.js");
 const { getLevels } = require("../../gameplay/validate/index.js");
-const { imageProgress } = require("../../gameplay/index.js");
+const { imageProgress } = require("../../gameplay/images/index.js");
 
 let loadingBtn = null; // THE BUTTON OR LINK THAT SAYS LOADING (ONE AT A TIME), stopLoading() PUTS IT BACK
 let loadingText; // ITS TEXT BEFORE IT SAID LOADING
