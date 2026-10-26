@@ -24,7 +24,8 @@ const {
 	bFrontKingRefl, bBackKingRefl, bFrontQueenRefl, bBackQueenRefl, bFrontBishopRefl, bBackBishopRefl, bRightKnightRefl, bLeftKnightRefl, bFrontRookRefl, bBackRookRefl, bFrontPawnRefl, bBackPawnRefl, // BLACK REFLECT
 	moveHighlight, takeableHighlight, checkHighlight // UI
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
-const { handleKnightHop, updateUserStateSlide, updateOpponentStateSlide } = require("../index.js"); // STILL IN gameplay/index.js (THEY MOVE WITH animation & server), ONLY FUNCTIONS CAN COME FROM THERE
+const { handleKnightHop } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS
+const { updateUserStateSlide, updateOpponentStateSlide } = require("../index.js"); // STILL IN gameplay/index.js (THEY MOVE WITH THE SERVER CALLS), ONLY FUNCTIONS CAN COME FROM THERE
 
 let clickX; // PIXEL X OF tileX, A HELD PIECE IS DRAWN THERE
 let clickY; // PIXEL Y OF tileY
