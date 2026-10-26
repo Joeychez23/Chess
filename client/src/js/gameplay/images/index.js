@@ -2,7 +2,7 @@
  *  index.js  --  chess frontend
  *	Images
  *	Loads the game's images (SPRITES, gameplay/sprites/index.js) & keeps them in images[] by image number.
- *	Home, guest & the play page call preloadImages() when they open, the game draws from images[] (gameplay/index.js)
+ *	Home, guest & the play page call preloadImages() when they open, the game draws from images[] (gameplay/layout, draw & animate)
  *
  */
 

@@ -2,7 +2,7 @@
  *  boardPicture.js  --  chess frontend
  *	Board Picture
  *	A still picture of a game's board for Home & guest (Continue current game). It's drawn the way the play page draws a
- *	board at rest (renderBoard & renderPiecesToBoard in gameplay/index.js): the same squares, sprites & the way each piece faces,
+ *	board at rest (renderBoard in gameplay/layout & renderPiecesToBoard in gameplay/draw): the same squares, sprites & the way each piece faces,
  *	so the picture matches the game when it opens. Taken pieces, highlights & props are left out
  *
  */
@@ -17,7 +17,7 @@ const { SPRITES } = require("../../gameplay/sprites/index.js"); // IMAGE URLS BY
 const WIDTH = 880; // CANVAS SIZE (PIXELS), CSS SCALES IT TO THE BOX
 const HEIGHT = 720;
 const BOARD_SCALE = 0.92; // BOARD WIDTH / CANVAS WIDTH, LEAVES ROOM FOR THE TOP ROW'S PIECES (THEY STAND A LITTLE ABOVE THE BOARD)
-const xBoardShadowRatio = 0.985; // SAME AS gameplay/index.js, NUDGES THE SQUARES RIGHT TO LINE UP WITH THE BOARD IMAGE
+const xBoardShadowRatio = 0.985; // SAME AS gameplay/layout/index.js, NUDGES THE SQUARES RIGHT TO LINE UP WITH THE BOARD IMAGE
 
 // IMAGE NUMBERS (THE INDEX IN SPRITES, SAME AS THE GAME, gameplay/sprites/index.js)
 const tableImg = 0; // table.webp
