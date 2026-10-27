@@ -143,6 +143,15 @@ function pickSides(params, hostId, otherId) {
 // Body Values
 /* ---------------------------------------------------------------- */
 /**
+ * @description True for a color a player can pick
+ * @param  {[string]} value ["w", "b" or "random"]
+ * @return {[boolean]} ok
+ */
+function isColor(value) {
+	return value == "w" || value == "b" || value == "random";
+}
+
+/**
  * @description An AI level from a body
  * @param  {[number]} value [1 - 8, left out = DEFAULT_LEVEL]
  * @return {[number]} level [null when it isn't a level]
@@ -162,4 +171,4 @@ function isId(value) {
 }
 
 
-module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, DEFAULT_LEVEL };
+module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isColor, isId, DEFAULT_LEVEL };

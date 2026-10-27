@@ -390,4 +390,4 @@ async function username(playerId) {
 }
 
 
-module.exports = { getGame, moveGame, aiMoveGame, forfeitGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame };
+module.exports = { getGame, moveGame, aiMoveGame, forfeitGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, currentGame };

@@ -50,6 +50,15 @@ function requirePlayer(req, res, next) {
 	next();
 }
 
+/**
+ * @description Refuses a request with no player (401) or a guest (403), for the routes on a player's user_db row (guests have none)
+ */
+function requireSignedIn(req, res, next) {
+	if (!req.player) { return refuse(req, res, 401, "No player"); }
+	if (req.player.guest) { return refuse(req, res, 403, "Guests have no account"); }
+	next();
+}
+
 /* ---------------------------------------------------------------- */
 // Tokens
 /* ---------------------------------------------------------------- */
@@ -87,4 +96,4 @@ function readGuestCookie(value) {
 }
 
 
-module.exports = { readPlayer, requirePlayer };
+module.exports = { readPlayer, requirePlayer, requireSignedIn };
