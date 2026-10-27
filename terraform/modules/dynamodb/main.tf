@@ -7,11 +7,11 @@ provider "aws" {
 # ---------------------------------------------------------------- #
 # MATCHES THE TABLE ALREADY IN AWS. IMPORT IT BEFORE THE FIRST APPLY (SEE README)
 resource "aws_dynamodb_table" "chess_table" {
-  name           = var.chess_table_name
-  billing_mode   = "PROVISIONED"
-  read_capacity  = 5
-  write_capacity = 5
-  hash_key       = "game_id" # SEARCH KEY
+  name             = var.chess_table_name
+  billing_mode     = "PAY_PER_REQUEST" # ON-DEMAND, A TABLE WITH A REPLICA MUST BE ON-DEMAND OR AUTO SCALED (WAS PROVISIONED 5/5, README -> Moving the tables)
+  hash_key         = "game_id"         # SEARCH KEY
+  stream_enabled   = true              # REPLICAS ARE FED FROM THE STREAM
+  stream_view_type = "NEW_AND_OLD_IMAGES"
 
   attribute {
     name = "game_id"
@@ -27,6 +27,14 @@ resource "aws_dynamodb_table" "chess_table" {
     enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (README -> Restoring a table)
   }
 
+  dynamic "replica" { # THE COPY IN THE OLD REGION WHILE THE TABLES MOVE, [] AFTER (README -> Moving the tables)
+    for_each = var.replica_regions
+    content {
+      region_name            = replica.value
+      point_in_time_recovery = true # THE OLD COPY KEEPS ITS 35 DAYS UNTIL IT'S REMOVED
+    }
+  }
+
   lifecycle {
     prevent_destroy = true # HOLDS LIVE GAMES, TERRAFORM WILL REFUSE TO DELETE OR REPLACE IT
   }
@@ -37,11 +45,11 @@ resource "aws_dynamodb_table" "chess_table" {
 # ---------------------------------------------------------------- #
 # MATCHES THE TABLE ALREADY IN AWS. IMPORT IT BEFORE THE FIRST APPLY (SEE README)
 resource "aws_dynamodb_table" "user_table" {
-  name           = var.user_table_name
-  billing_mode   = "PROVISIONED"
-  read_capacity  = 5
-  write_capacity = 5
-  hash_key       = "user_id" # SEARCH KEY (AUTH0 USER ID)
+  name             = var.user_table_name
+  billing_mode     = "PAY_PER_REQUEST" # ON-DEMAND, A TABLE WITH A REPLICA MUST BE ON-DEMAND OR AUTO SCALED (WAS PROVISIONED 5/5, README -> Moving the tables)
+  hash_key         = "user_id"         # SEARCH KEY (AUTH0 USER ID)
+  stream_enabled   = true              # REPLICAS ARE FED FROM THE STREAM
+  stream_view_type = "NEW_AND_OLD_IMAGES"
 
   attribute {
     name = "user_id"
@@ -50,6 +58,14 @@ resource "aws_dynamodb_table" "user_table" {
 
   point_in_time_recovery {
     enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (README -> Restoring a table)
+  }
+
+  dynamic "replica" { # THE COPY IN THE OLD REGION WHILE THE TABLES MOVE, [] AFTER (README -> Moving the tables)
+    for_each = var.replica_regions
+    content {
+      region_name            = replica.value
+      point_in_time_recovery = true # THE OLD COPY KEEPS ITS 35 DAYS UNTIL IT'S REMOVED
+    }
   }
 
   lifecycle {

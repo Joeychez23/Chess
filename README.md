@@ -103,13 +103,14 @@ the updated `package-lock.json` with it.
 | `AUTH0_CALLBACK_URL` | Optional. Defaults to `http://localhost:API_PORT/api/auth/callback` |
 | `CLIENT_URL` | Optional. Where the browser goes after login/logout. Defaults to `http://localhost:API_PORT/` |
 | `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
+| `DYNAMODB_REGION` | Optional. The region the tables are in. Defaults to `us-west-2`. Set it to `us-east-1` only to roll back during the move ([Moving the tables](#moving-the-tables-to-us-west-2)) |
 
 In the Auth0 app's settings, add `AUTH0_CALLBACK_URL` to **Allowed Callback
 URLs** and `CLIENT_URL` to **Allowed Logout URLs**.
 
 The server reads and writes the DynamoDB tables with the AWS credentials on the
 machine: `~/.aws` locally (`aws configure`), or the instance's IAM role on AWS.
-It needs read/write access to `chess_db` and `user_db` in us-east-1.
+It needs read/write access to `chess_db` and `user_db` in us-west-2.
 
 `client/.env`:
 
@@ -428,12 +429,14 @@ In order:
   validated through a Route 53 DNS record, a CloudFront distribution in front
   of the `aws-prac-chess-s3` bucket's website endpoint (HTTP → HTTPS redirect,
   TTL 0 so new files show up right away), and the Route 53 alias record.
-- **DynamoDB** (`modules/dynamodb`, us-east-1): `chess_db` (key `game_id`,
+- **DynamoDB** (`modules/dynamodb`, us-west-2, next to the instance; moved from
+  us-east-1, see [Moving the tables](#moving-the-tables-to-us-west-2)): `chess_db` (key `game_id`,
   TTL on `expireAt`: open games and finished AI games are deleted 25 days
   after the last move, finished friend games are kept) and `user_db` (key
   `user_id`). Both have point-in-time recovery on, so either can be put back
   the way it was at any second in the last 35 days
-  ([Restoring a table](#restoring-a-table)).
+  ([Restoring a table](#restoring-a-table)). Both are on-demand with streams
+  on, which a table needs while it has a replica in another region.
 
 ```bash
 cd terraform/aws-enviroment
@@ -477,6 +480,11 @@ them back. A restore always makes a new table, so you restore into a new name,
 then copy that back under the old name. The server, the tests and Terraform
 all keep using `chess_db` and `user_db`.
 
+Don't use these steps while the tables still have their us-east-1 replica
+(step 5 of [Moving the tables](#moving-the-tables-to-us-west-2) not done yet):
+deleting the us-west-2 table would only delete that copy, and the restored
+table wouldn't have the replica.
+
 These steps are for `chess_db`. For `user_db`, swap the names. If both tables
 were hit, restore both to the same time, so the players' game lists match the
 games.
@@ -491,10 +499,10 @@ games.
    mistake, in UTC:
 
    ```bash
-   aws dynamodb restore-table-to-point-in-time --region us-east-1 \
+   aws dynamodb restore-table-to-point-in-time --region us-west-2 \
      --source-table-name chess_db --target-table-name chess_db_restore \
      --restore-date-time 2026-10-25T18:00:00Z
-   aws dynamodb wait table-exists --region us-east-1 --table-name chess_db_restore
+   aws dynamodb wait table-exists --region us-west-2 --table-name chess_db_restore
    ```
 
    Restoring can take a while. If the `wait` gives up, run it again. Then check
@@ -505,23 +513,23 @@ games.
    `describe-backup` shows `AVAILABLE`:
 
    ```bash
-   aws dynamodb create-backup --region us-east-1 --table-name chess_db_restore --backup-name chess_db_restore
-   aws dynamodb describe-backup --region us-east-1 --backup-arn <BackupArn> --query BackupDescription.BackupDetails.BackupStatus
+   aws dynamodb create-backup --region us-west-2 --table-name chess_db_restore --backup-name chess_db_restore
+   aws dynamodb describe-backup --region us-west-2 --backup-arn <BackupArn> --query BackupDescription.BackupDetails.BackupStatus
    ```
 
 4. Delete the original table. With point-in-time recovery on, DynamoDB keeps
    a system backup of it for 35 days, so this can still be undone:
 
    ```bash
-   aws dynamodb delete-table --region us-east-1 --table-name chess_db
-   aws dynamodb wait table-not-exists --region us-east-1 --table-name chess_db
+   aws dynamodb delete-table --region us-west-2 --table-name chess_db
+   aws dynamodb wait table-not-exists --region us-west-2 --table-name chess_db
    ```
 
 5. Restore the backup under the original name:
 
    ```bash
-   aws dynamodb restore-table-from-backup --region us-east-1 --target-table-name chess_db --backup-arn <BackupArn>
-   aws dynamodb wait table-exists --region us-east-1 --table-name chess_db
+   aws dynamodb restore-table-from-backup --region us-west-2 --target-table-name chess_db --backup-arn <BackupArn>
+   aws dynamodb wait table-exists --region us-west-2 --table-name chess_db
    ```
 
 6. Run `terraform apply` in `terraform/aws-enviroment`. A restore doesn't copy
@@ -533,9 +541,94 @@ games.
 
    ```bash
    sudo systemctl start chess
-   aws dynamodb delete-table --region us-east-1 --table-name chess_db_restore
-   aws dynamodb delete-backup --region us-east-1 --backup-arn <BackupArn>
+   aws dynamodb delete-table --region us-west-2 --table-name chess_db_restore
+   aws dynamodb delete-backup --region us-west-2 --backup-arn <BackupArn>
    ```
+
+#### Moving the tables to us-west-2
+
+The tables started in us-east-1, but `Chess-Stockfish` is in us-west-2, so
+every request crossed the country. The data service (#245) also needs them in
+its own region for a free VPC endpoint. They move with a
+[global table replica](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GlobalTables.html):
+DynamoDB copies every item to us-west-2 and keeps copying new writes in both
+directions, so the site keeps running, nothing is lost, and going back is one
+line in `server/.env`.
+
+Terraform here already describes the end of step 3 (us-west-2, with a
+us-east-1 replica). Don't run `apply` until step 3. Don't deploy this
+server code until step 4, or set `DYNAMODB_REGION=us-east-1` in `server/.env`
+if you do.
+
+1. Switch both tables to on-demand and turn on streams. A replica needs both.
+   Billing mode can only be changed once every 24 hours.
+
+   ```bash
+   for table in chess_db user_db; do
+     aws dynamodb update-table --region us-east-1 --table-name $table --billing-mode PAY_PER_REQUEST
+     aws dynamodb wait table-exists --region us-east-1 --table-name $table
+     aws dynamodb update-table --region us-east-1 --table-name $table \
+       --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES
+     aws dynamodb wait table-exists --region us-east-1 --table-name $table
+   done
+   ```
+
+2. Add the us-west-2 replica to each table, then wait until both show
+   `ACTIVE` (copying the existing items takes a few minutes):
+
+   ```bash
+   for table in chess_db user_db; do
+     aws dynamodb update-table --region us-east-1 --table-name $table \
+       --replica-updates '[{"Create":{"RegionName":"us-west-2"}}]'
+   done
+   aws dynamodb describe-table --region us-east-1 --table-name chess_db --query 'Table.Replicas'
+   aws dynamodb describe-table --region us-east-1 --table-name user_db --query 'Table.Replicas'
+   ```
+
+   Then check both regions hold the same number of items (run it for
+   `user_db` too):
+
+   ```bash
+   aws dynamodb scan --region us-east-1 --table-name chess_db --select COUNT --query Count
+   aws dynamodb scan --region us-west-2 --table-name chess_db --select COUNT --query Count
+   ```
+
+3. Point Terraform at the us-west-2 tables. The old state entries are for
+   us-east-1, so drop them and import the us-west-2 ones (this only changes
+   the state, not the tables):
+
+   ```bash
+   cd terraform/aws-enviroment
+   terraform state rm module.dynamodb_module.aws_dynamodb_table.chess_table module.dynamodb_module.aws_dynamodb_table.user_table
+   terraform import module.dynamodb_module.aws_dynamodb_table.chess_table chess_db
+   terraform import module.dynamodb_module.aws_dynamodb_table.user_table user_db
+   terraform plan
+   ```
+
+   The plan should only turn on point-in-time recovery (and TTL on `chess_db`,
+   if it isn't on yet) for the us-west-2 tables, and add their ARNs to
+   `EC2_Chess_DynamoDBPolicy` next to the us-east-1 ones. It must not remove
+   a replica or replace a table. Then `terraform apply`.
+
+4. Deploy the server ([Updating and logs](#updating-and-logs)) with
+   `DYNAMODB_REGION` unset (or `us-west-2`) in `server/.env`, restart it, and
+   play an AI game, a friend game and a guest game, and change a username.
+
+   To go back, set `DYNAMODB_REGION=us-east-1` in `server/.env` and
+   `sudo systemctl restart chess`. Writes made in either region are already
+   in the other.
+
+5. After the server has used us-west-2 for at least 24 hours (AWS won't delete
+   a replica's source table any sooner), remove the us-east-1 copy: delete
+   the `replica_regions` line from the `dynamodb_module` block in
+   `terraform/aws-enviroment/main.tf`, then `terraform apply`. The plan shows
+   both tables losing their us-east-1 replica and the policy losing the
+   us-east-1 ARNs. The us-east-1 point-in-time history goes with it, and the
+   us-west-2 history starts from step 2.
+
+   With no replica left, the tables can go back to provisioned 5/5 (free tier)
+   and streams can be turned off. That's a change to `modules/dynamodb`, not
+   part of this move.
 
 ### 1. Before you start
 
