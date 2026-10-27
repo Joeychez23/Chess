@@ -137,7 +137,7 @@ const forfeit = (gameId) => call("POST", `/games/${id(gameId)}/forfeit`);
 const retrieveRatings = (gameId) => call("GET", `/games/${id(gameId)}/ratings`);
 
 /**
- * @description A signed in player's new game vs the AI, the data service draws a random side
+ * @description A signed in player's new game vs the AI, the data service draws the side when the color is random
  * @param  {[object]} settings [{ color, level, start_fen, game_id (optional, must be new) }]
  */
 const newAiGame = (settings) => call("POST", "/games/ai", settings);
@@ -200,7 +200,7 @@ const endSession = (refreshToken) => call("POST", "/session/logout", { refresh_t
 /**
  * @description The requester's user_db row as stored
  * @param  {[boolean]} consistent [true = right after a save]
- * @return {[object]} response [{ status, user_data, message }, "User data not found" before their first game]
+ * @return {[object]} response [{ status, user_data, message }, "User data not found" when there's no row (Delete my data, before the next login)]
  */
 const retrieveUser = (consistent) => call("GET", `/users/me${consistent ? "?consistent=true" : ""}`);
 

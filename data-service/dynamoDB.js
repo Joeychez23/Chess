@@ -2,7 +2,7 @@
  *  dynamoDB.js  --  data service
  *	Chess Move Engine
  *  DynamoDB Controller Functions (was chess-validation/lambdas/functions/chess/dynamoDB/database-controller.js)
- *  Copied from server/dynamoDB.js (#247), which goes once the chess server calls the data service (#249). Only the data service's routes call these
+ *  Moved from server/dynamoDB.js (#247, the server's copy went in #249). Only the data service's routes call these
  *
  */
 
@@ -660,7 +660,7 @@ async function changeUserGames(userId, change) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Saves a player's Default start settings (the settings page) on their user_db row. It's its own attribute, so the game list
- * saves never touch it. A player who hasn't played yet has no row, initalizeUser makes it first so the game lists are there too
+ * saves never touch it. A player without a row (Delete my data since their last login) gets one from initalizeUser first, so the game lists are there too
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @param  {[object]} settings [{ ai_level, ai_color, friend_color }, from readSettings in chessController.js]
  * @return {[object]} response [{ status, user_data (the row as saved), message }]
@@ -696,7 +696,7 @@ async function updateUserSettings(userId, settings) {
 /**
  * @description Saves a player's username (the settings page) in one transaction, so it's all or nothing: the username#<name> item is made
  * only if nobody has it, the player's row gets the name, & the name they had before is freed. "joe" -> "Joe" keeps the same item.
- * A player who hasn't played yet has no row, initalizeUser makes it first
+ * A player without a row (Delete my data since their last login) gets one from initalizeUser first
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @param  {[string]} username [checked by checkUsername in utils/username.js]
  * @return {[object]} response [{ status, username, message }, status 409 when another player has it]
@@ -784,7 +784,7 @@ async function claimUsername(userId, username) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Deletes a player's user_db row, their game lists, settings & rating (Delete my data, after leaveAllGames), & frees their username.
- * The games stay in chess_db: a friend's finished games still show the result & the name, & the player's next game makes a new row
+ * The games stay in chess_db: a friend's finished games still show the result & the name, & their next login makes a new row
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, message }]
  */
@@ -822,7 +822,7 @@ async function deleteUser(userId) {
 /* ---------------------------------------------------------------- */
 /**
  * @description The session id (sid) on a player's row, made at their first login. Every device they log in on shares it, & every refresh
- * token carries it, so clearing it (endSession, Delete my data) signs them out everywhere. A player who hasn't played yet gets their row here
+ * token carries it, so clearing it (endSession, Delete my data) signs them out everywhere. A player's row is made here, at their first login
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, sid, message }]
  */

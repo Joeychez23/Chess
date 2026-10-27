@@ -207,7 +207,7 @@ cd data-service && npm test
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
 | `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `rating.test.js` | The Elo math, which games are rated, and two of a player's games ending at once |
-| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js` and `signature.js` are the same files as the server's, and both pin the same `chess.js` |
+| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are the same files as the server's, and both pin the same `chess.js` |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
 service tests and the client build on every pull request and every push to `main`.
@@ -248,7 +248,7 @@ client secret.
 | `GET /api/user` | The signed-in user, and `username` from their `user_db` row (`null` until they pick one), or `401` |
 | `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w` or `b` is `random`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
 | `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
-| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, then deletes your `user_db` row and frees your username. Your games stay in `chess_db`, and your next game starts a new row |
+| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, then deletes your `user_db` row and frees your username. Your games stay in `chess_db`, and your next sign-in starts a new row |
 
 The session is two JWTs in httpOnly cookies: an access token (15 minutes)
 checked on every request, and a refresh token (7 days) that's only sent to
@@ -346,7 +346,7 @@ left from the start position through `faceMove`, the same facing rules a move us
 `prev_move` and facing lists from before the undone moves. It's saved with `updateGame`, so an undo and a move made on the same board can't both land.
 Friend games also save `inviter_id`, so Home knows a sent invite from a received one (the inviter isn't always white).
 A `user_db` row also has `settings` (JSON, `{ ai_level, ai_color, friend_color }`) once the player saves Default start settings. It's its own
-attribute, so the game list saves never touch it, and saving it first makes the row (with empty game lists) for a player who hasn't played yet.
+attribute, so the game list saves never touch it, and saving it makes the row (with empty game lists) if there isn't one. Rows are made at a player's first login (`startSession`).
 **Usernames** live in `user_db` too. A player's row gets `username` (as they wrote it), and an item keyed `username#<the name in lowercase>`
 (`{ user_id, owner_id, username }`) holds the name, so only one player can have it in any capitals. `claimUsername` (`data-service/dynamoDB.js`) saves a name in
 one `TransactWriteItems`: it puts the new item only if it doesn't exist, sets `username` on the row only if it's still the name that was read, and
@@ -450,7 +450,7 @@ with `DATA_SERVICE_SECRET`, which only the two `.env` files have
 (`utils/signature.js`). The signature is HMAC-SHA256 over the method, the path
 with its query, `X-Data-Timestamp`, `X-Data-Request-Id` and the body exactly as
 sent, and it goes in `X-Data-Signature`. `middleware/signature.js` refuses a
-request with a 401 before anything else is read when:
+request with a 401 before the player is read or any route runs (only the JSON checks, 415, 400 and 413, come first) when:
 
 - it isn't signed, or is signed with another secret;
 - its method, path, query or body changed after it was signed;
@@ -486,7 +486,7 @@ request is for comes from a token only the data service can sign
 | `POST /users/me/settings` `{ ai_level, ai_color, friend_color }` | A level from 1 to 8 and `w`, `b` or `random` for each color, all three |
 | `POST /users/me/username` `{ username }` | The username rules again (`utils/username.js`), then `claimUsername`: someone else's name, in any capitals, answers `{ status: 409 }` |
 | `POST /users/me/delete` | Refused (409) while the player has an open game or an invite: the chess server forfeits, cancels and declines them first. Then the row and the username claim are deleted |
-| `POST /session/login` `{ id_token, user }` | Needs no player. Auth0's `id_token` checked against Auth0's saved keys (RS256, our tenant and client, not expired, at most 5 minutes old, used once), and `user` (the chess server's `getAuth0User`) must be the one it names, on `AUTH0_CONNECTION`. Then the access and refresh tokens, with the session id on the player's row (made at their first login) |
+| `POST /session/login` `{ id_token, user }` | Needs no player. Auth0's `id_token` checked against Auth0's saved keys (RS256, our tenant and client, not expired, at most 5 minutes old, used once), and `user` (the chess server's `getAuth0User`, which only looks on `AUTH0_CONNECTION`) must be the one it names, with an `auth0|` id. Then the access and refresh tokens, with the session id on the player's row (made at their first login) |
 | `POST /session/refresh` `{ refresh_token }` | A refresh token it signed, whose session id is still the one on the row. A new pair |
 | `POST /session/logout` `{ refresh_token }` | A refresh token it signed. Clears the session id, so no device can refresh. A token from a session that already ended changes nothing |
 
@@ -766,11 +766,12 @@ username again.
    ```
 
    The plan should create the two tables in us-west-2 and change
-   `EC2_Chess_DynamoDBPolicy` to their ARNs. From the apply until the next
+   `EC2_Chess_DynamoDBPolicy` to their ARNs (that policy is gone since #250). From the apply until the next
    step, the live server can't reach any table.
 
 2. Deploy the server ([Updating and logs](#updating-and-logs)) with
-   `DYNAMODB_REGION` unset (or `us-west-2`) in `server/.env`, restart it, and
+   `DYNAMODB_REGION` unset (or `us-west-2`) in `server/.env` (since #249 it's in
+   `data-service/.env` instead), restart it, and
    play an AI game, a friend game and a guest game, and pick a username.
 
 3. Once you're sure nothing is needed from them, delete the old tables in
@@ -816,7 +817,7 @@ the role are limited to the us-west-2 tables' ARNs.
    ```
 
 3. Check that only `Chess-Stockfish` reaches port 8090. Until the data service
-   is deployed (#251), use a stand-in on the instance:
+   is deployed (step 10), use a stand-in on the instance:
 
    ```bash
    python3 -m http.server 8090              # on the data service instance
@@ -836,11 +837,11 @@ the role are limited to the us-west-2 tables' ARNs.
    It answers `{}` (no such row) through the endpoint, with no internet.
    `terraform plan` should now show no changes.
 
-**Before the switch-over** (a new setup, where the chess server still uses
-DynamoDB itself): add `-target=module.data_service_module` to every `apply`
-here, the upkeep windows too, until step 11.3 works. A plain `apply` also
-removes the chess server's DynamoDB access (#250), which takes the live site
-down until it's switched over.
+**Before the switch-over** (only when the live chess server is still on code
+from before #249 and talks to DynamoDB itself): add `-target=module.data_service_module`
+to every `apply` here, the upkeep windows too, until step 11.3 works. A plain
+`apply` also removes the chess server's DynamoDB access (#250). A new setup
+from current code has nothing to switch over, so a plain `apply` is fine.
 
 **Upkeep windows.** The instance has no internet, so installing or updating
 anything (apt, Node, `npm ci`) needs a short window:
@@ -912,8 +913,13 @@ every sprite, sound, and the favicon load from it.
 | `CLIENT_URL` | `https://chess.aws-prac-route53.com/` |
 | `ENGINE_URL` | `http://127.0.0.1:3001/v1` |
 | `SESSION_PUBLIC_KEY` | The public half of the live data service's key ([Making the session keys](#making-the-session-keys)), not your Mac's, so a session made on your Mac can't be used on the live site |
-| `DATA_SERVICE_URL` | `http://<the data service's private IP>:8090` (#251 sets up its instance) |
-| `DATA_SERVICE_SECRET` | A new one, the same value as in the data service's `.env` |
+| `DATA_SERVICE_URL` | `http://172.31.64.10:8090`, the data service's private IP ([Data service instance](#data-service-instance)) |
+| `DATA_SERVICE_SECRET` | A new one (the command is in `server/.env.example`). The same value goes in the data service's `.env` in step 10 |
+
+The server won't start without `SESSION_PUBLIC_KEY` and `DATA_SERVICE_SECRET`.
+On a new setup, make the session key on the data service first (step 10, with
+its instance from [Data service instance](#data-service-instance)), or fill
+these in before step 6.
 
 The Auth0 values stay the same. Then lock the file to your user:
 `chmod 600 /opt/chess-frontend/server/.env`.
@@ -1041,7 +1047,7 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
    | `DATA_SERVICE_PORT` | `8090` |
    | `SESSION_PRIVATE_KEY` | A new key made on this instance ([Making the session keys](#making-the-session-keys)). Its public half goes in the server's `.env` as `SESSION_PUBLIC_KEY` |
    | `AUTH0_ISSUER_BASE_URL_ORIGIN` / `AUTH0_CLIENT_ID` | The same values as the server's `.env` |
-   | `DATA_SERVICE_SECRET` | A new one (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`). The same value goes in the server's `.env` in step 11 |
+   | `DATA_SERVICE_SECRET` | The same value as the server's `.env` (step 4). If it doesn't have one yet, make it with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` and put it in both |
    | `DYNAMODB_REGION` | `us-west-2` |
 
    ```bash
@@ -1078,7 +1084,7 @@ The tables stay where they are throughout, only the chess server changes.
    | `DATA_SERVICE_URL` | `http://172.31.64.10:8090` |
    | `DATA_SERVICE_SECRET` | The same value as the data service's `.env` |
 
-2. Deploy the server from `develop` (or `main` once it's merged) the usual way
+2. Deploy the server from `main` the usual way
    ([Updating and logs](#updating-and-logs)) and restart `chess`.
 3. Play an AI game (with Restart), a friend game in two browsers (a move, a
    forfeit, a rematch), a guest game, an invite you decline, and change a
@@ -1110,7 +1116,8 @@ The tables stay where they are throughout, only the chess server changes.
    read or write the tables.
 
 **Rollback:** on `Chess-Stockfish`, deploy the commit from before #249
-(`8414ecc`, which talks to DynamoDB itself) and restart `chess`. If #250 is
+(`8414ecc`, which talks to DynamoDB itself) and restart `chess`. After step 12
+it also needs `JWT_SECRET` back in `server/.env` (step 12's rollback), or it won't start. If #250 is
 already applied, put its role policy back first (revert #250's Terraform change
 and `terraform apply`). The tables never moved, so nothing else changes. The
 data service can keep running or be stopped (`sudo systemctl stop data-service`).
@@ -1139,14 +1146,14 @@ journalctl -u data-service --since "15 min ago" | grep REFUSED
 | The chess journal says `refused the signature (Request too old)` | The two clocks are more than 30 seconds apart | `timedatectl` on both. `NTP service: active` should be on, Ubuntu's default |
 | Every player looks signed out or gets "Player is not in this game", and the data service logs `REFUSED ... 401 Bad player token` | One side runs code from before #252 (the other signs or checks tokens differently) | Deploy the same commit on both and restart both ([12. Session keys](#12-session-keys-252)) |
 | `data-service` restarts over and over with `SESSION_PRIVATE_KEY isn't a P-256 key` or `Can't read Auth0's keys` | The key isn't in double quotes with all its lines, or `auth0-jwks.json` is missing | [Making the session keys](#making-the-session-keys), [Saving Auth0's keys](#saving-auth0s-keys) |
-| Logins go back to the site signed out, and the data service logs `REFUSED POST /session/login 401 Bad id token: ...` | `unknown key`: Auth0 changed its key. `jwt audience invalid` or `jwt issuer invalid`: `AUTH0_CLIENT_ID` or `AUTH0_ISSUER_BASE_URL_ORIGIN` differ from the server's. `not this user`: a login that isn't on `AUTH0_CONNECTION` | Save Auth0's keys again, or copy the two values from `server/.env` |
+| Logins go back to the site signed out, and the data service logs `REFUSED POST /session/login 401 Bad id token: ...` | `unknown key`: Auth0 changed its key. `jwt audience invalid` or `jwt issuer invalid`: `AUTH0_CLIENT_ID` or `AUTH0_ISSUER_BASE_URL_ORIGIN` differ from the server's. `not this user`: a login that isn't a database (`auth0|`) user, like a social login | Save Auth0's keys again, or copy the two values from `server/.env` |
 | Signing in and refreshing answer 503, and the chess journal says `its tokens are signed with key ...` | `SESSION_PUBLIC_KEY` isn't the public half of the data service's key | Print it on the data service: `cd /opt/data-service && sudo -u dataservice /usr/local/bin/node24 -e 'require("dotenv").config({ quiet: true }); console.log(require("crypto").createPublicKey(process.env.SESSION_PRIVATE_KEY).export({ type: "spki", format: "pem" }))'`. Put it in `server/.env`, then restart `chess` |
 | The chess journal says `Data service: ... 500`, and the data service's journal shows `AccessDeniedException` | The data service can't reach the tables | `DYNAMODB_REGION` must be `us-west-2`. Check the tables are in us-west-2 and that `aws dynamodb get-item` works on the data service ([Data service instance](#data-service-instance)) |
 | Before step 11.3, the site breaks and the chess journal shows `AccessDeniedException` from DynamoDB | A plain `terraform apply` ran #250 too early and removed the chess server's access | Finish the switch-over, or put the policy back (revert #250's change, `terraform apply`). Until then, use `-target=module.data_service_module` |
-| `git pull` on the instance stops with "local changes would be overwritten" | The checkout has its own changes (a `package-lock.json` or built files) | `git status`, then `git checkout -- <file>` for files that were only rebuilt, and pull again |
+| `git pull` on the instance stops with "local changes would be overwritten" (if you deploy with `git pull` instead of step 3's rsync) | The checkout has its own changes (a `package-lock.json` or built files) | `git status`, then `git checkout -- <file>` for files that were only rebuilt, and pull again |
 
 To get the site back first and debug after: the rollback above (8414ecc on
-Chess-Stockfish). The data service can keep running.
+Chess-Stockfish, with `JWT_SECRET` back after step 12). The data service can keep running.
 
 ### 12. Session keys (#252)
 
@@ -1177,7 +1184,7 @@ the same steps as commands to paste.
 
    ```bash
    grep -c JWT_SECRET /opt/chess-frontend/server/.env                 # on Chess-Stockfish: 0
-   journalctl -u data-service --since "30 min ago" | grep REFUSED     # on the data service: only the logged-out browser's refresh
+   journalctl -u data-service --since "30 min ago" | grep REFUSED     # on the data service: only 401 Bad refresh token (old sign-ins, the logged-out browser)
    ```
 
 **Rollback:** deploy `112b1c0` (`develop` before #252) on both, put the same

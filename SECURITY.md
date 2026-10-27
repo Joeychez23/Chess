@@ -83,7 +83,7 @@ The data service signs every session and guest token with its private key (ES256
    sudo systemctl restart data-service && journalctl -u data-service -n 5   # "Data service on http://172.31.64.10:8090"
    ```
 
-4. **On Chess-Stockfish, add the public half** (from step 1) and restart the chess server:
+4. **On Chess-Stockfish, deploy the new server code** (README → Updating and logs, without the restart), **add the public half** (from step 1) and restart the chess server:
 
    ```bash
    sed -i '/^JWT_\(SECRET\|EXPIRES_IN\|REFRESH_EXPIRES_IN\)=/d' /opt/chess-frontend/server/.env
@@ -107,7 +107,14 @@ The data service signs every session and guest token with its private key (ES256
 
 ### If a key leaks
 
-Make a new pair and replace both halves at once (steps 1, 3 and 4), without the overlap in README → Changing the session key. Every session and guest token signed with the old key stops working, so everyone is signed out and guests start a new game.
+Make a new pair (step 1) and replace both halves at once, without the overlap in README → Changing the session key. Take the old key out first, so the `.env` files don't hold both:
+
+```bash
+sudo sed -i '/^SESSION_PRIVATE_KEY=/,/END PRIVATE KEY/d' /opt/data-service/.env    # on the data service
+sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess-frontend/server/.env    # on Chess-Stockfish
+```
+
+Then add the new halves with step 3's `SESSION_PRIVATE_KEY` line (not the Auth0 lines, they're already there) and step 4's `cat`, delete the key file, and restart both. Every session and guest token signed with the old key stops working, so everyone is signed out and guests start a new game.
 
 ## Please don't
 
