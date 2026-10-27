@@ -3,7 +3,7 @@
  *	Signed Requests Only
  *  Every request but /health must come signed from the chess server (utils/signature.js): the signature matches the method, path, body,
  *  time & request id, the time is within 30 seconds of now, and the request id hasn't been seen in that time (a replayed request).
- *  Anything else is refused with a 401, before the player or the body is looked at
+ *  Anything else is refused with a 401, before the player is read or any route runs (only the JSON checks come first)
  *
  */
 
