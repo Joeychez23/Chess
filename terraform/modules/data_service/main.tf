@@ -158,16 +158,18 @@ resource "aws_iam_role" "data_service" {
   })
 }
 
-# ONLY THE CALLS data-service/dynamoDB.js MAKES, ONLY ON chess_db AND user_db (THE SAME LIST AS modules/server, WHICH #250 EMPTIES)
+# ONLY THE CALLS data-service/dynamoDB.js MAKES, ONLY ON chess_db AND user_db, AND ONLY THROUGH THE ENDPOINT (#250):
+# THE ROLE'S KEYS ARE USELESS OFF THE INSTANCE, A CALL FROM ANYWHERE ELSE HAS NO aws:SourceVpce
 resource "aws_iam_role_policy" "dynamodb" {
   name = "${var.role_name}Policy"
   role = aws_iam_role.data_service.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchGetItem", "dynamodb:DeleteItem"]
-      Resource = var.table_arns
+      Effect    = "Allow"
+      Action    = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchGetItem", "dynamodb:DeleteItem"]
+      Resource  = var.table_arns
+      Condition = { StringEquals = { "aws:SourceVpce" = aws_vpc_endpoint.dynamodb.id } }
     }]
   })
 }

@@ -30,7 +30,6 @@ module "server_module" {
   server_ip           = local.server_ip
   server_domain_names = local.server_domain_names
   role_name           = local.server_role_name
-  table_arns          = module.dynamodb_module.table_arns
 }
 
 module "data_service_module" {
