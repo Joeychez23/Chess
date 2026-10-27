@@ -188,6 +188,7 @@ cd data-service && npm test
 
 | File | What it covers |
 | --- | --- |
+| `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token: each refused with the stored game unchanged, and logged without the body or token |
 | `dynamoDB.test.js` | The same conditional writes as the server's copy |
@@ -435,6 +436,10 @@ their game's id, so a guest is only ever in that one game.
 | `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, game_id }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
 | `POST /games/:gameId/accept` | Pending, only the invited player, and the inviter isn't in another friend game |
 | `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
+| `GET /users/me` | A signed-in player's own row as stored (`?consistent=true`). `?games=true` also prunes expired games and invites and adds the open AI and friend game, the open games, the sent invite and the received invites. Guests have no row (403) |
+| `POST /users/me/settings` `{ ai_level, ai_color, friend_color }` | A level from 1 to 8 and `w`, `b` or `random` for each color, all three |
+| `POST /users/me/username` `{ username }` | The username rules again (`utils/username.js`), then `claimUsername`: someone else's name, in any capitals, answers `{ status: 409 }` |
+| `POST /users/me/delete` | Refused (409) while the player has an open game or an invite: the chess server forfeits, cancels and declines them first. Then the row and the username claim are deleted |
 | `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`) |
 
 The rules about a player's other games ("one AI game and one friend game at a
@@ -860,13 +865,15 @@ data-service/                Being built (#245): the only code that will read an
   config.js                  Reads data-service/.env
   dynamoDB.js                Copy of server/dynamoDB.js, which goes once the chess server calls the data service (#249)
   routes/gameRoutes.js       /games/ai, guest, invite & /games/:gameId, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
+  routes/userRoutes.js       /users/me, settings, username, delete: only the signed-in requester's own row
   controllers/gameController.js  Each game action, checked against the stored game before it saves
-  middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with JWT_SECRET
+  controllers/userController.js  getMe (with games), saveSettings, saveUsername, deleteMe (only once every game is left)
+  middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with JWT_SECRET; requirePlayer, requireSignedIn
   middleware/fields.js       onlyFields(): refuses a body field the route doesn't name
   utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks
   utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
   utils/validate.js, rating.js, username.js  The same files as server/utils/ (test/shared.test.js)
-  test/                      Data service tests (npm test): games, lifecycle, dynamoDB, rating, shared, plus helpers/
+  test/                      Data service tests (npm test): games, lifecycle, users, dynamoDB, rating, shared, plus helpers/
 .github/
   workflows/ci.yml           GitHub Actions: server tests, data service tests and the client build on every pull request
 deploy/

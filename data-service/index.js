@@ -15,6 +15,7 @@ const config = require("./config");
 const { readPlayer } = require("./middleware/player.js");
 const { refuse } = require("./utils/refuse.js");
 const gameRoutes = require("./routes/gameRoutes.js");
+const userRoutes = require("./routes/userRoutes.js");
 
 const BODY_LIMIT = "16kb"; // THE BIGGEST REAL BODY IS A FEW HUNDRED BYTES
 
@@ -29,6 +30,7 @@ app.use((req, res, next) => hasBody(req) && !req.is("application/json") ? refuse
 app.use(express.json({ limit: BODY_LIMIT }));
 app.use(readPlayer); // req.player: THE SIGNED IN PLAYER OR GUEST THE CHESS SERVER FORWARDED
 app.use("/games", gameRoutes);
+app.use("/users", userRoutes);
 app.use((req, res) => refuse(req, res, 404, "No such action"));
 
 app.use((err, req, res, next) => {
