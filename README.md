@@ -187,6 +187,7 @@ cd data-service && npm test
 
 | File | What it covers |
 | --- | --- |
+| `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token: each refused with the stored game unchanged, and logged without the body or token |
 | `dynamoDB.test.js` | The same conditional writes as the server's copy |
 | `rating.test.js` | The Elo math, which games are rated, and two of a player's games ending at once |
@@ -428,6 +429,17 @@ their game's id, so a guest is only ever in that one game.
 | `POST /games/:gameId/ai-move` `{ from, to, promotion }` | AI games: the requester is in it, it's the AI's turn, and the move is legal |
 | `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
 | `GET /games/:gameId/ratings` | In the game. Both players' ratings |
+| `POST /games/ai` `{ color, level, start_fen, game_id }` | A signed-in player vs `CHESS_AI`, at a level from 1 to 8 (3 if left out), from a playable position. A `game_id` must be new |
+| `POST /games/guest` `{ game_id, color, level, start_fen }` | Needs no player. The guest's own game (their cookie) is reset and keeps its level; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched |
+| `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, game_id }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
+| `POST /games/:gameId/accept` | Pending, only the invited player, and the inviter isn't in another friend game |
+| `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
+| `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`) |
+
+The rules about a player's other games ("one AI game and one friend game at a
+time", `replace_current`, one sent invite) stay on the chess server: it makes
+the forfeits and cancels first, and each of those is an action the player can
+take here too.
 
 Each route lists the body fields it takes, and anything else is refused with
 a 400. Bodies must be JSON and 16kb at most. A request the data service
@@ -810,14 +822,14 @@ data-service/                Being built (#245): the only code that will read an
   index.js                   Express: /health, JSON bodies (16kb), the player, the routes. Listens on DATA_SERVICE_HOST
   config.js                  Reads data-service/.env
   dynamoDB.js                Copy of server/dynamoDB.js, which goes once the chess server calls the data service (#249)
-  routes/gameRoutes.js       /games/:gameId, move, ai-move, forfeit, ratings, each with the body fields it takes
+  routes/gameRoutes.js       /games/ai, guest, invite & /games/:gameId, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
   controllers/gameController.js  Each game action, checked against the stored game before it saves
   middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with JWT_SECRET
   middleware/fields.js       onlyFields(): refuses a body field the route doesn't name
-  utils/games.js             playerInGame (a guest only in their own game), gameOpen, gamePending, turnColor
+  utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks
   utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
   utils/validate.js, rating.js, username.js  The same files as server/utils/ (test/shared.test.js)
-  test/                      Data service tests (npm test): games, dynamoDB, rating, shared, plus helpers/
+  test/                      Data service tests (npm test): games, lifecycle, dynamoDB, rating, shared, plus helpers/
 .github/
   workflows/ci.yml           GitHub Actions: server tests, data service tests and the client build on every pull request
 deploy/
