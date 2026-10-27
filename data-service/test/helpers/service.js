@@ -2,7 +2,7 @@
  *  service.js  --  data service tests
  *	Test Data Service
  *  Starts the data service on a random local port with the in-memory tables, and calls it the way the chess server does:
- *  signed with DATA_SERVICE_SECRET, for a signed in player (their access token in X-Player-Token) or a guest (their guest_game cookie in X-Guest-Game)
+ *  signed with DATA_SERVICE_SECRET, for a signed in player (their access token in X-Player-Token) or a guest (their guest_game token in X-Guest-Game)
  *
  */
 
@@ -11,8 +11,8 @@
 /* ---------------------------------------------------------------- */
 
 const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
 const fakeDynamo = require("./fakeDynamo.js");
+const keys = require("./keys.js");
 const { sign, HEADERS } = require("../../utils/signature.js");
 
 let baseUrl;
@@ -53,27 +53,19 @@ function player(name) {
 }
 
 /**
- * @description A session token like server/middleware/auth.js signs
+ * @description A session token like the data service signs (utils/tokens.js)
  * @param  {[object]} user [session user]
- * @param  {[object]} options [{ type: "access" (default) or "refresh", secret: another secret, expired: true }]
+ * @param  {[object]} options [{ type: "access" (default) or "refresh", key: "stranger" (nobody's key), expired: true, algorithm: "HS256" or "none", ... (helpers/keys.js) }]
  * @return {[string]} token
  */
-function sessionToken(user, options = {}) {
-	const payload = { type: options.type || "access", user };
-	if (options.expired) { payload.exp = Math.floor(Date.now() / 1000) - 60; }
-	return jwt.sign(payload, options.secret || process.env.JWT_SECRET, { algorithm: "HS256", ...(options.expired ? {} : { expiresIn: "15m" }) });
-}
+const sessionToken = (user, options) => keys.sessionToken(user, options);
 
 /**
- * @description A guest_game cookie like server/middleware/auth.js signs (setGuestCookie)
+ * @description A guest_game token like the data service signs for a guest's game (newGuestGame)
  * @param  {[string]} gameId [the guest's game id, also their player id]
- * @return {[string]} cookie [SESSION.GAME_ID.SIGNATURE]
+ * @return {[string]} token
  */
-function guestCookie(gameId) {
-	const session = "testsession";
-	const signature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(`guest_game:${session}.${gameId}`).digest("base64url");
-	return `${session}.${gameId}.${signature}`;
-}
+const guestCookie = (gameId, options) => keys.guestToken(gameId, options);
 
 /* ---------------------------------------------------------------- */
 // Requests

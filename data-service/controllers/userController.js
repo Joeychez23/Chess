@@ -27,9 +27,8 @@ const { refuse } = require("../utils/refuse.js");
  */
 async function getMe(req, res) {
 	const response = await retrieveUser(req.player.id, req.query.consistent == "true");
-	if (!response.user_data || req.query.games != "true") { return res.json(response); }
-	response.user_data = await pruneInvites(await pruneOpenGames(response.user_data));
-	return res.json(response);
+	if (response.user_data && req.query.games == "true") { response.user_data = await pruneInvites(await pruneOpenGames(response.user_data)); }
+	return res.json(withoutSession(response));
 }
 
 /* ---------------------------------------------------------------- */
@@ -43,7 +42,17 @@ async function getMe(req, res) {
 async function saveSettings(req, res) {
 	const { ai_level, ai_color, friend_color } = req.body || {};
 	if (ai_level === undefined || !readAiLevel(ai_level) || !isColor(ai_color) || !isColor(friend_color)) { return refuse(req, res, 400, "Invalid settings"); }
-	return res.json(await updateUserSettings(req.player.id, { ai_level, ai_color, friend_color }));
+	return res.json(withoutSession(await updateUserSettings(req.player.id, { ai_level, ai_color, friend_color })));
+}
+
+/**
+ * @description A row as it's answered: without its session id, which stays in this service (controllers/sessionController.js)
+ * @param  {[object]} response [{ status, user_data, message }]
+ * @return {[object]} response [the same, user_data.sid removed]
+ */
+function withoutSession(response) {
+	if (response.user_data) { delete response.user_data.sid; }
+	return response;
 }
 
 /* ---------------------------------------------------------------- */

@@ -12,6 +12,7 @@ const assert = require("node:assert/strict");
 const service = require("./helpers/service.js");
 const { call, player, sessionToken, guestCookie, peek } = service;
 const db = require("../dynamoDB.js");
+const { tamper } = require("./helpers/keys.js");
 
 let server;
 before(async () => { server = await service.start(); });
@@ -90,10 +91,27 @@ describe("who's asking", () => {
 	test("nobody, a changed or expired token, a refresh token or a changed guest cookie is refused", async () => {
 		await aiGame("game1", "alice");
 		await refused("game1", "GET", "/games/game1", {}, 401);
-		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { secret: "another-secret" }) }, 401);
+		await refused("game1", "GET", "/games/game1", { token: tamper(sessionToken(bob.user), { user: alice.user }) }, 401);
 		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { expired: true }) }, 401);
 		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { type: "refresh" }) }, 401);
-		await refused("game1", "GET", "/games/game1", { cookie: guestCookie("game1").replace(/.$/, "x") }, 401);
+		await refused("game1", "GET", "/games/game1", { cookie: tamper(guestCookie("game2"), { game_id: "game1" }) }, 401);
+	});
+
+	test("only a token this service signed: another key's, an HS256 or a none token is refused (#252)", async () => {
+		await aiGame("game1", "alice");
+		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { key: "stranger" }) }, 401);
+		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { key: "next" }) }, 401); // ONLY THE CHESS SERVER HAS THE NEXT KEY, THIS SERVICE SIGNS WITH IT ONCE IT'S CHANGED
+		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { algorithm: "HS256" }) }, 401); // THE PUBLIC KEY AS AN HMAC SECRET, WITH THE REAL kid
+		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { algorithm: "HS256", secret: "test-jwt-secret" }) }, 401); // LIKE A TOKEN FROM BEFORE #252
+		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { algorithm: "none" }) }, 401);
+		await refused("game1", "GET", "/games/game1", { cookie: guestCookie("game1", { algorithm: "none" }) }, 401);
+		await refused("game1", "GET", "/games/game1", { token: guestCookie("game1") }, 401); // A GUEST'S TOKEN CAN'T ACT FOR A PLAYER
+		await refused("game1", "GET", "/games/game1", { cookie: sessionToken(alice.user) }, 401); // NOR A PLAYER'S AS A GUEST'S
+	});
+
+	test("while the key is being changed, a token signed with the old key still works", async () => {
+		await aiGame("game1", "alice");
+		assert.equal((await call("GET", "/games/game1", { token: sessionToken(alice.user, { key: "old" }) })).status, 200); // SESSION_PUBLIC_KEY_OLD
 	});
 
 	test("a player only sees their own games", async () => {

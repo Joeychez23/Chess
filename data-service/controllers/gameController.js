@@ -15,6 +15,7 @@ const { initalizeGame, retrieveGame, updateGame, closeGame, retrieveRatings, acc
 const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
+const { guestToken } = require("../utils/tokens.js");
 
 const SQUARE = /^[a-h][1-8]$/;
 const PROMOTIONS = ["q", "r", "b", "n"];
@@ -194,10 +195,10 @@ async function newAiGame(req, res) {
 /**
  * @description A guest's game vs the AI. A guest's player id is their game's id, so the game they name is overwritten only when it's
  * their own (their cookie): New game & Restart. Any other id they can't have (another browser's game, a signed in player's, "CHESS_AI")
- * gets a new id, and that game isn't touched. The chess server gives the guest a cookie for the id in the response
+ * gets a new id, and that game isn't touched. The response has the guest's token for that id (guest_token), the chess server sets it as their cookie
  * @param  {[object]} req.body [{ game_id (the guest's saved id, left out = a new one), color (saved for Restart), side ("w" | "b", optional: this game's side,
  * the play page's fallback for a guest's first game is white & random from its restarts on), level (left out = their game's, or 3), start_fen }]
- * @return {[object]} response [initalizeGame's { status, game_data (game_id is the id used), message }]
+ * @return {[object]} response [initalizeGame's { status, game_data (game_id is the id used), message } & guest_token (the guest_game cookie)]
  */
 async function newGuestGame(req, res) {
 	if (req.player && !req.player.guest) { return refuse(req, res, 403, "Signed in players make games with /games/ai"); }
@@ -218,7 +219,9 @@ async function newGuestGame(req, res) {
 	const aiLevel = level === undefined && existing ? readAiLevel(Number(existing.ai_level?.N)) || DEFAULT_LEVEL : readAiLevel(level); // A RESET KEEPS THE LEVEL
 	const params = newStartParams(color, position.fen);
 	const sides = pickSides(side ? { color: side } : params, gameId, "CHESS_AI"); // A GUEST'S PLAYER ID IS THEIR GAME ID
-	return res.json(await initalizeGame(gameId, sides.white, sides.black, aiLevel, { start_params: params }));
+	const response = await initalizeGame(gameId, sides.white, sides.black, aiLevel, { start_params: params });
+	if (response.game_data) { response.guest_token = guestToken(gameId, req.player?.session); } // ONLY SIGNED FOR THE GAME JUST SAVED, THE CHESS SERVER SETS IT AS THE guest_game COOKIE
+	return res.json(response);
 }
 
 /**

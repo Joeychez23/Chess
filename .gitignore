@@ -21,3 +21,4 @@ stockfish
 _dep
 Chess.wiki
 .DS_Store
+auth0-jwks.json
