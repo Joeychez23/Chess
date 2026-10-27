@@ -1,5 +1,5 @@
 variable "aws_region" {
-  default = "us-east-1"
+  default = "us-west-2"
 }
 variable "chess_table_name" {
   type = string
