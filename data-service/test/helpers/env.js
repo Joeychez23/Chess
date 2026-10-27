@@ -7,6 +7,8 @@
  */
 
 process.env.JWT_SECRET = "test-jwt-secret";
+process.env.DATA_SERVICE_SECRET = "test-data-service-secret-0123456789abcdef";
+process.env.DATA_SERVICE_SECRET_OLD = "test-old-data-service-secret-0123456789abcdef"; // signature.test.js: THE OLD SECRET STILL WORKS DURING A CHANGE
 process.env.DATA_SERVICE_HOST = "127.0.0.1";
 process.env.NODE_ENV = "test";
 process.env.DYNAMODB_REGION = "us-west-2";

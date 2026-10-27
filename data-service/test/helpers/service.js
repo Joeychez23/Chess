@@ -2,7 +2,7 @@
  *  service.js  --  data service tests
  *	Test Data Service
  *  Starts the data service on a random local port with the in-memory tables, and calls it the way the chess server does:
- *  for a signed in player (their access token in X-Player-Token) or a guest (their guest_game cookie in X-Guest-Game)
+ *  signed with DATA_SERVICE_SECRET, for a signed in player (their access token in X-Player-Token) or a guest (their guest_game cookie in X-Guest-Game)
  *
  */
 
@@ -13,6 +13,7 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const fakeDynamo = require("./fakeDynamo.js");
+const { sign, HEADERS } = require("../../utils/signature.js");
 
 let baseUrl;
 
@@ -78,11 +79,26 @@ function guestCookie(gameId) {
 // Requests
 /* ---------------------------------------------------------------- */
 /**
+ * @description The signature headers the chess server sends for this method, path & body. A test can sign something else to check it's refused
+ * @param  {[object]} options [{ unsigned: no headers, secret: another secret, timestamp (epoch ms), requestId,
+ * signMethod / signPath / signBody: sign these instead of what's sent }]
+ * @return {[object]} headers
+ */
+function signatureHeaders(method, path, body, options = {}) {
+	if (options.unsigned) { return {}; }
+	const timestamp = `${options.timestamp || Date.now()}`;
+	const requestId = options.requestId || crypto.randomBytes(16).toString("base64url");
+	const signed = { method: options.signMethod || method, path: options.signPath || path, timestamp, requestId, body: options.signBody !== undefined ? options.signBody : body || "" };
+	return { [HEADERS.timestamp]: timestamp, [HEADERS.requestId]: requestId, [HEADERS.signature]: sign(options.secret || process.env.DATA_SERVICE_SECRET, signed) };
+}
+
+/**
  * @description Calls the data service like the chess server does
  * @param  {[string]} method ["GET" or "POST"]
  * @param  {[string]} path [e.g. "/games/game1/move"]
  * @param  {[object]} options [{ as: a player, guest: a guest's game id, token: a raw X-Player-Token, cookie: a raw X-Guest-Game,
- * body: sent as JSON, raw: a body string sent as is, type: raw's Content-Type (default application/json) }]
+ * body: sent as JSON, raw: a body string sent as is, type: raw's Content-Type (default application/json),
+ * signature: headers to send as they are (a replay), plus signatureHeaders' options }]
  * @return {[object]} response [{ http: the HTTP status, ...the JSON body }]
  */
 async function call(method, path, options = {}) {
@@ -94,9 +110,10 @@ async function call(method, path, options = {}) {
 	let body;
 	if (options.body !== undefined) { body = JSON.stringify(options.body); headers["Content-Type"] = "application/json"; }
 	if (options.raw !== undefined) { body = options.raw; headers["Content-Type"] = options.type || "application/json"; }
+	Object.assign(headers, options.signature || signatureHeaders(method, path, body, options)); // SIGNED LIKE THE CHESS SERVER SIGNS
 	const res = await fetch(`${baseUrl}${path}`, { method, headers, body });
 	return { http: res.status, ...(await res.json()) };
 }
 
 
-module.exports = { start, reset, player, sessionToken, guestCookie, call, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, sessionToken, guestCookie, signatureHeaders, call, peek: fakeDynamo.peek };
