@@ -19,7 +19,7 @@ module "cloudfront_module" {
 
 module "dynamodb_module" {
   source           = "../modules/dynamodb"
-  aws_region       = "us-west-2" # NEXT TO Chess-Stockfish (NEW TABLES, THE us-east-1 ONES WERE LEFT BEHIND, README -> Moving the tables)
+  aws_region       = "us-east-1"
   chess_table_name = local.chess_table_name
   user_table_name  = local.user_table_name
 }

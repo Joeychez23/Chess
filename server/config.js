@@ -32,9 +32,6 @@ const config = {
 
   // STOCKFISH ENGINE API (chess-engine-api), THE SERVER ASKS IT FOR THE AI'S MOVES
   engineUrl: process.env.ENGINE_URL || "https://engine.aws-prac-route53.com/v1",
-
-  // DYNAMODB, THE REGION chess_db AND user_db ARE IN (MOVED FROM us-east-1, README -> Moving the tables)
-  dynamoRegion: process.env.DYNAMODB_REGION || "us-west-2",
 };
 
 module.exports = config;
