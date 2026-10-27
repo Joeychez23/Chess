@@ -1,0 +1,102 @@
+/*
+ *  service.js  --  data service tests
+ *	Test Data Service
+ *  Starts the data service on a random local port with the in-memory tables, and calls it the way the chess server does:
+ *  for a signed in player (their access token in X-Player-Token) or a guest (their guest_game cookie in X-Guest-Game)
+ *
+ */
+
+/* ---------------------------------------------------------------- */
+// Global
+/* ---------------------------------------------------------------- */
+
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
+const fakeDynamo = require("./fakeDynamo.js");
+
+let baseUrl;
+
+/* ---------------------------------------------------------------- */
+// Start
+/* ---------------------------------------------------------------- */
+/**
+ * @description Starts the data service on 127.0.0.1 with the in-memory tables
+ * @return {[object]} server [call .close() when the tests are done]
+ */
+async function start() {
+	fakeDynamo.install();
+	const app = require("../../index.js");
+	const server = app.listen(0, "127.0.0.1");
+	await new Promise((resolve) => server.once("listening", resolve));
+	baseUrl = `http://127.0.0.1:${server.address().port}`;
+	return server;
+}
+
+/**
+ * @description Clears the tables between tests
+ */
+function reset() {
+	fakeDynamo.reset();
+}
+
+/* ---------------------------------------------------------------- */
+// Players
+/* ---------------------------------------------------------------- */
+/**
+ * @description A signed in player, the session user their access token holds
+ * @param  {[string]} name [e.g. "alice", also their player id]
+ * @return {[object]} player [{ id, user }]
+ */
+function player(name) {
+	return { id: name, user: { user_id: `auth0|${name}`, email: `${name}@test`, email_verified: true, user_metadata: { screenname: name[0].toUpperCase() + name.slice(1) } } };
+}
+
+/**
+ * @description A session token like server/middleware/auth.js signs
+ * @param  {[object]} user [session user]
+ * @param  {[object]} options [{ type: "access" (default) or "refresh", secret: another secret, expired: true }]
+ * @return {[string]} token
+ */
+function sessionToken(user, options = {}) {
+	const payload = { type: options.type || "access", user };
+	if (options.expired) { payload.exp = Math.floor(Date.now() / 1000) - 60; }
+	return jwt.sign(payload, options.secret || process.env.JWT_SECRET, { algorithm: "HS256", ...(options.expired ? {} : { expiresIn: "15m" }) });
+}
+
+/**
+ * @description A guest_game cookie like server/middleware/auth.js signs (setGuestCookie)
+ * @param  {[string]} gameId [the guest's game id, also their player id]
+ * @return {[string]} cookie [SESSION.GAME_ID.SIGNATURE]
+ */
+function guestCookie(gameId) {
+	const session = "testsession";
+	const signature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(`guest_game:${session}.${gameId}`).digest("base64url");
+	return `${session}.${gameId}.${signature}`;
+}
+
+/* ---------------------------------------------------------------- */
+// Requests
+/* ---------------------------------------------------------------- */
+/**
+ * @description Calls the data service like the chess server does
+ * @param  {[string]} method ["GET" or "POST"]
+ * @param  {[string]} path [e.g. "/games/game1/move"]
+ * @param  {[object]} options [{ as: a player, guest: a guest's game id, token: a raw X-Player-Token, cookie: a raw X-Guest-Game,
+ * body: sent as JSON, raw: a body string sent as is, type: raw's Content-Type (default application/json) }]
+ * @return {[object]} response [{ http: the HTTP status, ...the JSON body }]
+ */
+async function call(method, path, options = {}) {
+	const headers = {};
+	if (options.as) { headers["X-Player-Token"] = sessionToken(options.as.user); }
+	if (options.token) { headers["X-Player-Token"] = options.token; }
+	if (options.guest) { headers["X-Guest-Game"] = guestCookie(options.guest); }
+	if (options.cookie) { headers["X-Guest-Game"] = options.cookie; }
+	let body;
+	if (options.body !== undefined) { body = JSON.stringify(options.body); headers["Content-Type"] = "application/json"; }
+	if (options.raw !== undefined) { body = options.raw; headers["Content-Type"] = options.type || "application/json"; }
+	const res = await fetch(`${baseUrl}${path}`, { method, headers, body });
+	return { http: res.status, ...(await res.json()) };
+}
+
+
+module.exports = { start, reset, player, sessionToken, guestCookie, call, peek: fakeDynamo.peek };

@@ -179,8 +179,21 @@ data.
 | `settings.test.js` | The settings page's Default start settings and Delete my data |
 | `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
-GitHub Actions (`.github/workflows/ci.yml`) runs the server tests and the
-client build on every pull request and every push to `main`.
+The data service has its own tests, the same way (`data-service/test/`):
+
+```bash
+cd data-service && npm test
+```
+
+| File | What it covers |
+| --- | --- |
+| `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token: each refused with the stored game unchanged, and logged without the body or token |
+| `dynamoDB.test.js` | The same conditional writes as the server's copy |
+| `rating.test.js` | The Elo math, which games are rated, and two of a player's games ending at once |
+| `shared.test.js` | `utils/validate.js`, `rating.js` and `username.js` are the same files as the server's, and both pin the same `chess.js` |
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
+service tests and the client build on every pull request and every push to `main`.
 
 ## Pages
 
@@ -386,6 +399,45 @@ default, level 3.
   the engine's nginx rate limit doesn't apply to games.
 - **If the engine is down**, js-chess-engine (level 1) plays the move on the
   server instead.
+
+## Data service
+
+`data-service/` is being built to be the only code that reads and writes
+DynamoDB (#245). It will run on a private instance that only the chess server
+can reach. Each route is one named action, checked against the stored data
+before anything is saved. Until the chess server calls it (#249), nothing uses
+it yet, and `server/dynamoDB.js` is still the live copy.
+
+```bash
+cd data-service
+cp .env.example .env   # JWT_SECRET: the same value as server/.env
+npm run dev            # http://127.0.0.1:8090, uses the DynamoDB tables in DYNAMODB_REGION
+```
+
+The chess server says who it's acting for with the player it already checked:
+`X-Player-Token` (the signed-in player's access token) or `X-Guest-Game` (a
+guest's `guest_game` cookie). The data service checks them again with
+`JWT_SECRET`, and a player id in a body is never used. A guest's player id is
+their game's id, so a guest is only ever in that one game.
+
+| Route | What it checks before saving |
+| --- | --- |
+| `GET /health` | Nothing: answers without a player or the tables |
+| `GET /games/:gameId` | The requester is in the game (`?consistent=true` for a strongly consistent read) |
+| `POST /games/:gameId/move` `{ from, to, promotion }` | In the game, open, their turn, a legal move on the stored board. Checkmate or a draw closes the game and rates a friend game |
+| `POST /games/:gameId/ai-move` `{ from, to, promotion }` | AI games: the requester is in it, it's the AI's turn, and the move is legal |
+| `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
+| `GET /games/:gameId/ratings` | In the game. Both players' ratings |
+
+Each route lists the body fields it takes, and anything else is refused with
+a 400. Bodies must be JSON and 16kb at most. A request the data service
+handles answers 200 with `dynamoDB.js`'s `{ status, game_data, message }`. A
+refused one answers with its own status (400, 401, 403, 404, 409, 413 or 415)
+and logs one line, `REFUSED <method> <path> <status> <why>`, without the body
+or the token.
+
+`utils/validate.js`, `rating.js` and `username.js` are copies of the server's,
+and `test/shared.test.js` fails if they differ, so change both.
 
 ## Deploy
 
@@ -754,8 +806,20 @@ server/
   utils/rating.js            Elo ratings: the math & which games are rated
   utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
   test/                      Server tests (npm test): validate, ai, undo, dynamoDB, games, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, in-memory tables, test server)
+data-service/                Being built (#245): the only code that will read and write DynamoDB, on a private instance
+  index.js                   Express: /health, JSON bodies (16kb), the player, the routes. Listens on DATA_SERVICE_HOST
+  config.js                  Reads data-service/.env
+  dynamoDB.js                Copy of server/dynamoDB.js, which goes once the chess server calls the data service (#249)
+  routes/gameRoutes.js       /games/:gameId, move, ai-move, forfeit, ratings, each with the body fields it takes
+  controllers/gameController.js  Each game action, checked against the stored game before it saves
+  middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with JWT_SECRET
+  middleware/fields.js       onlyFields(): refuses a body field the route doesn't name
+  utils/games.js             playerInGame (a guest only in their own game), gameOpen, gamePending, turnColor
+  utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
+  utils/validate.js, rating.js, username.js  The same files as server/utils/ (test/shared.test.js)
+  test/                      Data service tests (npm test): games, dynamoDB, rating, shared, plus helpers/
 .github/
-  workflows/ci.yml           GitHub Actions: server tests and the client build on every pull request
+  workflows/ci.yml           GitHub Actions: server tests, data service tests and the client build on every pull request
 deploy/
   chess.service              systemd unit for the server
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
