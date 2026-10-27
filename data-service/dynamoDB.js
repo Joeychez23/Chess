@@ -10,6 +10,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
+const crypto = require("crypto");
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
@@ -817,6 +818,75 @@ async function deleteUser(userId) {
 }
 
 /* ---------------------------------------------------------------- */
+// Start session (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The session id (sid) on a player's row, made at their first login. Every device they log in on shares it, & every refresh
+ * token carries it, so clearing it (endSession, Delete my data) signs them out everywhere. A player who hasn't played yet gets their row here
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @return {[object]} response [{ status, sid, message }]
+ */
+async function startSession(userId) {
+	const user = await initalizeUser(userId);
+	if (user.user_data?.sid?.S) { return { status: 200, sid: user.user_data.sid.S, message: `user id: ${userId} session found` }; }
+
+	const sid = crypto.randomBytes(16).toString("base64url");
+	const params = {
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: userId }
+		},
+		UpdateExpression: 'SET sid = :sid',
+		ConditionExpression: 'attribute_exists(user_id) AND attribute_not_exists(sid)', // NEVER MAKES A ROW WITHOUT ITS GAME LISTS, OR REPLACES ANOTHER LOGIN'S sid
+		ExpressionAttributeValues: {
+			':sid': { S: sid }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name != "ConditionalCheckFailedException") { throw err; }
+		const again = await retrieveUser(userId, true); // ANOTHER LOGIN SET IT FIRST, USE THAT ONE
+		if (!again.user_data?.sid?.S) { throw err; } // THE ROW WAS DELETED (Delete my data) IN BETWEEN
+		return { status: 200, sid: again.user_data.sid.S, message: `user id: ${userId} session found` };
+	}
+	return { status: 200, sid, message: `user id: ${userId} session started` };
+}
+
+/* ---------------------------------------------------------------- */
+// End session (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Clears a player's session id (logout), so every device's refresh token stops working. Only the session the request
+ * belongs to is ended: an old refresh token from before the last logout doesn't end the session they logged in to since
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @param  {[string]} sid [the session id in the refresh token]
+ * @return {[object]} response [{ status, message }, status 200 either way]
+ */
+async function endSession(userId, sid) {
+	const params = {
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: userId }
+		},
+		UpdateExpression: 'REMOVE sid',
+		ConditionExpression: 'sid = :sid', // STILL THIS SESSION (& THE ROW IS STILL THERE)
+		ExpressionAttributeValues: {
+			':sid': { S: sid }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 200, message: `user id: ${userId} session already ended` }; }
+		throw err;
+	}
+	return { status: 200, message: `user id: ${userId} session ended` };
+}
+
+/* ---------------------------------------------------------------- */
 // Prune open games
 /* ---------------------------------------------------------------- */
 /**
@@ -941,4 +1011,4 @@ async function pruneGameList(userData, listName) {
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, pruneOpenGames, pruneInvites }
+module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

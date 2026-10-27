@@ -1,0 +1,169 @@
+/*
+ *  auth.test.js  --  chess server tests
+ *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, #252)
+ *  The server can't make a session: the login callback passes Auth0's id_token to the data service, which checks it & signs the tokens.
+ *  The server only checks tokens with the public key, so a token signed any other way is refused. Logout ends the session on every device
+ *
+ */
+
+require("./helpers/env.js");
+const { test, describe, before, after, beforeEach } = require("node:test");
+const assert = require("node:assert/strict");
+const testServer = require("./helpers/server.js");
+const { call, send, player, peek, auth0WillSign } = testServer;
+const keys = require("../../data-service/test/helpers/keys.js");
+const config = require("../config");
+const { readSessionUser } = require("../middleware/auth.js");
+
+let server;
+before(async () => { server = await testServer.start(); });
+after(() => server.close());
+beforeEach(() => testServer.reset());
+
+const alice = player("alice");
+
+/* ---------------------------------------------------------------- */
+// Helpers
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description Logs a player in like the browser does after Auth0's login page: the callback with the code & the state cookie
+ * @return {[object]} response [send()'s, cookies has access_token & refresh_token when it worked]
+ */
+function logIn(someone, returnTo) {
+	const cookies = { auth_state: "state1", ...(returnTo ? { auth_return: returnTo } : {}) };
+	return send("GET", `/api/auth/callback?code=${encodeURIComponent(someone.email)}&state=state1`, cookies);
+}
+
+const me = (accessToken) => send("GET", "/api/user", { access_token: accessToken });
+const refresh = (refreshToken) => send("POST", "/api/auth/refresh", { refresh_token: refreshToken });
+
+/* ---------------------------------------------------------------- */
+// Login
+/* ---------------------------------------------------------------- */
+
+describe("login", () => {
+	test("the callback sets the session the data service signed & goes back to the page", async () => {
+		player("alice");
+		const login = await logIn(alice, "/play/game1");
+		assert.equal(login.http, 302);
+		assert.equal(login.location, new URL("/play/game1", config.clientUrl).href);
+		assert.ok(login.cookies.access_token && login.cookies.refresh_token);
+		assert.ok(peek("user_db", "alice").sid.S); // THE SESSION ID ON THEIR ROW
+
+		const user = await me(login.cookies.access_token);
+		assert.equal(user.http, 200);
+		assert.equal(user.body.userData.user_id, "auth0|alice");
+	});
+
+	test("a forged id_token gets no session", async () => {
+		player("alice");
+		auth0WillSign((claims) => keys.idToken(claims, { forged: true }));
+		auth0WillSign((claims) => keys.idToken({ ...claims, aud: "another-client" }));
+		auth0WillSign((claims) => keys.idToken({ ...claims, iss: "https://another.auth0.test/" }));
+		for (let i = 0; i < 3; i++) {
+			const login = await logIn(alice);
+			assert.equal(login.location, config.clientUrl);
+			assert.deepEqual(login.cookies, { auth_state: "", auth_return: "" }); // ONLY THE LOGIN COOKIES ARE CLEARED
+		}
+		assert.equal(peek("user_db", "alice"), undefined);
+	});
+
+	test("a login the state doesn't match never reaches the data service", async () => {
+		player("alice");
+		const login = await send("GET", `/api/auth/callback?code=alice%40test&state=other`, { auth_state: "state1" });
+		assert.equal(login.location, config.clientUrl);
+		assert.equal(login.cookies.access_token, undefined);
+	});
+});
+
+/* ---------------------------------------------------------------- */
+// Refresh, Resume & Logout
+/* ---------------------------------------------------------------- */
+
+describe("refresh, resume & logout", () => {
+	test("refresh re-ups the session from the refresh cookie", async () => {
+		player("alice");
+		const login = await logIn(alice);
+		const response = await refresh(login.cookies.refresh_token);
+		assert.equal(response.http, 200);
+		assert.equal(response.body.userData.user_id, "auth0|alice");
+		assert.equal((await me(response.cookies.access_token)).http, 200);
+	});
+
+	test("resume re-ups the session & goes back, or sends a signed out player to login", async () => {
+		player("alice");
+		const login = await logIn(alice);
+		const resumed = await send("GET", "/api/auth/resume?returnTo=%2Fplay%2Fgame1", { refresh_token: login.cookies.refresh_token });
+		assert.equal(resumed.location, "/play/game1");
+		assert.ok(resumed.cookies.access_token);
+		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2Fplay%2Fgame1")).location, "/api/auth/login?returnTo=%2Fplay%2Fgame1");
+	});
+
+	test("after logout, refresh fails on every device", async () => {
+		player("alice");
+		const phone = await logIn(alice);
+		const laptop = await logIn(alice);
+		const logout = await send("GET", "/api/auth/logout", { refresh_token: phone.cookies.refresh_token });
+		assert.equal(logout.http, 302);
+		assert.match(logout.location, /^https:\/\/auth0\.test\/v2\/logout/);
+		assert.deepEqual([logout.cookies.access_token, logout.cookies.refresh_token], ["", ""]);
+
+		for (const device of [phone, laptop]) {
+			const response = await refresh(device.cookies.refresh_token);
+			assert.equal(response.http, 401);
+			assert.equal(response.cookies.refresh_token, ""); // CLEARED
+		}
+		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2F", { refresh_token: laptop.cookies.refresh_token })).location, "/api/auth/login?returnTo=%2F");
+	});
+
+	test("Delete my data ends the session", async () => {
+		player("alice");
+		const login = await logIn(alice);
+		assert.equal((await send("DELETE", "/api/user", { access_token: login.cookies.access_token })).body.status, 200);
+		assert.equal((await refresh(login.cookies.refresh_token)).http, 401);
+	});
+});
+
+/* ---------------------------------------------------------------- */
+// Tokens
+/* ---------------------------------------------------------------- */
+
+describe("only tokens the data service signed", () => {
+	test("another key's, an HS256 (even with the public key as its secret), a none or an expired token is refused", async () => {
+		const tokens = [
+			keys.sessionToken(alice.user, { key: "stranger" }),
+			keys.sessionToken(alice.user, { key: "old" }), // THE DATA SERVICE'S OLD KEY ISN'T THE SERVER'S
+			keys.sessionToken(alice.user, { algorithm: "HS256" }),
+			keys.sessionToken(alice.user, { algorithm: "HS256", secret: "test-jwt-secret" }), // A COOKIE FROM BEFORE #252
+			keys.sessionToken(alice.user, { algorithm: "none" }),
+			keys.sessionToken(alice.user, { expired: true }),
+			keys.tamper(keys.sessionToken(player("mallory").user), { user: alice.user }),
+			keys.sessionToken(alice.user, { type: "refresh" }),
+			keys.guestToken("game1")
+		];
+		for (const token of tokens) {
+			const response = await me(token);
+			assert.equal(response.http, 401);
+			assert.equal(response.body.message, "SESSION EXPIRED");
+			assert.equal(readSessionUser({ cookies: { access_token: token } }), null);
+		}
+		assert.equal((await me(keys.sessionToken(alice.user))).http, 200);
+	});
+
+	test("while the key is being changed, a token signed with the next key is read too", () => {
+		assert.equal(readSessionUser({ cookies: { access_token: keys.sessionToken(alice.user, { key: "next" }) } }).user_id, "auth0|alice"); // SESSION_PUBLIC_KEY_NEXT
+	});
+
+	test("a refresh cookie from before #252 signs the player out", async () => {
+		const response = await refresh(keys.sessionToken(alice.user, { type: "refresh", algorithm: "HS256", secret: "test-jwt-secret" }));
+		assert.equal(response.http, 401);
+		assert.equal(response.body.message, "SESSION EXPIRED");
+	});
+
+	test("a guest cookie from before #252 gets a new game, not a refusal", async () => {
+		const response = await call("POST", "/api/chess/game", { cookie: `guest_game=session.guest1.${"x".repeat(43)}`, body: { game_id: "guest1", start_color: "w" } });
+		assert.equal(response.status, 200);
+		assert.ok(response.game_id);
+	});
+});

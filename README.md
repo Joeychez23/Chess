@@ -101,7 +101,8 @@ the updated `package-lock.json` with it.
 | `AUTH0_ISSUER_BASE_URL_ORIGIN` | Auth0 tenant domain |
 | `AUTH0_CONNECTION` | Database connection players log in with (`auth0-default-connection`) |
 | `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`) |
-| `JWT_SECRET` | Signs the session tokens |
+| `SESSION_PUBLIC_KEY` | The public half of the data service's session key, multi-line in double quotes ([Session keys](#session-keys-252)). The server checks session and guest tokens with it but can't make one |
+| `SESSION_PUBLIC_KEY_NEXT` | Optional. Only while the key is being changed: tokens signed with the new key are accepted too |
 | `AUTH0_CALLBACK_URL` | Optional. Defaults to `http://localhost:API_PORT/api/auth/callback` |
 | `CLIENT_URL` | Optional. Where the browser goes after login/logout. Defaults to `http://localhost:API_PORT/` |
 | `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
@@ -169,7 +170,8 @@ cd server && npm test   # every server/test/*.test.js, with Node's built-in test
 ```
 
 The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
-`test/helpers/env.js` sets test values, and `test/helpers/server.js` starts the
+`test/helpers/env.js` sets test values (with new session keys and a stand-in
+Auth0 key each run, `data-service/test/helpers/keys.js`), and `test/helpers/server.js` starts the
 real `/api` and page routes on a random port with the real data service next to
 it, on its in-memory tables (`data-service/test/helpers/fakeDynamo.js`). So every
 test goes server → data service → tables, like the live site. Auth0 and the
@@ -182,6 +184,7 @@ engine are answered from test data. Install the data service's packages first
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
 | `dataClient.test.js` | The data service down, too slow (3 seconds) or refusing the signature: 503 "Try again in a moment" and nothing half saved. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
+| `auth.test.js` | Signing in through the data service: the callback's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 | `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
 | `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
@@ -198,9 +201,10 @@ cd data-service && npm test
 | File | What it covers |
 | --- | --- |
 | `signature.test.js` | Signed requests: unsigned, another secret, a changed body, path, query or method, a timestamp over 30 seconds either way, a replayed request, and the old secret during a change. Behind a good signature, another player's token still gets nothing, and a `user_id` in a body is refused |
+| `session.test.js` | Logins: only Auth0's `id_token` (not forged, our client and tenant, not expired, at most 5 minutes old, used once) for the user it names. Refresh while the session id is unchanged, and not after logout (on any device) or Delete my data. The old key during a change. Guest tokens only for the game just made, with the same guest session from game to game |
 | `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
-| `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token: each refused with the stored game unchanged, and logged without the body or token |
+| `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
 | `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `rating.test.js` | The Elo math, which games are rated, and two of a player's games ending at once |
 | `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js` and `signature.js` are the same files as the server's, and both pin the same `chess.js` |
@@ -237,10 +241,10 @@ client secret.
 | Route | What it does |
 | --- | --- |
 | `GET /api/auth/login` | Redirects to the Auth0 login page. `?returnTo=/play/:gameId` is saved in a cookie for the callback (only paths on this site) |
-| `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for the user, looks them up through the Management API (`getAuth0User`, which replaced the `user` lambda), starts the session, and goes to `returnTo` or Home |
-| `POST /api/auth/refresh` | Re-ups the session: a valid refresh token gets a new access + refresh token |
+| `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for Auth0's tokens, looks the player up through the Management API (`getAuth0User`, which replaced the `user` lambda), then the data service checks Auth0's `id_token` and signs the session (`POST /session/login`). Goes to `returnTo` or Home |
+| `POST /api/auth/refresh` | Re-ups the session: the data service checks the refresh token and signs a new access + refresh token |
 | `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it logs in first |
-| `GET /api/auth/logout` | Clears the session and logs out of Auth0 |
+| `GET /api/auth/logout` | Ends the session on every device (the data service clears the session id on the player's row), clears the cookies and logs out of Auth0 |
 | `GET /api/user` | The signed-in user, and `username` from their `user_db` row (`null` until they pick one), or `401` |
 | `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w` or `b` is `random`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
 | `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
@@ -251,6 +255,13 @@ checked on every request, and a refresh token (7 days) that's only sent to
 `/api/auth`. When `/api/user` returns `401`, the client calls
 `/api/auth/refresh` once and uses the user it returns. Checking a session is a
 signature check on the server, so startup doesn't wait on Auth0.
+
+Only the data service signs session and guest tokens (ES256, #252). The server
+has the public key, so it checks them without a call but can't make one: someone
+who took over the public instance couldn't sign in as a player who isn't using
+the site. Both tokens carry the session id on the player's `user_db` row, and a
+refresh fails once it's gone, so logout and Delete my data sign them out on every
+device within 15 minutes.
 
 ## Chess API
 
@@ -265,9 +276,9 @@ The player is whoever is signed in. The server reads it from the session
 cookie and ignores the player ids the client sends. Nobody can move for the AI:
 its moves only come from `/ai-move`. Guests (no session) can only play an AI
 game whose `game_id` equals their player id, which is how the client sets up
-each guest, and only from the browser that made it: `POST /api/chess/game` gives a guest an httpOnly, signed
-`guest_game` cookie (`setGuestCookie` in `server/middleware/auth.js`, only sent to `/api/chess`) holding their game id
-and a guest session id that stays the same from game to game. A guest whose `game_id` is another browser's game
+each guest, and only from the browser that made it: `POST /api/chess/game` gives a guest an httpOnly
+`guest_game` cookie (`setGuestCookie` in `server/middleware/auth.js`, only sent to `/api/chess`), a token the data service
+signs for the game it just made them, holding their game id and a guest session id that stays the same from game to game. A guest whose `game_id` is another browser's game
 gets a new game with a new id instead of resetting it, and so does a guest asking for the id `CHESS_AI` (the AI's
 player id). A guest is never in any game but their own, even when their id is on one side of another game
 (`playerInGame` in `chessController.js`). Guests aren't added to `user_db`.
@@ -424,14 +435,14 @@ against the stored data before anything is saved.
 
 ```bash
 cd data-service
-cp .env.example .env   # JWT_SECRET: the same value as server/.env. DATA_SERVICE_SECRET: a new one (the command is in .env.example)
+cp .env.example .env   # DATA_SERVICE_SECRET: a new one (the command is in .env.example). SESSION_PRIVATE_KEY & auth0-jwks.json: Session keys below
 npm run dev            # http://127.0.0.1:8090, uses the DynamoDB tables in DYNAMODB_REGION
 ```
 
 The chess server says who it's acting for with the player it already checked:
 `X-Player-Token` (the signed-in player's access token) or `X-Guest-Game` (a
-guest's `guest_game` cookie). The data service checks them again with
-`JWT_SECRET`, and a player id in a body is never used. A guest's player id is
+guest's `guest_game` token). The data service signed both, and checks them again
+with its own key, and a player id in a body is never used. A guest's player id is
 their game's id, so a guest is only ever in that one game.
 
 Only the chess server can call it. Every request except `/health` is signed
@@ -453,9 +464,9 @@ To change the secret without refusing any requests:
 2. Put the new one in `server/.env` and restart the chess server.
 3. Remove `DATA_SERVICE_SECRET_OLD` and restart the data service.
 
-The signature only proves a request came from the chess server. Until #252,
-`JWT_SECRET` is also on the public server, so someone who took it over could
-still sign a token for any player and make the actions that player could.
+The signature only proves a request came from the chess server. Who the
+request is for comes from a token only the data service can sign
+([Session keys](#session-keys-252)).
 
 | Route | What it checks before saving |
 | --- | --- |
@@ -466,7 +477,7 @@ still sign a token for any player and make the actions that player could.
 | `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
 | `GET /games/:gameId/ratings` | In the game. Both players' ratings |
 | `POST /games/ai` `{ color, level, start_fen, game_id }` | A signed-in player vs `CHESS_AI`, at a level from 1 to 8 (3 if left out), from a playable position. A `game_id` must be new |
-| `POST /games/guest` `{ game_id, color, side, level, start_fen }` | Needs no player. `side` fixes this game's side while `color` is what Restart uses (the play page's first guest game). The guest's own game (their cookie) is reset and keeps its level; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched |
+| `POST /games/guest` `{ game_id, color, side, level, start_fen }` | Needs no player. `side` fixes this game's side while `color` is what Restart uses (the play page's first guest game). The guest's own game (their cookie) is reset and keeps its level; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched. Answers with `guest_token`, the guest's cookie for the game it saved |
 | `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, game_id }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
 | `POST /games/:gameId/accept` `{ replace_current }` | Pending, only the invited player. In this order: their own open friend game answers `{ status: 409, game_id }` unless `replace_current`; the inviter in another friend game is refused; then their friend game is forfeited (`forfeited`), their sent invite cancelled (`dropped_invites`) and the invite accepted |
 | `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
@@ -475,6 +486,9 @@ still sign a token for any player and make the actions that player could.
 | `POST /users/me/settings` `{ ai_level, ai_color, friend_color }` | A level from 1 to 8 and `w`, `b` or `random` for each color, all three |
 | `POST /users/me/username` `{ username }` | The username rules again (`utils/username.js`), then `claimUsername`: someone else's name, in any capitals, answers `{ status: 409 }` |
 | `POST /users/me/delete` | Refused (409) while the player has an open game or an invite: the chess server forfeits, cancels and declines them first. Then the row and the username claim are deleted |
+| `POST /session/login` `{ id_token, user }` | Needs no player. Auth0's `id_token` checked against Auth0's saved keys (RS256, our tenant and client, not expired, at most 5 minutes old, used once), and `user` (the chess server's `getAuth0User`) must be the one it names, on `AUTH0_CONNECTION`. Then the access and refresh tokens, with the session id on the player's row (made at their first login) |
+| `POST /session/refresh` `{ refresh_token }` | A refresh token it signed, whose session id is still the one on the row. A new pair |
+| `POST /session/logout` `{ refresh_token }` | A refresh token it signed. Clears the session id, so no device can refresh. A token from a session that already ended changes nothing |
 
 The rules about a player's other games ("one AI game and one friend game at a
 time", `replace_current`, one sent invite) stay on the chess server: it makes
@@ -491,15 +505,85 @@ or the token.
 `server/dataClient.js` sends each call signed, with the player of the request it's
 answering (an `AsyncLocalStorage` context, so the controllers don't pass it
 around): their access token when it's still good, otherwise a guest's
-`guest_game` cookie. A call that gets no answer in 3 seconds, a 5xx, or a
+`guest_game` cookie when it's still good. A call that gets no answer in 3 seconds, a 5xx, or a
 signature refusal (a wrong `DATA_SERVICE_SECRET`) answers the player 503 "Try
 again in a moment". Each action is one call, so nothing is half saved. The rules
 about a player's other games still run on the chess server first, and accepting
 an invite with `replace_current` is one call, so the inviter is checked before
 the player's own game is forfeited.
 
-`utils/validate.js`, `rating.js`, `username.js` and `signature.js` are copies of
+`utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are copies of
 the server's, and `test/shared.test.js` fails if they differ, so change both.
+
+### Session keys (#252)
+
+The data service signs every access, refresh and guest token with its private
+key (`SESSION_PRIVATE_KEY`, ES256). The chess server only has the public key
+(`SESSION_PUBLIC_KEY`). Each token names its key in its header (`kid`, made from
+the key itself), and only ES256 tokens signed with a key they have are
+accepted: an HS256 token, a `none` token or another key's is refused by both.
+
+#### Making the session keys
+
+On AWS, run this on the data service, so the private key never leaves it. Use a
+different key on your Mac than on the live site, so a session made locally
+can't be used there.
+
+```bash
+openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out session-key.pem   # SESSION_PRIVATE_KEY
+openssl pkey -in session-key.pem -pubout                                                              # SESSION_PUBLIC_KEY
+```
+
+Each goes in its `.env` as a multi-line value in double quotes, the private key
+in `data-service/.env` and the public key in `server/.env`:
+
+```
+SESSION_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----"
+```
+
+Then delete `session-key.pem`. Both services check the key when they start and
+exit if it isn't a P-256 key (the chess server also refuses a private key).
+
+#### Saving Auth0's keys
+
+A login's `id_token` is checked against Auth0's public keys. The data service
+has no internet, so they're saved next to it as `auth0-jwks.json`
+(`AUTH0_JWKS_FILE`, not committed). The data service won't start without it.
+
+```bash
+# on your Mac, in this folder (the domain is AUTH0_ISSUER_BASE_URL_ORIGIN)
+curl -s https://<tenant domain>/.well-known/jwks.json -o data-service/auth0-jwks.json
+
+# on AWS, then on the data service
+scp -J ubuntu@52.11.177.148 data-service/auth0-jwks.json ubuntu@172.31.64.10:/tmp/
+sudo install -o dataservice -g dataservice -m 644 /tmp/auth0-jwks.json /opt/data-service/auth0-jwks.json && sudo systemctl restart data-service
+```
+
+Auth0 rarely changes its signing key. When it does, logins fail and the data
+service logs `REFUSED POST /session/login 401 Bad id token: unknown key`: save
+the keys again.
+
+#### Changing the session key
+
+To change it without signing anyone out:
+
+1. Make a new pair. Put the new public key in `server/.env` as
+   `SESSION_PUBLIC_KEY_NEXT` and restart the chess server. It accepts both.
+2. In the data service's `.env`, set the new private key as
+   `SESSION_PRIVATE_KEY` and the old public key as `SESSION_PUBLIC_KEY_OLD`,
+   then restart it. New tokens use the new key, and old ones still refresh.
+3. After 25 days (refresh tokens last 7 days, guest games 25 days after their
+   last move), set `SESSION_PUBLIC_KEY` in `server/.env` to the new key, remove
+   `SESSION_PUBLIC_KEY_NEXT` and `SESSION_PUBLIC_KEY_OLD`, and restart both.
+
+In the wrong order (step 2 before step 1), the chess server can't read the new
+tokens: it answers 503 and logs `its tokens are signed with key <kid>, which
+SESSION_PUBLIC_KEY / SESSION_PUBLIC_KEY_NEXT isn't`. Do step 1.
+
+If the private key leaks, change both at once without the overlap. Everyone is
+signed out, and guests start a new game.
 
 ## Deploy
 
@@ -827,7 +911,7 @@ every sprite, sound, and the favicon load from it.
 | `AUTH0_CALLBACK_URL` | `https://chess.aws-prac-route53.com/api/auth/callback` |
 | `CLIENT_URL` | `https://chess.aws-prac-route53.com/` |
 | `ENGINE_URL` | `http://127.0.0.1:3001/v1` |
-| `JWT_SECRET` | A new one (the command is in `server/.env.example`), so a session made on your Mac can't be used on the live site |
+| `SESSION_PUBLIC_KEY` | The public half of the live data service's key ([Making the session keys](#making-the-session-keys)), not your Mac's, so a session made on your Mac can't be used on the live site |
 | `DATA_SERVICE_URL` | `http://<the data service's private IP>:8090` (#251 sets up its instance) |
 | `DATA_SERVICE_SECRET` | A new one, the same value as in the data service's `.env` |
 
@@ -932,7 +1016,7 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
 
    ```bash
    # on your Mac, in this folder
-   rsync -av --delete --exclude node_modules --exclude .env --exclude test --exclude .DS_Store --exclude '* 2*' \
+   rsync -av --delete --exclude node_modules --exclude .env --exclude auth0-jwks.json --exclude test --exclude .DS_Store --exclude '* 2*' \
      -e "ssh -J ubuntu@52.11.177.148" data-service/ ubuntu@172.31.64.10:/opt/data-service/
    scp -J ubuntu@52.11.177.148 deploy/data-service.service ubuntu@172.31.64.10:/tmp/
 
@@ -941,7 +1025,7 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
    ```
 
    `--exclude '* 2*'` leaves out macOS's duplicate copies ("index 2.js"), and
-   `--delete` doesn't touch the excluded `.env` and `node_modules`.
+   `--delete` doesn't touch the excluded `.env`, `auth0-jwks.json` and `node_modules`.
 
 3. **Close the window**:
 
@@ -955,7 +1039,8 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
    | --- | --- |
    | `DATA_SERVICE_HOST` | `172.31.64.10`, its private IP (it never listens on `0.0.0.0`) |
    | `DATA_SERVICE_PORT` | `8090` |
-   | `JWT_SECRET` | The same value as the live server's `server/.env` (until #252) |
+   | `SESSION_PRIVATE_KEY` | A new key made on this instance ([Making the session keys](#making-the-session-keys)). Its public half goes in the server's `.env` as `SESSION_PUBLIC_KEY` |
+   | `AUTH0_ISSUER_BASE_URL_ORIGIN` / `AUTH0_CLIENT_ID` | The same values as the server's `.env` |
    | `DATA_SERVICE_SECRET` | A new one (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`). The same value goes in the server's `.env` in step 11 |
    | `DYNAMODB_REGION` | `us-west-2` |
 
@@ -966,6 +1051,7 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
    ```
 
    No AWS keys go anywhere. It uses its instance's role, `EC2_Chess_DataService`.
+   Then save Auth0's keys next to it ([Saving Auth0's keys](#saving-auth0s-keys)).
 
 5. **Start it and check it from `Chess-Stockfish`**:
 
@@ -1051,13 +1137,50 @@ journalctl -u data-service --since "15 min ago" | grep REFUSED
 | Pages answer "Try again in a moment", and the chess journal says `Data service: ... no answer in 3 seconds` or `fetch failed` | The chess server can't reach the data service | Check `sudo systemctl status data-service`, then `/health` from Chess-Stockfish. Check `DATA_SERVICE_URL` and that the data service's `DATA_SERVICE_HOST` is `172.31.64.10`: with `127.0.0.1` it only answers itself |
 | The chess journal says `Data service: ... refused the signature (Bad signature)` | The two `DATA_SERVICE_SECRET` values differ | Make them the same and restart both. To change the secret without any refusals, use `DATA_SERVICE_SECRET_OLD` ([Data service](#data-service)) |
 | The chess journal says `refused the signature (Request too old)` | The two clocks are more than 30 seconds apart | `timedatectl` on both. `NTP service: active` should be on, Ubuntu's default |
-| Every player looks signed out or gets "Player is not in this game", and the data service logs `REFUSED ... 401 Bad player token` | `JWT_SECRET` differs between the two `.env` files | Copy the chess server's `JWT_SECRET` into `/opt/data-service/.env`, then restart `data-service` |
+| Every player looks signed out or gets "Player is not in this game", and the data service logs `REFUSED ... 401 Bad player token` | One side runs code from before #252 (the other signs or checks tokens differently) | Deploy the same commit on both and restart both ([12. Session keys](#12-session-keys-252)) |
+| `data-service` restarts over and over with `SESSION_PRIVATE_KEY isn't a P-256 key` or `Can't read Auth0's keys` | The key isn't in double quotes with all its lines, or `auth0-jwks.json` is missing | [Making the session keys](#making-the-session-keys), [Saving Auth0's keys](#saving-auth0s-keys) |
+| Logins go back to the site signed out, and the data service logs `REFUSED POST /session/login 401 Bad id token: ...` | `unknown key`: Auth0 changed its key. `jwt audience invalid` or `jwt issuer invalid`: `AUTH0_CLIENT_ID` or `AUTH0_ISSUER_BASE_URL_ORIGIN` differ from the server's. `not this user`: a login that isn't on `AUTH0_CONNECTION` | Save Auth0's keys again, or copy the two values from `server/.env` |
+| Signing in and refreshing answer 503, and the chess journal says `its tokens are signed with key ...` | `SESSION_PUBLIC_KEY` isn't the public half of the data service's key | Print it on the data service: `cd /opt/data-service && sudo -u dataservice /usr/local/bin/node24 -e 'require("dotenv").config({ quiet: true }); console.log(require("crypto").createPublicKey(process.env.SESSION_PRIVATE_KEY).export({ type: "spki", format: "pem" }))'`. Put it in `server/.env`, then restart `chess` |
 | The chess journal says `Data service: ... 500`, and the data service's journal shows `AccessDeniedException` | The data service can't reach the tables | `DYNAMODB_REGION` must be `us-west-2`. Check the tables are in us-west-2 and that `aws dynamodb get-item` works on the data service ([Data service instance](#data-service-instance)) |
 | Before step 11.3, the site breaks and the chess journal shows `AccessDeniedException` from DynamoDB | A plain `terraform apply` ran #250 too early and removed the chess server's access | Finish the switch-over, or put the policy back (revert #250's change, `terraform apply`). Until then, use `-target=module.data_service_module` |
 | `git pull` on the instance stops with "local changes would be overwritten" | The checkout has its own changes (a `package-lock.json` or built files) | `git status`, then `git checkout -- <file>` for files that were only rebuilt, and pull again |
 
 To get the site back first and debug after: the rollback above (8414ecc on
 Chess-Stockfish). The data service can keep running.
+
+### 12. Session keys (#252)
+
+After this, only the data service can make a session or guest token, and
+`JWT_SECRET` is gone from both instances. It signs everyone out once, and guests
+start a new game. Do steps 3 and 4 back to back: in between, the two sides don't
+read each other's tokens.
+
+1. **Make the key on the data service** ([Making the session keys](#making-the-session-keys)),
+   in `/tmp`. Keep the public half for step 4.
+2. **Save Auth0's keys** on it ([Saving Auth0's keys](#saving-auth0s-keys)),
+   without the restart.
+3. **Update the data service:** step 10's rsync. In `/opt/data-service/.env`
+   (`sudo nano`), remove `JWT_SECRET` and add `SESSION_PRIVATE_KEY` (the whole
+   key, in double quotes), `AUTH0_ISSUER_BASE_URL_ORIGIN` and `AUTH0_CLIENT_ID`
+   (the same values as the server's `.env`). Delete the key file in `/tmp`, then
+   `sudo systemctl restart data-service` and check its journal says
+   `Data service on ...`.
+4. **Update the chess server:** in `server/.env`, remove `JWT_SECRET`,
+   `JWT_EXPIRES_IN` and `JWT_REFRESH_EXPIRES_IN` (they're the data service's
+   now) and add `SESSION_PUBLIC_KEY` (step 1's public half, in double quotes).
+   Deploy the server the usual way ([Updating and logs](#updating-and-logs)) and
+   restart `chess`.
+5. **Check:** sign in; come back after 15 minutes and you're still signed in (a
+   refresh); sign in on a second browser, log out on the first, and the second
+   is signed out within 15 minutes; play a guest game. Then:
+
+   ```bash
+   grep -c JWT_SECRET /opt/chess-frontend/server/.env                 # on Chess-Stockfish: 0
+   journalctl -u data-service --since "30 min ago" | grep REFUSED     # on the data service: only the logged-out browser's refresh
+   ```
+
+**Rollback:** deploy `112b1c0` (`develop` before #252) on both, put the same
+`JWT_SECRET` back in both `.env` files, and restart both. Everyone is signed out again.
 
 ### Updating and logs
 
@@ -1169,7 +1292,7 @@ server/
     authController.js        login, callback, logout, refresh, resume
     userController.js        getUser (with the username), saveSettings, saveUsername, deleteUserData (Delete my data)
     chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
-  middleware/auth.js         JWT session cookies, requireAuth, optionalAuth, the guest_game cookie
+  middleware/auth.js         Session cookies (checked with the public key), requireAuth, optionalAuth, the guest_game cookie
   middleware/rateLimit.js    New game limits per session, IP and site (429)
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
@@ -1177,23 +1300,28 @@ server/
   utils/rating.js            Elo ratings: the math & which games are rated
   utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
   utils/signature.js         Signs each call to the data service (the same file as data-service/utils/signature.js)
-  test/                      Server tests (npm test): validate, ai, undo, games, dataClient, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, the test server with the data service next to it)
+  utils/sessionKeys.js       Reads the session keys & checks a token's ES256 signature (the same file as data-service/utils/sessionKeys.js)
+  test/                      Server tests (npm test): validate, ai, undo, games, dataClient, auth, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, the test server with the data service next to it)
 data-service/                The only code that reads and writes DynamoDB (#245), the chess server calls it; on a private instance on AWS
   index.js                   Express: /health, JSON bodies (16kb), the signature, the player, the routes. Listens on DATA_SERVICE_HOST
   config.js                  Reads data-service/.env
   dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js, then server/dynamoDB.js)
   routes/gameRoutes.js       /games/ai, guest, invite & /games/:gameId, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
   routes/userRoutes.js       /users/me, settings, username, delete: only the signed-in requester's own row
+  routes/sessionRoutes.js    /session/login, refresh, logout: the only place session tokens are made
   controllers/gameController.js  Each game action, checked against the stored game before it saves
   controllers/userController.js  getMe (with games), saveSettings, saveUsername, deleteMe (only once every game is left)
+  controllers/sessionController.js  login (checks Auth0's id_token), refresh & logout (the session id on the player's row)
   middleware/signature.js    checkSignature(): only signed requests, sent within 30 seconds, once; keepRawBody()
-  middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with JWT_SECRET; requirePlayer, requireSignedIn
+  middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with its own key; requirePlayer, requireSignedIn
   middleware/fields.js       onlyFields(): refuses a body field the route doesn't name
   utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks
   utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
-  utils/signature.js         sign(), signedHeaders(), signatureMatches(): the HMAC the chess server signs with (its copy comes in #249)
-  utils/validate.js, rating.js, username.js  The same files as server/utils/ (test/shared.test.js)
-  test/                      Data service tests (npm test): games, lifecycle, users, signature, dynamoDB, rating, shared, plus helpers/
+  utils/signature.js         sign(), signedHeaders(), signatureMatches(): the HMAC the chess server signs with
+  utils/tokens.js            Signs the access, refresh & guest tokens with SESSION_PRIVATE_KEY (ES256)
+  utils/validate.js, rating.js, username.js, sessionKeys.js  The same files as server/utils/ (test/shared.test.js)
+  auth0-jwks.json            Auth0's public keys, saved here (not committed, README -> Saving Auth0's keys)
+  test/                      Data service tests (npm test): games, lifecycle, users, session, signature, dynamoDB, rating, shared, plus helpers/ (keys.js: the test run's keys)
 .github/
   workflows/ci.yml           GitHub Actions: server tests (with the data service), data service tests and the client build on every pull request
 deploy/

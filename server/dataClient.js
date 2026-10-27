@@ -14,10 +14,10 @@
 const { AsyncLocalStorage } = require("node:async_hooks");
 const config = require("./config");
 const { signedHeaders } = require("./utils/signature.js");
-const { readSessionUser } = require("./middleware/auth.js");
+const { readSessionUser, readGuestCookie } = require("./middleware/auth.js");
 
 const TIMEOUT = 3000; // A DATA SERVICE THAT TAKES LONGER IS TREATED AS DOWN (503 "Try again in a moment")
-const PLAYER_REFUSALS = ["No player", "Bad player token", "Bad guest cookie"]; // A 401 ABOUT THE PLAYER IS AN ANSWER, ANY OTHER 401 IS THE SIGNATURE (A SETUP PROBLEM)
+const SIGNATURE_REFUSALS = ["Unsigned request", "Bad signature headers", "Bad signature", "Request too old", "Replayed request"]; // data-service/middleware/signature.js'S 401s ARE A SETUP PROBLEM, ANY OTHER 401 IS AN ANSWER ABOUT THE PLAYER OR THEIR SESSION
 const context = new AsyncLocalStorage(); // { req }: THE REQUEST (OR SOCKET HANDSHAKE) THE CALLS ARE MADE FOR
 
 /* ---------------------------------------------------------------- */
@@ -47,7 +47,7 @@ function playerHeaders() {
 	const req = context.getStore()?.req;
 	if (!req) { return {}; }
 	if (req.cookies?.access_token && readSessionUser(req)) { return { "X-Player-Token": req.cookies.access_token }; }
-	if (req.cookies?.guest_game) { return { "X-Guest-Game": req.cookies.guest_game }; } // ONLY SENT TO /api/chess
+	if (req.cookies?.guest_game && readGuestCookie(req)) { return { "X-Guest-Game": req.cookies.guest_game }; } // ONLY SENT TO /api/chess. ONE SIGNED BEFORE #252 ISN'T, THAT GUEST GETS A NEW GAME
 	return {};
 }
 
@@ -76,7 +76,7 @@ async function call(method, path, body) {
 		throw down(`${method} ${path}: ${err.name == "TimeoutError" ? "no answer in 3 seconds" : err.message}`);
 	}
 	if (res.status >= 500) { throw down(`${method} ${path}: ${res.status} ${answer?.message}`); }
-	if (res.status == 401 && !PLAYER_REFUSALS.includes(answer?.message)) { throw down(`${method} ${path}: refused the signature (${answer?.message}), check DATA_SERVICE_SECRET`); }
+	if (res.status == 401 && SIGNATURE_REFUSALS.includes(answer?.message)) { throw down(`${method} ${path}: refused the signature (${answer?.message}), check DATA_SERVICE_SECRET`); }
 	return answer;
 }
 
@@ -173,6 +173,28 @@ const decline = (gameId) => call("POST", `/games/${id(gameId)}/decline`);
 const rematch = (gameId) => call("POST", `/games/${id(gameId)}/rematch`);
 
 /* ---------------------------------------------------------------- */
+// Sessions (#252)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Signs a player in: the data service checks Auth0's id_token & that the user is the one it names, then signs the session tokens
+ * @param  {[string]} idToken [Auth0's id_token from exchangeCode]
+ * @param  {[object]} user [sessionUser(getAuth0User()), what the tokens hold]
+ * @return {[object]} response [{ status: 200, access_token, refresh_token } | { status: 401, message } (a bad id_token, or not its user)]
+ */
+const startSession = (idToken, user) => call("POST", "/session/login", { id_token: idToken, user });
+
+/**
+ * @description New session tokens from the refresh cookie, while the player's session hasn't been ended (logout, Delete my data)
+ * @return {[object]} response [{ status: 200, access_token, refresh_token } | { status: 401, message }]
+ */
+const refreshSession = (refreshToken) => call("POST", "/session/refresh", { refresh_token: refreshToken });
+
+/**
+ * @description Ends the player's session on every device (logout)
+ */
+const endSession = (refreshToken) => call("POST", "/session/logout", { refresh_token: refreshToken });
+
+/* ---------------------------------------------------------------- */
 // The Requester's Row
 /* ---------------------------------------------------------------- */
 /**
@@ -204,4 +226,4 @@ const claimUsername = (username) => call("POST", "/users/me/username", { usernam
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { playerContext, withRequest, dataServiceDown, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { playerContext, withRequest, dataServiceDown, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

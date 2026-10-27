@@ -86,7 +86,7 @@ async function newGame(req, res) {
 
 	if (!req.user) { // A GUEST'S OWN GAME IS RESET, ANOTHER BROWSER'S ID (OR CHESS_AI) GETS A NEW GAME WITH A NEW ID (THE CLIENT SAVES IT)
 		const response = await newGuestGame({ game_id, color: params.color, side, level, start_fen: params.fen });
-		if (response.game_data) { setGuestCookie(req, res, response.game_data.game_id.S); } // ONLY THIS BROWSER CAN PLAY IT NOW
+		if (response.game_data) { setGuestCookie(res, response.guest_token); } // ONLY THIS BROWSER CAN PLAY IT NOW, THE DATA SERVICE SIGNED IT FOR THIS GAME
 		return res.json(gameResponse(response));
 	}
 
