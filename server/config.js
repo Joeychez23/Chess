@@ -10,6 +10,16 @@ function required(name) {
   return value;
 }
 
+// A SIGNING SECRET MUST BE LONG ENOUGH THAT IT CAN'T BE GUESSED (THE COMMAND IN .env.example MAKES 96 CHARACTERS)
+function longSecret(name) {
+  const value = required(name);
+  if (value.length < 32) {
+    console.error(`${name} is too short (at least 32 characters). See server/.env.example.`);
+    process.exit(1);
+  }
+  return value;
+}
+
 // API_PORT wins so a PORT meant for the React dev server isn't picked up here.
 const port = Number(process.env.API_PORT || process.env.PORT) || 8080;
 
@@ -33,8 +43,9 @@ const config = {
   // STOCKFISH ENGINE API (chess-engine-api), THE SERVER ASKS IT FOR THE AI'S MOVES
   engineUrl: process.env.ENGINE_URL || "https://engine.aws-prac-route53.com/v1",
 
-  // DYNAMODB, THE REGION chess_db AND user_db ARE IN (MOVED FROM us-east-1, README -> Moving the tables)
-  dynamoRegion: process.env.DYNAMODB_REGION || "us-west-2",
+  // DATA SERVICE (data-service/), EVERY READ & WRITE OF THE GAMES & PLAYERS GOES THROUGH IT (dataClient.js)
+  dataServiceUrl: process.env.DATA_SERVICE_URL || "http://127.0.0.1:8090", // ON AWS: THE DATA SERVICE'S PRIVATE IP
+  dataServiceSecret: longSecret("DATA_SERVICE_SECRET"), // SIGNS EVERY CALL, THE SAME VALUE AS data-service/.env
 };
 
 module.exports = config;

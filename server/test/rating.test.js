@@ -1,7 +1,7 @@
 /*
  *  rating.test.js  --  chess server tests
- *	Elo Ratings (server/utils/rating.js, rateGame in server/dynamoDB.js)
- *  The rating math, which games count, the ratings Home & the game menu get, and two games ending at once
+ *	Elo Ratings (server/utils/rating.js, through the data service)
+ *  The rating math, which games count, and the ratings Home & the game menu get. rateGame itself (two games ending at once) is tested in data-service/test/rating.test.js
  *
  */
 
@@ -10,7 +10,6 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
 const { call, player, engineWillPlay, peek } = testServer;
-const db = require("../dynamoDB.js");
 const { expectedScore, newRating, isRated, PROVISIONAL_GAMES } = require("../utils/rating.js");
 
 let server;
@@ -165,42 +164,5 @@ describe("games that aren't rated", () => {
 
 		const newbie = player("newbie");
 		assert.deepEqual((await call("GET", "/api/chess/user/newbie", { as: newbie })).rating, { rating: 1500, provisional: true, rated_games: 0 });
-	});
-});
-
-/* ---------------------------------------------------------------- */
-// rateGame
-/* ---------------------------------------------------------------- */
-
-describe("rateGame", () => {
-	async function closedFriendGame(gameId, white, black) {
-		const created = (await db.initalizeGame(gameId, white, black, false, { start_params: { color: "w" } })).game_data;
-		created.moves.S = ["e4", "e5"];
-		return created;
-	}
-
-	test("two of a player's games ending at once both count", async () => {
-		const withBob = await closedFriendGame("game1", "alice", "bob");
-		const withCarol = await closedFriendGame("game2", "alice", "carol");
-		await Promise.all([db.rateGame(withBob, "w"), db.rateGame(withCarol, "w")]);
-		assert.deepEqual(rating("alice"), { rating: 1539, rated_games: 2 }); // 1500 -> 1520 (vs 1500), then -> 1539 (vs 1500)
-		assert.deepEqual(rating("bob"), { rating: 1480, rated_games: 1 });
-		assert.deepEqual(rating("carol"), { rating: 1480, rated_games: 1 });
-	});
-
-	test("a draw between equals changes nothing but counts the game", async () => {
-		await db.closeGame(await closedFriendGame("game1", "alice", "bob"), "draw", "stalemate");
-		assert.deepEqual(rating("alice"), { rating: 1500, rated_games: 1 });
-		assert.deepEqual(rating("bob"), { rating: 1500, rated_games: 1 });
-	});
-
-	test("a player whose row is gone (deleted their data as the game ended) is left out, the other is still rated", async () => {
-		const game = await closedFriendGame("game1", "alice", "bob");
-		await db.deleteUser("bob");
-		const ratings = await db.rateGame(game, "b");
-		assert.equal(peek("user_db", "bob"), undefined); // NOT MADE AGAIN WITHOUT ITS GAME LISTS
-		assert.deepEqual(rating("alice"), { rating: 1480, rated_games: 1 });
-		assert.equal(ratings.b, null);
-		assert.deepEqual(JSON.parse(peek("chess_db", "game1").ratings.S).w, { before: 1500, after: 1480 });
 	});
 });

@@ -24,8 +24,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: |
+            server/package-lock.json
+            data-service/package-lock.json
       - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund # THE SERVER TESTS RUN THE REAL DATA SERVICE NEXT TO THE SERVER
+        working-directory: data-service
       - run: npm test
 
   data-service:
