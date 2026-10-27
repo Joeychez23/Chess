@@ -2,82 +2,56 @@
 
 **Live:** [chess.aws-prac-route53.com](https://chess.aws-prac-route53.com/)
 
-A chess game drawn entirely on an HTML5 canvas: sprite pieces with shadows and
-reflections on a wooden table, sliding move animations, and move sounds. Play
-the computer or challenge a friend by email. The browser checks each move
-first, then it's checked again on the server side against the board stored in
-DynamoDB before it counts: the Express server checks the request, and the data
-service, the only code that can read or write the tables, plays the move on the
-stored board itself. (This used to be the chess lambda in
-[chess-validation](https://github.com/Joeychez23/Lambdas); see
-[Chess API](#chess-api).)
+A chess game drawn on an HTML5 canvas: sprite pieces with shadows and
+reflections on a wooden table, sliding moves and move sounds. Play Stockfish at
+8 levels or a friend by email.
 
-Built with vanilla JavaScript, HTML5 Canvas, Webpack 5, Socket.IO,
-[chess.js](https://github.com/jhlywa/chess.js) (rules, legal moves, check),
-and [Stockfish](https://stockfishchess.org/) (the computer opponent, through
-the [chess-engine-api](../chess-engine-api) service, with
-[js-chess-engine](https://github.com/josefjadrny/js-chess-engine) as the
-backup). The server and the engine share one EC2 instance behind nginx, the
-images and audio come from S3 through CloudFront, and Terraform sets up the
-AWS side (see [Deploy](#deploy)).
+Every move is checked three times: by chess.js in the browser, by the Express
+server, and by the private **data service**, the only code that can touch
+DynamoDB, which plays the move on the stored board itself.
+
+**Built with:** vanilla JavaScript, HTML5 Canvas, Webpack 5, Express 5,
+Socket.IO, [chess.js](https://github.com/jhlywa/chess.js), and
+[Stockfish](https://stockfishchess.org/) through
+[chess-engine-api](../chess-engine-api) (with
+[js-chess-engine](https://github.com/josefjadrny/js-chess-engine) as backup).
+AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
+([Deploy](#deploy)). Deploy commands and fixes: [SETUP.md](SETUP.md).
 
 ## Features
 
 | | |
 | --- | --- |
-| **Canvas rendering** | Board, table, and pieces are sprites drawn in layers (reflection, shadow, piece). Knights face the direction they last moved; the backend tracks each knight's last move so this survives a reload. |
-| **Moving** | Drag and drop, or click a piece and then a square. Legal moves are highlighted, and a king in check is highlighted. Moves slide into place with a sound. |
-| **Promotion** | When a pawn reaches the last rank, you pick the new piece by clicking one of your captured pieces beside the board. |
-| **Play AI** | The computer opponent is Stockfish at the level picked in the dropdown above Play AI, on Home or the guest page (8 levels, each shown with its approximate Elo, see [AI levels](#ai-levels)). The server picks and saves the AI's moves, so the level can't change mid game and the browser can't move for the AI. The color dropdown picks your color: Random (the default), White or Black. The level and the color are the game's **start settings** (`start_params`), and Restart starts a new game with the same ones (Random draws again). Restarting a game that's still going counts as a forfeit. A signed-in player has **one AI game open at a time**: while it's open, Play the AI shows its board with Continue current game, and Play AI becomes New game, which forfeits the open game after a second press. |
-| **Play Friends** | Enter your opponent's email in Home's Play a friend box and pick your color (Random, White or Black, Random is drawn when the invite is sent). The backend looks up their Auth0 account and sends them an invite that shows their color ("You play black (random)"): the game waits (`PENDING`) until they press Accept in their Invites box on Home, or Decline. You have one sent invite at a time (a new one cancels it, and so does Cancel invite) and can get invites from any number of friends. Home updates live over Socket.IO as invites arrive and are answered. A signed-in player has **one friend game open at a time** (plus one AI game): while it's open, Play a friend shows its board with Continue current game, and sending an invite or accepting one forfeits it after a second press (your friend wins). While you're both in the game, each move is pushed to the other player over Socket.IO and animated when it arrives. Moves are saved either way, so you can move, leave, and your friend sees it when they open the game. The menu's Restart button is **Forfeit** here (it asks "Are you sure?" first). |
-| **Set positions** | Play the AI (Home and the guest page) and Play a friend have an optional **Start position** box: paste a FEN and the game starts from that position instead of the standard one. The server checks it first (`checkStartFen` in `server/utils/validate.js`): a broken FEN, a side without exactly one king, pawns on the first or last rank, the side that isn't moving in check, or a position that's already over (checkmate, stalemate, a draw) is refused with the reason under the button, and nothing is saved or forfeited. The position is part of the start settings, so Restart and Rematch start from it too, and Your games and Invites add "// Set position". Pieces that start off their home squares face the other side (knights face the middle of the board), and the taken-piece trays count from the pieces the position started with, so missing pieces don't show as taken. |
-| **Game over** | The server ends a game on checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition, or a forfeit, and saves who won and why. Both boards open the menu with the result. Finished games leave Home. |
-| **Ratings** | Every signed-in player has an Elo rating, starting at 1500. Finished friend games change it, once both sides have moved; AI games and games from a set position don't. Home shows yours under the welcome (`Rating // 1520?`, with a `?` for your first 10 rated games), and a friend game's menu shows both players' ratings, plus your change once the game is over (`You 1520? (+20) // Bob 1480?`). |
-| **Rematch** | After a friend game ends, both players get a Rematch button. If both press it within 1 minute, a new game starts with the same start settings (the inviter's color, Random draws again) and both boards load it. If either player is already in another friend game, the button reads Can't rematch. |
-| **Home** | `/` for signed-in players: four boxes, Play the AI (level dropdown, or the open AI game's board with Continue current game), Play a friend (the open friend game's board with Continue current game, and the email form), Invites (invites you got with Accept and Decline, and your sent invite with Cancel invite, each with your color) and Your games (finished games aren't listed, each row shows the opponent, the level for AI games and your color: "vs AI // Level 3 // You play white (random)"), each game opening at `/play/:gameId`. Guests get the homepage: a picture of the board, Sign in, and Play the AI with the same level and color dropdowns, plus their game's board and Continue current game while it's open. A guest has one game, so New game resets it to the new settings without a forfeit warning (see [Pages](#pages)). |
-| **Usernames** | Friends see your **username** on invites and games. It's 3 to 20 letters, numbers, `_` or `-`, nobody else can have it in any capitals, and a few names are reserved (admin, stockfish, chess_ai, guest, friend and the like, `server/utils/username.js`). After you sign in, Home sends you to Settings to pick one first, filled in from your Auth0 screenname, and saving it takes you Home. You can change it there later, which frees the old one. New invites and rematches show the new name, and games keep the name they were made with. Until a player picks one, their Auth0 screenname is shown. |
-| **Settings** | `/settings`, linked from Home's menu. Six boxes: **Username** (see Usernames), **Account** (the email you sign in with, games finished, Sign out), **Default start settings** (the AI level, your color vs the AI and your color vs a friend; Save, and Home's dropdowns start on them from then on), **Friends** and **Closed games** (placeholders: a friends list, and finished games for game analysis later), and **Delete my data** (a second press within 5 seconds forfeits your open games, cancels and declines your invites, deletes your `user_db` row, frees your username and signs you out. Finished friend games stay for your opponents, and your Auth0 login isn't deleted). |
-| **Menu** | The 3 line button in the top right opens and closes the menu on every page. On Home and the guest page it holds the page links. In a game it's the game's menu (Resume, Restart / Forfeit / Rematch, Home, Logout or Sign in) and it opens with the result when the game ends. |
-| **Login / Logout** | The menu's Sign in / Logout link (Exit in a game) logs guests in and signed-in players out. A game link opened while signed out logs in, then opens the game. Auth0 runs on the Express server (see [Auth](#auth)). |
-| **Mobile** | Portrait and landscape layouts and touch input. iOS audio is unlocked on the first tap so the opponent's move sounds play. |
-| **TV / remote mode** | Arrow keys move a cursor and Enter picks up and drops pieces and drives the menu. Turn it on with the `TV_DEV` flag in `client/src/js/pages/play/index.js`. |
+| **Canvas** | Board, table and pieces are layered sprites (reflection, shadow, piece). Pieces face the way they last moved, and knights hop. |
+| **Moving** | Drag and drop or click to move, with legal moves and check highlighted. Promote by clicking one of your captured pieces. Touch and a TV remote mode (`TV_DEV` in `client/src/js/pages/play/index.js`) work too. |
+| **Play the AI** | 8 levels with approximate Elo ([AI levels](#ai-levels)) and a color (Random, White, Black). The server picks and saves the AI's moves. Restart reuses the level and color; restarting an unfinished game is a forfeit. One open AI game per player. |
+| **Play a friend** | Invite by email with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
+| **Set positions** | An optional FEN in **Start position**. The server refuses broken or finished positions with the reason, and Restart and Rematch keep it. |
+| **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition or a forfeit. Both boards show the result. |
+| **Rematch** | Both players press within 1 minute and a new game loads on both boards. "Can't rematch" when either is in another friend game. |
+| **Ratings** | Elo from 1500. Only finished friend games (both sides moved, not from a set position) count. Shown on Home and in a friend game's menu. |
+| **Usernames** | 3 to 20 letters, numbers, `_` or `-`, unique in any capitals, some reserved. Picked on Settings after the first sign-in. |
+| **Settings** | `/settings`: username, account, default start settings, and Delete my data (forfeits your games, deletes your row and frees your username). |
+| **Guests** | Play the AI without an account: one game, kept to the browser that made it. |
+| **Mobile** | Portrait and landscape layouts, and iOS audio unlocks on the first tap. |
 
 ## How it works
 
-1. **Pages.** The server picks the page for the url (see [Pages](#pages)).
-   Going between pages is a normal page load (`window.location.href`), so the
-   url, refresh and the back button all work. The play page asks the server
-   who is signed in (`GET /api/user`) while the sprites load. A signed-in
-   player gets the game in the url. A guest (`/play`) gets their own game vs.
-   the AI: its id is saved in the browser's localStorage (`GUEST_GAME_ID`) by
-   the guest page's Play AI, and a new id is made when none is saved. The guest's player id is the same
-   as the game id, so it never goes in the url. The server also gives the guest a signed `guest_game` cookie
-   for that game, and if the saved id is another browser's game it makes a new one, which the page saves instead.
-2. **Load.** `renderCanvas()` preloads every sprite, then asks the server for
-   the game (`GET /api/chess/game/:gameId?player_id=`). The server returns the board
-   (FEN), your color, and whether the opponent is the AI. For a guest, if no
-   game exists for their id yet (a bare `/play`, or the game expired), the play
-   page creates one first with a random color at the default level
-   (`POST /api/chess/game` with `start_color: "random"`).
-3. **Render loop.** A ~33 fps loop redraws only when something changed: a
-   hover, a drag, a slide in progress, or new data.
-4. **Your move.** chess.js plays the move locally, which throws on an illegal
-   move. If it's legal, the move is sent as `PUT /api/chess/game/:gameId`
-   with `{ move: [from, to], promotion }`. If the server rejects
-   it, the board reverts to the last state the server confirmed. If the move
-   ends the game, the response has `state: "CLOSED"` with the `winner` and
-   `reason`, and the menu opens with the result.
-5. **AI move.** The client asks `POST /api/chess/game/:gameId/ai-move`. The
-   server asks Stockfish for a move at the game's saved level, validates it
-   like any other move, saves it, and returns it with the new board. The
-   client only animates it. Asking again after the AI moved returns the same
-   saved move, so a reload or a repeat request never makes a second move.
-6. **Friend's move.** A friend game opens a Socket.IO connection and joins
-   the game's room. When the server saves a move it emits `move` to the room,
-   and the other player's client fetches the game and animates the server's
-   `prev_move`. Going Home closes the socket. After a reconnect the client
-   joins again and fetches the game once in case a move was missed (or the
-   opponent forfeited).
+1. **Page.** The server picks the page from the session cookie ([Pages](#pages)).
+   A guest's game id lives in localStorage (`GUEST_GAME_ID`) and is also their
+   player id; a signed `guest_game` cookie keeps it to that browser.
+2. **Load.** `renderCanvas()` loads every sprite, then `GET /api/chess/game/:gameId`
+   (board, your color, the opponent). A guest without a game gets one first.
+3. **Render loop.** About 33 fps, drawing only when something changed.
+4. **Your move.** chess.js checks it, then `PUT /api/chess/game/:gameId`
+   `{ move: [from, to], promotion }`. A refusal puts the board back. A move that
+   ends the game returns `state: "CLOSED"`, `winner` and `reason`.
+5. **AI move.** `POST /api/chess/game/:gameId/ai-move`: the server asks Stockfish
+   at the saved level, checks and saves the move, and returns it. Asking again
+   returns the same move.
+6. **Friend's move.** The server emits `move` to the game's Socket.IO room, and
+   the other client fetches the game and animates `prev_move`. After a
+   reconnect it fetches once in case it missed something.
 
 ## Setup
 
@@ -88,10 +62,8 @@ npm ci
 cd server && npm ci
 ```
 
-`npm ci` installs the exact versions in the committed `package-lock.json`
-files. To add or upgrade a package, use `npm install <package>` in the right
-folder (the top folder for the client, `server/` for the server) and commit
-the updated `package-lock.json` with it.
+`npm ci` installs the versions in the committed `package-lock.json`; add a
+package with `npm install` in its folder and commit the lock file with it.
 
 `server/.env` (see `server/.env.example`):
 
@@ -124,28 +96,16 @@ IAM role on AWS, with read/write access to `chess_db` and `user_db` in us-west-2
 | --- | --- |
 | `CHESS_ASSESTS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com` (CloudFront), or `.` to use local copies. It's built into the bundle, so rebuild after changing it. |
 
-**Images and audio aren't in the repo.** `client/src/images` and
-`client/src/audio` are git-ignored. They're uploaded to the `aws-prac-chess-s3`
-bucket under `images/` and `audio/`, and CloudFront serves them at
-`https://assets.chess.aws-prac-route53.com`. Every sprite, the move sound, the
-table background, and the favicon start with `CHESS_ASSESTS_URL`, e.g.
-`${process.env.CHESS_ASSESTS_URL}/images/board/table.webp`. The homepage's picture of the board is
-`images/home/board.webp` (rendered with the `preview` job in `images/_ideas/generator`, no props). The favicon is
-the white bishop, `images/icon/bishop-32.png` and `bishop-192.png`, plus `bishop-180.png` on the baize green for
-the iOS home screen (all three from the `icon` job). So with the
-CloudFront URL set the browser downloads them from CloudFront, not from this
-server. To use local copies instead, put them back in `client/src/`, set
-`CHESS_ASSESTS_URL=.`, and turn on the `CopyWebpackPlugin` block in
-`client/webpack.config.js` so they're copied into `client/dist`. The game waits
-for every sprite to load before it starts.
-
-To upload new or changed images:
+**Images and audio aren't in the repo** (`client/src/images` and `client/src/audio`
+are git-ignored). They're in the `aws-prac-chess-s3` bucket and CloudFront serves
+them; every asset url starts with `CHESS_ASSESTS_URL`. To work offline, copy them
+back into `client/src/`, set `CHESS_ASSESTS_URL=.` and turn on the
+`CopyWebpackPlugin` block in `client/webpack.config.js`. To upload changes
+(CloudFront's TTL is 0, so they show at once):
 
 ```bash
 aws s3 sync client/src/images s3://aws-prac-chess-s3/images --exclude "*.DS_Store"
 ```
-
-CloudFront's TTL is 0, so the new files show up right away.
 
 ## Run
 
@@ -265,33 +225,22 @@ device within 15 minutes.
 
 ## Chess API
 
-The chess lambda now runs on the Express server. Each branch of the lambda's
-handler is its own route under `/api/chess`. The client calls them from
-`client/src/js/gameplay/validate/index.js`, with `GAME_URL` set to `/api/chess`
-in the pages (`client/src/js/pages/`). Responses keep the lambda's body (`{ status, ..., message }`),
-and a rejected move or missing game still comes back as HTTP 200 with
-`status: 500` in the body, so the client checks them the same way as before.
+Routes are under `/api/chess`, called from `client/src/js/gameplay/validate/index.js`.
+Responses keep the old chess lambda's `{ status, ..., message }` body: a refused
+move or missing game is HTTP 200 with `status: 500`.
 
-The player is whoever is signed in. The server reads it from the session
-cookie and ignores the player ids the client sends. Nobody can move for the AI:
-its moves only come from `/ai-move`. Guests (no session) can only play an AI
-game whose `game_id` equals their player id, which is how the client sets up
-each guest, and only from the browser that made it: `POST /api/chess/game` gives a guest an httpOnly
-`guest_game` cookie (`setGuestCookie` in `server/middleware/auth.js`, only sent to `/api/chess`), a token the data service
-signs for the game it just made them, holding their game id and a guest session id that stays the same from game to game. A guest whose `game_id` is another browser's game
-gets a new game with a new id instead of resetting it, and so does a guest asking for the id `CHESS_AI` (the AI's
-player id). A guest is never in any game but their own, even when their id is on one side of another game
-(`playerInGame` in `chessController.js`). Guests aren't added to `user_db`.
-
-Making games is limited (`server/middleware/rateLimit.js`): `POST /api/chess/game`, `/restart` and `/invite` answer
-`429` with `Retry-After` and `{ status: 429, message: "Too many new games, try again in N seconds" }` when a session (a signed-in
-player, or a guest's cookie) has made 10 at once (then 1 a minute), an IP (an IPv6 /64) 30 at once (then 1 every 20 seconds),
-or the whole site 60 at once (then 1 a second, a fifth of `chess_db`'s writes). The check runs before the route, so a refused
-request never forfeits or saves anything, and the first refusal for a key each minute is logged. Moves aren't limited. The
-counts live in memory (there's one server process) and start again when it restarts. `index.js` trusts nginx on loopback, so
-`req.ip` is the player's address from `X-Forwarded-For`. A request for a game you're not in gets `401` when signed out (the client
-then calls `/api/auth/refresh` once and retries, in case the access token
-expired mid game) or `403` when signed in.
+- **Who's playing** comes from the session cookie, never from player ids the
+  client sends. Nobody can move for the AI except `/ai-move`.
+- **Guests** only play their own AI game (game id = player id), from the browser
+  whose `guest_game` cookie the data service signed for that game. Any other id,
+  including `CHESS_AI`, gets a new game. Guests have no `user_db` row.
+- **Not your game:** `401` signed out (the client refreshes once and retries),
+  `403` signed in.
+- **New game limits** (`server/middleware/rateLimit.js`): `/game`, `/restart` and
+  `/invite` answer `429` with `Retry-After` past 10 at once per session (then 1 a
+  minute), 30 per IP or IPv6 /64 (then 1 every 20 s), or 60 site-wide (then 1 a
+  second). Checked before anything is saved. Moves aren't limited. The counts are
+  in memory and reset on restart.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |
@@ -336,48 +285,37 @@ Every game response has the result fields:
 | `winner` | `w`, `b`, `draw`, or `null` while open |
 | `reason` | `checkmate`, `stalemate`, `insufficient material`, `fifty-move rule`, `threefold repetition`, `forfeit`, or `null` |
 
-Every game saves its start settings as `start_params` (JSON, `{ color: "random" | "w" | "b", fen }`): the player's color pick in an AI game, the
-inviter's in a friend game, and `fen` when the game started from a set position (left out for the standard position). Restart and Rematch start the next game with them, and games from before `start_params` count as Random.
-`moves` only holds the moves played, so anything that replays them (threefold repetition, PGN export, takebacks, a replay viewer) has to start
-from `start_params.fen` when it's there, not the standard position. A new game's `w_knight`, `b_knight`, `w_piece` and `b_piece` come from its
-start position (`startPieces` in `server/utils/validate.js`): each knight, king, queen, bishop and rook as `{ from: null, to: square }`.
-The facing lists only hold where each piece faces now, so `undoMoves` (also in `validate.js`, for takebacks) replays the moves that are
-left from the start position through `faceMove`, the same facing rules a move uses, and gives back exactly the board, `moves`,
-`prev_move` and facing lists from before the undone moves. It's saved with `updateGame`, so an undo and a move made on the same board can't both land.
-Friend games also save `inviter_id`, so Home knows a sent invite from a received one (the inviter isn't always white).
-A `user_db` row also has `settings` (JSON, `{ ai_level, ai_color, friend_color }`) once the player saves Default start settings. It's its own
-attribute, so the game list saves never touch it, and saving it makes the row (with empty game lists) if there isn't one. Rows are made at a player's first login (`startSession`).
-**Usernames** live in `user_db` too. A player's row gets `username` (as they wrote it), and an item keyed `username#<the name in lowercase>`
-(`{ user_id, owner_id, username }`) holds the name, so only one player can have it in any capitals. `claimUsername` (`data-service/dynamoDB.js`) saves a name in
-one `TransactWriteItems`: it puts the new item only if it doesn't exist, sets `username` on the row only if it's still the name that was read, and
-deletes the old item only if it's the player's, so either all three land or none do. A change of capitals only updates the item. `deleteUser`
-deletes the row and the item together. Nothing reads `user_db` by anything other than a key, so the `username#` items never show up as players.
+**Stored data** (details in `data-service/dynamoDB.js`):
 
-**Ratings** (`server/utils/rating.js`): Elo, everyone starts at 1500. After a game a player's rating moves by `K × (score − expected)`, where the
-score is 1, ½ or 0 and `expected = 1 / (1 + 10^((opponent − rating) / 400))`, rounded and never below 100. K is 40 for a player's first 10
-rated games (shown with a `?`, provisional), then 20. Only friend games from the standard position are rated, once both sides have moved
-(a forfeit straight away, or a new invite replacing a game that had just started, isn't counted); AI games aren't. `closeGame` rates the game
-(`rateGame` in `data-service/dynamoDB.js`): each side against the other's rating from before the game. A `user_db` row gets `rating` and `rated_games`
-(numbers), saved only if `rated_games` is still what was read, so two of a player's games ending at once both count. The game item gets
-`ratings` (JSON, `{ w: { before, after }, b: { before, after }, at }`, `null` for a player whose row was deleted). Rated friend games are never
-deleted, so a player's rating history is the `ratings` on the games in their `closed_games` (for a profile chart, #81). The history isn't kept
-on the `user_db` row because DynamoDB charges a read by the whole item's size, and the row is read often.
-A friend invite is a `PENDING` game listed in both players' `requested_games`.
-Accepting it makes it `OPEN` and moves it to `open_games`, declining or
-cancelling deletes it. Closing a game moves its id from `open_games` to `closed_games` on both
-players' `user_db` rows. A list change only saves if none of the row's lists changed since it
-read them (otherwise it reads the row again and retries), so two changes at once both stay, and
-only `OPEN` games in `open_games` count as the player's open game. A finished friend game loses its `expireAt`, so TTL
-never deletes it. AI games keep it and are deleted 25 days after the last
-move. The board (FEN) only holds the current position, so for threefold repetition the server replays the
-saved moves from the start position (`gameResult` in `server/utils/validate.js`), and the move that brings a
-position up a third time (same pieces, side to move, castling rights and en passant) draws the game. It only
-replays once the board has gone 8 half moves without a capture or pawn move, the fewest a third time needs.
+- **`start_params`** (JSON `{ color, fen }`) is what Restart and Rematch reuse. `moves`
+  only has the moves played, so anything that replays them (threefold
+  repetition, PGN, takebacks) starts from `start_params.fen` when it's there.
+- **Facing lists** (`w_knight`, `b_knight`, `w_piece`, `b_piece`) start from the
+  position (`startPieces`) and hold where each piece faces now. `undoMoves`
+  replays the remaining moves through `faceMove` and saves with `updateGame`, so
+  an undo and a move on the same board can't both land.
+- **Friend games** save `inviter_id`. An invite is a `PENDING` game in both
+  players' `requested_games`; accepting makes it `OPEN` and moves it to
+  `open_games`; declining deletes it; closing moves it to `closed_games`. List
+  saves retry when the row changed, so two changes at once both stay.
+- **Expiry:** finished friend games lose `expireAt` and are kept. AI games are
+  deleted 25 days after the last move.
+- **`user_db` rows** are made at first login (`startSession`) and hold the game
+  lists, `settings`, `rating`, `rated_games`, `username` and `sid`.
+- **Usernames:** the row's `username`, plus a `username#<lowercase>` item that
+  holds the name. `claimUsername` saves all three changes in one transaction, and
+  `deleteUser` removes the row and the item together.
+- **Ratings** (`utils/rating.js`): Elo from 1500, `K × (score − expected)`, K = 40
+  for the first 10 rated games (shown with `?`), then 20, never below 100. Only
+  friend games from the standard position where both sides moved are rated.
+  Saves are conditional on `rated_games`, so two games ending at once both count.
+  Each rated game keeps `ratings` (`{ w, b: { before, after }, at }`), the rating
+  history for a future profile chart (#81).
+- **Threefold repetition:** the server replays the saved moves, but only once 8
+  half moves have passed without a capture or pawn move.
 
-The move rules (`server/utils/validate.js`) are a copy of the lambda's
-`validate/validate.js`. Both `package.json` files pin `chess.js` to the same exact
-version (`1.4.0`, also what the engine uses) so the browser and the server agree
-on what's legal; a test fails if they differ.
+The client, server, data service and engine all pin `chess.js` `1.4.0`, so they
+agree on what's legal; a test fails if they differ.
 
 ### AI levels
 
@@ -747,41 +685,11 @@ games.
 
 #### Moving the tables to us-west-2
 
-The tables started in us-east-1, but `Chess-Stockfish` is in us-west-2, so
-every request crossed the country, and the data service (#245) needs them in
-its own region for a free VPC endpoint. They weren't copied: Terraform makes
-new, empty `chess_db` and `user_db` tables in us-west-2. Games, game lists,
-settings, ratings and usernames start over. Auth0 accounts aren't touched, so
-players sign in as before, and Home sends each one to `/settings` to pick a
-username again.
-
-1. Drop the us-east-1 tables from the Terraform state (this doesn't touch the
-   tables themselves), then make the new ones:
-
-   ```bash
-   cd terraform/aws-enviroment
-   terraform state rm module.dynamodb_module.aws_dynamodb_table.chess_table module.dynamodb_module.aws_dynamodb_table.user_table
-   terraform plan
-   terraform apply
-   ```
-
-   The plan should create the two tables in us-west-2 and change
-   `EC2_Chess_DynamoDBPolicy` to their ARNs (that policy is gone since #250). From the apply until the next
-   step, the live server can't reach any table.
-
-2. Deploy the server ([Updating and logs](#updating-and-logs)) with
-   `DYNAMODB_REGION` unset (or `us-west-2`) in `server/.env` (since #249 it's in
-   `data-service/.env` instead), restart it, and
-   play an AI game, a friend game and a guest game, and pick a username.
-
-3. Once you're sure nothing is needed from them, delete the old tables in
-   us-east-1. This can't be undone after their point-in-time recovery
-   backup (35 days) runs out:
-
-   ```bash
-   aws dynamodb delete-table --region us-east-1 --table-name chess_db
-   aws dynamodb delete-table --region us-east-1 --table-name user_db
-   ```
+Done in October 2026 (#246): Terraform made new, empty tables in us-west-2, next
+to `Chess-Stockfish`, after `terraform state rm` of the us-east-1 ones. Games,
+settings, ratings and usernames started over; Auth0 accounts didn't change.
+Delete the old us-east-1 tables once nothing is needed from them
+(`aws dynamodb delete-table --region us-east-1 --table-name chess_db`, then `user_db`).
 
 #### Data service instance
 
@@ -789,9 +697,7 @@ username again.
 The values (`Chess-Stockfish`'s security group, its zone, the key pair, the
 subnet range and the fixed private IP `172.31.64.10`) are in `locals.tf`.
 
-Move the tables first ([Moving the tables](#moving-the-tables-to-us-west-2)).
-A gateway endpoint only reaches tables in its own region, and its policy and
-the role are limited to the us-west-2 tables' ARNs.
+The tables must be in us-west-2: a gateway endpoint only reaches its own region.
 
 1. Check that `172.31.64.0/28` is free in the default VPC (its default
    subnets are the `/20`s from `172.31.0.0`), then apply:
@@ -836,12 +742,6 @@ the role are limited to the us-west-2 tables' ARNs.
 
    It answers `{}` (no such row) through the endpoint, with no internet.
    `terraform plan` should now show no changes.
-
-**Before the switch-over** (only when the live chess server is still on code
-from before #249 and talks to DynamoDB itself): add `-target=module.data_service_module`
-to every `apply` here, the upkeep windows too, until step 11.3 works. A plain
-`apply` also removes the chess server's DynamoDB access (#250). A new setup
-from current code has nothing to switch over, so a plain `apply` is fine.
 
 **Upkeep windows.** The instance has no internet, so installing or updating
 anything (apt, Node, `npm ci`) needs a short window:
@@ -1004,7 +904,7 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
    folder, because the service can't read home folders:
 
    ```bash
-   # terraform/aws-enviroment, on your Mac. Before the switch-over (step 11.3), add -target=module.data_service_module
+   # terraform/aws-enviroment, on your Mac
    terraform apply -var maintenance=true
 
    # on the data service
@@ -1036,7 +936,7 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
 3. **Close the window**:
 
    ```bash
-   terraform apply   # terraform/aws-enviroment, on your Mac (-target=module.data_service_module before the switch-over)
+   terraform apply   # terraform/aws-enviroment, on your Mac
    ```
 
 4. **The `.env`**, only readable by `dataservice`:
@@ -1073,165 +973,52 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
 
    `/health` doesn't touch DynamoDB. The first real check is step 11.
 
-### 11. Switch the chess server over
+6. **The session key** ([Making the session keys](#making-the-session-keys)):
+   make it here and put its public half in the server's `.env` as
+   `SESSION_PUBLIC_KEY`. [SETUP.md](SETUP.md#make-the-session-key) has the commands.
 
-The tables stay where they are throughout, only the chess server changes.
+### 11. Check the whole site
 
-1. On `Chess-Stockfish`, add the data service to `server/.env`:
-
-   | Variable | On the instance |
-   | --- | --- |
-   | `DATA_SERVICE_URL` | `http://172.31.64.10:8090` |
-   | `DATA_SERVICE_SECRET` | The same value as the data service's `.env` |
-
-2. Deploy the server from `main` the usual way
-   ([Updating and logs](#updating-and-logs)) and restart `chess`.
-3. Play an AI game (with Restart), a friend game in two browsers (a move, a
+1. Restart `chess` with `DATA_SERVICE_URL`, `DATA_SERVICE_SECRET` and
+   `SESSION_PUBLIC_KEY` in `server/.env`.
+2. Play an AI game (with Restart), a friend game in two browsers (a move, a
    forfeit, a rematch), a guest game, an invite you decline, and change a
-   username. Then check the data service refused nothing:
+   username. Sign in, log out, and check a second browser is signed out within
+   15 minutes. Then:
 
    ```bash
    journalctl -u data-service --since "15 min ago" | grep REFUSED   # on the data service: nothing
    journalctl -u chess --since "15 min ago" | grep "Data service"   # on Chess-Stockfish: nothing
    ```
 
-4. Remove DynamoDB from `Chess-Stockfish`'s role (#250). Only after step 3
-   works: until then the chess server still needs it. In `terraform/aws-enviroment`,
-   `terraform plan` should only delete `EC2_Chess_DynamoDBPolicy` and add the
-   `aws:SourceVpce` condition to the data service's policy. Then `terraform apply`,
-   and check both instances. A `put-item` whose condition can't be met writes
-   nothing, but still shows whether the call was allowed:
+3. Check only the data service can use the tables (#250). A `put-item` whose
+   condition can't be met writes nothing, but shows whether the call was allowed:
 
    ```bash
    # on Chess-Stockfish: both fail with AccessDeniedException
    aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":{"S":"iam-check"}}'
    aws dynamodb put-item --region us-west-2 --table-name user_db --item '{"user_id":{"S":"iam-check"}}' --condition-expression "attribute_exists(user_id)"
 
-   # on the data service: get-item answers {}, put-item fails with ConditionalCheckFailedException (allowed, nothing written)
+   # on the data service: get-item answers {}, put-item fails with ConditionalCheckFailedException
    aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":{"S":"iam-check"}}'
    aws dynamodb put-item --region us-west-2 --table-name user_db --item '{"user_id":{"S":"iam-check"}}' --condition-expression "attribute_exists(user_id)"
    ```
 
-   Then play a game on the site again. After this, only the data service can
-   read or write the tables.
+### Updating, logs and fixes
 
-**Rollback:** on `Chess-Stockfish`, deploy the commit from before #249
-(`8414ecc`, which talks to DynamoDB itself) and restart `chess`. After step 12
-it also needs `JWT_SECRET` back in `server/.env` (step 12's rollback), or it won't start. If #250 is
-already applied, put its role policy back first (revert #250's Terraform change
-and `terraform apply`). The tables never moved, so nothing else changes. The
-data service can keep running or be stopped (`sudo systemctl stop data-service`).
+[SETUP.md](SETUP.md) has the update commands (one paste on Chess-Stockfish), the
+logs, and a fix for each error, with the machine each command runs on.
 
-#### When the switch-over goes wrong
-
-Start with the two journals and the health check. They say which of the cases
-below it is:
-
-```bash
-# on Chess-Stockfish
-journalctl -u chess -n 40 --no-pager
-curl -s http://172.31.64.10:8090/health                      # {"status":200,"message":"OK"}
-
-# on the data service
-journalctl -u data-service -n 40 --no-pager
-journalctl -u data-service --since "15 min ago" | grep REFUSED
-```
-
-| What you see | Why | Fix |
-| --- | --- | --- |
-| `chess` restarts over and over, and its journal says `Missing required environment variable DATA_SERVICE_SECRET` (or `is too short`) | `server/.env` doesn't have the data service's settings | Get the secret on the data service (`sudo grep DATA_SERVICE_SECRET /opt/data-service/.env`). Add `DATA_SERVICE_URL=http://172.31.64.10:8090` and `DATA_SERVICE_SECRET=<that value>` to `/opt/chess-frontend/server/.env`, then `cd /opt/chess-frontend/server && npm ci --omit=dev && sudo systemctl restart chess` |
-| `data-service` restarts over and over, with `Missing required environment variable ...` or `is too short` | Its `.env` is missing a value | Fix `/opt/data-service/.env` (`sudo nano`, it's owned by `dataservice`), then `sudo systemctl restart data-service` |
-| Pages answer "Try again in a moment", and the chess journal says `Data service: ... no answer in 3 seconds` or `fetch failed` | The chess server can't reach the data service | Check `sudo systemctl status data-service`, then `/health` from Chess-Stockfish. Check `DATA_SERVICE_URL` and that the data service's `DATA_SERVICE_HOST` is `172.31.64.10`: with `127.0.0.1` it only answers itself |
-| The chess journal says `Data service: ... refused the signature (Bad signature)` | The two `DATA_SERVICE_SECRET` values differ | Make them the same and restart both. To change the secret without any refusals, use `DATA_SERVICE_SECRET_OLD` ([Data service](#data-service)) |
-| The chess journal says `refused the signature (Request too old)` | The two clocks are more than 30 seconds apart | `timedatectl` on both. `NTP service: active` should be on, Ubuntu's default |
-| Every player looks signed out or gets "Player is not in this game", and the data service logs `REFUSED ... 401 Bad player token` | One side runs code from before #252 (the other signs or checks tokens differently) | Deploy the same commit on both and restart both ([12. Session keys](#12-session-keys-252)) |
-| `data-service` restarts over and over with `SESSION_PRIVATE_KEY isn't a P-256 key` or `Can't read Auth0's keys` | The key isn't in double quotes with all its lines, or `auth0-jwks.json` is missing | [Making the session keys](#making-the-session-keys), [Saving Auth0's keys](#saving-auth0s-keys) |
-| Logins go back to the site signed out, and the data service logs `REFUSED POST /session/login 401 Bad id token: ...` | `unknown key`: Auth0 changed its key. `jwt audience invalid` or `jwt issuer invalid`: `AUTH0_CLIENT_ID` or `AUTH0_ISSUER_BASE_URL_ORIGIN` differ from the server's. `not this user`: a login that isn't a database (`auth0|`) user, like a social login | Save Auth0's keys again, or copy the two values from `server/.env` |
-| Signing in and refreshing answer 503, and the chess journal says `its tokens are signed with key ...` | `SESSION_PUBLIC_KEY` isn't the public half of the data service's key | Print it on the data service: `cd /opt/data-service && sudo -u dataservice /usr/local/bin/node24 -e 'require("dotenv").config({ quiet: true }); console.log(require("crypto").createPublicKey(process.env.SESSION_PRIVATE_KEY).export({ type: "spki", format: "pem" }))'`. Put it in `server/.env`, then restart `chess` |
-| The chess journal says `Data service: ... 500`, and the data service's journal shows `AccessDeniedException` | The data service can't reach the tables | `DYNAMODB_REGION` must be `us-west-2`. Check the tables are in us-west-2 and that `aws dynamodb get-item` works on the data service ([Data service instance](#data-service-instance)) |
-| Before step 11.3, the site breaks and the chess journal shows `AccessDeniedException` from DynamoDB | A plain `terraform apply` ran #250 too early and removed the chess server's access | Finish the switch-over, or put the policy back (revert #250's change, `terraform apply`). Until then, use `-target=module.data_service_module` |
-| `git pull` on the instance stops with "local changes would be overwritten" (if you deploy with `git pull` instead of step 3's rsync) | The checkout has its own changes (a `package-lock.json` or built files) | `git status`, then `git checkout -- <file>` for files that were only rebuilt, and pull again |
-
-To get the site back first and debug after: the rollback above (8414ecc on
-Chess-Stockfish, with `JWT_SECRET` back after step 12). The data service can keep running.
-
-### 12. Session keys (#252)
-
-After this, only the data service can make a session or guest token, and
-`JWT_SECRET` is gone from both instances. It signs everyone out once, and guests
-start a new game. Do steps 3 and 4 back to back: in between, the two sides don't
-read each other's tokens. [SECURITY.md → Session keys](SECURITY.md#session-keys) has
-the same steps as commands to paste.
-
-1. **Make the key on the data service** ([Making the session keys](#making-the-session-keys)),
-   in `/tmp`. Keep the public half for step 4.
-2. **Save Auth0's keys** on it ([Saving Auth0's keys](#saving-auth0s-keys)),
-   without the restart.
-3. **Update the data service:** step 10's rsync. In `/opt/data-service/.env`
-   (`sudo nano`), remove `JWT_SECRET` and add `SESSION_PRIVATE_KEY` (the whole
-   key, in double quotes), `AUTH0_ISSUER_BASE_URL_ORIGIN` and `AUTH0_CLIENT_ID`
-   (the same values as the server's `.env`). Delete the key file in `/tmp`, then
-   `sudo systemctl restart data-service` and check its journal says
-   `Data service on ...`.
-4. **Update the chess server:** in `server/.env`, remove `JWT_SECRET`,
-   `JWT_EXPIRES_IN` and `JWT_REFRESH_EXPIRES_IN` (they're the data service's
-   now) and add `SESSION_PUBLIC_KEY` (step 1's public half, in double quotes).
-   Deploy the server the usual way ([Updating and logs](#updating-and-logs)) and
-   restart `chess`.
-5. **Check:** sign in; come back after 15 minutes and you're still signed in (a
-   refresh); sign in on a second browser, log out on the first, and the second
-   is signed out within 15 minutes; play a guest game. Then:
-
-   ```bash
-   grep -c JWT_SECRET /opt/chess-frontend/server/.env                 # on Chess-Stockfish: 0
-   journalctl -u data-service --since "30 min ago" | grep REFUSED     # on the data service: only 401 Bad refresh token (old sign-ins, the logged-out browser)
-   ```
-
-**Rollback:** deploy `112b1c0` (`develop` before #252) on both, put the same
-`JWT_SECRET` back in both `.env` files, and restart both. Everyone is signed out again.
-
-### Updating and logs
-
-```bash
-# from your Mac: the rsync from step 3
-
-# on the instance
-cd /opt/chess-frontend && npm ci && npm run build
-cd server && npm ci --omit=dev && sudo systemctl restart chess
-journalctl -u chess -f
-```
-
-The data service (step 10's rsync, then restart it). Its packages only need a
-window when `data-service/package-lock.json` changed:
-
-```bash
-# from your Mac: step 10's rsync (and its scp when deploy/data-service.service changed)
-
-# on the data service (an upkeep window first if package-lock.json changed: npm ci --omit=dev)
-sudo systemctl restart data-service
-journalctl -u data-service -f
-```
-
-Every refused request is one `REFUSED` line in its journal, with the route and
-why, never a body or a token. A run of them is worth a look: many 401s mean
-something without the secret is calling it, or the two `DATA_SERVICE_SECRET`
-values don't match. 400s or 403s mean a bug, or requests that aren't the
-chess server's own:
-
-```bash
-journalctl -u data-service --since today | grep -c REFUSED              # how many today
-journalctl -u data-service --since today | grep REFUSED | tail -20      # the latest
-```
-
-On the chess server, a data service that's down or slow shows as
-`Data service: ...` lines in `journalctl -u chess`, and players get "Try again
-in a moment".
-
-Changed `deploy/chess.service`? Copy it again and run
-`sudo systemctl daemon-reload` before the restart. Changed `deploy/nginx.conf`?
-Copy it again and run `sudo nginx -t && sudo systemctl reload nginx`. certbot's
-HTTPS block lives in the copy in `/etc/nginx/sites-available/chess`, so copying
-over it removes HTTPS until you run the certbot line again.
+- **Refused requests** are one `REFUSED` line each in the data service's journal
+  (route and reason, never a body or token). Many 401s mean a secret or version
+  mismatch; 400s or 403s mean a bug, or requests that aren't the chess server's.
+- **Changed `deploy/chess.service` or `deploy/data-service.service`?** Copy it to
+  `/etc/systemd/system/` and run `sudo systemctl daemon-reload` before the restart.
+- **Changed `deploy/nginx.conf`?** Copy it, then `sudo nginx -t && sudo systemctl reload nginx`.
+  The copy replaces certbot's HTTPS block, so run the certbot line again.
+- **Rollback:** deploy the previous commit. Code from before #252 (`112b1c0`) needs
+  the same `JWT_SECRET` back in both `.env` files; code from before #249 (`8414ecc`)
+  talks to DynamoDB itself and needs #250's role policy back.
 
 ## Resetting a game for testing
 
