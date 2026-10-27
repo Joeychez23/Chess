@@ -173,7 +173,7 @@ data.
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
 | `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
-| `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, and the new game limits (per session, IP and site) |
+| `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
 | `rating.test.js` | The Elo math, which games are rated, the ratings Home and the game menu get, and two of a player's games ending at once |
 | `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
 | `settings.test.js` | The settings page's Default start settings and Delete my data |
@@ -242,7 +242,9 @@ game whose `game_id` equals their player id, which is how the client sets up
 each guest, and only from the browser that made it: `POST /api/chess/game` gives a guest an httpOnly, signed
 `guest_game` cookie (`setGuestCookie` in `server/middleware/auth.js`, only sent to `/api/chess`) holding their game id
 and a guest session id that stays the same from game to game. A guest whose `game_id` is another browser's game
-gets a new game with a new id instead of resetting it. Guests aren't added to `user_db`.
+gets a new game with a new id instead of resetting it, and so does a guest asking for the id `CHESS_AI` (the AI's
+player id). A guest is never in any game but their own, even when their id is on one side of another game
+(`playerInGame` in `chessController.js`). Guests aren't added to `user_db`.
 
 Making games is limited (`server/middleware/rateLimit.js`): `POST /api/chess/game`, `/restart` and `/invite` answer
 `429` with `Retry-After` and `{ status: 429, message: "Too many new games, try again in N seconds" }` when a session (a signed-in

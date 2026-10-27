@@ -6,6 +6,7 @@
  */
 
 require("./helpers/env.js");
+const crypto = require("crypto");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
@@ -18,6 +19,15 @@ after(() => server.close());
 beforeEach(() => testServer.reset());
 
 const newGuestGame = (gameId, options = {}) => call("POST", "/api/chess/game", { ...options, body: { game_id: gameId, start_color: "w" } });
+
+/**
+ * @description A guest_game cookie signed like setGuestCookie (middleware/auth.js) does, for a game id newGame no longer hands out
+ * (a cookie the live site signed before guests were kept to their own game)
+ */
+function signedGuestCookie(gameId) {
+	const signature = crypto.createHmac("sha256", process.env.JWT_SECRET).update(`guest_game:session.${gameId}`).digest("base64url");
+	return `guest_game=session.${gameId}.${signature}`;
+}
 
 /* ---------------------------------------------------------------- */
 // Guest Cookies
@@ -60,6 +70,34 @@ describe("a guest's game only answers the browser that made it", () => {
 		for (const cookie of ["guest_game=guest1", "guest_game=abc.guest1.made-up", "guest_game=.guest1.", "guest_game=x"]) {
 			assert.equal((await call("GET", "/api/chess/game/guest1", { cookie })).http, 401, cookie);
 		}
+	});
+
+	test("a guest whose game id is CHESS_AI or a player's id can't touch that player's AI game", async () => {
+		const alice = player("alice");
+		const aliceGame = (await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 3 } })).game_id;
+		await call("PUT", `/api/chess/game/${aliceGame}`, { as: alice, body: { move: ["e2", "e4"] } });
+		const before = peek("chess_db", aliceGame);
+
+		assert.equal((await newGuestGame("alice", { guest: "eve" })).game_id, "alice"); // EVE'S PLAYER ID IS ALICE'S
+		const guests = [{ guest: "eve" }, { cookie: signedGuestCookie("CHESS_AI") }];
+		for (const guest of guests) {
+			assert.equal((await call("GET", `/api/chess/game/${aliceGame}`, guest)).http, 401);
+			assert.equal((await call("PUT", `/api/chess/game/${aliceGame}`, { ...guest, body: { move: ["e7", "e5"] } })).http, 401);
+			assert.equal((await call("POST", `/api/chess/game/${aliceGame}/ai-move`, guest)).http, 401);
+			assert.equal((await call("POST", `/api/chess/game/${aliceGame}/restart`, guest)).http, 401);
+			assert.equal((await call("GET", `/api/chess/game/${aliceGame}/ratings`, guest)).http, 401);
+			assert.notEqual((await call("POST", "/api/chess/game", { ...guest, body: { game_id: aliceGame, start_color: "w" } })).game_id, aliceGame); // A NEW GAME, ALICE'S ISN'T RESET
+		}
+		assert.deepEqual(peek("chess_db", aliceGame), before);
+		assert.equal((await call("GET", `/api/chess/game/${aliceGame}`, { as: alice })).player_color, "w");
+	});
+
+	test("a guest can't make a game with the AI's id", async () => {
+		const made = await newGuestGame("CHESS_AI", { guest: "mallory" });
+		assert.equal(made.status, 200);
+		assert.notEqual(made.game_id, "CHESS_AI");
+		assert.equal(peek("chess_db", "CHESS_AI"), undefined);
+		assert.equal((await call("GET", `/api/chess/game/${made.game_id}`, { guest: "mallory" })).status, 200); // THE NEW ID PLAYS AS USUAL
 	});
 });
 
