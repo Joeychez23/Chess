@@ -1,4 +1,4 @@
-# Runs the server tests and the client build on every pull request and on pushes to main.
+# Runs the server tests, the data service tests and the client build on every pull request and on pushes to main.
 # npm ci installs the exact versions in the committed package-lock.json files.
 
 name: CI
@@ -24,7 +24,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: |
+            server/package-lock.json
+            data-service/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund # THE SERVER TESTS RUN THE REAL DATA SERVICE NEXT TO THE SERVER
+        working-directory: data-service
+      - run: npm test
+
+  data-service:
+    name: Data service tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: data-service
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: data-service/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm test
 

@@ -21,9 +21,11 @@ resource "aws_route53_record" "server_A_records" {
 }
 
 # ---------------------------------------------------------------- #
-# IAM Role (the chess server reads and writes DynamoDB with it)
+# IAM Role (Chess-Stockfish's, with no DynamoDB access since #250)
 # ---------------------------------------------------------------- #
-# THE ROLE, POLICY AND PROFILE WERE MADE IN THE CONSOLE, IMPORT THEM BEFORE THE FIRST apply (README -> Terraform)
+# THE ROLE AND PROFILE WERE MADE IN THE CONSOLE, IMPORT THEM BEFORE THE FIRST apply (README -> Terraform).
+# ITS DYNAMODB POLICY IS GONE: THE CHESS SERVER CALLS THE DATA SERVICE (#249), THE ONLY INSTANCE THAT CAN USE THE TABLES (modules/data_service).
+# THE ROLE & PROFILE STAY, SO NOTHING CHANGES ON THE INSTANCE
 resource "aws_iam_role" "server_role" {
   name        = var.role_name
   description = "Allows EC2 instances to call AWS services on your behalf." # THE CONSOLE'S DEFAULT, KEPT SO plan SHOWS NO CHANGE
@@ -33,20 +35,6 @@ resource "aws_iam_role" "server_role" {
       Effect    = "Allow"
       Principal = { Service = "ec2.amazonaws.com" }
       Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-# ONLY THE CALLS server/dynamoDB.js MAKES, ONLY ON chess_db AND user_db
-resource "aws_iam_role_policy" "dynamodb_policy" {
-  name = "${var.role_name}Policy" # EC2_Chess_DynamoDBPolicy, THE CONSOLE'S NAME
-  role = aws_iam_role.server_role.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchGetItem", "dynamodb:DeleteItem"] # DeleteItem: DECLINED & CANCELLED INVITES (deleteInvite, ONLY WHILE PENDING)
-      Resource = var.table_arns
     }]
   })
 }

@@ -12,7 +12,7 @@
 
 const path = require("path");
 const { readSessionUser } = require("../middleware/auth.js");
-const { retrieveGame, retrieveUser } = require("../dynamoDB.js");
+const { retrieveGame, retrieveUser } = require("../dataClient.js");
 
 const BUILD_DIR = path.join(__dirname, "../../client/dist"); // SAME FOLDER server/index.js SERVES THE BUNDLES FROM
 
@@ -27,7 +27,7 @@ const BUILD_DIR = path.join(__dirname, "../../client/dist"); // SAME FOLDER serv
 async function homePage(req, res) {
 	const sessionUser = readSessionUser(req);
 	if (!sessionUser) { return sendPage(res, "guest.html"); }
-	const response = await retrieveUser(sessionUser.user_id.split("auth0|")[1], true).catch(() => null); // CONSISTENT: THE SETTINGS PAGE COMES HERE RIGHT AFTER THE SAVE
+	const response = await retrieveUser(true).catch(() => null); // THEIR ROW, CONSISTENT: THE SETTINGS PAGE COMES HERE RIGHT AFTER THE SAVE
 	if (response && !response.user_data?.username) { return res.redirect("/settings"); } // A FAILED CHECK STILL SENDS HOME
 	return sendPage(res, "home.html");
 }

@@ -16,7 +16,7 @@
 const { Server } = require("socket.io");
 const cookieParser = require("cookie-parser");
 const { readSessionUser } = require("./middleware/auth.js");
-const { retrieveGame } = require("./dynamoDB.js");
+const { retrieveGame, withRequest } = require("./dataClient.js");
 
 let io = null;
 
@@ -61,7 +61,8 @@ async function joinGame(socket, gameId, ack) {
 	if (typeof gameId != "string" || !gameId) { return ack({ status: 400, message: "Invalid game id" }); }
 
 	try {
-		const response = await retrieveGame(gameId);
+		const response = await withRequest(socket.request, () => retrieveGame(gameId)); // AS THE SOCKET'S PLAYER (ITS HANDSHAKE HAS THEIR COOKIES)
+		if (response.status == 401 || response.status == 403) { return ack({ status: 403, message: "Player is not in this game" }); }
 		if (!response.game_data) { return ack({ status: response.status, message: response.message }); } // GAME NOT FOUND
 
 		const { white_player_id, black_player_id, state, winner, reason } = response.game_data;
@@ -73,6 +74,7 @@ async function joinGame(socket, gameId, ack) {
 		socket.join(`game:${gameId}`);
 		return ack({ status: 200, message: `Joined game id: ${gameId}`, state: state?.S || "OPEN", winner: winner?.S || null, reason: reason?.S || null });
 	} catch (err) {
+		if (err.name == "DataServiceDown") { console.error(err.message); return ack({ status: 503, message: "Try again in a moment" }); }
 		console.log(err);
 		return ack({ status: 500, message: "Join failed" });
 	}

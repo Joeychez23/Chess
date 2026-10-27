@@ -5,8 +5,10 @@
 A chess game drawn entirely on an HTML5 canvas: sprite pieces with shadows and
 reflections on a wooden table, sliding move animations, and move sounds. Play
 the computer or challenge a friend by email. The browser checks each move
-first, then the Express server checks it again against the board stored in
-DynamoDB before it counts. (This used to be the chess lambda in
+first, then it's checked again on the server side against the board stored in
+DynamoDB before it counts: the Express server checks the request, and the data
+service, the only code that can read or write the tables, plays the move on the
+stored board itself. (This used to be the chess lambda in
 [chess-validation](https://github.com/Joeychez23/Lambdas); see
 [Chess API](#chess-api).)
 
@@ -99,17 +101,22 @@ the updated `package-lock.json` with it.
 | `AUTH0_ISSUER_BASE_URL_ORIGIN` | Auth0 tenant domain |
 | `AUTH0_CONNECTION` | Database connection players log in with (`auth0-default-connection`) |
 | `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`) |
-| `JWT_SECRET` | Signs the session tokens |
+| `SESSION_PUBLIC_KEY` | The public half of the data service's session key, multi-line in double quotes ([Session keys](#session-keys-252)). The server checks session and guest tokens with it but can't make one |
+| `SESSION_PUBLIC_KEY_NEXT` | Optional. Only while the key is being changed: tokens signed with the new key are accepted too |
 | `AUTH0_CALLBACK_URL` | Optional. Defaults to `http://localhost:API_PORT/api/auth/callback` |
 | `CLIENT_URL` | Optional. Where the browser goes after login/logout. Defaults to `http://localhost:API_PORT/` |
 | `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
+| `DATA_SERVICE_URL` | Optional. Where the data service answers. Defaults to `http://127.0.0.1:8090` (`npm run dev` in `data-service`). On AWS it's the data service's private IP |
+| `DATA_SERVICE_SECRET` | Signs every call to the data service. The same value as `DATA_SERVICE_SECRET` in `data-service/.env`, at least 32 characters (the command is in `.env.example`) |
 
 In the Auth0 app's settings, add `AUTH0_CALLBACK_URL` to **Allowed Callback
 URLs** and `CLIENT_URL` to **Allowed Logout URLs**.
 
-The server reads and writes the DynamoDB tables with the AWS credentials on the
-machine: `~/.aws` locally (`aws configure`), or the instance's IAM role on AWS.
-It needs read/write access to `chess_db` and `user_db` in us-east-1.
+The server doesn't touch DynamoDB. Every read and write of the games and players
+goes through the data service ([Data service](#data-service)), which uses the AWS
+credentials on its machine: `~/.aws` locally (`aws configure`), or its instance's
+IAM role on AWS, with read/write access to `chess_db` and `user_db` in us-west-2
+(`DYNAMODB_REGION` in `data-service/.env`).
 
 `client/.env`:
 
@@ -146,7 +153,11 @@ CloudFront's TTL is 0, so the new files show up right away.
 npm start       # builds client/dist and serves it + the auth routes on http://localhost:3001
 npm run dev     # webpack-dev-server on http://localhost:3002, /api, /socket.io and the pages (/, /play) are proxied to :3001 (run the server too)
 npm run build   # bundles into client/dist
+cd data-service && npm run dev   # the data service on http://127.0.0.1:8090, the server calls it for every game and player
 ```
+
+Run the data service too, or every page that needs a game or a player answers
+503 "Try again in a moment".
 
 With `npm run dev`, set `CLIENT_URL=http://localhost:3002/` so login returns
 to the dev server. The dev server writes the `.html` pages to `client/dist`
@@ -159,28 +170,47 @@ cd server && npm test   # every server/test/*.test.js, with Node's built-in test
 ```
 
 The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
-`test/helpers/env.js` sets test values, `test/helpers/fakeDynamo.js` keeps
-`chess_db` and `user_db` in memory (it understands the update and condition
-expressions `server/dynamoDB.js` uses, and `staleReads()` makes reads lag like
-DynamoDB's default eventually consistent reads), and `test/helpers/server.js` starts the
-real `/api` and page routes on a random port and answers Auth0 and the engine from test
-data.
+`test/helpers/env.js` sets test values (with new session keys and a stand-in
+Auth0 key each run, `data-service/test/helpers/keys.js`), and `test/helpers/server.js` starts the
+real `/api` and page routes on a random port with the real data service next to
+it, on its in-memory tables (`data-service/test/helpers/fakeDynamo.js`). So every
+test goes server → data service → tables, like the live site. Auth0 and the
+engine are answered from test data. Install the data service's packages first
+(`npm ci` in `data-service`).
 
 | File | What it covers |
 | --- | --- |
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `dataClient.test.js` | The data service down, too slow (3 seconds) or refusing the signature: 503 "Try again in a moment" and nothing half saved. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
+| `auth.test.js` | Signing in through the data service: the callback's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 | `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
-| `rating.test.js` | The Elo math, which games are rated, the ratings Home and the game menu get, and two of a player's games ending at once |
+| `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
 | `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
 | `settings.test.js` | The settings page's Default start settings and Delete my data |
 | `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
-GitHub Actions (`.github/workflows/ci.yml`) runs the server tests and the
-client build on every pull request and every push to `main`.
+The data service has its own tests, the same way (`data-service/test/`):
+
+```bash
+cd data-service && npm test
+```
+
+| File | What it covers |
+| --- | --- |
+| `signature.test.js` | Signed requests: unsigned, another secret, a changed body, path, query or method, a timestamp over 30 seconds either way, a replayed request, and the old secret during a change. Behind a good signature, another player's token still gets nothing, and a `user_id` in a body is refused |
+| `session.test.js` | Logins: only Auth0's `id_token` (not forged, our client and tenant, not expired, at most 5 minutes old, used once) for the user it names. Refresh while the session id is unchanged, and not after logout (on any device) or Delete my data. The old key during a change. Guest tokens only for the game just made, with the same guest session from game to game |
+| `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
+| `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
+| `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
+| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `rating.test.js` | The Elo math, which games are rated, and two of a player's games ending at once |
+| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are the same files as the server's, and both pin the same `chess.js` |
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
+service tests and the client build on every pull request and every push to `main`.
 
 ## Pages
 
@@ -211,20 +241,27 @@ client secret.
 | Route | What it does |
 | --- | --- |
 | `GET /api/auth/login` | Redirects to the Auth0 login page. `?returnTo=/play/:gameId` is saved in a cookie for the callback (only paths on this site) |
-| `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for the user, looks them up through the Management API (`getAuth0User`, which replaced the `user` lambda), starts the session, and goes to `returnTo` or Home |
-| `POST /api/auth/refresh` | Re-ups the session: a valid refresh token gets a new access + refresh token |
+| `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for Auth0's tokens, looks the player up through the Management API (`getAuth0User`, which replaced the `user` lambda), then the data service checks Auth0's `id_token` and signs the session (`POST /session/login`). Goes to `returnTo` or Home |
+| `POST /api/auth/refresh` | Re-ups the session: the data service checks the refresh token and signs a new access + refresh token |
 | `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it logs in first |
-| `GET /api/auth/logout` | Clears the session and logs out of Auth0 |
+| `GET /api/auth/logout` | Ends the session on every device (the data service clears the session id on the player's row), clears the cookies and logs out of Auth0 |
 | `GET /api/user` | The signed-in user, and `username` from their `user_db` row (`null` until they pick one), or `401` |
 | `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w` or `b` is `random`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
 | `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
-| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, then deletes your `user_db` row and frees your username. Your games stay in `chess_db`, and your next game starts a new row |
+| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, then deletes your `user_db` row and frees your username. Your games stay in `chess_db`, and your next sign-in starts a new row |
 
 The session is two JWTs in httpOnly cookies: an access token (15 minutes)
 checked on every request, and a refresh token (7 days) that's only sent to
 `/api/auth`. When `/api/user` returns `401`, the client calls
 `/api/auth/refresh` once and uses the user it returns. Checking a session is a
 signature check on the server, so startup doesn't wait on Auth0.
+
+Only the data service signs session and guest tokens (ES256, #252). The server
+has the public key, so it checks them without a call but can't make one: someone
+who took over the public instance couldn't sign in as a player who isn't using
+the site. Both tokens carry the session id on the player's `user_db` row, and a
+refresh fails once it's gone, so logout and Delete my data sign them out on every
+device within 15 minutes.
 
 ## Chess API
 
@@ -239,9 +276,9 @@ The player is whoever is signed in. The server reads it from the session
 cookie and ignores the player ids the client sends. Nobody can move for the AI:
 its moves only come from `/ai-move`. Guests (no session) can only play an AI
 game whose `game_id` equals their player id, which is how the client sets up
-each guest, and only from the browser that made it: `POST /api/chess/game` gives a guest an httpOnly, signed
-`guest_game` cookie (`setGuestCookie` in `server/middleware/auth.js`, only sent to `/api/chess`) holding their game id
-and a guest session id that stays the same from game to game. A guest whose `game_id` is another browser's game
+each guest, and only from the browser that made it: `POST /api/chess/game` gives a guest an httpOnly
+`guest_game` cookie (`setGuestCookie` in `server/middleware/auth.js`, only sent to `/api/chess`), a token the data service
+signs for the game it just made them, holding their game id and a guest session id that stays the same from game to game. A guest whose `game_id` is another browser's game
 gets a new game with a new id instead of resetting it, and so does a guest asking for the id `CHESS_AI` (the AI's
 player id). A guest is never in any game but their own, even when their id is on one side of another game
 (`playerInGame` in `chessController.js`). Guests aren't added to `user_db`.
@@ -309,9 +346,9 @@ left from the start position through `faceMove`, the same facing rules a move us
 `prev_move` and facing lists from before the undone moves. It's saved with `updateGame`, so an undo and a move made on the same board can't both land.
 Friend games also save `inviter_id`, so Home knows a sent invite from a received one (the inviter isn't always white).
 A `user_db` row also has `settings` (JSON, `{ ai_level, ai_color, friend_color }`) once the player saves Default start settings. It's its own
-attribute, so the game list saves never touch it, and saving it first makes the row (with empty game lists) for a player who hasn't played yet.
+attribute, so the game list saves never touch it, and saving it makes the row (with empty game lists) if there isn't one. Rows are made at a player's first login (`startSession`).
 **Usernames** live in `user_db` too. A player's row gets `username` (as they wrote it), and an item keyed `username#<the name in lowercase>`
-(`{ user_id, owner_id, username }`) holds the name, so only one player can have it in any capitals. `claimUsername` (`dynamoDB.js`) saves a name in
+(`{ user_id, owner_id, username }`) holds the name, so only one player can have it in any capitals. `claimUsername` (`data-service/dynamoDB.js`) saves a name in
 one `TransactWriteItems`: it puts the new item only if it doesn't exist, sets `username` on the row only if it's still the name that was read, and
 deletes the old item only if it's the player's, so either all three land or none do. A change of capitals only updates the item. `deleteUser`
 deletes the row and the item together. Nothing reads `user_db` by anything other than a key, so the `username#` items never show up as players.
@@ -320,7 +357,7 @@ deletes the row and the item together. Nothing reads `user_db` by anything other
 score is 1, ½ or 0 and `expected = 1 / (1 + 10^((opponent − rating) / 400))`, rounded and never below 100. K is 40 for a player's first 10
 rated games (shown with a `?`, provisional), then 20. Only friend games from the standard position are rated, once both sides have moved
 (a forfeit straight away, or a new invite replacing a game that had just started, isn't counted); AI games aren't. `closeGame` rates the game
-(`rateGame` in `dynamoDB.js`): each side against the other's rating from before the game. A `user_db` row gets `rating` and `rated_games`
+(`rateGame` in `data-service/dynamoDB.js`): each side against the other's rating from before the game. A `user_db` row gets `rating` and `rated_games`
 (numbers), saved only if `rated_games` is still what was read, so two of a player's games ending at once both count. The game item gets
 `ratings` (JSON, `{ w: { before, after }, b: { before, after }, at }`, `null` for a player whose row was deleted). Rated friend games are never
 deleted, so a player's rating history is the `ratings` on the games in their `closed_games` (for a profile chart, #81). The history isn't kept
@@ -387,6 +424,167 @@ default, level 3.
 - **If the engine is down**, js-chess-engine (level 1) plays the move on the
   server instead.
 
+## Data service
+
+`data-service/` is the only code that reads and writes DynamoDB (#245). The
+chess server calls it for every read and write of the games and players
+(`server/dataClient.js`). On AWS it runs on a private instance that only the
+chess server can reach ([Data service instance](#data-service-instance),
+[10. The data service](#10-the-data-service)). Each route is one named action, checked
+against the stored data before anything is saved.
+
+```bash
+cd data-service
+cp .env.example .env   # DATA_SERVICE_SECRET: a new one (the command is in .env.example). SESSION_PRIVATE_KEY & auth0-jwks.json: Session keys below
+npm run dev            # http://127.0.0.1:8090, uses the DynamoDB tables in DYNAMODB_REGION
+```
+
+The chess server says who it's acting for with the player it already checked:
+`X-Player-Token` (the signed-in player's access token) or `X-Guest-Game` (a
+guest's `guest_game` token). The data service signed both, and checks them again
+with its own key, and a player id in a body is never used. A guest's player id is
+their game's id, so a guest is only ever in that one game.
+
+Only the chess server can call it. Every request except `/health` is signed
+with `DATA_SERVICE_SECRET`, which only the two `.env` files have
+(`utils/signature.js`). The signature is HMAC-SHA256 over the method, the path
+with its query, `X-Data-Timestamp`, `X-Data-Request-Id` and the body exactly as
+sent, and it goes in `X-Data-Signature`. `middleware/signature.js` refuses a
+request with a 401 before the player is read or any route runs (only the JSON checks, 415, 400 and 413, come first) when:
+
+- it isn't signed, or is signed with another secret;
+- its method, path, query or body changed after it was signed;
+- its timestamp is more than 30 seconds from now, either way;
+- its request id was already used in the last 30 seconds (a replay).
+
+To change the secret without refusing any requests:
+
+1. In the data service's `.env`, set the new one as `DATA_SERVICE_SECRET` and
+   the current one as `DATA_SERVICE_SECRET_OLD`, then restart it. It accepts both.
+2. Put the new one in `server/.env` and restart the chess server.
+3. Remove `DATA_SERVICE_SECRET_OLD` and restart the data service.
+
+The signature only proves a request came from the chess server. Who the
+request is for comes from a token only the data service can sign
+([Session keys](#session-keys-252)).
+
+| Route | What it checks before saving |
+| --- | --- |
+| `GET /health` | Nothing: answers without a player or the tables |
+| `GET /games/:gameId` | The requester is in the game (`?consistent=true` for a strongly consistent read) |
+| `POST /games/:gameId/move` `{ from, to, promotion }` | In the game, open, their turn, a legal move on the stored board. Checkmate or a draw closes the game and rates a friend game |
+| `POST /games/:gameId/ai-move` `{ from, to, promotion }` | AI games: the requester is in it, it's the AI's turn, and the move is legal |
+| `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
+| `GET /games/:gameId/ratings` | In the game. Both players' ratings |
+| `POST /games/ai` `{ color, level, start_fen, game_id }` | A signed-in player vs `CHESS_AI`, at a level from 1 to 8 (3 if left out), from a playable position. A `game_id` must be new |
+| `POST /games/guest` `{ game_id, color, side, level, start_fen }` | Needs no player. `side` fixes this game's side while `color` is what Restart uses (the play page's first guest game). The guest's own game (their cookie) is reset and keeps its level; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched. Answers with `guest_token`, the guest's cookie for the game it saved |
+| `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, game_id }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
+| `POST /games/:gameId/accept` `{ replace_current }` | Pending, only the invited player. In this order: their own open friend game answers `{ status: 409, game_id }` unless `replace_current`; the inviter in another friend game is refused; then their friend game is forfeited (`forfeited`), their sent invite cancelled (`dropped_invites`) and the invite accepted |
+| `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
+| `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`) |
+| `GET /users/me` | A signed-in player's own row as stored (`?consistent=true`). `?games=true` also prunes expired games and invites and adds the open AI and friend game, the open games, the sent invite and the received invites. Guests have no row (403) |
+| `POST /users/me/settings` `{ ai_level, ai_color, friend_color }` | A level from 1 to 8 and `w`, `b` or `random` for each color, all three |
+| `POST /users/me/username` `{ username }` | The username rules again (`utils/username.js`), then `claimUsername`: someone else's name, in any capitals, answers `{ status: 409 }` |
+| `POST /users/me/delete` | Refused (409) while the player has an open game or an invite: the chess server forfeits, cancels and declines them first. Then the row and the username claim are deleted |
+| `POST /session/login` `{ id_token, user }` | Needs no player. Auth0's `id_token` checked against Auth0's saved keys (RS256, our tenant and client, not expired, at most 5 minutes old, used once), and `user` (the chess server's `getAuth0User`, which only looks on `AUTH0_CONNECTION`) must be the one it names, with an `auth0|` id. Then the access and refresh tokens, with the session id on the player's row (made at their first login) |
+| `POST /session/refresh` `{ refresh_token }` | A refresh token it signed, whose session id is still the one on the row. A new pair |
+| `POST /session/logout` `{ refresh_token }` | A refresh token it signed. Clears the session id, so no device can refresh. A token from a session that already ended changes nothing |
+
+The rules about a player's other games ("one AI game and one friend game at a
+time", `replace_current`, one sent invite) stay on the chess server: it makes
+the forfeits and cancels first, and each of those is an action the player can
+take here too.
+
+Each route lists the body fields it takes, and anything else is refused with
+a 400. Bodies must be JSON and 16kb at most. A request the data service
+handles answers 200 with `dynamoDB.js`'s `{ status, game_data, message }`. A
+refused one answers with its own status (400, 401, 403, 404, 409, 413 or 415)
+and logs one line, `REFUSED <method> <path> <status> <why>`, without the body
+or the token.
+
+`server/dataClient.js` sends each call signed, with the player of the request it's
+answering (an `AsyncLocalStorage` context, so the controllers don't pass it
+around): their access token when it's still good, otherwise a guest's
+`guest_game` cookie when it's still good. A call that gets no answer in 3 seconds, a 5xx, or a
+signature refusal (a wrong `DATA_SERVICE_SECRET`) answers the player 503 "Try
+again in a moment". Each action is one call, so nothing is half saved. The rules
+about a player's other games still run on the chess server first, and accepting
+an invite with `replace_current` is one call, so the inviter is checked before
+the player's own game is forfeited.
+
+`utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are copies of
+the server's, and `test/shared.test.js` fails if they differ, so change both.
+
+### Session keys (#252)
+
+The data service signs every access, refresh and guest token with its private
+key (`SESSION_PRIVATE_KEY`, ES256). The chess server only has the public key
+(`SESSION_PUBLIC_KEY`). Each token names its key in its header (`kid`, made from
+the key itself), and only ES256 tokens signed with a key they have are
+accepted: an HS256 token, a `none` token or another key's is refused by both.
+
+#### Making the session keys
+
+On AWS, run this on the data service, so the private key never leaves it. Use a
+different key on your Mac than on the live site, so a session made locally
+can't be used there.
+
+```bash
+openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out session-key.pem   # SESSION_PRIVATE_KEY
+openssl pkey -in session-key.pem -pubout                                                              # SESSION_PUBLIC_KEY
+```
+
+Each goes in its `.env` as a multi-line value in double quotes, the private key
+in `data-service/.env` and the public key in `server/.env`:
+
+```
+SESSION_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----"
+```
+
+Then delete `session-key.pem`. Both services check the key when they start and
+exit if it isn't a P-256 key (the chess server also refuses a private key).
+
+#### Saving Auth0's keys
+
+A login's `id_token` is checked against Auth0's public keys. The data service
+has no internet, so they're saved next to it as `auth0-jwks.json`
+(`AUTH0_JWKS_FILE`, not committed). The data service won't start without it.
+
+```bash
+# on your Mac, in this folder (the domain is AUTH0_ISSUER_BASE_URL_ORIGIN)
+curl -s https://<tenant domain>/.well-known/jwks.json -o data-service/auth0-jwks.json
+
+# on AWS, then on the data service
+scp -J ubuntu@52.11.177.148 data-service/auth0-jwks.json ubuntu@172.31.64.10:/tmp/
+sudo install -o dataservice -g dataservice -m 644 /tmp/auth0-jwks.json /opt/data-service/auth0-jwks.json && sudo systemctl restart data-service
+```
+
+Auth0 rarely changes its signing key. When it does, logins fail and the data
+service logs `REFUSED POST /session/login 401 Bad id token: unknown key`: save
+the keys again.
+
+#### Changing the session key
+
+To change it without signing anyone out:
+
+1. Make a new pair. Put the new public key in `server/.env` as
+   `SESSION_PUBLIC_KEY_NEXT` and restart the chess server. It accepts both.
+2. In the data service's `.env`, set the new private key as
+   `SESSION_PRIVATE_KEY` and the old public key as `SESSION_PUBLIC_KEY_OLD`,
+   then restart it. New tokens use the new key, and old ones still refresh.
+3. After 25 days (refresh tokens last 7 days, guest games 25 days after their
+   last move), set `SESSION_PUBLIC_KEY` in `server/.env` to the new key, remove
+   `SESSION_PUBLIC_KEY_NEXT` and `SESSION_PUBLIC_KEY_OLD`, and restart both.
+
+In the wrong order (step 2 before step 1), the chess server can't read the new
+tokens: it answers 503 and logs `its tokens are signed with key <kid>, which
+SESSION_PUBLIC_KEY / SESSION_PUBLIC_KEY_NEXT isn't`. Do step 1.
+
+If the private key leaks, change both at once without the overlap. Everyone is
+signed out, and guests start a new game.
+
 ## Deploy
 
 ```
@@ -416,13 +614,10 @@ In order:
 `terraform/aws-enviroment` sets up:
 
 - **Server** (`modules/server`): the `EC2_Chess_DynamoDB` IAM role and
-  instance profile (made in the console, imported below), allowed only `GetItem`, `PutItem`, `UpdateItem`,
-  `BatchGetItem` and `DeleteItem` (declined and cancelled invites) on the two
-  tables (the calls `server/dynamoDB.js` makes). Usernames are saved with
-  `TransactWriteItems`, which has no IAM action of its own: each write in it is
-  checked as the `PutItem`, `UpdateItem` or `DeleteItem` it is, so the policy
-  already covers it ([Using IAM with DynamoDB transactions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html)).
-  The module also makes the Route 53 `A` records for `chess` and `engine` pointing at the instance's Elastic IP
+  instance profile (made in the console, imported below). Since #250 the role
+  has no DynamoDB permissions: the chess server calls the data service, and
+  only the data service's role can use the tables. The role and profile stay
+  attached, so nothing changes on the instance. The module also makes the Route 53 `A` records for `chess` and `engine` pointing at the instance's Elastic IP
   (`server_ip` in `locals.tf`). The `engine` record was made in the console;
   `allow_overwrite` lets Terraform take it over.
 - **Assets** (`modules/cloudfront`): ACM certificate for
@@ -430,12 +625,26 @@ In order:
   validated through a Route 53 DNS record, a CloudFront distribution in front
   of the `aws-prac-chess-s3` bucket's website endpoint (HTTP → HTTPS redirect,
   TTL 0 so new files show up right away), and the Route 53 alias record.
-- **DynamoDB** (`modules/dynamodb`, us-east-1): `chess_db` (key `game_id`,
+- **DynamoDB** (`modules/dynamodb`, us-west-2, next to the instance; moved from
+  us-east-1, see [Moving the tables](#moving-the-tables-to-us-west-2)): `chess_db` (key `game_id`,
   TTL on `expireAt`: open games and finished AI games are deleted 25 days
   after the last move, finished friend games are kept) and `user_db` (key
   `user_id`). Both have point-in-time recovery on, so either can be put back
   the way it was at any second in the last 35 days
   ([Restoring a table](#restoring-a-table)).
+- **Data service** (`modules/data_service`, us-west-2): the private instance the
+  data service runs on (#245), in its own subnet next to `Chess-Stockfish`
+  (`usw2-az2`, `us-west-2a` in this account), with no public IP and no route
+  to the internet. A free DynamoDB gateway endpoint on its route table is its
+  only way out, limited to the two tables. Its security group lets in only
+  `Chess-Stockfish`'s group, on 8090 and SSH. Its role, `EC2_Chess_DataService`,
+  is the only one allowed to use the tables: `GetItem`, `PutItem`, `UpdateItem`,
+  `BatchGetItem` and `DeleteItem` on the two tables, only through that endpoint
+  (`aws:SourceVpce`), so its keys don't work anywhere else. Usernames are saved
+  with `TransactWriteItems`, which has no IAM action of its own: each write in it
+  is checked as the `PutItem`, `UpdateItem` or `DeleteItem` it is
+  ([Using IAM with DynamoDB transactions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html))
+  ([Data service instance](#data-service-instance)).
 
 ```bash
 cd terraform/aws-enviroment
@@ -452,24 +661,21 @@ The Route 53 hosted zone for `aws-prac-route53.com`, the S3 bucket
 (`aws-prac-chess-s3`, us-west-2) and the Elastic IP must already exist. Names
 and the IP are set in `terraform/aws-enviroment/locals.tf`.
 
-The two DynamoDB tables and the IAM role were created in the AWS console before
-they were added to Terraform. Import each one that isn't in the state yet
-(`terraform state list` shows what is) before the next `apply`; otherwise
-`apply` tries to create them and fails with "table already exists" or
+The IAM role was created in the AWS console before it was added to Terraform.
+Import each part that isn't in the state yet (`terraform state list` shows
+what is) before the next `apply`; otherwise `apply` fails with
 `EntityAlreadyExists`. Importing one that's already there only fails with
 "Resource already managed by Terraform":
 
 ```bash
-terraform import module.dynamodb_module.aws_dynamodb_table.chess_table chess_db
-terraform import module.dynamodb_module.aws_dynamodb_table.user_table user_db
 terraform import module.server_module.aws_iam_role.server_role EC2_Chess_DynamoDB
-terraform import module.server_module.aws_iam_role_policy.dynamodb_policy EC2_Chess_DynamoDB:EC2_Chess_DynamoDBPolicy
 terraform import module.server_module.aws_iam_instance_profile.server_profile EC2_Chess_DynamoDB
 ```
 
-`terraform plan` should then show no changes for the tables or the role. Both
-tables have `prevent_destroy` set, so Terraform refuses any plan that would
-delete or replace them.
+The DynamoDB tables are made by Terraform
+([Moving the tables](#moving-the-tables-to-us-west-2)). Both have
+`prevent_destroy` set, so Terraform refuses any plan that would delete or
+replace them.
 
 #### Restoring a table
 
@@ -493,10 +699,10 @@ games.
    mistake, in UTC:
 
    ```bash
-   aws dynamodb restore-table-to-point-in-time --region us-east-1 \
+   aws dynamodb restore-table-to-point-in-time --region us-west-2 \
      --source-table-name chess_db --target-table-name chess_db_restore \
      --restore-date-time 2026-10-25T18:00:00Z
-   aws dynamodb wait table-exists --region us-east-1 --table-name chess_db_restore
+   aws dynamodb wait table-exists --region us-west-2 --table-name chess_db_restore
    ```
 
    Restoring can take a while. If the `wait` gives up, run it again. Then check
@@ -507,23 +713,23 @@ games.
    `describe-backup` shows `AVAILABLE`:
 
    ```bash
-   aws dynamodb create-backup --region us-east-1 --table-name chess_db_restore --backup-name chess_db_restore
-   aws dynamodb describe-backup --region us-east-1 --backup-arn <BackupArn> --query BackupDescription.BackupDetails.BackupStatus
+   aws dynamodb create-backup --region us-west-2 --table-name chess_db_restore --backup-name chess_db_restore
+   aws dynamodb describe-backup --region us-west-2 --backup-arn <BackupArn> --query BackupDescription.BackupDetails.BackupStatus
    ```
 
 4. Delete the original table. With point-in-time recovery on, DynamoDB keeps
    a system backup of it for 35 days, so this can still be undone:
 
    ```bash
-   aws dynamodb delete-table --region us-east-1 --table-name chess_db
-   aws dynamodb wait table-not-exists --region us-east-1 --table-name chess_db
+   aws dynamodb delete-table --region us-west-2 --table-name chess_db
+   aws dynamodb wait table-not-exists --region us-west-2 --table-name chess_db
    ```
 
 5. Restore the backup under the original name:
 
    ```bash
-   aws dynamodb restore-table-from-backup --region us-east-1 --target-table-name chess_db --backup-arn <BackupArn>
-   aws dynamodb wait table-exists --region us-east-1 --table-name chess_db
+   aws dynamodb restore-table-from-backup --region us-west-2 --target-table-name chess_db --backup-arn <BackupArn>
+   aws dynamodb wait table-exists --region us-west-2 --table-name chess_db
    ```
 
 6. Run `terraform apply` in `terraform/aws-enviroment`. A restore doesn't copy
@@ -535,9 +741,121 @@ games.
 
    ```bash
    sudo systemctl start chess
-   aws dynamodb delete-table --region us-east-1 --table-name chess_db_restore
-   aws dynamodb delete-backup --region us-east-1 --backup-arn <BackupArn>
+   aws dynamodb delete-table --region us-west-2 --table-name chess_db_restore
+   aws dynamodb delete-backup --region us-west-2 --backup-arn <BackupArn>
    ```
+
+#### Moving the tables to us-west-2
+
+The tables started in us-east-1, but `Chess-Stockfish` is in us-west-2, so
+every request crossed the country, and the data service (#245) needs them in
+its own region for a free VPC endpoint. They weren't copied: Terraform makes
+new, empty `chess_db` and `user_db` tables in us-west-2. Games, game lists,
+settings, ratings and usernames start over. Auth0 accounts aren't touched, so
+players sign in as before, and Home sends each one to `/settings` to pick a
+username again.
+
+1. Drop the us-east-1 tables from the Terraform state (this doesn't touch the
+   tables themselves), then make the new ones:
+
+   ```bash
+   cd terraform/aws-enviroment
+   terraform state rm module.dynamodb_module.aws_dynamodb_table.chess_table module.dynamodb_module.aws_dynamodb_table.user_table
+   terraform plan
+   terraform apply
+   ```
+
+   The plan should create the two tables in us-west-2 and change
+   `EC2_Chess_DynamoDBPolicy` to their ARNs (that policy is gone since #250). From the apply until the next
+   step, the live server can't reach any table.
+
+2. Deploy the server ([Updating and logs](#updating-and-logs)) with
+   `DYNAMODB_REGION` unset (or `us-west-2`) in `server/.env` (since #249 it's in
+   `data-service/.env` instead), restart it, and
+   play an AI game, a friend game and a guest game, and pick a username.
+
+3. Once you're sure nothing is needed from them, delete the old tables in
+   us-east-1. This can't be undone after their point-in-time recovery
+   backup (35 days) runs out:
+
+   ```bash
+   aws dynamodb delete-table --region us-east-1 --table-name chess_db
+   aws dynamodb delete-table --region us-east-1 --table-name user_db
+   ```
+
+#### Data service instance
+
+`modules/data_service` makes the data service's instance and network (#246).
+The values (`Chess-Stockfish`'s security group, its zone, the key pair, the
+subnet range and the fixed private IP `172.31.64.10`) are in `locals.tf`.
+
+Move the tables first ([Moving the tables](#moving-the-tables-to-us-west-2)).
+A gateway endpoint only reaches tables in its own region, and its policy and
+the role are limited to the us-west-2 tables' ARNs.
+
+1. Check that `172.31.64.0/28` is free in the default VPC (its default
+   subnets are the `/20`s from `172.31.0.0`), then apply:
+
+   ```bash
+   aws ec2 describe-subnets --region us-west-2 --query 'Subnets[].CidrBlock'
+   cd terraform/aws-enviroment
+   terraform init    # a new module
+   terraform plan
+   terraform apply
+   ```
+
+   The plan should only add things: the subnet, its route table, the
+   endpoint, `data_service_sg` and its rules, the role and the instance. It
+   prints `data_service_private_ip`.
+
+2. SSH in through `Chess-Stockfish`. The key goes in your agent, so both hops
+   can use it:
+
+   ```bash
+   ssh-add ~/path/to/key.pem
+   ssh -J ubuntu@52.11.177.148 ubuntu@172.31.64.10
+   ```
+
+3. Check that only `Chess-Stockfish` reaches port 8090. Until the data service
+   is deployed (step 10), use a stand-in on the instance:
+
+   ```bash
+   python3 -m http.server 8090              # on the data service instance
+   curl -s -o /dev/null -w "%{http_code}\n" http://172.31.64.10:8090/   # on Chess-Stockfish: 200
+   ```
+
+   From your Mac the address can't be reached at all: it's private and the
+   instance has no public IP.
+
+4. Check DynamoDB through the endpoint. Install the AWS CLI during an upkeep
+   window (below), then with the window closed:
+
+   ```bash
+   aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":{"S":"none"}}'
+   ```
+
+   It answers `{}` (no such row) through the endpoint, with no internet.
+   `terraform plan` should now show no changes.
+
+**Before the switch-over** (only when the live chess server is still on code
+from before #249 and talks to DynamoDB itself): add `-target=module.data_service_module`
+to every `apply` here, the upkeep windows too, until step 11.3 works. A plain
+`apply` also removes the chess server's DynamoDB access (#250). A new setup
+from current code has nothing to switch over, so a plain `apply` is fine.
+
+**Upkeep windows.** The instance has no internet, so installing or updating
+anything (apt, Node, `npm ci`) needs a short window:
+
+```bash
+terraform apply -var maintenance=true   # a NAT gateway & a 0.0.0.0/0 route, plus HTTP/HTTPS out
+# ... sudo apt update && sudo apt upgrade, installs, npm ci ...
+terraform apply                         # removes them again
+```
+
+**Costs:** about $7.60 a month for the `t3.micro`, plus about $0.65 for its
+8 GB gp3 disk. The DynamoDB endpoint is free. An upkeep window costs about
+5 cents an hour (the NAT gateway and its public IP), plus 4.5 cents per GB
+downloaded.
 
 ### 1. Before you start
 
@@ -563,7 +881,7 @@ From your Mac, in this folder:
 ```bash
 ssh -i ~/path/to/key.pem ubuntu@<elastic-ip> 'sudo mkdir -p /opt/chess-frontend && sudo chown ubuntu: /opt/chess-frontend'
 rsync -av --exclude node_modules --exclude .env --exclude dist --exclude .DS_Store \
-  --exclude /.git --exclude /stockfish --exclude /terraform \
+  --exclude /.git --exclude /stockfish --exclude /terraform --exclude /data-service \
   --exclude /client/src/images --exclude /client/src/audio \
   -e "ssh -i ~/path/to/key.pem" ./ ubuntu@<elastic-ip>:/opt/chess-frontend/
 ```
@@ -594,7 +912,14 @@ every sprite, sound, and the favicon load from it.
 | `AUTH0_CALLBACK_URL` | `https://chess.aws-prac-route53.com/api/auth/callback` |
 | `CLIENT_URL` | `https://chess.aws-prac-route53.com/` |
 | `ENGINE_URL` | `http://127.0.0.1:3001/v1` |
-| `JWT_SECRET` | A new one (the command is in `server/.env.example`), so a session made on your Mac can't be used on the live site |
+| `SESSION_PUBLIC_KEY` | The public half of the live data service's key ([Making the session keys](#making-the-session-keys)), not your Mac's, so a session made on your Mac can't be used on the live site |
+| `DATA_SERVICE_URL` | `http://172.31.64.10:8090`, the data service's private IP ([Data service instance](#data-service-instance)) |
+| `DATA_SERVICE_SECRET` | A new one (the command is in `server/.env.example`). The same value goes in the data service's `.env` in step 10 |
+
+The server won't start without `SESSION_PUBLIC_KEY` and `DATA_SERVICE_SECRET`.
+On a new setup, make the session key on the data service first (step 10, with
+its instance from [Data service instance](#data-service-instance)), or fill
+these in before step 6.
 
 The Auth0 values stay the same. Then lock the file to your user:
 `chmod 600 /opt/chess-frontend/server/.env`.
@@ -662,6 +987,209 @@ with the `EC2_Chess_DynamoDB` instance profile and move the Elastic IP
 it has your `.env` secrets and a Stockfish binary in it (see
 [Stockfish license](#stockfish-license)).
 
+The data service's instance needs no AMI: Terraform makes it again
+([Data service instance](#data-service-instance)) and step 10 installs it.
+
+### 10. The data service
+
+The data service runs on its own private instance (`172.31.64.10`, made by
+Terraform in [Data service instance](#data-service-instance)), as its own user
+`dataservice`. It has no internet, so the installs happen in an upkeep window.
+Everything is copied from your Mac through `Chess-Stockfish`, and SSH goes
+through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
+
+1. **Open an upkeep window**, then on the data service
+   (`ssh -J ubuntu@52.11.177.148 ubuntu@172.31.64.10`), update it and install
+   Node 24 where its user can run it. nvm goes in `/opt/nvm`, not a home
+   folder, because the service can't read home folders:
+
+   ```bash
+   # terraform/aws-enviroment, on your Mac. Before the switch-over (step 11.3), add -target=module.data_service_module
+   terraform apply -var maintenance=true
+
+   # on the data service
+   sudo apt update && sudo apt upgrade -y
+   sudo useradd --system --no-create-home --shell /usr/sbin/nologin dataservice
+   sudo mkdir -p /opt/nvm /opt/data-service && sudo chown ubuntu: /opt/nvm /opt/data-service
+   export NVM_DIR=/opt/nvm
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+   . /opt/nvm/nvm.sh && nvm install 24
+   sudo ln -sf "$(nvm which 24)" /usr/local/bin/node24   # deploy/data-service.service runs this path
+   ```
+
+2. **Copy the code and the unit** from your Mac, then install the packages
+   while the window is still open:
+
+   ```bash
+   # on your Mac, in this folder
+   rsync -av --delete --exclude node_modules --exclude .env --exclude auth0-jwks.json --exclude test --exclude .DS_Store --exclude '* 2*' \
+     -e "ssh -J ubuntu@52.11.177.148" data-service/ ubuntu@172.31.64.10:/opt/data-service/
+   scp -J ubuntu@52.11.177.148 deploy/data-service.service ubuntu@172.31.64.10:/tmp/
+
+   # on the data service
+   cd /opt/data-service && . /opt/nvm/nvm.sh && npm ci --omit=dev
+   ```
+
+   `--exclude '* 2*'` leaves out macOS's duplicate copies ("index 2.js"), and
+   `--delete` doesn't touch the excluded `.env`, `auth0-jwks.json` and `node_modules`.
+
+3. **Close the window**:
+
+   ```bash
+   terraform apply   # terraform/aws-enviroment, on your Mac (-target=module.data_service_module before the switch-over)
+   ```
+
+4. **The `.env`**, only readable by `dataservice`:
+
+   | Variable | On the data service |
+   | --- | --- |
+   | `DATA_SERVICE_HOST` | `172.31.64.10`, its private IP (it never listens on `0.0.0.0`) |
+   | `DATA_SERVICE_PORT` | `8090` |
+   | `SESSION_PRIVATE_KEY` | A new key made on this instance ([Making the session keys](#making-the-session-keys)). Its public half goes in the server's `.env` as `SESSION_PUBLIC_KEY` |
+   | `AUTH0_ISSUER_BASE_URL_ORIGIN` / `AUTH0_CLIENT_ID` | The same values as the server's `.env` |
+   | `DATA_SERVICE_SECRET` | The same value as the server's `.env` (step 4). If it doesn't have one yet, make it with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` and put it in both |
+   | `DYNAMODB_REGION` | `us-west-2` |
+
+   ```bash
+   nano /tmp/data-service.env                                   # on the data service
+   sudo install -o dataservice -g dataservice -m 600 /tmp/data-service.env /opt/data-service/.env
+   rm /tmp/data-service.env
+   ```
+
+   No AWS keys go anywhere. It uses its instance's role, `EC2_Chess_DataService`.
+   Then save Auth0's keys next to it ([Saving Auth0's keys](#saving-auth0s-keys)).
+
+5. **Start it and check it from `Chess-Stockfish`**:
+
+   ```bash
+   # on the data service
+   sudo cp /tmp/data-service.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now data-service
+   journalctl -u data-service -n 5                              # "Data service on http://172.31.64.10:8090"
+
+   # on Chess-Stockfish
+   curl -s http://172.31.64.10:8090/health                     # {"status":200,"message":"OK"}
+   ```
+
+   `/health` doesn't touch DynamoDB. The first real check is step 11.
+
+### 11. Switch the chess server over
+
+The tables stay where they are throughout, only the chess server changes.
+
+1. On `Chess-Stockfish`, add the data service to `server/.env`:
+
+   | Variable | On the instance |
+   | --- | --- |
+   | `DATA_SERVICE_URL` | `http://172.31.64.10:8090` |
+   | `DATA_SERVICE_SECRET` | The same value as the data service's `.env` |
+
+2. Deploy the server from `main` the usual way
+   ([Updating and logs](#updating-and-logs)) and restart `chess`.
+3. Play an AI game (with Restart), a friend game in two browsers (a move, a
+   forfeit, a rematch), a guest game, an invite you decline, and change a
+   username. Then check the data service refused nothing:
+
+   ```bash
+   journalctl -u data-service --since "15 min ago" | grep REFUSED   # on the data service: nothing
+   journalctl -u chess --since "15 min ago" | grep "Data service"   # on Chess-Stockfish: nothing
+   ```
+
+4. Remove DynamoDB from `Chess-Stockfish`'s role (#250). Only after step 3
+   works: until then the chess server still needs it. In `terraform/aws-enviroment`,
+   `terraform plan` should only delete `EC2_Chess_DynamoDBPolicy` and add the
+   `aws:SourceVpce` condition to the data service's policy. Then `terraform apply`,
+   and check both instances. A `put-item` whose condition can't be met writes
+   nothing, but still shows whether the call was allowed:
+
+   ```bash
+   # on Chess-Stockfish: both fail with AccessDeniedException
+   aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":{"S":"iam-check"}}'
+   aws dynamodb put-item --region us-west-2 --table-name user_db --item '{"user_id":{"S":"iam-check"}}' --condition-expression "attribute_exists(user_id)"
+
+   # on the data service: get-item answers {}, put-item fails with ConditionalCheckFailedException (allowed, nothing written)
+   aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":{"S":"iam-check"}}'
+   aws dynamodb put-item --region us-west-2 --table-name user_db --item '{"user_id":{"S":"iam-check"}}' --condition-expression "attribute_exists(user_id)"
+   ```
+
+   Then play a game on the site again. After this, only the data service can
+   read or write the tables.
+
+**Rollback:** on `Chess-Stockfish`, deploy the commit from before #249
+(`8414ecc`, which talks to DynamoDB itself) and restart `chess`. After step 12
+it also needs `JWT_SECRET` back in `server/.env` (step 12's rollback), or it won't start. If #250 is
+already applied, put its role policy back first (revert #250's Terraform change
+and `terraform apply`). The tables never moved, so nothing else changes. The
+data service can keep running or be stopped (`sudo systemctl stop data-service`).
+
+#### When the switch-over goes wrong
+
+Start with the two journals and the health check. They say which of the cases
+below it is:
+
+```bash
+# on Chess-Stockfish
+journalctl -u chess -n 40 --no-pager
+curl -s http://172.31.64.10:8090/health                      # {"status":200,"message":"OK"}
+
+# on the data service
+journalctl -u data-service -n 40 --no-pager
+journalctl -u data-service --since "15 min ago" | grep REFUSED
+```
+
+| What you see | Why | Fix |
+| --- | --- | --- |
+| `chess` restarts over and over, and its journal says `Missing required environment variable DATA_SERVICE_SECRET` (or `is too short`) | `server/.env` doesn't have the data service's settings | Get the secret on the data service (`sudo grep DATA_SERVICE_SECRET /opt/data-service/.env`). Add `DATA_SERVICE_URL=http://172.31.64.10:8090` and `DATA_SERVICE_SECRET=<that value>` to `/opt/chess-frontend/server/.env`, then `cd /opt/chess-frontend/server && npm ci --omit=dev && sudo systemctl restart chess` |
+| `data-service` restarts over and over, with `Missing required environment variable ...` or `is too short` | Its `.env` is missing a value | Fix `/opt/data-service/.env` (`sudo nano`, it's owned by `dataservice`), then `sudo systemctl restart data-service` |
+| Pages answer "Try again in a moment", and the chess journal says `Data service: ... no answer in 3 seconds` or `fetch failed` | The chess server can't reach the data service | Check `sudo systemctl status data-service`, then `/health` from Chess-Stockfish. Check `DATA_SERVICE_URL` and that the data service's `DATA_SERVICE_HOST` is `172.31.64.10`: with `127.0.0.1` it only answers itself |
+| The chess journal says `Data service: ... refused the signature (Bad signature)` | The two `DATA_SERVICE_SECRET` values differ | Make them the same and restart both. To change the secret without any refusals, use `DATA_SERVICE_SECRET_OLD` ([Data service](#data-service)) |
+| The chess journal says `refused the signature (Request too old)` | The two clocks are more than 30 seconds apart | `timedatectl` on both. `NTP service: active` should be on, Ubuntu's default |
+| Every player looks signed out or gets "Player is not in this game", and the data service logs `REFUSED ... 401 Bad player token` | One side runs code from before #252 (the other signs or checks tokens differently) | Deploy the same commit on both and restart both ([12. Session keys](#12-session-keys-252)) |
+| `data-service` restarts over and over with `SESSION_PRIVATE_KEY isn't a P-256 key` or `Can't read Auth0's keys` | The key isn't in double quotes with all its lines, or `auth0-jwks.json` is missing | [Making the session keys](#making-the-session-keys), [Saving Auth0's keys](#saving-auth0s-keys) |
+| Logins go back to the site signed out, and the data service logs `REFUSED POST /session/login 401 Bad id token: ...` | `unknown key`: Auth0 changed its key. `jwt audience invalid` or `jwt issuer invalid`: `AUTH0_CLIENT_ID` or `AUTH0_ISSUER_BASE_URL_ORIGIN` differ from the server's. `not this user`: a login that isn't a database (`auth0|`) user, like a social login | Save Auth0's keys again, or copy the two values from `server/.env` |
+| Signing in and refreshing answer 503, and the chess journal says `its tokens are signed with key ...` | `SESSION_PUBLIC_KEY` isn't the public half of the data service's key | Print it on the data service: `cd /opt/data-service && sudo -u dataservice /usr/local/bin/node24 -e 'require("dotenv").config({ quiet: true }); console.log(require("crypto").createPublicKey(process.env.SESSION_PRIVATE_KEY).export({ type: "spki", format: "pem" }))'`. Put it in `server/.env`, then restart `chess` |
+| The chess journal says `Data service: ... 500`, and the data service's journal shows `AccessDeniedException` | The data service can't reach the tables | `DYNAMODB_REGION` must be `us-west-2`. Check the tables are in us-west-2 and that `aws dynamodb get-item` works on the data service ([Data service instance](#data-service-instance)) |
+| Before step 11.3, the site breaks and the chess journal shows `AccessDeniedException` from DynamoDB | A plain `terraform apply` ran #250 too early and removed the chess server's access | Finish the switch-over, or put the policy back (revert #250's change, `terraform apply`). Until then, use `-target=module.data_service_module` |
+| `git pull` on the instance stops with "local changes would be overwritten" (if you deploy with `git pull` instead of step 3's rsync) | The checkout has its own changes (a `package-lock.json` or built files) | `git status`, then `git checkout -- <file>` for files that were only rebuilt, and pull again |
+
+To get the site back first and debug after: the rollback above (8414ecc on
+Chess-Stockfish, with `JWT_SECRET` back after step 12). The data service can keep running.
+
+### 12. Session keys (#252)
+
+After this, only the data service can make a session or guest token, and
+`JWT_SECRET` is gone from both instances. It signs everyone out once, and guests
+start a new game. Do steps 3 and 4 back to back: in between, the two sides don't
+read each other's tokens. [SECURITY.md → Session keys](SECURITY.md#session-keys) has
+the same steps as commands to paste.
+
+1. **Make the key on the data service** ([Making the session keys](#making-the-session-keys)),
+   in `/tmp`. Keep the public half for step 4.
+2. **Save Auth0's keys** on it ([Saving Auth0's keys](#saving-auth0s-keys)),
+   without the restart.
+3. **Update the data service:** step 10's rsync. In `/opt/data-service/.env`
+   (`sudo nano`), remove `JWT_SECRET` and add `SESSION_PRIVATE_KEY` (the whole
+   key, in double quotes), `AUTH0_ISSUER_BASE_URL_ORIGIN` and `AUTH0_CLIENT_ID`
+   (the same values as the server's `.env`). Delete the key file in `/tmp`, then
+   `sudo systemctl restart data-service` and check its journal says
+   `Data service on ...`.
+4. **Update the chess server:** in `server/.env`, remove `JWT_SECRET`,
+   `JWT_EXPIRES_IN` and `JWT_REFRESH_EXPIRES_IN` (they're the data service's
+   now) and add `SESSION_PUBLIC_KEY` (step 1's public half, in double quotes).
+   Deploy the server the usual way ([Updating and logs](#updating-and-logs)) and
+   restart `chess`.
+5. **Check:** sign in; come back after 15 minutes and you're still signed in (a
+   refresh); sign in on a second browser, log out on the first, and the second
+   is signed out within 15 minutes; play a guest game. Then:
+
+   ```bash
+   grep -c JWT_SECRET /opt/chess-frontend/server/.env                 # on Chess-Stockfish: 0
+   journalctl -u data-service --since "30 min ago" | grep REFUSED     # on the data service: only 401 Bad refresh token (old sign-ins, the logged-out browser)
+   ```
+
+**Rollback:** deploy `112b1c0` (`develop` before #252) on both, put the same
+`JWT_SECRET` back in both `.env` files, and restart both. Everyone is signed out again.
+
 ### Updating and logs
 
 ```bash
@@ -672,6 +1200,32 @@ cd /opt/chess-frontend && npm ci && npm run build
 cd server && npm ci --omit=dev && sudo systemctl restart chess
 journalctl -u chess -f
 ```
+
+The data service (step 10's rsync, then restart it). Its packages only need a
+window when `data-service/package-lock.json` changed:
+
+```bash
+# from your Mac: step 10's rsync (and its scp when deploy/data-service.service changed)
+
+# on the data service (an upkeep window first if package-lock.json changed: npm ci --omit=dev)
+sudo systemctl restart data-service
+journalctl -u data-service -f
+```
+
+Every refused request is one `REFUSED` line in its journal, with the route and
+why, never a body or a token. A run of them is worth a look: many 401s mean
+something without the secret is calling it, or the two `DATA_SERVICE_SECRET`
+values don't match. 400s or 403s mean a bug, or requests that aren't the
+chess server's own:
+
+```bash
+journalctl -u data-service --since today | grep -c REFUSED              # how many today
+journalctl -u data-service --since today | grep REFUSED | tail -20      # the latest
+```
+
+On the chess server, a data service that's down or slow shows as
+`Data service: ...` lines in `journalctl -u chess`, and players get "Try again
+in a moment".
 
 Changed `deploy/chess.service`? Copy it again and run
 `sudo systemctl daemon-reload` before the restart. Changed `deploy/nginx.conf`?
@@ -738,7 +1292,7 @@ server/
   index.js                   Express: serves the client/dist bundles + the page and /api routes, starts Socket.IO
   socket.js                  Socket.IO: session check, game & player rooms, emitToGame() / emitToPlayer()
   config.js                  Reads server/.env
-  dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js)
+  dataClient.js              Every read and write through the data service: signed calls for the request's player, 503 when it's down
   routes/pageRoutes.js       /, /play, /play/:gameId, /settings
   routes/api/                /api/auth/*, /api/user, /api/chess/*
   controllers/
@@ -746,24 +1300,48 @@ server/
     authController.js        login, callback, logout, refresh, resume
     userController.js        getUser (with the username), saveSettings, saveUsername, deleteUserData (Delete my data)
     chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
-  middleware/auth.js         JWT session cookies, requireAuth, optionalAuth, the guest_game cookie
+  middleware/auth.js         Session cookies (checked with the public key), requireAuth, optionalAuth, the guest_game cookie
   middleware/rateLimit.js    New game limits per session, IP and site (429)
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
   utils/rating.js            Elo ratings: the math & which games are rated
   utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
-  test/                      Server tests (npm test): validate, ai, undo, dynamoDB, games, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, in-memory tables, test server)
+  utils/signature.js         Signs each call to the data service (the same file as data-service/utils/signature.js)
+  utils/sessionKeys.js       Reads the session keys & checks a token's ES256 signature (the same file as data-service/utils/sessionKeys.js)
+  test/                      Server tests (npm test): validate, ai, undo, games, dataClient, auth, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, the test server with the data service next to it)
+data-service/                The only code that reads and writes DynamoDB (#245), the chess server calls it; on a private instance on AWS
+  index.js                   Express: /health, JSON bodies (16kb), the signature, the player, the routes. Listens on DATA_SERVICE_HOST
+  config.js                  Reads data-service/.env
+  dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js, then server/dynamoDB.js)
+  routes/gameRoutes.js       /games/ai, guest, invite & /games/:gameId, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
+  routes/userRoutes.js       /users/me, settings, username, delete: only the signed-in requester's own row
+  routes/sessionRoutes.js    /session/login, refresh, logout: the only place session tokens are made
+  controllers/gameController.js  Each game action, checked against the stored game before it saves
+  controllers/userController.js  getMe (with games), saveSettings, saveUsername, deleteMe (only once every game is left)
+  controllers/sessionController.js  login (checks Auth0's id_token), refresh & logout (the session id on the player's row)
+  middleware/signature.js    checkSignature(): only signed requests, sent within 30 seconds, once; keepRawBody()
+  middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with its own key; requirePlayer, requireSignedIn
+  middleware/fields.js       onlyFields(): refuses a body field the route doesn't name
+  utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks
+  utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
+  utils/signature.js         sign(), signedHeaders(), signatureMatches(): the HMAC the chess server signs with
+  utils/tokens.js            Signs the access, refresh & guest tokens with SESSION_PRIVATE_KEY (ES256)
+  utils/validate.js, rating.js, username.js, sessionKeys.js  The same files as server/utils/ (test/shared.test.js)
+  auth0-jwks.json            Auth0's public keys, saved here (not committed, README -> Saving Auth0's keys)
+  test/                      Data service tests (npm test): games, lifecycle, users, session, signature, dynamoDB, rating, shared, plus helpers/ (keys.js: the test run's keys)
 .github/
-  workflows/ci.yml           GitHub Actions: server tests and the client build on every pull request
+  workflows/ci.yml           GitHub Actions: server tests (with the data service), data service tests and the client build on every pull request
 deploy/
   chess.service              systemd unit for the server
+  data-service.service       systemd unit for the data service (its own user, read-only system, on the private instance)
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
 terraform/
   aws-enviroment/            Root module: bucket, domain names, table names, the server's Elastic IP
   modules/server/            IAM role + instance profile, chess + engine DNS records
   modules/cloudfront/        Assets: ACM cert, DNS validation, CloudFront, Route 53 alias
   modules/dynamodb/          Chess (games) and user tables
+  modules/data_service/      The data service's private subnet, DynamoDB endpoint, security group, role and instance, and the upkeep NAT
 ```
 
 ## License

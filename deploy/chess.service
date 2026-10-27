@@ -14,7 +14,7 @@ ExecStart=/usr/local/bin/node24 index.js
 Restart=always
 RestartSec=5
 
-# HTTPS-only session cookies. The rest (API_PORT=8080, Auth0, JWT_SECRET, ENGINE_URL) is in server/.env
+# HTTPS-only session cookies. The rest (API_PORT=8080, Auth0, SESSION_PUBLIC_KEY, ENGINE_URL, the data service) is in server/.env
 Environment=NODE_ENV=production
 
 [Install]

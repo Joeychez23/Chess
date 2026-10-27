@@ -1,8 +1,8 @@
 /*
- *  fakeDynamo.js  --  chess server tests
+ *  fakeDynamo.js  --  data service tests
  *	In-memory DynamoDB
  *  Replaces the DynamoDB client's calls (getItem, putItem, updateItem, deleteItem, batchGetItem, transactWriteItems) with tables held in memory,
- *  so server/dynamoDB.js runs unchanged with no AWS account. It understands the update and condition expressions
+ *  so data-service/dynamoDB.js runs unchanged with no AWS account. It understands the update and condition expressions
  *  dynamoDB.js uses: SET / REMOVE, =, <>, <, <=, >, >=, AND, OR, parentheses, attribute_exists and attribute_not_exists.
  *  Reads are up to date (strongly consistent) unless a test turns on staleReads(), see below.
  *

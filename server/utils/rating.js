@@ -1,8 +1,9 @@
 /*
- *  rating.js  --  chess server
+ *  rating.js  --  chess server & data service
  *	Elo Ratings
  *  Every signed-in player has a rating on their user_db row, starting at 1500. Finished friend games change it (closeGame in
  *  dynamoDB.js), AI games, games from a set position & games that end before both sides moved don't
+ *  server/utils/rating.js & data-service/utils/rating.js are the same file, data-service/test/shared.test.js fails when they differ
  *
  */
 

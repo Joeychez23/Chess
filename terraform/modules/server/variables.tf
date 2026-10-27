@@ -10,6 +10,3 @@ variable "server_domain_names" {
 variable "role_name" {
   type = string
 }
-variable "table_arns" {
-  type = list(string)
-}

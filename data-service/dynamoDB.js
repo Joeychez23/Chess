@@ -1,7 +1,8 @@
 /*
- *  dynamoDB.js  --  chess server
+ *  dynamoDB.js  --  data service
  *	Chess Move Engine
  *  DynamoDB Controller Functions (was chess-validation/lambdas/functions/chess/dynamoDB/database-controller.js)
+ *  Moved from server/dynamoDB.js (#247, the server's copy went in #249). Only the data service's routes call these
  *
  */
 
@@ -9,14 +10,16 @@
 // Global
 /* ---------------------------------------------------------------- */
 
+const crypto = require("crypto");
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
 const { usernameKey } = require("./utils/username.js");
+const config = require("./config");
 
-const connection = new DynamoDB({ region: "us-east-1" }); // CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE SERVER'S IAM ROLE ON AWS
+const connection = new DynamoDB({ region: config.dynamoRegion }); // DYNAMODB_REGION, us-west-2 BY DEFAULT. CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE DATA SERVICE'S IAM ROLE ON AWS
 
 const CHESS_TABLE = "chess_db"; // KEY: game_id (S), NAMES MATCH terraform/aws-enviroment/locals.tf
 const USER_TABLE = "user_db"; // KEY: user_id (S), PLAYERS' ROWS & THE username#<name> ITEMS THAT HOLD EACH USERNAME (claimUsername)
@@ -657,7 +660,7 @@ async function changeUserGames(userId, change) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Saves a player's Default start settings (the settings page) on their user_db row. It's its own attribute, so the game list
- * saves never touch it. A player who hasn't played yet has no row, initalizeUser makes it first so the game lists are there too
+ * saves never touch it. A player without a row (Delete my data since their last login) gets one from initalizeUser first, so the game lists are there too
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @param  {[object]} settings [{ ai_level, ai_color, friend_color }, from readSettings in chessController.js]
  * @return {[object]} response [{ status, user_data (the row as saved), message }]
@@ -693,7 +696,7 @@ async function updateUserSettings(userId, settings) {
 /**
  * @description Saves a player's username (the settings page) in one transaction, so it's all or nothing: the username#<name> item is made
  * only if nobody has it, the player's row gets the name, & the name they had before is freed. "joe" -> "Joe" keeps the same item.
- * A player who hasn't played yet has no row, initalizeUser makes it first
+ * A player without a row (Delete my data since their last login) gets one from initalizeUser first
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @param  {[string]} username [checked by checkUsername in utils/username.js]
  * @return {[object]} response [{ status, username, message }, status 409 when another player has it]
@@ -781,7 +784,7 @@ async function claimUsername(userId, username) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Deletes a player's user_db row, their game lists, settings & rating (Delete my data, after leaveAllGames), & frees their username.
- * The games stay in chess_db: a friend's finished games still show the result & the name, & the player's next game makes a new row
+ * The games stay in chess_db: a friend's finished games still show the result & the name, & their next login makes a new row
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, message }]
  */
@@ -812,6 +815,75 @@ async function deleteUser(userId) {
 		} // RENAMED SINCE THE READ, READ IT AGAIN
 	}
 	return { status: 500, message: `User delete failed after ${LIST_SAVE_TRIES} tries: ${userId}` };
+}
+
+/* ---------------------------------------------------------------- */
+// Start session (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The session id (sid) on a player's row, made at their first login. Every device they log in on shares it, & every refresh
+ * token carries it, so clearing it (endSession, Delete my data) signs them out everywhere. A player's row is made here, at their first login
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @return {[object]} response [{ status, sid, message }]
+ */
+async function startSession(userId) {
+	const user = await initalizeUser(userId);
+	if (user.user_data?.sid?.S) { return { status: 200, sid: user.user_data.sid.S, message: `user id: ${userId} session found` }; }
+
+	const sid = crypto.randomBytes(16).toString("base64url");
+	const params = {
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: userId }
+		},
+		UpdateExpression: 'SET sid = :sid',
+		ConditionExpression: 'attribute_exists(user_id) AND attribute_not_exists(sid)', // NEVER MAKES A ROW WITHOUT ITS GAME LISTS, OR REPLACES ANOTHER LOGIN'S sid
+		ExpressionAttributeValues: {
+			':sid': { S: sid }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name != "ConditionalCheckFailedException") { throw err; }
+		const again = await retrieveUser(userId, true); // ANOTHER LOGIN SET IT FIRST, USE THAT ONE
+		if (!again.user_data?.sid?.S) { throw err; } // THE ROW WAS DELETED (Delete my data) IN BETWEEN
+		return { status: 200, sid: again.user_data.sid.S, message: `user id: ${userId} session found` };
+	}
+	return { status: 200, sid, message: `user id: ${userId} session started` };
+}
+
+/* ---------------------------------------------------------------- */
+// End session (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Clears a player's session id (logout), so every device's refresh token stops working. Only the session the request
+ * belongs to is ended: an old refresh token from before the last logout doesn't end the session they logged in to since
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @param  {[string]} sid [the session id in the refresh token]
+ * @return {[object]} response [{ status, message }, status 200 either way]
+ */
+async function endSession(userId, sid) {
+	const params = {
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: userId }
+		},
+		UpdateExpression: 'REMOVE sid',
+		ConditionExpression: 'sid = :sid', // STILL THIS SESSION (& THE ROW IS STILL THERE)
+		ExpressionAttributeValues: {
+			':sid': { S: sid }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 200, message: `user id: ${userId} session already ended` }; }
+		throw err;
+	}
+	return { status: 200, message: `user id: ${userId} session ended` };
 }
 
 /* ---------------------------------------------------------------- */
@@ -939,4 +1011,4 @@ async function pruneGameList(userData, listName) {
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, pruneOpenGames, pruneInvites }
+module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

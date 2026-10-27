@@ -1,0 +1,38 @@
+# systemd unit for the data service (data-service/, the only code with DynamoDB access, #245), on its private instance
+# Copied to the instance's /tmp with the code (README -> Deploy -> 10. The data service), then:
+#          sudo cp /tmp/data-service.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now data-service
+
+[Unit]
+Description=Chess data service (DynamoDB behind checked actions)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dataservice
+Group=dataservice
+WorkingDirectory=/opt/data-service
+ExecStart=/usr/local/bin/node24 index.js
+Restart=always
+RestartSec=5
+
+# PRODUCTION SETTINGS. THE REST (DATA_SERVICE_HOST, SESSION_PRIVATE_KEY, AUTH0, DATA_SERVICE_SECRET, DYNAMODB_REGION) IS IN /opt/data-service/.env
+Environment=NODE_ENV=production
+
+# THE SYSTEM IS READ-ONLY TO IT, HOME FOLDERS ARE HIDDEN, & IT GETS NO EXTRA PRIVILEGES
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

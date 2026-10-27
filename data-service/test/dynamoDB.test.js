@@ -1,6 +1,6 @@
 /*
- *  dynamoDB.test.js  --  chess server tests
- *	Conditional Writes (server/dynamoDB.js)
+ *  dynamoDB.test.js  --  data service tests
+ *	Conditional Writes (data-service/dynamoDB.js, copied from the server's tests with it)
  *  The saves that guard against two requests at once, and saves that don't trust a read back, run against the in-memory tables
  *
  */

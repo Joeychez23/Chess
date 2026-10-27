@@ -2,7 +2,8 @@
  *  authController.js  --  chess server
  *	Auth Routes
  *  login -> Auth0 Universal Login -> callback -> our JWT session cookies -> back to the page (returnTo) or Home
- *  refresh & resume re-up the session, logout ends it here & on Auth0
+ *  refresh & resume re-up the session, logout ends it everywhere & on Auth0.
+ *  The session tokens are signed by the data service (#252), this server passes Auth0's id_token on & sets the cookies it gets back
  *
  */
 
@@ -14,7 +15,8 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, getAuth0User } = require("../utils/auth0.js");
-const { setSessionCookies, clearSessionCookies, readRefreshUser } = require("../middleware/auth.js");
+const { setSessionCookies, clearSessionCookies, readRefreshCookie } = require("../middleware/auth.js");
+const { startSession, refreshSession, endSession } = require("../dataClient.js");
 
 const STATE_COOKIE = "auth_state";
 const RETURN_COOKIE = "auth_return"; // THE PAGE TO GO BACK TO AFTER LOGIN (A GAME LINK, /play/:gameId)
@@ -47,7 +49,7 @@ function login(req, res) {
 // Callback
 /* ---------------------------------------------------------------- */
 /**
- * @description Auth0 sends the browser here after login. Trades the code for the user & starts our session
+ * @description Auth0 sends the browser here after login. Trades the code for the user, then the data service checks Auth0's id_token & signs our session
  */
 async function callback(req, res) {
 	const { code, state, error } = req.query;
@@ -63,15 +65,21 @@ async function callback(req, res) {
 
 	try {
 		const tokens = await exchangeCode(code); // CODE -> AUTH0 TOKENS
-		const idToken = jwt.decode(tokens.id_token); // CAME STRAIGHT FROM AUTH0 OVER HTTPS, NO NEED TO RE-VERIFY
-		const auth0User = await getAuth0User(idToken?.email); // FULL USER (USER_ID + USER_METADATA)
+		const email = jwt.decode(tokens.id_token)?.email; // ONLY TO FIND THE USER, THE DATA SERVICE VERIFIES THE id_token ITSELF BEFORE IT SIGNS ANYTHING
+		const auth0User = await getAuth0User(email); // FULL USER (USER_ID + USER_METADATA)
 
 		if (!auth0User) {
-			console.log(`Login failed: no ${config.auth0Connection} user for ${idToken?.email}`);
+			console.log(`Login failed: no ${config.auth0Connection} user for ${email}`);
 			return res.redirect(config.clientUrl);
 		}
 
-		setSessionCookies(res, sessionUser(auth0User));
+		const session = await startSession(tokens.id_token, sessionUser(auth0User)); // THE DATA SERVICE SIGNS THE ACCESS & REFRESH TOKENS
+		if (session.status != 200) {
+			console.log(`Login failed: ${session.message}`);
+			return res.redirect(config.clientUrl);
+		}
+
+		setSessionCookies(res, session);
 		return res.redirect(new URL(returnTo || "/", config.clientUrl).href); // BACK TO THE PAGE THEY CAME FROM, OR HOME
 	} catch (err) {
 		console.log(err);
@@ -83,10 +91,19 @@ async function callback(req, res) {
 // Logout
 /* ---------------------------------------------------------------- */
 /**
- * @description Ends our session, then ends the Auth0 session so the next login asks for a password again
+ * @description Ends our session on every device (the data service clears the session id their refresh tokens carry),
+ * then ends the Auth0 session so the next login asks for a password again
  */
-function logout(req, res) {
+async function logout(req, res) {
+	const refreshToken = readRefreshCookie(req);
 	clearSessionCookies(res);
+	if (refreshToken) {
+		try {
+			await endSession(refreshToken);
+		} catch (err) {
+			console.error(err.message); // THE DATA SERVICE IS DOWN: THIS BROWSER IS STILL SIGNED OUT, THE OTHERS STAY IN UNTIL THEIR REFRESH TOKEN RUNS OUT
+		}
+	}
 	return res.redirect(buildLogoutUrl());
 }
 
@@ -97,11 +114,11 @@ function logout(req, res) {
  * @description Page routes send signed out players here, since the refresh token is only sent to /api/auth.
  * A valid refresh token re-ups the session & goes back to the page, otherwise login, then back to the page
  */
-function resume(req, res) {
+async function resume(req, res) {
 	const returnTo = returnPath(req.query.returnTo) || "/";
-	const user = readRefreshUser(req);
-	if (!user) { return res.redirect(`/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`); }
-	setSessionCookies(res, user);
+	const session = await reup(req);
+	if (!session) { return res.redirect(`/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`); }
+	setSessionCookies(res, session);
 	return res.redirect(returnTo);
 }
 
@@ -109,16 +126,28 @@ function resume(req, res) {
 // Refresh
 /* ---------------------------------------------------------------- */
 /**
- * @description Re-ups the session: a valid refresh token gets a new access + refresh token (no Auth0 request)
+ * @description Re-ups the session: a valid refresh token gets a new access + refresh token from the data service (no Auth0 request)
  */
-function refresh(req, res) {
-	const user = readRefreshUser(req);
-	if (!user) {
+async function refresh(req, res) {
+	const session = await reup(req);
+	if (!session) {
 		clearSessionCookies(res);
 		return res.status(401).json({ status: 401, message: "SESSION EXPIRED" });
 	}
-	setSessionCookies(res, user);
+	const user = setSessionCookies(res, session);
 	return res.json({ status: 200, userData: user, message: "SESSION REFRESHED" });
+}
+
+/**
+ * @description New session tokens for the refresh cookie, unless it's missing, expired, changed or its session was ended (logout, Delete my data)
+ * @param  {[object]} req [express request]
+ * @return {[object]} session [{ access_token, refresh_token } | null]
+ */
+async function reup(req) {
+	const refreshToken = readRefreshCookie(req);
+	if (!refreshToken) { return null; }
+	const session = await refreshSession(refreshToken);
+	return session.status == 200 ? session : null;
 }
 
 /**
