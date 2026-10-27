@@ -1,8 +1,9 @@
 /*
- *  username.js  --  chess server
+ *  username.js  --  chess server & data service
  *	Usernames
  *  The name friends see on invites & games. Each one is unique ignoring case: claimUsername in dynamoDB.js saves a
  *  username#<name in lowercase> item in user_db next to the player's row, so only one player can hold it
+ *  server/utils/username.js & data-service/utils/username.js are the same file, data-service/test/shared.test.js fails when they differ
  *
  */
 
