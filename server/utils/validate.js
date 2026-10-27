@@ -1,7 +1,8 @@
 /*
- *  validate.js  --  chess server
+ *  validate.js  --  chess server & data service
  *	Chess Move Engine
  *  Validation Functions (was chess-validation/lambdas/functions/chess/validate/validate.js)
+ *  server/utils/validate.js & data-service/utils/validate.js are the same file, data-service/test/shared.test.js fails when they differ
  *
  */
 
