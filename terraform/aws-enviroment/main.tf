@@ -19,8 +19,7 @@ module "cloudfront_module" {
 
 module "dynamodb_module" {
   source           = "../modules/dynamodb"
-  aws_region       = "us-west-2" # NEXT TO Chess-Stockfish (MOVED FROM us-east-1, README -> Moving the tables)
-  replica_regions  = ["us-east-1"] # THE OLD COPY, REMOVE ONCE THE SERVER HAS USED us-west-2 FOR 24 HOURS (AWS REFUSES SOONER)
+  aws_region       = "us-west-2" # NEXT TO Chess-Stockfish (NEW TABLES, THE us-east-1 ONES WERE LEFT BEHIND, README -> Moving the tables)
   chess_table_name = local.chess_table_name
   user_table_name  = local.user_table_name
 }
