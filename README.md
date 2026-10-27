@@ -530,13 +530,10 @@ In order:
 `terraform/aws-enviroment` sets up:
 
 - **Server** (`modules/server`): the `EC2_Chess_DynamoDB` IAM role and
-  instance profile (made in the console, imported below), allowed only `GetItem`, `PutItem`, `UpdateItem`,
-  `BatchGetItem` and `DeleteItem` (declined and cancelled invites) on the two
-  tables (the calls `data-service/dynamoDB.js` makes; the chess server itself no longer uses it, #250 removes it once the data service runs on its own instance). Usernames are saved with
-  `TransactWriteItems`, which has no IAM action of its own: each write in it is
-  checked as the `PutItem`, `UpdateItem` or `DeleteItem` it is, so the policy
-  already covers it ([Using IAM with DynamoDB transactions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html)).
-  The module also makes the Route 53 `A` records for `chess` and `engine` pointing at the instance's Elastic IP
+  instance profile (made in the console, imported below). Since #250 the role
+  has no DynamoDB permissions: the chess server calls the data service, and
+  only the data service's role can use the tables. The role and profile stay
+  attached, so nothing changes on the instance. The module also makes the Route 53 `A` records for `chess` and `engine` pointing at the instance's Elastic IP
   (`server_ip` in `locals.tf`). The `engine` record was made in the console;
   `allow_overwrite` lets Terraform take it over.
 - **Assets** (`modules/cloudfront`): ACM certificate for
@@ -557,7 +554,13 @@ In order:
   to the internet. A free DynamoDB gateway endpoint on its route table is its
   only way out, limited to the two tables. Its security group lets in only
   `Chess-Stockfish`'s group, on 8090 and SSH. Its role, `EC2_Chess_DataService`,
-  has the same DynamoDB calls as the server's ([Data service instance](#data-service-instance)).
+  is the only one allowed to use the tables: `GetItem`, `PutItem`, `UpdateItem`,
+  `BatchGetItem` and `DeleteItem` on the two tables, only through that endpoint
+  (`aws:SourceVpce`), so its keys don't work anywhere else. Usernames are saved
+  with `TransactWriteItems`, which has no IAM action of its own: each write in it
+  is checked as the `PutItem`, `UpdateItem` or `DeleteItem` it is
+  ([Using IAM with DynamoDB transactions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html))
+  ([Data service instance](#data-service-instance)).
 
 ```bash
 cd terraform/aws-enviroment
@@ -582,7 +585,6 @@ what is) before the next `apply`; otherwise `apply` fails with
 
 ```bash
 terraform import module.server_module.aws_iam_role.server_role EC2_Chess_DynamoDB
-terraform import module.server_module.aws_iam_role_policy.dynamodb_policy EC2_Chess_DynamoDB:EC2_Chess_DynamoDBPolicy
 terraform import module.server_module.aws_iam_instance_profile.server_profile EC2_Chess_DynamoDB
 ```
 
@@ -995,8 +997,25 @@ The tables stay where they are throughout, only the chess server changes.
    journalctl -u chess --since "15 min ago" | grep "Data service"   # on Chess-Stockfish: nothing
    ```
 
-4. Remove DynamoDB from `Chess-Stockfish`'s role (#250). After that, only the
-   data service can read or write the tables.
+4. Remove DynamoDB from `Chess-Stockfish`'s role (#250). Only after step 3
+   works: until then the chess server still needs it. In `terraform/aws-enviroment`,
+   `terraform plan` should only delete `EC2_Chess_DynamoDBPolicy` and add the
+   `aws:SourceVpce` condition to the data service's policy. Then `terraform apply`,
+   and check both instances. A `put-item` whose condition can't be met writes
+   nothing, but still shows whether the call was allowed:
+
+   ```bash
+   # on Chess-Stockfish: both fail with AccessDeniedException
+   aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":{"S":"iam-check"}}'
+   aws dynamodb put-item --region us-west-2 --table-name user_db --item '{"user_id":{"S":"iam-check"}}' --condition-expression "attribute_exists(user_id)"
+
+   # on the data service: get-item answers {}, put-item fails with ConditionalCheckFailedException (allowed, nothing written)
+   aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":{"S":"iam-check"}}'
+   aws dynamodb put-item --region us-west-2 --table-name user_db --item '{"user_id":{"S":"iam-check"}}' --condition-expression "attribute_exists(user_id)"
+   ```
+
+   Then play a game on the site again. After this, only the data service can
+   read or write the tables.
 
 **Rollback:** on `Chess-Stockfish`, deploy the commit from before #249
 (`8414ecc`, which talks to DynamoDB itself) and restart `chess`. If #250 is
