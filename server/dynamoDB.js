@@ -15,8 +15,9 @@ const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
 const { usernameKey } = require("./utils/username.js");
+const config = require("./config");
 
-const connection = new DynamoDB({ region: "us-east-1" }); // CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE SERVER'S IAM ROLE ON AWS
+const connection = new DynamoDB({ region: config.dynamoRegion }); // DYNAMODB_REGION, us-west-2 BY DEFAULT. CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE SERVER'S IAM ROLE ON AWS
 
 const CHESS_TABLE = "chess_db"; // KEY: game_id (S), NAMES MATCH terraform/aws-enviroment/locals.tf
 const USER_TABLE = "user_db"; // KEY: user_id (S), PLAYERS' ROWS & THE username#<name> ITEMS THAT HOLD EACH USERNAME (claimUsername)
