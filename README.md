@@ -417,8 +417,9 @@ default, level 3.
 
 `data-service/` is the only code that reads and writes DynamoDB (#245). The
 chess server calls it for every read and write of the games and players
-(`server/dataClient.js`), and on AWS it will run on a private instance that only
-the chess server can reach (#246, #251). Each route is one named action, checked
+(`server/dataClient.js`). On AWS it runs on a private instance that only the
+chess server can reach ([Data service instance](#data-service-instance),
+[10. The data service](#10-the-data-service)). Each route is one named action, checked
 against the stored data before anything is saved.
 
 ```bash
@@ -787,7 +788,7 @@ From your Mac, in this folder:
 ```bash
 ssh -i ~/path/to/key.pem ubuntu@<elastic-ip> 'sudo mkdir -p /opt/chess-frontend && sudo chown ubuntu: /opt/chess-frontend'
 rsync -av --exclude node_modules --exclude .env --exclude dist --exclude .DS_Store \
-  --exclude /.git --exclude /stockfish --exclude /terraform \
+  --exclude /.git --exclude /stockfish --exclude /terraform --exclude /data-service \
   --exclude /client/src/images --exclude /client/src/audio \
   -e "ssh -i ~/path/to/key.pem" ./ ubuntu@<elastic-ip>:/opt/chess-frontend/
 ```
@@ -888,6 +889,121 @@ with the `EC2_Chess_DynamoDB` instance profile and move the Elastic IP
 it has your `.env` secrets and a Stockfish binary in it (see
 [Stockfish license](#stockfish-license)).
 
+The data service's instance needs no AMI: Terraform makes it again
+([Data service instance](#data-service-instance)) and step 10 installs it.
+
+### 10. The data service
+
+The data service runs on its own private instance (`172.31.64.10`, made by
+Terraform in [Data service instance](#data-service-instance)), as its own user
+`dataservice`. It has no internet, so the installs happen in an upkeep window.
+Everything is copied from your Mac through `Chess-Stockfish`, and SSH goes
+through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
+
+1. **Open an upkeep window**, then on the data service
+   (`ssh -J ubuntu@52.11.177.148 ubuntu@172.31.64.10`), update it and install
+   Node 24 where its user can run it. nvm goes in `/opt/nvm`, not a home
+   folder, because the service can't read home folders:
+
+   ```bash
+   # terraform/aws-enviroment, on your Mac
+   terraform apply -var maintenance=true
+
+   # on the data service
+   sudo apt update && sudo apt upgrade -y
+   sudo useradd --system --no-create-home --shell /usr/sbin/nologin dataservice
+   sudo mkdir -p /opt/nvm /opt/data-service && sudo chown ubuntu: /opt/nvm /opt/data-service
+   export NVM_DIR=/opt/nvm
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+   . /opt/nvm/nvm.sh && nvm install 24
+   sudo ln -sf "$(nvm which 24)" /usr/local/bin/node24   # deploy/data-service.service runs this path
+   ```
+
+2. **Copy the code and the unit** from your Mac, then install the packages
+   while the window is still open:
+
+   ```bash
+   # on your Mac, in this folder
+   rsync -av --delete --exclude node_modules --exclude .env --exclude test --exclude .DS_Store --exclude '* 2*' \
+     -e "ssh -J ubuntu@52.11.177.148" data-service/ ubuntu@172.31.64.10:/opt/data-service/
+   scp -J ubuntu@52.11.177.148 deploy/data-service.service ubuntu@172.31.64.10:/tmp/
+
+   # on the data service
+   cd /opt/data-service && . /opt/nvm/nvm.sh && npm ci --omit=dev
+   ```
+
+   `--exclude '* 2*'` leaves out macOS's duplicate copies ("index 2.js"), and
+   `--delete` doesn't touch the excluded `.env` and `node_modules`.
+
+3. **Close the window**:
+
+   ```bash
+   terraform apply   # terraform/aws-enviroment, on your Mac
+   ```
+
+4. **The `.env`**, only readable by `dataservice`:
+
+   | Variable | On the data service |
+   | --- | --- |
+   | `DATA_SERVICE_HOST` | `172.31.64.10`, its private IP (it never listens on `0.0.0.0`) |
+   | `DATA_SERVICE_PORT` | `8090` |
+   | `JWT_SECRET` | The same value as the live server's `server/.env` (until #252) |
+   | `DATA_SERVICE_SECRET` | A new one (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`). The same value goes in the server's `.env` in step 11 |
+   | `DYNAMODB_REGION` | `us-west-2` |
+
+   ```bash
+   nano /tmp/data-service.env                                   # on the data service
+   sudo install -o dataservice -g dataservice -m 600 /tmp/data-service.env /opt/data-service/.env
+   rm /tmp/data-service.env
+   ```
+
+   No AWS keys go anywhere. It uses its instance's role, `EC2_Chess_DataService`.
+
+5. **Start it and check it from `Chess-Stockfish`**:
+
+   ```bash
+   # on the data service
+   sudo cp /tmp/data-service.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now data-service
+   journalctl -u data-service -n 5                              # "Data service on http://172.31.64.10:8090"
+
+   # on Chess-Stockfish
+   curl -s http://172.31.64.10:8090/health                     # {"status":200,"message":"OK"}
+   ```
+
+   `/health` doesn't touch DynamoDB. The first real check is step 11.
+
+### 11. Switch the chess server over
+
+The tables stay where they are throughout, only the chess server changes.
+
+1. On `Chess-Stockfish`, add the data service to `server/.env`:
+
+   | Variable | On the instance |
+   | --- | --- |
+   | `DATA_SERVICE_URL` | `http://172.31.64.10:8090` |
+   | `DATA_SERVICE_SECRET` | The same value as the data service's `.env` |
+
+2. Deploy the server from `develop` (or `main` once it's merged) the usual way
+   ([Updating and logs](#updating-and-logs)) and restart `chess`.
+3. Play an AI game (with Restart), a friend game in two browsers (a move, a
+   forfeit, a rematch), a guest game, an invite you decline, and change a
+   username. Then check the data service refused nothing:
+
+   ```bash
+   journalctl -u data-service --since "15 min ago" | grep REFUSED   # on the data service: nothing
+   journalctl -u chess --since "15 min ago" | grep "Data service"   # on Chess-Stockfish: nothing
+   ```
+
+4. Remove DynamoDB from `Chess-Stockfish`'s role (#250). After that, only the
+   data service can read or write the tables.
+
+**Rollback:** on `Chess-Stockfish`, deploy the commit from before #249
+(`8414ecc`, which talks to DynamoDB itself) and restart `chess`. If #250 is
+already applied, put its role policy back first (revert #250's Terraform change
+and `terraform apply`). The tables never moved, so nothing else changes. The
+data service can keep running or be stopped (`sudo systemctl stop data-service`).
+
 ### Updating and logs
 
 ```bash
@@ -898,6 +1014,32 @@ cd /opt/chess-frontend && npm ci && npm run build
 cd server && npm ci --omit=dev && sudo systemctl restart chess
 journalctl -u chess -f
 ```
+
+The data service (step 10's rsync, then restart it). Its packages only need a
+window when `data-service/package-lock.json` changed:
+
+```bash
+# from your Mac: step 10's rsync (and its scp when deploy/data-service.service changed)
+
+# on the data service (an upkeep window first if package-lock.json changed: npm ci --omit=dev)
+sudo systemctl restart data-service
+journalctl -u data-service -f
+```
+
+Every refused request is one `REFUSED` line in its journal, with the route and
+why, never a body or a token. A run of them is worth a look: many 401s mean
+something without the secret is calling it, or the two `DATA_SERVICE_SECRET`
+values don't match. 400s or 403s mean a bug, or requests that aren't the
+chess server's own:
+
+```bash
+journalctl -u data-service --since today | grep -c REFUSED              # how many today
+journalctl -u data-service --since today | grep REFUSED | tail -20      # the latest
+```
+
+On the chess server, a data service that's down or slow shows as
+`Data service: ...` lines in `journalctl -u chess`, and players get "Try again
+in a moment".
 
 Changed `deploy/chess.service`? Copy it again and run
 `sudo systemctl daemon-reload` before the restart. Changed `deploy/nginx.conf`?
@@ -1001,6 +1143,7 @@ data-service/                The only code that reads and writes DynamoDB (#245)
   workflows/ci.yml           GitHub Actions: server tests (with the data service), data service tests and the client build on every pull request
 deploy/
   chess.service              systemd unit for the server
+  data-service.service       systemd unit for the data service (its own user, read-only system, on the private instance)
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
 terraform/
   aws-enviroment/            Root module: bucket, domain names, table names, the server's Elastic IP
