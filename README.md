@@ -188,6 +188,7 @@ cd data-service && npm test
 
 | File | What it covers |
 | --- | --- |
+| `signature.test.js` | Signed requests: unsigned, another secret, a changed body, path, query or method, a timestamp over 30 seconds either way, a replayed request, and the old secret during a change. Behind a good signature, another player's token still gets nothing, and a `user_id` in a body is refused |
 | `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token: each refused with the stored game unchanged, and logged without the body or token |
@@ -413,7 +414,7 @@ it yet, and `server/dynamoDB.js` is still the live copy.
 
 ```bash
 cd data-service
-cp .env.example .env   # JWT_SECRET: the same value as server/.env
+cp .env.example .env   # JWT_SECRET: the same value as server/.env. DATA_SERVICE_SECRET: a new one (the command is in .env.example)
 npm run dev            # http://127.0.0.1:8090, uses the DynamoDB tables in DYNAMODB_REGION
 ```
 
@@ -422,6 +423,29 @@ The chess server says who it's acting for with the player it already checked:
 guest's `guest_game` cookie). The data service checks them again with
 `JWT_SECRET`, and a player id in a body is never used. A guest's player id is
 their game's id, so a guest is only ever in that one game.
+
+Only the chess server can call it. Every request except `/health` is signed
+with `DATA_SERVICE_SECRET`, which only the two `.env` files have
+(`utils/signature.js`). The signature is HMAC-SHA256 over the method, the path
+with its query, `X-Data-Timestamp`, `X-Data-Request-Id` and the body exactly as
+sent, and it goes in `X-Data-Signature`. `middleware/signature.js` refuses a
+request with a 401 before anything else is read when:
+
+- it isn't signed, or is signed with another secret;
+- its method, path, query or body changed after it was signed;
+- its timestamp is more than 30 seconds from now, either way;
+- its request id was already used in the last 30 seconds (a replay).
+
+To change the secret without refusing any requests:
+
+1. In the data service's `.env`, set the new one as `DATA_SERVICE_SECRET` and
+   the current one as `DATA_SERVICE_SECRET_OLD`, then restart it. It accepts both.
+2. Put the new one in `server/.env` and restart the chess server.
+3. Remove `DATA_SERVICE_SECRET_OLD` and restart the data service.
+
+The signature only proves a request came from the chess server. Until #252,
+`JWT_SECRET` is also on the public server, so someone who took it over could
+still sign a token for any player and make the actions that player could.
 
 | Route | What it checks before saving |
 | --- | --- |
@@ -436,11 +460,11 @@ their game's id, so a guest is only ever in that one game.
 | `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, game_id }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
 | `POST /games/:gameId/accept` | Pending, only the invited player, and the inviter isn't in another friend game |
 | `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
+| `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`) |
 | `GET /users/me` | A signed-in player's own row as stored (`?consistent=true`). `?games=true` also prunes expired games and invites and adds the open AI and friend game, the open games, the sent invite and the received invites. Guests have no row (403) |
 | `POST /users/me/settings` `{ ai_level, ai_color, friend_color }` | A level from 1 to 8 and `w`, `b` or `random` for each color, all three |
 | `POST /users/me/username` `{ username }` | The username rules again (`utils/username.js`), then `claimUsername`: someone else's name, in any capitals, answers `{ status: 409 }` |
 | `POST /users/me/delete` | Refused (409) while the player has an open game or an invite: the chess server forfeits, cancels and declines them first. Then the row and the username claim are deleted |
-| `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`) |
 
 The rules about a player's other games ("one AI game and one friend game at a
 time", `replace_current`, one sent invite) stay on the chess server: it makes
@@ -861,19 +885,21 @@ server/
   utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
   test/                      Server tests (npm test): validate, ai, undo, dynamoDB, games, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, in-memory tables, test server)
 data-service/                Being built (#245): the only code that will read and write DynamoDB, on a private instance
-  index.js                   Express: /health, JSON bodies (16kb), the player, the routes. Listens on DATA_SERVICE_HOST
+  index.js                   Express: /health, JSON bodies (16kb), the signature, the player, the routes. Listens on DATA_SERVICE_HOST
   config.js                  Reads data-service/.env
   dynamoDB.js                Copy of server/dynamoDB.js, which goes once the chess server calls the data service (#249)
   routes/gameRoutes.js       /games/ai, guest, invite & /games/:gameId, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
   routes/userRoutes.js       /users/me, settings, username, delete: only the signed-in requester's own row
   controllers/gameController.js  Each game action, checked against the stored game before it saves
   controllers/userController.js  getMe (with games), saveSettings, saveUsername, deleteMe (only once every game is left)
+  middleware/signature.js    checkSignature(): only signed requests, sent within 30 seconds, once; keepRawBody()
   middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with JWT_SECRET; requirePlayer, requireSignedIn
   middleware/fields.js       onlyFields(): refuses a body field the route doesn't name
   utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks
   utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
+  utils/signature.js         sign(), signedHeaders(), signatureMatches(): the HMAC the chess server signs with (its copy comes in #249)
   utils/validate.js, rating.js, username.js  The same files as server/utils/ (test/shared.test.js)
-  test/                      Data service tests (npm test): games, lifecycle, users, dynamoDB, rating, shared, plus helpers/
+  test/                      Data service tests (npm test): games, lifecycle, users, signature, dynamoDB, rating, shared, plus helpers/
 .github/
   workflows/ci.yml           GitHub Actions: server tests, data service tests and the client build on every pull request
 deploy/

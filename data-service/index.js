@@ -13,6 +13,7 @@
 const express = require("express");
 const config = require("./config");
 const { readPlayer } = require("./middleware/player.js");
+const { checkSignature, keepRawBody } = require("./middleware/signature.js");
 const { refuse } = require("./utils/refuse.js");
 const gameRoutes = require("./routes/gameRoutes.js");
 const userRoutes = require("./routes/userRoutes.js");
@@ -27,7 +28,8 @@ const app = express();
 app.disable("x-powered-by"); // DOESN'T SAY IT'S EXPRESS
 app.get("/health", (req, res) => res.json({ status: 200, message: "OK" })); // NO DYNAMODB & NO PLAYER: Chess-Stockfish'S CHECK THAT IT'S UP
 app.use((req, res, next) => hasBody(req) && !req.is("application/json") ? refuse(req, res, 415, "JSON only") : next()); // A BODY MUST BE JSON, A POST WITH NO BODY IS FINE
-app.use(express.json({ limit: BODY_LIMIT }));
+app.use(express.json({ limit: BODY_LIMIT, verify: keepRawBody })); // req.rawBody: THE BODY AS SENT, FOR THE SIGNATURE
+app.use(checkSignature); // EVERYTHING BELOW /health COMES SIGNED FROM THE CHESS SERVER, OR IT'S REFUSED (401)
 app.use(readPlayer); // req.player: THE SIGNED IN PLAYER OR GUEST THE CHESS SERVER FORWARDED
 app.use("/games", gameRoutes);
 app.use("/users", userRoutes);
