@@ -83,6 +83,7 @@ async function newGame(req, res) {
 
 	let level = readLevel(ai_level);
 	let gameId = game_id;
+	if (!req.user && gameId == "CHESS_AI") { gameId = `${new ObjectId()}`; } // A GUEST'S GAME ID IS ALSO THEIR PLAYER ID, NEVER THE AI'S
 	let existing = gameId ? await retrieveGame(gameId) : {};
 	if (existing.game_data && !req.user && !playerInGame(req, existing.game_data)) { // ANOTHER GUEST'S GAME, OR THEIR OWN FROM BEFORE GUEST COOKIES: A NEW GAME WITH A NEW ID (THE CLIENT SAVES IT)
 		gameId = `${new ObjectId()}`;
@@ -779,7 +780,8 @@ function gamePending(gameData) {
 
 /**
  * @description The requester's player id in this game. Signed in players use their session, a guest's player id is their
- * game's id, from the signed guest_game cookie newGame gave them (the client also keeps it in localStorage) & guests only get AI games
+ * game's id, from the signed guest_game cookie newGame gave them (the client also keeps it in localStorage) & guests only get AI games.
+ * So a guest is only ever in that one game: a guest whose game id is "CHESS_AI" or another player's id isn't in their games
  * @param  {[object]} req [express request, req.user is null for guests]
  * @param  {[object]} gameData [game item]
  * @return {[string]} playerId [null when the requester isn't in the game]
@@ -787,6 +789,7 @@ function gamePending(gameData) {
 function playerInGame(req, gameData) {
 	if (!req.user && !isAiGame(gameData)) { return null; }
 	const playerId = req.user ? userPlayerId(req.user) : readGuestGame(req); // A GUEST WITHOUT THE COOKIE (ANOTHER BROWSER) ISN'T IN IT
+	if (!req.user && playerId != gameData.game_id.S) { return null; } // ONLY THEIR OWN GAME, NOT EVERY GAME WITH THEIR ID ON ONE SIDE ("CHESS_AI" IS ON EVERY AI GAME)
 	if (playerId && (playerId == gameData.white_player_id.S || playerId == gameData.black_player_id.S)) { return playerId; }
 	return null;
 }
