@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "data-service",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "data-service", "run", "dev"],
+      "port": 8090
+    },
+    {
+      "name": "chess",
+      "url": "http://localhost:3001",
+      "port": 3001
+    }
+  ]
+}
