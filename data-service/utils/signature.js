@@ -1,9 +1,9 @@
 /*
- *  signature.js  --  data service
+ *  signature.js  --  chess server & data service
  *	Signed Requests
  *  Only the chess server can call the data service: it signs each request with DATA_SERVICE_SECRET (HMAC-SHA256 over the method,
  *  the path with its query, the time, a request id & the body), and the data service checks it (middleware/signature.js).
- *  The chess server gets a copy of this file with its data service client (#249)
+ *  server/utils/signature.js & data-service/utils/signature.js are the same file, data-service/test/shared.test.js fails when they differ
  *
  */
 

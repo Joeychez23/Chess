@@ -17,7 +17,7 @@ const serverPackage = require("../../server/package.json");
 const read = (file) => fs.readFileSync(path.join(__dirname, "..", "..", file), "utf8");
 
 describe("files both have", () => {
-	for (const name of ["validate.js", "rating.js", "username.js"]) {
+	for (const name of ["validate.js", "rating.js", "username.js", "signature.js"]) {
 		test(`data-service/utils/${name} is the same as server/utils/${name}`, () => {
 			assert.equal(read(`data-service/utils/${name}`), read(`server/utils/${name}`), `change both copies of ${name}`);
 		});
