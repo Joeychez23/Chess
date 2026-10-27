@@ -550,6 +550,13 @@ In order:
   `user_id`). Both have point-in-time recovery on, so either can be put back
   the way it was at any second in the last 35 days
   ([Restoring a table](#restoring-a-table)).
+- **Data service** (`modules/data_service`, us-west-2): the private instance the
+  data service runs on (#245), in its own subnet next to `Chess-Stockfish`
+  (`usw2-az2`, `us-west-2a` in this account), with no public IP and no route
+  to the internet. A free DynamoDB gateway endpoint on its route table is its
+  only way out, limited to the two tables. Its security group lets in only
+  `Chess-Stockfish`'s group, on 8090 and SSH. Its role, `EC2_Chess_DataService`,
+  has the same DynamoDB calls as the server's ([Data service instance](#data-service-instance)).
 
 ```bash
 cd terraform/aws-enviroment
@@ -687,6 +694,74 @@ username again.
    aws dynamodb delete-table --region us-east-1 --table-name chess_db
    aws dynamodb delete-table --region us-east-1 --table-name user_db
    ```
+
+#### Data service instance
+
+`modules/data_service` makes the data service's instance and network (#246).
+The values (`Chess-Stockfish`'s security group, its zone, the key pair, the
+subnet range and the fixed private IP `172.31.64.10`) are in `locals.tf`.
+
+Move the tables first ([Moving the tables](#moving-the-tables-to-us-west-2)).
+A gateway endpoint only reaches tables in its own region, and its policy and
+the role are limited to the us-west-2 tables' ARNs.
+
+1. Check that `172.31.64.0/28` is free in the default VPC (its default
+   subnets are the `/20`s from `172.31.0.0`), then apply:
+
+   ```bash
+   aws ec2 describe-subnets --region us-west-2 --query 'Subnets[].CidrBlock'
+   cd terraform/aws-enviroment
+   terraform init    # a new module
+   terraform plan
+   terraform apply
+   ```
+
+   The plan should only add things: the subnet, its route table, the
+   endpoint, `data_service_sg` and its rules, the role and the instance. It
+   prints `data_service_private_ip`.
+
+2. SSH in through `Chess-Stockfish`. The key goes in your agent, so both hops
+   can use it:
+
+   ```bash
+   ssh-add ~/path/to/key.pem
+   ssh -J ubuntu@52.11.177.148 ubuntu@172.31.64.10
+   ```
+
+3. Check that only `Chess-Stockfish` reaches port 8090. Until the data service
+   is deployed (#251), use a stand-in on the instance:
+
+   ```bash
+   python3 -m http.server 8090              # on the data service instance
+   curl -s -o /dev/null -w "%{http_code}\n" http://172.31.64.10:8090/   # on Chess-Stockfish: 200
+   ```
+
+   From your Mac the address can't be reached at all: it's private and the
+   instance has no public IP.
+
+4. Check DynamoDB through the endpoint. Install the AWS CLI during an upkeep
+   window (below), then with the window closed:
+
+   ```bash
+   aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":{"S":"none"}}'
+   ```
+
+   It answers `{}` (no such row) through the endpoint, with no internet.
+   `terraform plan` should now show no changes.
+
+**Upkeep windows.** The instance has no internet, so installing or updating
+anything (apt, Node, `npm ci`) needs a short window:
+
+```bash
+terraform apply -var maintenance=true   # a NAT gateway & a 0.0.0.0/0 route, plus HTTP/HTTPS out
+# ... sudo apt update && sudo apt upgrade, installs, npm ci ...
+terraform apply                         # removes them again
+```
+
+**Costs:** about $7.60 a month for the `t3.micro`, plus about $0.65 for its
+8 GB gp3 disk. The DynamoDB endpoint is free. An upkeep window costs about
+5 cents an hour (the NAT gateway and its public IP), plus 4.5 cents per GB
+downloaded.
 
 ### 1. Before you start
 
@@ -932,6 +1007,7 @@ terraform/
   modules/server/            IAM role + instance profile, chess + engine DNS records
   modules/cloudfront/        Assets: ACM cert, DNS validation, CloudFront, Route 53 alias
   modules/dynamodb/          Chess (games) and user tables
+  modules/data_service/      The data service's private subnet, DynamoDB endpoint, security group, role and instance, and the upkeep NAT
 ```
 
 ## License
