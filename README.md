@@ -752,6 +752,12 @@ the role are limited to the us-west-2 tables' ARNs.
    It answers `{}` (no such row) through the endpoint, with no internet.
    `terraform plan` should now show no changes.
 
+**Before the switch-over** (a new setup, where the chess server still uses
+DynamoDB itself): add `-target=module.data_service_module` to every `apply`
+here, the upkeep windows too, until step 11.3 works. A plain `apply` also
+removes the chess server's DynamoDB access (#250), which takes the live site
+down until it's switched over.
+
 **Upkeep windows.** The instance has no internet, so installing or updating
 anything (apt, Node, `npm ci`) needs a short window:
 
@@ -908,7 +914,7 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
    folder, because the service can't read home folders:
 
    ```bash
-   # terraform/aws-enviroment, on your Mac
+   # terraform/aws-enviroment, on your Mac. Before the switch-over (step 11.3), add -target=module.data_service_module
    terraform apply -var maintenance=true
 
    # on the data service
@@ -940,7 +946,7 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
 3. **Close the window**:
 
    ```bash
-   terraform apply   # terraform/aws-enviroment, on your Mac
+   terraform apply   # terraform/aws-enviroment, on your Mac (-target=module.data_service_module before the switch-over)
    ```
 
 4. **The `.env`**, only readable by `dataservice`:
@@ -1022,6 +1028,36 @@ The tables stay where they are throughout, only the chess server changes.
 already applied, put its role policy back first (revert #250's Terraform change
 and `terraform apply`). The tables never moved, so nothing else changes. The
 data service can keep running or be stopped (`sudo systemctl stop data-service`).
+
+#### When the switch-over goes wrong
+
+Start with the two journals and the health check. They say which of the cases
+below it is:
+
+```bash
+# on Chess-Stockfish
+journalctl -u chess -n 40 --no-pager
+curl -s http://172.31.64.10:8090/health                      # {"status":200,"message":"OK"}
+
+# on the data service
+journalctl -u data-service -n 40 --no-pager
+journalctl -u data-service --since "15 min ago" | grep REFUSED
+```
+
+| What you see | Why | Fix |
+| --- | --- | --- |
+| `chess` restarts over and over, and its journal says `Missing required environment variable DATA_SERVICE_SECRET` (or `is too short`) | `server/.env` doesn't have the data service's settings | Get the secret on the data service (`sudo grep DATA_SERVICE_SECRET /opt/data-service/.env`). Add `DATA_SERVICE_URL=http://172.31.64.10:8090` and `DATA_SERVICE_SECRET=<that value>` to `/opt/chess-frontend/server/.env`, then `cd /opt/chess-frontend/server && npm ci --omit=dev && sudo systemctl restart chess` |
+| `data-service` restarts over and over, with `Missing required environment variable ...` or `is too short` | Its `.env` is missing a value | Fix `/opt/data-service/.env` (`sudo nano`, it's owned by `dataservice`), then `sudo systemctl restart data-service` |
+| Pages answer "Try again in a moment", and the chess journal says `Data service: ... no answer in 3 seconds` or `fetch failed` | The chess server can't reach the data service | Check `sudo systemctl status data-service`, then `/health` from Chess-Stockfish. Check `DATA_SERVICE_URL` and that the data service's `DATA_SERVICE_HOST` is `172.31.64.10`: with `127.0.0.1` it only answers itself |
+| The chess journal says `Data service: ... refused the signature (Bad signature)` | The two `DATA_SERVICE_SECRET` values differ | Make them the same and restart both. To change the secret without any refusals, use `DATA_SERVICE_SECRET_OLD` ([Data service](#data-service)) |
+| The chess journal says `refused the signature (Request too old)` | The two clocks are more than 30 seconds apart | `timedatectl` on both. `NTP service: active` should be on, Ubuntu's default |
+| Every player looks signed out or gets "Player is not in this game", and the data service logs `REFUSED ... 401 Bad player token` | `JWT_SECRET` differs between the two `.env` files | Copy the chess server's `JWT_SECRET` into `/opt/data-service/.env`, then restart `data-service` |
+| The chess journal says `Data service: ... 500`, and the data service's journal shows `AccessDeniedException` | The data service can't reach the tables | `DYNAMODB_REGION` must be `us-west-2`. Check the tables are in us-west-2 and that `aws dynamodb get-item` works on the data service ([Data service instance](#data-service-instance)) |
+| Before step 11.3, the site breaks and the chess journal shows `AccessDeniedException` from DynamoDB | A plain `terraform apply` ran #250 too early and removed the chess server's access | Finish the switch-over, or put the policy back (revert #250's change, `terraform apply`). Until then, use `-target=module.data_service_module` |
+| `git pull` on the instance stops with "local changes would be overwritten" | The checkout has its own changes (a `package-lock.json` or built files) | `git status`, then `git checkout -- <file>` for files that were only rebuilt, and pull again |
+
+To get the site back first and debug after: the rollback above (8414ecc on
+Chess-Stockfish). The data service can keep running.
 
 ### Updating and logs
 
