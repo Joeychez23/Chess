@@ -8,7 +8,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, updateUserSettings, claimUsername, deleteUser } = require("../dynamoDB.js");
+const { retrieveUser, updateUserSettings, claimUsername, deleteUser } = require("../dataClient.js");
 const { leaveAllGames, readSettings, userPlayerId } = require("./chessController.js");
 const { checkUsername } = require("../utils/username.js");
 
@@ -21,7 +21,7 @@ const { checkUsername } = require("../utils/username.js");
  * @return {[object]} response [{ status, userData, username (null until they pick one on the settings page), message }]
  */
 async function getUser(req, res) {
-	const user = await retrieveUser(userPlayerId(req.user), true).catch(() => null); // CONSISTENT: THE SETTINGS PAGE READS IT RIGHT AFTER A SAVE. A FAILED READ STILL RETURNS THE USER
+	const user = await retrieveUser(true).catch(() => null); // THE REQUESTER'S ROW, CONSISTENT: THE SETTINGS PAGE READS IT RIGHT AFTER A SAVE. A FAILED READ STILL RETURNS THE USER
 	return res.json({ status: 200, userData: req.user, username: user?.user_data?.username?.S || null, message: "USER DATA FOUND" });
 }
 
@@ -35,7 +35,7 @@ async function getUser(req, res) {
  */
 async function saveSettings(req, res) {
 	const settings = readSettings(req.body);
-	const response = await updateUserSettings(userPlayerId(req.user), settings);
+	const response = await updateUserSettings(settings); // THE REQUESTER'S ROW
 	return res.json({ status: response.status, settings, message: response.message });
 }
 
@@ -50,7 +50,7 @@ async function saveSettings(req, res) {
 async function saveUsername(req, res) {
 	const checked = checkUsername(req.body?.username);
 	if (checked.message) { return res.status(400).json({ status: 400, message: checked.message }); }
-	const response = await claimUsername(userPlayerId(req.user), checked.username);
+	const response = await claimUsername(checked.username); // THE DATA SERVICE CHECKS THE RULES AGAIN
 	return res.status(response.status).json(response);
 }
 
@@ -65,7 +65,7 @@ async function saveUsername(req, res) {
 async function deleteUserData(req, res) {
 	const playerId = userPlayerId(req.user);
 	await leaveAllGames(playerId);
-	const response = await deleteUser(playerId);
+	const response = await deleteUser(); // THE DATA SERVICE REFUSES IT WHILE A GAME OR INVITE IS LEFT
 	return res.json({ status: response.status, message: response.message });
 }
 

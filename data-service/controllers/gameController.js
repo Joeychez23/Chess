@@ -25,7 +25,8 @@ const NAME_LENGTH = 50; // AN INVITE'S SCREENNAME FROM AUTH0 (USERNAMES ARE 3 - 
 // Get Game (GET)
 /* ---------------------------------------------------------------- */
 /**
- * @description A game, only for a player in it
+ * @description A game, only for a player in it. A game that isn't there says so even with no player: the play page's first guest game
+ * asks for its new id before it has a cookie, and makes the game when it's not found (as the server always answered)
  * @param  {[string]} req.params.gameId [game id]
  * @param  {[string]} req.query.consistent ["true" = a strongly consistent read, to see a save another request just made]
  * @return {[object]} response [retrieveGame's { status, game_data, message }, "Game data not found" is { status: 500, message }]
@@ -33,6 +34,7 @@ const NAME_LENGTH = 50; // AN INVITE'S SCREENNAME FROM AUTH0 (USERNAMES ARE 3 - 
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, req.query.consistent == "true");
 	if (!response.game_data) { return res.json(response); } // GAME NOT FOUND
+	if (!req.player) { return refuse(req, res, 401, "No player"); }
 	if (!playerInGame(req.player, response.game_data)) { return refuse(req, res, 403, "Player is not in this game"); }
 	return res.json(response);
 }
@@ -193,13 +195,15 @@ async function newAiGame(req, res) {
  * @description A guest's game vs the AI. A guest's player id is their game's id, so the game they name is overwritten only when it's
  * their own (their cookie): New game & Restart. Any other id they can't have (another browser's game, a signed in player's, "CHESS_AI")
  * gets a new id, and that game isn't touched. The chess server gives the guest a cookie for the id in the response
- * @param  {[object]} req.body [{ game_id (the guest's saved id, left out = a new one), color, level (left out = their game's, or 3), start_fen }]
+ * @param  {[object]} req.body [{ game_id (the guest's saved id, left out = a new one), color (saved for Restart), side ("w" | "b", optional: this game's side,
+ * the play page's fallback for a guest's first game is white & random from its restarts on), level (left out = their game's, or 3), start_fen }]
  * @return {[object]} response [initalizeGame's { status, game_data (game_id is the id used), message }]
  */
 async function newGuestGame(req, res) {
 	if (req.player && !req.player.guest) { return refuse(req, res, 403, "Signed in players make games with /games/ai"); }
-	const { game_id, color, level, start_fen } = req.body || {};
+	const { game_id, color, side, level, start_fen } = req.body || {};
 	if (game_id !== undefined && typeof game_id != "string") { return refuse(req, res, 400, "Invalid game id"); }
+	if (side !== undefined && side != "w" && side != "b") { return refuse(req, res, 400, "Invalid side"); }
 	if (level !== undefined && !readAiLevel(level)) { return refuse(req, res, 400, "Invalid level"); }
 	const position = readStartFen(start_fen);
 	if (position.message) { return refuse(req, res, 400, position.message); }
@@ -213,7 +217,7 @@ async function newGuestGame(req, res) {
 
 	const aiLevel = level === undefined && existing ? readAiLevel(Number(existing.ai_level?.N)) || DEFAULT_LEVEL : readAiLevel(level); // A RESET KEEPS THE LEVEL
 	const params = newStartParams(color, position.fen);
-	const sides = pickSides(params, gameId, "CHESS_AI"); // A GUEST'S PLAYER ID IS THEIR GAME ID
+	const sides = pickSides(side ? { color: side } : params, gameId, "CHESS_AI"); // A GUEST'S PLAYER ID IS THEIR GAME ID
 	return res.json(await initalizeGame(gameId, sides.white, sides.black, aiLevel, { start_params: params }));
 }
 
@@ -260,12 +264,17 @@ async function inviteGame(req, res) {
 // Accept & Decline (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description The invited player starts the game: PENDING -> OPEN. Not while the inviter is in another friend game (a rematch, or they accepted one),
- * the chess server then declines it. The requester's own open friend game & sent invite are the chess server's to forfeit & cancel first
+ * @description The invited player starts the game: PENDING -> OPEN. In this order, so a refusal never costs the requester their game:
+ * the requester's open friend game answers 409 (unless replace_current), the inviter in another friend game (a rematch, or they accepted one)
+ * answers "They're in another game now" (the chess server then declines it), then the requester's open friend game is forfeited,
+ * their sent invite is cancelled (they're in a game now) & the invite is accepted
  * @param  {[string]} req.params.gameId [PENDING game id]
- * @return {[object]} response [acceptInvite's { status, game_data, message }]
+ * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the requester's open friend game) }]
+ * @return {[object]} response [acceptInvite's { status, game_data, message } plus forfeited (the game it forfeited, for both boards) & dropped_invites
+ * (the sent invite it cancelled, for both Homes) | { status: 409, game_id (the open one), message: "Friend game already open" }]
  */
 async function acceptGame(req, res) {
+	const { replace_current } = req.body || {};
 	const response = await retrieveGame(req.params.gameId, true);
 	if (!response.game_data) { return res.json(response); } // DECLINED, CANCELLED OR EXPIRED
 	const gameData = response.game_data;
@@ -273,9 +282,19 @@ async function acceptGame(req, res) {
 	if (!playerId) { return refuse(req, res, 403, "Player is not in this game"); }
 	if (!gamePending(gameData)) { return refuse(req, res, 409, "Invite was already answered"); }
 	if (playerId == inviterId(gameData)) { return refuse(req, res, 403, "Only the invited player can accept"); }
+
+	const current = await currentGame(playerId, false); // ONE FRIEND GAME AT A TIME
+	if (current && replace_current !== true) { return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
 	if (await currentGame(inviterId(gameData), false)) { return refuse(req, res, 409, "They're in another game now"); }
 
-	return res.json(await acceptInvite(gameData));
+	let forfeited = null;
+	if (current) { // ACCEPTING FORFEITS THE OPEN ONE, THE OTHER SIDE WINS
+		const closed = await closeGame(current, playerColor(playerId, current) == "w" ? "b" : "w", "forfeit");
+		if (closed.status == 200) { forfeited = closed.game_data; }
+	}
+	const dropped = await dropSentInvite(playerId);
+	const accepted = await acceptInvite(gameData);
+	return res.json({ ...accepted, forfeited, dropped_invites: dropped ? [dropped] : [] });
 }
 
 /**

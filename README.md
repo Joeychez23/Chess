@@ -5,8 +5,10 @@
 A chess game drawn entirely on an HTML5 canvas: sprite pieces with shadows and
 reflections on a wooden table, sliding move animations, and move sounds. Play
 the computer or challenge a friend by email. The browser checks each move
-first, then the Express server checks it again against the board stored in
-DynamoDB before it counts. (This used to be the chess lambda in
+first, then it's checked again on the server side against the board stored in
+DynamoDB before it counts: the Express server checks the request, and the data
+service, the only code that can read or write the tables, plays the move on the
+stored board itself. (This used to be the chess lambda in
 [chess-validation](https://github.com/Joeychez23/Lambdas); see
 [Chess API](#chess-api).)
 
@@ -103,14 +105,17 @@ the updated `package-lock.json` with it.
 | `AUTH0_CALLBACK_URL` | Optional. Defaults to `http://localhost:API_PORT/api/auth/callback` |
 | `CLIENT_URL` | Optional. Where the browser goes after login/logout. Defaults to `http://localhost:API_PORT/` |
 | `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
-| `DYNAMODB_REGION` | Optional. The region the tables are in. Defaults to `us-west-2` ([Moving the tables](#moving-the-tables-to-us-west-2)) |
+| `DATA_SERVICE_URL` | Optional. Where the data service answers. Defaults to `http://127.0.0.1:8090` (`npm run dev` in `data-service`). On AWS it's the data service's private IP |
+| `DATA_SERVICE_SECRET` | Signs every call to the data service. The same value as `DATA_SERVICE_SECRET` in `data-service/.env`, at least 32 characters (the command is in `.env.example`) |
 
 In the Auth0 app's settings, add `AUTH0_CALLBACK_URL` to **Allowed Callback
 URLs** and `CLIENT_URL` to **Allowed Logout URLs**.
 
-The server reads and writes the DynamoDB tables with the AWS credentials on the
-machine: `~/.aws` locally (`aws configure`), or the instance's IAM role on AWS.
-It needs read/write access to `chess_db` and `user_db` in us-west-2.
+The server doesn't touch DynamoDB. Every read and write of the games and players
+goes through the data service ([Data service](#data-service)), which uses the AWS
+credentials on its machine: `~/.aws` locally (`aws configure`), or its instance's
+IAM role on AWS, with read/write access to `chess_db` and `user_db` in us-west-2
+(`DYNAMODB_REGION` in `data-service/.env`).
 
 `client/.env`:
 
@@ -147,7 +152,11 @@ CloudFront's TTL is 0, so the new files show up right away.
 npm start       # builds client/dist and serves it + the auth routes on http://localhost:3001
 npm run dev     # webpack-dev-server on http://localhost:3002, /api, /socket.io and the pages (/, /play) are proxied to :3001 (run the server too)
 npm run build   # bundles into client/dist
+cd data-service && npm run dev   # the data service on http://127.0.0.1:8090, the server calls it for every game and player
 ```
+
+Run the data service too, or every page that needs a game or a player answers
+503 "Try again in a moment".
 
 With `npm run dev`, set `CLIENT_URL=http://localhost:3002/` so login returns
 to the dev server. The dev server writes the `.html` pages to `client/dist`
@@ -160,22 +169,22 @@ cd server && npm test   # every server/test/*.test.js, with Node's built-in test
 ```
 
 The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
-`test/helpers/env.js` sets test values, `test/helpers/fakeDynamo.js` keeps
-`chess_db` and `user_db` in memory (it understands the update and condition
-expressions `server/dynamoDB.js` uses, and `staleReads()` makes reads lag like
-DynamoDB's default eventually consistent reads), and `test/helpers/server.js` starts the
-real `/api` and page routes on a random port and answers Auth0 and the engine from test
-data.
+`test/helpers/env.js` sets test values, and `test/helpers/server.js` starts the
+real `/api` and page routes on a random port with the real data service next to
+it, on its in-memory tables (`data-service/test/helpers/fakeDynamo.js`). So every
+test goes server → data service → tables, like the live site. Auth0 and the
+engine are answered from test data. Install the data service's packages first
+(`npm ci` in `data-service`).
 
 | File | What it covers |
 | --- | --- |
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `dataClient.test.js` | The data service down, too slow (3 seconds) or refusing the signature: 503 "Try again in a moment" and nothing half saved. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 | `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
-| `rating.test.js` | The Elo math, which games are rated, the ratings Home and the game menu get, and two of a player's games ending at once |
+| `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
 | `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
 | `settings.test.js` | The settings page's Default start settings and Delete my data |
 | `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
@@ -192,9 +201,9 @@ cd data-service && npm test
 | `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token: each refused with the stored game unchanged, and logged without the body or token |
-| `dynamoDB.test.js` | The same conditional writes as the server's copy |
+| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `rating.test.js` | The Elo math, which games are rated, and two of a player's games ending at once |
-| `shared.test.js` | `utils/validate.js`, `rating.js` and `username.js` are the same files as the server's, and both pin the same `chess.js` |
+| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js` and `signature.js` are the same files as the server's, and both pin the same `chess.js` |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
 service tests and the client build on every pull request and every push to `main`.
@@ -328,7 +337,7 @@ Friend games also save `inviter_id`, so Home knows a sent invite from a received
 A `user_db` row also has `settings` (JSON, `{ ai_level, ai_color, friend_color }`) once the player saves Default start settings. It's its own
 attribute, so the game list saves never touch it, and saving it first makes the row (with empty game lists) for a player who hasn't played yet.
 **Usernames** live in `user_db` too. A player's row gets `username` (as they wrote it), and an item keyed `username#<the name in lowercase>`
-(`{ user_id, owner_id, username }`) holds the name, so only one player can have it in any capitals. `claimUsername` (`dynamoDB.js`) saves a name in
+(`{ user_id, owner_id, username }`) holds the name, so only one player can have it in any capitals. `claimUsername` (`data-service/dynamoDB.js`) saves a name in
 one `TransactWriteItems`: it puts the new item only if it doesn't exist, sets `username` on the row only if it's still the name that was read, and
 deletes the old item only if it's the player's, so either all three land or none do. A change of capitals only updates the item. `deleteUser`
 deletes the row and the item together. Nothing reads `user_db` by anything other than a key, so the `username#` items never show up as players.
@@ -337,7 +346,7 @@ deletes the row and the item together. Nothing reads `user_db` by anything other
 score is 1, ½ or 0 and `expected = 1 / (1 + 10^((opponent − rating) / 400))`, rounded and never below 100. K is 40 for a player's first 10
 rated games (shown with a `?`, provisional), then 20. Only friend games from the standard position are rated, once both sides have moved
 (a forfeit straight away, or a new invite replacing a game that had just started, isn't counted); AI games aren't. `closeGame` rates the game
-(`rateGame` in `dynamoDB.js`): each side against the other's rating from before the game. A `user_db` row gets `rating` and `rated_games`
+(`rateGame` in `data-service/dynamoDB.js`): each side against the other's rating from before the game. A `user_db` row gets `rating` and `rated_games`
 (numbers), saved only if `rated_games` is still what was read, so two of a player's games ending at once both count. The game item gets
 `ratings` (JSON, `{ w: { before, after }, b: { before, after }, at }`, `null` for a player whose row was deleted). Rated friend games are never
 deleted, so a player's rating history is the `ratings` on the games in their `closed_games` (for a profile chart, #81). The history isn't kept
@@ -406,11 +415,11 @@ default, level 3.
 
 ## Data service
 
-`data-service/` is being built to be the only code that reads and writes
-DynamoDB (#245). It will run on a private instance that only the chess server
-can reach. Each route is one named action, checked against the stored data
-before anything is saved. Until the chess server calls it (#249), nothing uses
-it yet, and `server/dynamoDB.js` is still the live copy.
+`data-service/` is the only code that reads and writes DynamoDB (#245). The
+chess server calls it for every read and write of the games and players
+(`server/dataClient.js`), and on AWS it will run on a private instance that only
+the chess server can reach (#246, #251). Each route is one named action, checked
+against the stored data before anything is saved.
 
 ```bash
 cd data-service
@@ -456,9 +465,9 @@ still sign a token for any player and make the actions that player could.
 | `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
 | `GET /games/:gameId/ratings` | In the game. Both players' ratings |
 | `POST /games/ai` `{ color, level, start_fen, game_id }` | A signed-in player vs `CHESS_AI`, at a level from 1 to 8 (3 if left out), from a playable position. A `game_id` must be new |
-| `POST /games/guest` `{ game_id, color, level, start_fen }` | Needs no player. The guest's own game (their cookie) is reset and keeps its level; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched |
+| `POST /games/guest` `{ game_id, color, side, level, start_fen }` | Needs no player. `side` fixes this game's side while `color` is what Restart uses (the play page's first guest game). The guest's own game (their cookie) is reset and keeps its level; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched |
 | `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, game_id }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
-| `POST /games/:gameId/accept` | Pending, only the invited player, and the inviter isn't in another friend game |
+| `POST /games/:gameId/accept` `{ replace_current }` | Pending, only the invited player. In this order: their own open friend game answers `{ status: 409, game_id }` unless `replace_current`; the inviter in another friend game is refused; then their friend game is forfeited (`forfeited`), their sent invite cancelled (`dropped_invites`) and the invite accepted |
 | `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
 | `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`) |
 | `GET /users/me` | A signed-in player's own row as stored (`?consistent=true`). `?games=true` also prunes expired games and invites and adds the open AI and friend game, the open games, the sent invite and the received invites. Guests have no row (403) |
@@ -478,8 +487,18 @@ refused one answers with its own status (400, 401, 403, 404, 409, 413 or 415)
 and logs one line, `REFUSED <method> <path> <status> <why>`, without the body
 or the token.
 
-`utils/validate.js`, `rating.js` and `username.js` are copies of the server's,
-and `test/shared.test.js` fails if they differ, so change both.
+`server/dataClient.js` sends each call signed, with the player of the request it's
+answering (an `AsyncLocalStorage` context, so the controllers don't pass it
+around): their access token when it's still good, otherwise a guest's
+`guest_game` cookie. A call that gets no answer in 3 seconds, a 5xx, or a
+signature refusal (a wrong `DATA_SERVICE_SECRET`) answers the player 503 "Try
+again in a moment". Each action is one call, so nothing is half saved. The rules
+about a player's other games still run on the chess server first, and accepting
+an invite with `replace_current` is one call, so the inviter is checked before
+the player's own game is forfeited.
+
+`utils/validate.js`, `rating.js`, `username.js` and `signature.js` are copies of
+the server's, and `test/shared.test.js` fails if they differ, so change both.
 
 ## Deploy
 
@@ -512,7 +531,7 @@ In order:
 - **Server** (`modules/server`): the `EC2_Chess_DynamoDB` IAM role and
   instance profile (made in the console, imported below), allowed only `GetItem`, `PutItem`, `UpdateItem`,
   `BatchGetItem` and `DeleteItem` (declined and cancelled invites) on the two
-  tables (the calls `server/dynamoDB.js` makes). Usernames are saved with
+  tables (the calls `data-service/dynamoDB.js` makes; the chess server itself no longer uses it, #250 removes it once the data service runs on its own instance). Usernames are saved with
   `TransactWriteItems`, which has no IAM action of its own: each write in it is
   checked as the `PutItem`, `UpdateItem` or `DeleteItem` it is, so the policy
   already covers it ([Using IAM with DynamoDB transactions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis-iam.html)).
@@ -725,6 +744,8 @@ every sprite, sound, and the favicon load from it.
 | `CLIENT_URL` | `https://chess.aws-prac-route53.com/` |
 | `ENGINE_URL` | `http://127.0.0.1:3001/v1` |
 | `JWT_SECRET` | A new one (the command is in `server/.env.example`), so a session made on your Mac can't be used on the live site |
+| `DATA_SERVICE_URL` | `http://<the data service's private IP>:8090` (#251 sets up its instance) |
+| `DATA_SERVICE_SECRET` | A new one, the same value as in the data service's `.env` |
 
 The Auth0 values stay the same. Then lock the file to your user:
 `chmod 600 /opt/chess-frontend/server/.env`.
@@ -868,7 +889,7 @@ server/
   index.js                   Express: serves the client/dist bundles + the page and /api routes, starts Socket.IO
   socket.js                  Socket.IO: session check, game & player rooms, emitToGame() / emitToPlayer()
   config.js                  Reads server/.env
-  dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js)
+  dataClient.js              Every read and write through the data service: signed calls for the request's player, 503 when it's down
   routes/pageRoutes.js       /, /play, /play/:gameId, /settings
   routes/api/                /api/auth/*, /api/user, /api/chess/*
   controllers/
@@ -883,11 +904,12 @@ server/
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
   utils/rating.js            Elo ratings: the math & which games are rated
   utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
-  test/                      Server tests (npm test): validate, ai, undo, dynamoDB, games, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, in-memory tables, test server)
-data-service/                Being built (#245): the only code that will read and write DynamoDB, on a private instance
+  utils/signature.js         Signs each call to the data service (the same file as data-service/utils/signature.js)
+  test/                      Server tests (npm test): validate, ai, undo, games, dataClient, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, the test server with the data service next to it)
+data-service/                The only code that reads and writes DynamoDB (#245), the chess server calls it; on a private instance on AWS
   index.js                   Express: /health, JSON bodies (16kb), the signature, the player, the routes. Listens on DATA_SERVICE_HOST
   config.js                  Reads data-service/.env
-  dynamoDB.js                Copy of server/dynamoDB.js, which goes once the chess server calls the data service (#249)
+  dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js, then server/dynamoDB.js)
   routes/gameRoutes.js       /games/ai, guest, invite & /games/:gameId, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
   routes/userRoutes.js       /users/me, settings, username, delete: only the signed-in requester's own row
   controllers/gameController.js  Each game action, checked against the stored game before it saves
@@ -901,7 +923,7 @@ data-service/                Being built (#245): the only code that will read an
   utils/validate.js, rating.js, username.js  The same files as server/utils/ (test/shared.test.js)
   test/                      Data service tests (npm test): games, lifecycle, users, signature, dynamoDB, rating, shared, plus helpers/
 .github/
-  workflows/ci.yml           GitHub Actions: server tests, data service tests and the client build on every pull request
+  workflows/ci.yml           GitHub Actions: server tests (with the data service), data service tests and the client build on every pull request
 deploy/
   chess.service              systemd unit for the server
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)

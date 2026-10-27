@@ -102,6 +102,7 @@ describe("who's asking", () => {
 		assert.equal((await call("GET", "/games/game1", { as: bob })).status, 200);
 		await refused("game1", "GET", "/games/game1", { as: mallory }, 403);
 		assert.equal((await call("GET", "/games/missing", { as: alice })).message, "Game data not found");
+		assert.equal((await call("GET", "/games/missing")).message, "Game data not found"); // EVEN WITH NO PLAYER (A NEW GUEST'S FIRST GAME), AN EXISTING GAME STILL NEEDS ONE
 	});
 
 	test("a guest is only in their own game, even when their game id is another player's id or CHESS_AI", async () => {

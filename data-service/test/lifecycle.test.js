@@ -248,3 +248,50 @@ describe("rematch", () => {
 		await refused([["chess_db", "game3"]], "POST", "/games/game3/rematch", { as: carol }, 409);
 	});
 });
+
+/* ---------------------------------------------------------------- */
+// Accepting With An Open Friend Game
+/* ---------------------------------------------------------------- */
+
+describe("accept with an open friend game", () => {
+	test("without replace_current: 409 with the open game, nothing changes", async () => {
+		await friendGame("invite1", "alice", "bob", true);
+		await friendGame("game1", "bob", "carol");
+		const open = await refused([["chess_db", "invite1"], ["chess_db", "game1"]], "POST", "/games/invite1/accept", { as: bob }, 200); // A NORMAL ANSWER, NOT A REFUSAL
+		assert.equal(open.status, 409);
+		assert.equal(open.game_id, "game1");
+	});
+
+	test("with replace_current: the open game is forfeited, the sent invite cancelled, the invite accepted", async () => {
+		await friendGame("invite1", "alice", "bob", true);
+		await friendGame("game1", "bob", "carol");
+		await friendGame("invite2", "bob", "dave", true); // BOB'S SENT INVITE
+		const accepted = await call("POST", "/games/invite1/accept", { as: bob, body: { replace_current: true } });
+		assert.equal(accepted.game_data.state.S, "OPEN");
+		assert.equal(accepted.forfeited.game_id.S, "game1");
+		assert.equal(peek("chess_db", "game1").winner.S, "b"); // CAROL WINS
+		assert.deepEqual(accepted.dropped_invites.map((invite) => invite.game_id.S), ["invite2"]);
+		assert.equal(peek("chess_db", "invite2"), undefined);
+	});
+
+	test("a busy inviter is refused before the requester's own game is forfeited", async () => {
+		await friendGame("invite1", "alice", "bob", true);
+		await friendGame("game1", "bob", "carol");
+		await friendGame("game2", "alice", "erin"); // ALICE IS BUSY
+		const busy = await refused([["chess_db", "invite1"], ["chess_db", "game1"]], "POST", "/games/invite1/accept", { as: bob, body: { replace_current: true } }, 409);
+		assert.equal(busy.message, "They're in another game now");
+	});
+});
+
+/* ---------------------------------------------------------------- */
+// A Guest's Side
+/* ---------------------------------------------------------------- */
+
+describe("guest game side", () => {
+	test("side fixes this game's side, color is what restarts use", async () => {
+		const made = (await call("POST", "/games/guest", { body: { game_id: "guest1", color: "random", side: "w" } })).game_data;
+		assert.equal(made.white_player_id.S, "guest1");
+		assert.deepEqual(JSON.parse(made.start_params.S), { color: "random" });
+		await refused([["chess_db", "guest2"]], "POST", "/games/guest", { body: { game_id: "guest2", side: "random" } }, 400);
+	});
+});

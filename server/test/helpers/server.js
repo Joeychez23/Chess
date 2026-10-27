@@ -1,8 +1,9 @@
 /*
  *  server.js  --  chess server tests
  *	Test Server
- *  Starts the real /api routes & page routes on a random local port with the in-memory tables, and answers the server's own calls
- *  out (Auth0 and the Stockfish engine API) from test data instead of the network
+ *  Starts the real /api routes & page routes on a random local port, and the real data service (data-service/) next to it on the
+ *  in-memory tables, so every test goes server -> data service -> tables like the live site. The server's other calls out
+ *  (Auth0 and the Stockfish engine API) are answered from test data instead of the network
  *
  */
 
@@ -14,7 +15,9 @@ const http = require("http");
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
-const fakeDynamo = require("./fakeDynamo.js");
+const fakeDynamo = require("../../../data-service/test/helpers/fakeDynamo.js"); // THE DATA SERVICE'S TABLES (IT'S THE ONLY CODE WITH DYNAMODB)
+const config = require("../../config");
+const { playerContext, dataServiceDown } = require("../../dataClient.js");
 const { resetLimits } = require("../../middleware/rateLimit.js");
 
 const realFetch = globalThis.fetch;
@@ -27,23 +30,31 @@ let baseUrl;
 // Start
 /* ---------------------------------------------------------------- */
 /**
- * @description Starts the API on 127.0.0.1 with the in-memory tables and the stand-in Auth0 & engine
- * @return {[object]} server [call .close() when the tests are done]
+ * @description Starts the data service (on the in-memory tables) & the API on 127.0.0.1, with the stand-in Auth0 & engine
+ * @return {[object]} server [call .close() when the tests are done, it closes the data service too]
  */
 async function start() {
 	fakeDynamo.install();
 	globalThis.fetch = standInFetch;
 
+	const dataService = require("../../../data-service/index.js").listen(0, "127.0.0.1");
+	await new Promise((resolve) => dataService.once("listening", resolve));
+	config.dataServiceUrl = `http://127.0.0.1:${dataService.address().port}`; // dataClient.js READS IT ON EVERY CALL
+
 	const app = express();
 	app.set("trust proxy", "loopback"); // SAME AS index.js, A TEST'S X-Forwarded-For IS THE PLAYER'S ADDRESS
 	app.use(cookieParser());
 	app.use(express.json());
+	app.use(playerContext); // SAME AS index.js
 	app.use("/api", require("../../routes/api"));
 	app.use(require("../../routes/pageRoutes.js")); // THE PAGES' REDIRECTS (A PAGE ITSELF NEEDS client/dist, WHICH THE SERVER TESTS DON'T BUILD)
+	app.use(dataServiceDown);
 
 	const server = http.createServer(app);
 	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 	baseUrl = `http://127.0.0.1:${server.address().port}`;
+	const close = server.close.bind(server);
+	server.close = (done) => { dataService.close(); return close(done); };
 	return server;
 }
 
