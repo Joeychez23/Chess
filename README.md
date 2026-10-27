@@ -1153,7 +1153,8 @@ Chess-Stockfish). The data service can keep running.
 After this, only the data service can make a session or guest token, and
 `JWT_SECRET` is gone from both instances. It signs everyone out once, and guests
 start a new game. Do steps 3 and 4 back to back: in between, the two sides don't
-read each other's tokens.
+read each other's tokens. [SECURITY.md → Session keys](SECURITY.md#session-keys) has
+the same steps as commands to paste.
 
 1. **Make the key on the data service** ([Making the session keys](#making-the-session-keys)),
    in `/tmp`. Keep the public half for step 4.
