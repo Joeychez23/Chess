@@ -1,3 +1,10 @@
+/*
+ *  pageRoutes.js  --  chess server
+ *	Page Routes
+ *	Picks the page for each URL & sends signed out players to sign in first (controllers/pageController.js)
+ *
+ */
+
 const router = require('express').Router()
 const { homePage, playPage, gamePage, settingsPage } = require('../controllers/pageController.js')
 

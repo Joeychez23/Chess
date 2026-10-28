@@ -1,9 +1,18 @@
+/*
+ *  config.js  --  data service
+ *	Config
+ *	Reads data-service/.env (see data-service/.env.example) into one settings object. A missing or bad required setting stops
+ *	the data service with a message instead of starting half set up
+ *
+ */
+
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env"), quiet: true });
 const { readPrivateKey, readPublicKey, keyId, keyRing } = require("./utils/sessionKeys.js");
 
+// A SETTING THE DATA SERVICE CAN'T START WITHOUT, MISSING = EXIT WITH A MESSAGE
 function required(name) {
   const value = process.env[name];
   if (!value) {

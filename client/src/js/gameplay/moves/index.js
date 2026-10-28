@@ -326,7 +326,7 @@ export async function updateOpponentStateSlide(index) {
 		}
 
 		game.revert = game.response;
-		if (game.ai) { game.response = await new Promise((resolve) => setTimeout(() => resolve(game.moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS LIKE THE OLD PUT SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
+		if (game.ai) { game.response = await new Promise((resolve) => setTimeout(() => resolve(game.moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS A TICK LIKE A PUT WOULD SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
 		else { game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); }
 		chessInst.load(game.response.game_board); // UPDATE BOARD
 		if (game.response.status == 200) { // IF VALIDATED UPDATE BOARD STATE

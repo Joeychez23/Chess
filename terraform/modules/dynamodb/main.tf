@@ -1,3 +1,8 @@
+# ---------------------------------------------------------------- #
+# DynamoDB Module
+# THE TWO TABLES, chess_db (GAMES) AND user_db (PLAYERS)
+# ---------------------------------------------------------------- #
+
 provider "aws" {
   region = var.aws_region
 }

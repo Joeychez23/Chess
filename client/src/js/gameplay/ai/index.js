@@ -1,3 +1,10 @@
+/*
+ *  index.js  --  chess frontend
+ *	Ai
+ *	Gets the AI's move from the server (it asks Stockfish & saves the move), trying again when the server or engine is busy
+ *
+ */
+
 const { aiMove } = require("../validate/index.js")
 
 const AI_TRIES = 3; // SERVER / ENGINE BUSY -> ASK AGAIN

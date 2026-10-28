@@ -1,3 +1,5 @@
+# CLOUDFRONT MODULE VARIABLES: WHAT THE ROOT MODULE PASSES IN
+
 variable "aws_region" {
   default = "us-east-1"
 }

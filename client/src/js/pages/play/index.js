@@ -80,7 +80,7 @@ window.addEventListener("load", async function () {
 async function showRatings(gameId) {
 	const ratings = await getRatings(CHESS_URL, gameId);
 	if (ratings?.status != 200 || !ratings.rated) { return; } // AI GAMES AREN'T RATED
-	const text = (rating) => `${rating.rating}${rating.provisional ? "?" : ""}`;
+	const text = (rating) => `${rating.rating}${rating.provisional ? "?" : ""}`; // 1520, OR 1520? WHILE PROVISIONAL
 	const change = ratings.rating_change ? ratings.rating_change.after - ratings.rating_change.before : null;
 	const changeText = change == null ? "" : ` (${change >= 0 ? "+" : "-"}${Math.abs(change)})`;
 	ratingDisplay.innerText = `You ${text(ratings.player_rating)}${changeText} // ${ratings.opponent_name || "Opponent"} ${text(ratings.opponent_rating)}`;

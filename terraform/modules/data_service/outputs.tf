@@ -1,3 +1,5 @@
+# DATA SERVICE MODULE OUTPUTS: WHAT THE ROOT MODULE CAN READ BACK
+
 output "private_ip" {
   value = aws_instance.data_service.private_ip # DATA_SERVICE_HOST ON THE INSTANCE, AND DATA_SERVICE_URL IN server/.env (http://<it>:8090)
 }

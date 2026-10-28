@@ -1,3 +1,10 @@
+/*
+ *  sessionRoutes.js  --  data service
+ *	Session Routes
+ *	/session/*: making, renewing & ending a signed in player's session tokens (controllers/sessionController.js)
+ *
+ */
+
 const router = require('express').Router()
 const { onlyFields } = require('../middleware/fields.js')
 const { login, refresh, logout } = require('../controllers/sessionController.js')

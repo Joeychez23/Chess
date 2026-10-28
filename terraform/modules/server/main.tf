@@ -1,3 +1,8 @@
+# ---------------------------------------------------------------- #
+# Server Module
+# THE CHESS SERVER'S DNS RECORDS AND ITS IAM ROLE (THE INSTANCE ITSELF WAS MADE IN THE CONSOLE)
+# ---------------------------------------------------------------- #
+
 provider "aws" {
   region = "us-east-1" # IAM AND ROUTE 53 ARE GLOBAL
 }

@@ -1,3 +1,11 @@
+/*
+ *  src-sw.js  --  chess frontend
+ *	Service Worker
+ *	Workbox caching for pages & assets so the game opens offline.
+ *	!NOTE: NOT BUILT OR REGISTERED RIGHT NOW (webpack.config.js HAS NO InjectManifest), SO THIS FILE ISN'T USED
+ *
+ */
+
 const { offlineFallback, warmStrategyCache } = require('workbox-recipes');
 const { CacheFirst, StaleWhileRevalidate } = require('workbox-strategies');
 const { registerRoute } = require('workbox-routing');
