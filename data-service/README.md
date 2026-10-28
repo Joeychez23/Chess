@@ -1,6 +1,12 @@
 # Data service
 
+<div align="center">
+
 [Home](../README.md) · [Client](../client/README.md) · [Server](../server/README.md) · **Data service** · [Deploy](../deploy/README.md) · [Terraform](../terraform/README.md) · [Setup & fixes](../SETUP.md)
+
+</div>
+
+---
 
 `data-service/` is the only code that reads and writes DynamoDB (#245). The
 chess server calls it for every read and write of the games and players
@@ -232,4 +238,10 @@ data-service/                The only code that reads and writes DynamoDB (#245)
   test/                      Data service tests (npm test): games, lifecycle, users, session, signature, dynamoDB, rating, shared, plus helpers/ (keys.js: the test run's keys)
 ```
 
+---
+
+<div align="center">
+
 [Home](../README.md) · [Client](../client/README.md) · [Server](../server/README.md) · **Data service** · [Deploy](../deploy/README.md) · [Terraform](../terraform/README.md) · [Setup & fixes](../SETUP.md)
+
+</div>

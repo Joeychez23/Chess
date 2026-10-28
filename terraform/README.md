@@ -1,6 +1,12 @@
 # Terraform
 
+<div align="center">
+
 [Home](../README.md) · [Client](../client/README.md) · [Server](../server/README.md) · [Data service](../data-service/README.md) · [Deploy](../deploy/README.md) · **Terraform** · [Setup & fixes](../SETUP.md)
+
+</div>
+
+---
 
 `terraform/aws-enviroment` sets up:
 
@@ -221,4 +227,10 @@ terraform/
   modules/data_service/      The data service's private subnet, DynamoDB endpoint, security group, role and instance, and the upkeep NAT
 ```
 
+---
+
+<div align="center">
+
 [Home](../README.md) · [Client](../client/README.md) · [Server](../server/README.md) · [Data service](../data-service/README.md) · [Deploy](../deploy/README.md) · **Terraform** · [Setup & fixes](../SETUP.md)
+
+</div>

@@ -1,6 +1,12 @@
 # Server
 
+<div align="center">
+
 [Home](../README.md) · [Client](../client/README.md) · **Server** · [Data service](../data-service/README.md) · [Deploy](../deploy/README.md) · [Terraform](../terraform/README.md) · [Setup & fixes](../SETUP.md)
+
+</div>
+
+---
 
 ## Setup
 
@@ -270,4 +276,10 @@ server/
   test/                      Server tests (npm test): validate, ai, undo, games, dataClient, auth, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, the test server with the data service next to it)
 ```
 
+---
+
+<div align="center">
+
 [Home](../README.md) · [Client](../client/README.md) · **Server** · [Data service](../data-service/README.md) · [Deploy](../deploy/README.md) · [Terraform](../terraform/README.md) · [Setup & fixes](../SETUP.md)
+
+</div>

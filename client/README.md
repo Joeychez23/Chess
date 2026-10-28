@@ -1,6 +1,12 @@
 # Client
 
+<div align="center">
+
 [Home](../README.md) · **Client** · [Server](../server/README.md) · [Data service](../data-service/README.md) · [Deploy](../deploy/README.md) · [Terraform](../terraform/README.md) · [Setup & fixes](../SETUP.md)
+
+</div>
+
+---
 
 ## Setup
 
@@ -121,4 +127,10 @@ client/
     utils/index.js           Per-square tile state
 ```
 
+---
+
+<div align="center">
+
 [Home](../README.md) · **Client** · [Server](../server/README.md) · [Data service](../data-service/README.md) · [Deploy](../deploy/README.md) · [Terraform](../terraform/README.md) · [Setup & fixes](../SETUP.md)
+
+</div>

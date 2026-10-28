@@ -1,8 +1,27 @@
-# Chess
+<div align="center">
+
+# ♞ Chess
+
+**Canvas chess against Stockfish or a friend, running on AWS.**
+
+[![Play live](https://img.shields.io/badge/play-live-2ea44f?style=for-the-badge)](https://chess.aws-prac-route53.com/)
+
+<a href="https://chess.aws-prac-route53.com/"><img src="docs/board.webp" alt="The chess board on a wooden table" width="560"></a>
+
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)
+![Canvas](https://img.shields.io/badge/HTML5_Canvas-E34F26?logo=html5&logoColor=white)
+![Webpack](https://img.shields.io/badge/Webpack_5-8DD6F9?logo=webpack&logoColor=black)
+![Express](https://img.shields.io/badge/Express_5-000000?logo=express&logoColor=white)
+![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?logo=socketdotio&logoColor=white)
+![DynamoDB](https://img.shields.io/badge/DynamoDB-4053D6?logo=amazondynamodb&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
+![Node](https://img.shields.io/badge/Node-22+-5FA04E?logo=nodedotjs&logoColor=white)
 
 **Home** · [Client](client/README.md) · [Server](server/README.md) · [Data service](data-service/README.md) · [Deploy](deploy/README.md) · [Terraform](terraform/README.md) · [Setup & fixes](SETUP.md)
 
-**Live:** [chess.aws-prac-route53.com](https://chess.aws-prac-route53.com/)
+</div>
+
+---
 
 A chess game drawn on an HTML5 canvas: sprite pieces with shadows and
 reflections on a wooden table, sliding moves and move sounds. Play Stockfish at
@@ -59,7 +78,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 
 Requires Node 22+ (the server).
 
-Quick start: install, fill in the `.env` files ([client](client/README.md#setup), [server](server/README.md#setup), [data service](data-service/README.md)), then run the
+Install, fill in the `.env` files ([client](client/README.md#setup), [server](server/README.md#setup), [data service](data-service/README.md)), then run the
 three processes in separate terminals and open http://localhost:3002.
 
 ```bash
@@ -129,4 +148,10 @@ changes to its source have to be released under GPL v3 too.
   so it's never committed. If you share it, or a binary built from it, keep
   its `Copying.txt` and source with it.
 
+---
+
+<div align="center">
+
 **Home** · [Client](client/README.md) · [Server](server/README.md) · [Data service](data-service/README.md) · [Deploy](deploy/README.md) · [Terraform](terraform/README.md) · [Setup & fixes](SETUP.md)
+
+</div>
