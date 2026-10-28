@@ -10,16 +10,16 @@ Open an [issue](https://github.com/Joeychez23/Chess/issues/new/choose) with the 
 
 ## Setting up
 
-Setup, the `.env` files and the run commands are in the README's [Setup](README.md#setup) and [Run](README.md#run) sections. You'll need Node 22+, an Auth0 app, a local session key pair, and AWS credentials for the DynamoDB tables (used by `data-service/`).
+The quick start is in the README's [Quick start](README.md#quick-start), the `.env` files are in the [client](client/README.md#setup), [server](server/README.md#setup) and [data service](data-service/README.md) READMEs, and the run commands are in [client/README.md](client/README.md#run). You'll need Node 22+, an Auth0 app, a local session key pair, and AWS credentials for the DynamoDB tables (used by `data-service/`).
 
 ## Making a change
 
 1. Branch from `develop` as `issue-<n>-<keywords>`, for example `issue-252-session-keys`.
 2. Keep to one change per pull request. Big features have sub-issues; do them one at a time.
-3. Update the README in the same pull request when you change a route, a Socket.IO event, a stored field or a deploy step.
+3. Update the folder's README in the same pull request when you change a route, a Socket.IO event, a stored field or a deploy step.
 4. Open a pull request into `develop` (it goes into `main` once a group of issues is done). The template asks for a short summary, the changes, the commits and the related issues. Write `Closes #N` for each issue it finishes so GitHub closes it on merge.
 
-Run `npm test` in `server/` and `data-service/` before opening a pull request, and add tests in the folder you changed (see the README's [Tests](README.md#tests) section). CI runs both and the client build on every pull request. The tests don't cover the board drawing, so also say in the pull request how you checked the change in the browser (for example: played an AI game and a friend game in two browsers, on desktop and on a phone).
+Run `npm test` in `server/` and `data-service/` before opening a pull request, and add tests in the folder you changed (see the [server](server/README.md#tests) and [data service](data-service/README.md#tests) READMEs). CI runs both and the client build on every pull request. The tests don't cover the board drawing, so also say in the pull request how you checked the change in the browser (for example: played an AI game and a friend game in two browsers, on desktop and on a phone).
 
 ## Code style
 

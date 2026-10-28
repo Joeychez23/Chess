@@ -54,7 +54,7 @@ async function login(req, res) {
 function readIdToken(idToken) {
 	const kid = jwt.decode(idToken, { complete: true })?.header?.kid;
 	const key = config.auth0Keys.get(kid);
-	if (!key) { return { reason: "unknown key (save Auth0's keys again, README -> Saving Auth0's keys)" }; }
+	if (!key) { return { reason: "unknown key (save Auth0's keys again, data-service/README.md -> Saving Auth0's keys)" }; }
 
 	let claims;
 	try {

@@ -1,6 +1,6 @@
 # Setup and fixes
 
-Commands for deploying the live site and fixing what goes wrong. Each command says which machine it runs on. The full walkthrough is in [README → Deploy](README.md#deploy), and the key rules are in [SECURITY.md → Session keys](SECURITY.md#session-keys).
+Commands for deploying the live site and fixing what goes wrong. Each command says which machine it runs on. The full walkthrough is in [deploy/README.md](deploy/README.md), and the key rules are in [SECURITY.md → Session keys](SECURITY.md#session-keys).
 
 **Never paste a `.env`'s values into a chat, an issue or a PR.** To check one, list only the names (see [Check a `.env` without showing it](#check-a-env-without-showing-it)).
 
@@ -341,7 +341,7 @@ nano /opt/chess-frontend/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
-A new key signs everyone out once. To change it without that, see [README → Changing the session key](README.md#changing-the-session-key).
+A new key signs everyone out once. To change it without that, see [data-service/README.md → Changing the session key](data-service/README.md#changing-the-session-key).
 
 ### A key or secret was shown somewhere it shouldn't be
 
@@ -353,7 +353,7 @@ A new key signs everyone out once. To change it without that, see [README → Ch
   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
   ```
 
-  To change it without any refusals, use `DATA_SERVICE_SECRET_OLD` ([README → Data service](README.md#data-service)).
+  To change it without any refusals, use `DATA_SERVICE_SECRET_OLD` ([data-service/README.md](data-service/README.md)).
 - **`AUTH0_CLIENT_SECRET`:** rotate it in the Auth0 dashboard (Applications → the app → Settings), then update `server/.env` and restart `chess`.
 
 ## Changed files that need more than a restart
@@ -377,7 +377,7 @@ scp -J ubuntu@52.11.177.148 /Users/josephsanchez/Desktop/TimeLost/Portfolio/ches
 sudo cp /tmp/data-service.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart data-service
 ```
 
-**`deploy/nginx.conf` changed:** copying it removes certbot's HTTPS block, so run certbot again ([README → 7. nginx and HTTPS](README.md#7-nginx-and-https)).
+**`deploy/nginx.conf` changed:** copying it removes certbot's HTTPS block, so run certbot again ([deploy/README.md → 7. nginx and HTTPS](deploy/README.md#7-nginx-and-https)).
 
 **On Chess-Stockfish**
 ```bash

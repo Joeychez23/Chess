@@ -79,7 +79,7 @@ function cookieOptions(token, path) {
 
 /**
  * @description The error for a token signed with a key this server doesn't have, answered like the data service being down (503)
- * & logged with the key's id (README -> Changing the session key)
+ * & logged with the key's id (data-service/README.md -> Changing the session key)
  */
 function unreadable(token) {
 	const err = new Error(`Data service: its tokens are signed with key ${tokenKeyId(token)}, which SESSION_PUBLIC_KEY / SESSION_PUBLIC_KEY_NEXT isn't`);
