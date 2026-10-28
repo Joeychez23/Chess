@@ -1,6 +1,12 @@
 # Deploy
 
+<div align="center">
+
 [Home](../README.md) · [Client](../client/README.md) · [Server](../server/README.md) · [Data service](../data-service/README.md) · **Deploy** · [Terraform](../terraform/README.md) · [Setup & fixes](../SETUP.md)
+
+</div>
+
+---
 
 ```text
 browser ──HTTPS──> nginx ──> chess server :8080 ──http://127.0.0.1:3001──> chess-engine-api ──> Stockfish 19
@@ -296,4 +302,10 @@ deploy/
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
 ```
 
+---
+
+<div align="center">
+
 [Home](../README.md) · [Client](../client/README.md) · [Server](../server/README.md) · [Data service](../data-service/README.md) · **Deploy** · [Terraform](../terraform/README.md) · [Setup & fixes](../SETUP.md)
+
+</div>
