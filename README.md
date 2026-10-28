@@ -57,9 +57,17 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 
 Requires Node 22+ (the server).
 
+Quick start: install, fill in the `.env` files (tables below), then run the
+three processes in separate terminals and open http://localhost:3002.
+
 ```bash
-npm ci
-cd server && npm ci
+npm ci                                        # client (Webpack)
+(cd server && npm ci && cp .env.example .env) # chess server
+(cd data-service && npm ci && cp .env.example .env)
+
+cd data-service && npm run dev   # terminal 1: data service on http://127.0.0.1:8090
+cd server && npm start           # terminal 2: chess server on http://localhost:3001
+npm run dev                      # terminal 3: client on http://localhost:3002
 ```
 
 `npm ci` installs the versions in the committed `package-lock.json`; add a
@@ -126,7 +134,9 @@ so the server can pick between them, and keeps the bundles in memory.
 ## Tests
 
 ```bash
-cd server && npm test   # every server/test/*.test.js, with Node's built-in test runner
+(cd data-service && npm ci)    # the server tests start the real data service
+(cd server && npm ci && npm test)          # every server/test/*.test.js, Node's built-in test runner
+(cd data-service && npm test)              # every data-service/test/*.test.js
 ```
 
 The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
@@ -135,8 +145,7 @@ Auth0 key each run, `data-service/test/helpers/keys.js`), and `test/helpers/serv
 real `/api` and page routes on a random port with the real data service next to
 it, on its in-memory tables (`data-service/test/helpers/fakeDynamo.js`). So every
 test goes server → data service → tables, like the live site. Auth0 and the
-engine are answered from test data. Install the data service's packages first
-(`npm ci` in `data-service`).
+engine are answered from test data.
 
 | File | What it covers |
 | --- | --- |
@@ -153,10 +162,6 @@ engine are answered from test data. Install the data service's packages first
 | `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
 The data service has its own tests, the same way (`data-service/test/`):
-
-```bash
-cd data-service && npm test
-```
 
 | File | What it covers |
 | --- | --- |
@@ -258,6 +263,33 @@ move or missing game is HTTP 200 with `status: 500`.
 | `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home, plus `ai_game_id` and `friend_game_id` (your open AI and friend games, or `null`), `open_game_list` (`[{ game_id, ai, ai_level, opponent_name, player_color, start_params }]`, newest last, for Your games), `sent_invite` (`{ game_id, name, player_color, start_params }` or `null`) and `received_invites` (`[{ game_id, name, player_color, start_params }]`, `player_color` is yours), `settings` (`{ ai_level, ai_color, friend_color }`, the defaults until you save some) and `games_finished`. Ids of games and invites TTL already deleted are pruned first, and `rating` (`{ rating, provisional, rated_games }`, the starting 1500 before your first game) |
 | `GET /api/chess/game/:gameId/ratings` | | Signed in, a player in the game. Both players' ratings for the game menu: `{ rated, player_rating, opponent_rating, opponent_name, rating_change }`, the ratings are `{ rating, provisional, rated_games }` (`null` in AI games, which aren't rated) and `rating_change` is your `{ before, after }` once a rated game is over. `GET /game/:gameId` doesn't send ratings: it runs after every move, and this reads both user rows |
 
+#### Example: a guest game against the AI
+
+With the server and data service running locally, this plays one move each
+way, signed out. The cookie jar keeps the `guest_game` cookie, which is the
+only thing that lets these requests touch the game:
+
+```bash
+API=http://localhost:3001/api/chess
+
+# New game as white at level 3. The server generates the id and sets the cookie
+GAME=$(curl -s -c jar -b jar -X POST $API/game -H "Content-Type: application/json" \
+  -d '{"start_color":"w","ai_level":3}' | node -pe 'JSON.parse(fs.readFileSync(0)).game_id')
+
+# Your move: e2 to e4 (add "promotion":"q" when a pawn reaches the last rank)
+curl -s -c jar -b jar -X PUT $API/game/$GAME -H "Content-Type: application/json" \
+  -d '{"move":["e2","e4"]}'
+
+# The AI's reply: returns the game with ai_move { from, to, promotion }
+curl -s -c jar -b jar -X POST $API/game/$GAME/ai-move
+
+# The board and result (state, winner, reason)
+curl -s -c jar -b jar $API/game/$GAME
+```
+
+A refused move still answers HTTP 200: check `status` and `message` in the
+body.
+
 ### Socket.IO
 
 `server/socket.js` runs Socket.IO on the same port as Express. Only signed-in
@@ -276,6 +308,22 @@ The client side is `client/src/js/socket/index.js`. `renderCanvas()` calls
 with `watchGames()`. If
 the server turns the socket away because the access token expired, the client
 re-ups the session once and reconnects.
+
+A friend game's board listens like this. The handshake uses the session
+cookie, so the page must be on the server's origin and signed in:
+
+```javascript
+import { joinGame, leaveGame } from "./socket/index.js";
+
+joinGame(gameId, playerId, {
+	move: () => refreshData(),                       // the friend moved: fetch the game, animate prev_move
+	gameOver: ({ winner, reason }) => showMenu(winner, reason), // the friend forfeited
+	rematch: (newGameId) => loadGame(newGameId),     // both pressed Rematch
+});
+
+// Going Home or opening another game
+leaveGame();
+```
 
 Every game response has the result fields:
 
@@ -475,7 +523,7 @@ openssl pkey -in session-key.pem -pubout                                        
 Each goes in its `.env` as a multi-line value in double quotes, the private key
 in `data-service/.env` and the public key in `server/.env`:
 
-```
+```ini
 SESSION_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
 ...
 -----END PRIVATE KEY-----"
@@ -525,7 +573,7 @@ signed out, and guests start a new game.
 
 ## Deploy
 
-```
+```text
 browser ──HTTPS──> nginx ──> chess server :8080 ──http://127.0.0.1:3001──> chess-engine-api ──> Stockfish 19
    │                         (Express + Socket.IO,
    │                          serves client/dist)
@@ -1040,7 +1088,7 @@ leave out `game_id`, the backend creates a new game and generates its id.
 
 ## Project layout
 
-```
+```text
 client/
   home.html                  Home markup: Play the AI (level), Play a friend (email), Invites, Your games, menu (Home, Invites, Your games, Settings, Logout)
   settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
