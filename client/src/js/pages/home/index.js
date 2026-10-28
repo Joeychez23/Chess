@@ -114,6 +114,11 @@ function refreshHome(firstLoad) {
 	return homeDrawing;
 }
 
+/**
+ * @description Loads the player's games from the server & draws Home with them: the rating, the game list, the invites,
+ * the friend box & (first load only) the AI game's board picture. Only call it through refreshHome()
+ * @param  {[boolean]} firstLoad [true also reads the default start settings & loads the AI game]
+ */
 async function drawHome(firstLoad) {
 	const gameData = await getUserGameData(CHESS_URL, PLAYER_ID);
 	if (firstLoad) { SETTINGS = gameData?.settings || null; } // ONLY ON LOAD, A REDRAW DOESN'T UNDO A PICK
@@ -246,6 +251,11 @@ async function loadFriendBox(gameData, friendGame) {
 	else { hideCurrentGame(friendBox); }
 }
 
+/**
+ * @description Checks an email looks like an address before the invite is sent (the server checks the player exists)
+ * @param  {[string]} email [what was typed]
+ * @return {[array]} match [the match, null when it isn't an email]
+ */
 function validateEmail(email) {
 	return String(email).toLowerCase().match(
 		/^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|.(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
@@ -297,6 +307,9 @@ function inviteError(message) {
 	return "Couldn't send the invite, try again";
 }
 
+/**
+ * @description Puts the invite button back to "Invite": the next press warns about the forfeit again
+ */
 function resetInviteBtn() {
 	confirmInvite = false;
 	multiEmailBtn.innerText = "Invite";

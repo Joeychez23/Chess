@@ -46,6 +46,7 @@ function readPublicKey(pem) {
 	}
 }
 
+// THE KEY WHEN IT'S A P-256 EC KEY (THE ONLY KIND ES256 USES), OTHERWISE null
 function p256(key) {
 	return key.asymmetricKeyType == "ec" && key.asymmetricKeyDetails?.namedCurve == CURVE ? key : null;
 }

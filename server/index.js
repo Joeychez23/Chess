@@ -1,3 +1,11 @@
+/*
+ *  index.js  --  chess server
+ *	Chess Server
+ *	Starts the express app & Socket.IO on one port: serves the client bundles (client/dist), the pages (routes/pageRoutes.js)
+ *	& the api (routes/api). Every read & write of a game or player goes to the data service (dataClient.js)
+ *
+ */
+
 const path = require("path");
 const http = require("http");
 const express = require("express");

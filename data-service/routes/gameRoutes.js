@@ -1,3 +1,10 @@
+/*
+ *  gameRoutes.js  --  data service
+ *	Game Routes
+ *	/games/*: making, reading & playing games, one named action per route (controllers/gameController.js)
+ *
+ */
+
 const router = require('express').Router()
 const { requirePlayer } = require('../middleware/player.js')
 const { onlyFields } = require('../middleware/fields.js')

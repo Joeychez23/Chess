@@ -47,6 +47,12 @@ function guestToken(gameId, session) {
 	return signToken({ type: "guest", game_id: gameId, session: session || crypto.randomBytes(12).toString("base64url") }, GUEST_EXPIRES_IN);
 }
 
+/**
+ * @description Signs a token with the session private key (ES256), naming the key (kid) so the chess server knows which public key checks it
+ * @param  {[object]} payload [the token's claims]
+ * @param  {[string]} expiresIn [how long it lasts, e.g. "365d" (GUEST_EXPIRES_IN)]
+ * @return {[string]} token [signed JWT]
+ */
 function signToken(payload, expiresIn) {
 	return jwt.sign(payload, config.sessionPrivateKey, { algorithm: ALGORITHM, keyid: config.sessionKeyId, expiresIn });
 }

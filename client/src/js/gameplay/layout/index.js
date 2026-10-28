@@ -26,8 +26,8 @@ let yBoardStart; // TOP OF THE BOARD IMAGE
 let coffeeStartTime = Date.now(); // CLOCK OF THE COFFEE STEAM ANIMATION
 let renderCoffeeImg = false; // THE SCREEN IS WIDE ENOUGH FOR THE TABLE PROPS
 
-// TABLE PROPS: img2 = IMAGE, shdw = SHADOW, img = OLD STEAM ANIMATION FRAMES (EMPTY)
-// !NOTE: THE PROP SIZES ARE COMMENTED OUT IN renderBoard(), SO THEY DRAW AT 0 x 0 (HIDDEN) RIGHT NOW
+// TABLE PROPS: img2 = IMAGE, shdw = SHADOW, img = STEAM ANIMATION FRAMES (EMPTY, SO NO STEAM)
+// !NOTE: THE PROPS ARE NEVER GIVEN A SIZE (A SMALL BOARD SETS IT TO 0), SO THEY DRAW AT 0 x 0 (HIDDEN) RIGHT NOW
 let coffeeObj = { img: [], img2: 52, shdw: 53, x: null, y: null, width: null, height: null }
 let deckObj = { img: [], img2: 54, shdw: 55, x: null, y: null, width: null, height: null }
 let candleObj = { img: [], img2: 56, shdw: 57, x: null, y: null, width: null, height: null }
@@ -117,22 +117,9 @@ export function renderBoard() {
 
 	if (widthOverHeight) {
 		/* Board Extras */
-		// !NOTE: THE PROP SIZES & POSITIONS ARE COMMENTED OUT, SO THE COFFEE, CARDS & CANDLE DRAW AT 0 x 0 (HIDDEN)
-		// coffeeObj.height = tileHeight * 3.5;
-		// coffeeObj.width = (9 * coffeeObj.height) / 10;
-		// coffeeObj.x = ((cw - xBoardStart) + coffeeObj.width / 8);
-		// coffeeObj.y = ((ch - yBoardStart) - (tileHeight * 3) - coffeeObj.height);
-
-		// deckObj.height = tileHeight * 2.5;
-		// deckObj.width = (9 * deckObj.height) / 10;
-		// deckObj.x = (xBoardStart - (deckObj.width + tileWidth));
-		// deckObj.y = ((ch - yBoardStart) - (tileHeight * 3) - deckObj.height);
-
-		// candleObj.width = tileWidth * 2.5;
-		// candleObj.height = (9 * candleObj.width) / 10;
-		// candleObj.x = (xBoardStart - (candleObj.width + (tileWidth * .75)));
+		// !NOTE: THE COFFEE, CARDS & CANDLE ARE NEVER GIVEN A SIZE, SO THEY DRAW AT 0 x 0 (HIDDEN)
 		candleObj.y = (yBoardStart);
-		if (smBoard) { // Small Board
+		if (smBoard) { // SMALL BOARD: NO ROOM FOR THE PROPS
 			coffeeObj.height = 0;
 			coffeeObj.width = 0;
 			deckObj.height = 0;
@@ -160,14 +147,12 @@ export function renderBoard() {
  * so there's no steam right now
  */
 async function renderCoffee() {
-	const coffeeAnimateTime = 2000; // 2 sec to display all the images
-	const eachCoffeeImgTime = coffeeAnimateTime / coffeeObj.img.length // amount of time per image
-	const currCoffeeImgIndex = Math.floor(((Date.now() - coffeeStartTime) % coffeeAnimateTime) / eachCoffeeImgTime);
-	// ctx.clearRect(coffeeObj.x, coffeeObj.y, coffeeObj.width, coffeeObj.height);
-	// ctx.drawImage(coffeeObj.img[currCoffeeImgIndex], coffeeObj.x, coffeeObj.y, coffeeObj.width, coffeeObj.height);
+	const coffeeAnimateTime = 2000; // 2 SEC TO SHOW EVERY STEAM FRAME
+	const eachCoffeeImgTime = coffeeAnimateTime / coffeeObj.img.length // TIME PER FRAME
+	const currCoffeeImgIndex = Math.floor(((Date.now() - coffeeStartTime) % coffeeAnimateTime) / eachCoffeeImgTime); // THE STEAM FRAME FOR NOW
 	ctx.drawImage(images[coffeeObj.shdw].image, coffeeObj.x, coffeeObj.y, coffeeObj.width, coffeeObj.height);
 	ctx.drawImage(images[coffeeObj.img2].image, coffeeObj.x, coffeeObj.y, coffeeObj.width, coffeeObj.height);
-	if (currCoffeeImgIndex == coffeeObj.img.length - 1) { coffeeStartTime = Date.now(); }
+	if (currCoffeeImgIndex == coffeeObj.img.length - 1) { coffeeStartTime = Date.now(); } // LAST FRAME: START THE STEAM OVER
 };
 
 

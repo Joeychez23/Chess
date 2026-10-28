@@ -1,3 +1,10 @@
+/*
+ *  authRoutes.js  --  chess server
+ *	Auth Routes
+ *	Sign in with Auth0, the session cookies & sign out (controllers/authController.js)
+ *
+ */
+
 const router = require('express').Router()
 const { login, callback, logout, refresh, resume } = require('../../controllers/authController.js')
 

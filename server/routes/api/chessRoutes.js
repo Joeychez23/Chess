@@ -1,3 +1,10 @@
+/*
+ *  chessRoutes.js  --  chess server
+ *	Chess Routes
+ *	New games, moves, the AI's moves, invites, rematches & ratings (controllers/chessController.js)
+ *
+ */
+
 const router = require('express').Router()
 const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
 const { limitNewGames } = require('../../middleware/rateLimit.js')

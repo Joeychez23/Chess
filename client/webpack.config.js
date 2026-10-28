@@ -1,3 +1,10 @@
+/*
+ *  webpack.config.js  --  chess frontend
+ *	Webpack
+ *	Builds one bundle & one .html page per page into client/dist, which the chess server serves
+ *
+ */
+
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const WebpackPwaManifest = require('webpack-pwa-manifest');
 const path = require('path');
@@ -27,15 +34,7 @@ module.exports = () => {
 			new HtmlWebpackPlugin({ template: './play.html', filename: 'play.html', chunks: ['play'] }),
 			new HtmlWebpackPlugin({ template: './settings.html', filename: 'settings.html', chunks: ['settings'] }),
 
-			// Configure service worker on production builds
-			
-			// new InjectManifest({
-			//   swSrc: './src-sw.js',
-			//   swDest: 'src-sw.js',
-			//   maximumFileSizeToCacheInBytes: 10485760,
-			// }),
-
-			new WebpackPwaManifest({
+			new WebpackPwaManifest({ // manifest.json FOR "ADD TO HOME SCREEN" (THE ICONS ARE LINKED IN EACH .html)
 				filename: 'manifest.json',
 				inject: false,
 				fingerprints: false,
@@ -43,14 +42,7 @@ module.exports = () => {
 				start_url: '/'
 			}),
 
-			// new CopyWebpackPlugin({
-			// 	patterns: [
-			// 		{ from: 'src/images', to: 'images/' },
-			// 		{ from: 'src/audio', to: 'audio/' },
-			// 	]
-			// }),
-
-			new Dotenv({
+			new Dotenv({ // client/.env -> process.env.* IN THE BUNDLES & PAGES (CHESS_ASSESTS_URL, ...)
 				path: `./.env`
 			}),
 		],

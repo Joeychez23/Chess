@@ -99,7 +99,7 @@ function dataServiceDown(err, req, res, next) {
 	return res.status(503).json({ status: 503, message: "Try again in a moment" });
 }
 
-const id = (value) => encodeURIComponent(value);
+const id = (value) => encodeURIComponent(value); // AN ID IN A URL PATH CAN'T ADD PATH SEGMENTS
 
 /* ---------------------------------------------------------------- */
 // Games

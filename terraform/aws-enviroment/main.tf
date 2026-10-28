@@ -1,3 +1,8 @@
+# ---------------------------------------------------------------- #
+# AWS Environment
+# THE ROOT MODULE: THE ASSETS CDN, THE TABLES, THE CHESS SERVER'S DNS & ROLE AND THE DATA SERVICE (terraform/README.md)
+# ---------------------------------------------------------------- #
+
 terraform {
   required_providers {
     aws = {

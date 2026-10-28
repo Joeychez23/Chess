@@ -67,6 +67,12 @@ function clearSessionCookies(res) {
 	res.clearCookie(REFRESH_COOKIE, { path: REFRESH_PATH });
 }
 
+/**
+ * @description The options for a session cookie: http only, https in production & gone when the token expires
+ * @param  {[string]} token [the JWT the cookie holds]
+ * @param  {[string]} path [where the browser sends it, "/" or the refresh route]
+ * @return {[object]} options [for res.cookie]
+ */
 function cookieOptions(token, path) {
 	return {
 		httpOnly: true,                             // NOT READABLE FROM CLIENT JS
