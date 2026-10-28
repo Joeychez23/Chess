@@ -65,7 +65,7 @@ The data service signs every session and guest token with its private key (ES256
    sudo install -o dataservice -g dataservice -m 644 /tmp/auth0-jwks.json /opt/data-service/auth0-jwks.json
    ```
 
-3. **Update the data service.** Copy the code with README Deploy step 10's rsync. Then get the two Auth0 values on Chess-Stockfish:
+3. **Update the data service.** Copy the code with [deploy/README.md step 10](deploy/README.md#10-the-data-service)'s rsync. Then get the two Auth0 values on Chess-Stockfish:
 
    ```bash
    grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess-frontend/server/.env
@@ -83,7 +83,7 @@ The data service signs every session and guest token with its private key (ES256
    sudo systemctl restart data-service && journalctl -u data-service -n 5   # "Data service on http://172.31.64.10:8090"
    ```
 
-4. **On Chess-Stockfish, deploy the new server code** (README → Updating and logs, without the restart), **add the public half** (from step 1) and restart the chess server:
+4. **On Chess-Stockfish, deploy the new server code** ([deploy/README.md → Updating, logs and fixes](deploy/README.md#updating-logs-and-fixes), without the restart), **add the public half** (from step 1) and restart the chess server:
 
    ```bash
    sed -i '/^JWT_\(SECRET\|EXPIRES_IN\|REFRESH_EXPIRES_IN\)=/d' /opt/chess-frontend/server/.env
@@ -107,7 +107,7 @@ The data service signs every session and guest token with its private key (ES256
 
 ### If a key leaks
 
-Make a new pair (step 1) and replace both halves at once, without the overlap in README → Changing the session key. Take the old key out first, so the `.env` files don't hold both:
+Make a new pair (step 1) and replace both halves at once, without the overlap in [data-service/README.md → Changing the session key](data-service/README.md#changing-the-session-key). Take the old key out first, so the `.env` files don't hold both:
 
 ```bash
 sudo sed -i '/^SESSION_PRIVATE_KEY=/,/END PRIVATE KEY/d' /opt/data-service/.env    # on the data service
