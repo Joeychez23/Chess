@@ -1,3 +1,8 @@
+# ---------------------------------------------------------------- #
+# Data Service Module
+# THE DATA SERVICE'S PRIVATE INSTANCE: ITS SUBNET, DYNAMODB ENDPOINT, SECURITY GROUP, UPKEEP NAT AND IAM ROLE
+# ---------------------------------------------------------------- #
+
 provider "aws" {
   region = var.aws_region
 }

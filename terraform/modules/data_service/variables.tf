@@ -1,3 +1,5 @@
+# DATA SERVICE MODULE VARIABLES: WHAT THE ROOT MODULE PASSES IN
+
 variable "aws_region" {
   default = "us-west-2" # Chess-Stockfish & THE TABLES
 }

@@ -3,7 +3,7 @@
  *	Socket.IO
  *  Friend games get the opponent's move pushed to them instead of asking the server every 2 seconds.
  *  Each game is a room ("game:<game_id>"). moveGame() emits "move" to the room after a move is saved,
- *  then the client loads the new board with GET /api/chess/game/:gameId like before.
+ *  then the client loads the new board with GET /api/chess/game/:gameId.
  *  forfeitGame() emits "game-over" and rematchGame() emits "rematch" (the new game id) to the same room.
  *  Every socket is also in its player's room ("player:<player_id>"): Home gets "games" when an invite or friend game changes
  *

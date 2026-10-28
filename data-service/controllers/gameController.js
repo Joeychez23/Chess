@@ -334,6 +334,7 @@ async function rematchGame(req, res) {
 	if (!playerId) { return refuse(req, res, 403, "Player is not in this game"); }
 	if (isAiGame(gameData)) { return refuse(req, res, 409, "AI games restart instead"); }
 	if (gameOpen(gameData) || gamePending(gameData)) { return refuse(req, res, 409, "Game isn't over yet"); }
+	// THE ANSWER ONCE THE REMATCH GAME EXISTS (BOTH PLAYERS GET THE SAME ONE)
 	const started = (game) => ({ status: 200, new_game_id: game.rematch_game_id.S, message: "Rematch started" });
 	if (gameData.rematch_game_id) { return res.json(started(gameData)); }
 

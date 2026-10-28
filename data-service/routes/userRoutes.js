@@ -1,3 +1,10 @@
+/*
+ *  userRoutes.js  --  data service
+ *	User Routes
+ *	/users/me/*: the requester's own user row (controllers/userController.js)
+ *
+ */
+
 const router = require('express').Router()
 const { requireSignedIn } = require('../middleware/player.js')
 const { onlyFields } = require('../middleware/fields.js')

@@ -130,11 +130,6 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 		}
 	}
 
-	/* ################################################################ */
-	// TV REMOTE SELECT BOX (TURNED OFF)
-	// if (!remoteNavBox.menuHover && !menuToggled && TV_BOOL || OVERRIDE_TV) {  ctx.drawImage(images[checkHighlight].image, remoteNavBox.x * tileWidth + xBoardOff, (remoteNavBox.y * tileHeight - tileHeight / 10 + yBoardOff), tileWidth, tileHeight);  }
-	/* ################################################################ */
-
 	for (let i = 0; i < inst.length; i++) { // ROW
 		for (let j = 0; j < inst[i].length; j++, index++) { // COLUMN
 			game.tiles[index] = { ...inst[i][j], ...game.tiles[index], x: j, y: i }; // TILE[INDEX] = DECONSTRUCTED ARRAY OF CHESS BOARD ROW/COLUMN, TILE[INDEX] INIT VALUES, X, Y

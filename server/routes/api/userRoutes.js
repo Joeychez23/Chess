@@ -1,3 +1,10 @@
+/*
+ *  userRoutes.js  --  chess server
+ *	User Routes
+ *	The signed in player's account: their user, settings, username & deleting their data (controllers/userController.js)
+ *
+ */
+
 const router = require('express').Router()
 const { requireAuth } = require('../../middleware/auth.js')
 const { getUser, saveSettings, saveUsername, deleteUserData } = require('../../controllers/userController.js')

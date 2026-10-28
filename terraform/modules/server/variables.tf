@@ -1,3 +1,5 @@
+# SERVER MODULE VARIABLES: WHAT THE ROOT MODULE PASSES IN
+
 variable "root_domain_name" {
   type = string
 }

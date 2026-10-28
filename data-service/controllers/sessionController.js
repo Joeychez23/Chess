@@ -88,7 +88,7 @@ function forgetOld(now) {
  * @return {[object]} user [{ user_id, email, email_verified, user_metadata: { screenname, first_name, last_name } }]
  */
 function sessionUser(user, claims) {
-	const text = (value) => typeof value == "string" ? value : undefined;
+	const text = (value) => typeof value == "string" ? value : undefined; // ONLY STRINGS GO IN THE SESSION, ANYTHING ELSE IS LEFT OUT
 	return {
 		user_id: user.user_id,
 		email: user.email,

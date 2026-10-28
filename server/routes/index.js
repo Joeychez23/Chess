@@ -1,3 +1,10 @@
+/*
+ *  index.js  --  chess server
+ *	Routes
+ *	/api/* goes to the api routes, everything else to the page routes. An unknown api route is a 404, an unknown page goes Home
+ *
+ */
+
 const router = require('express').Router();
 const apiRoutes = require('./api')
 const pageRoutes = require('./pageRoutes.js')

@@ -88,7 +88,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 
 	await connection.putItem(params); // POST REQUEST FOR GAME CREATION TO DYNAMODB
 
-	async function handleUser(userId) {
+	async function handleUser(userId) { // ADDS THE GAME TO A PLAYER'S GAME LIST (OPEN, OR REQUESTED FOR AN INVITE)
 		if (userId != "CHESS_AI" && userId != "GUEST_USER" && userId != gameId) { // GUESTS HAVE NO GAME LIST, SKIP THEM LIKE THE AI (A GUEST'S PLAYER ID IS THEIR GAME ID)
 			await changeUserGames(userId, (gameLists) => {
 				let gameList = pending ? gameLists.requested_games : gameLists.open_games; // INVITES WAIT IN requested_games UNTIL THEY'RE ACCEPTED

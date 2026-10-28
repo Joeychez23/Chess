@@ -31,7 +31,7 @@ export function startNav() {
 	const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES)
 	const menu = document.getElementById("menuContainer");
 
-	function toggleNav(open) {
+	function toggleNav(open) { // TRUE OPENS THE MENU, FALSE CLOSES IT
 		menu.style.display = open ? "flex" : "none";
 		optBtn.setAttribute("aria-expanded", open);
 	}

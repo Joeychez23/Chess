@@ -1,7 +1,16 @@
+/*
+ *  config.js  --  chess server
+ *	Config
+ *	Reads server/.env (see server/.env.example) into one settings object. A missing or bad required setting stops the server
+ *	with a message instead of starting half set up
+ *
+ */
+
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env"), quiet: true });
 const { readPublicKey, keyRing } = require("./utils/sessionKeys.js");
 
+// A SETTING THE SERVER CAN'T START WITHOUT, MISSING = EXIT WITH A MESSAGE
 function required(name) {
   const value = process.env[name];
   if (!value) {

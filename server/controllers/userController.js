@@ -16,7 +16,7 @@ const { checkUsername } = require("../utils/username.js");
 // Get User
 /* ---------------------------------------------------------------- */
 /**
- * @description Returns the signed-in user from the access token (requireAuth runs first), same response shape as the old user lambda,
+ * @description Returns the signed-in user from the access token (requireAuth runs first), same response shape the client has always read,
  * & their username from their user_db row (it can change, so it isn't in the token)
  * @return {[object]} response [{ status, userData, username (null until they pick one on the settings page), message }]
  */
