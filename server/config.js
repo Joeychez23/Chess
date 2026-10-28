@@ -21,12 +21,12 @@ function longSecret(name) {
   return value;
 }
 
-// A SESSION KEY MUST BE A P-256 PUBLIC KEY IN PEM (README -> Making the session keys). THE PRIVATE KEY NEVER GOES ON THIS SERVER
+// A SESSION KEY MUST BE A P-256 PUBLIC KEY IN PEM (data-service/README.md -> Making the session keys). THE PRIVATE KEY NEVER GOES ON THIS SERVER
 function publicKey(name, value) {
   if (!value) { return null; }
   const key = readPublicKey(value);
   if (!key) {
-    console.error(`${name} isn't a P-256 public key in PEM. See README -> Making the session keys.`);
+    console.error(`${name} isn't a P-256 public key in PEM. See data-service/README.md -> Making the session keys.`);
     process.exit(1);
   }
   return key;
@@ -48,7 +48,7 @@ const config = {
   clientUrl: process.env.CLIENT_URL || `http://localhost:${port}/`, // WHERE THE GAME IS SERVED, MUST BE IN AUTH0 "ALLOWED LOGOUT URLS"
 
   // SESSION KEYS (#252): THE DATA SERVICE SIGNS EVERY SESSION & GUEST TOKEN, THE SERVER ONLY CHECKS THEM, SO IT CAN'T MAKE ONE.
-  // SESSION_PUBLIC_KEY_NEXT IS ALSO ACCEPTED WHILE THE KEY IS BEING CHANGED (README -> Changing the session key)
+  // SESSION_PUBLIC_KEY_NEXT IS ALSO ACCEPTED WHILE THE KEY IS BEING CHANGED (data-service/README.md -> Changing the session key)
   sessionPublicKeys: keyRing([
     publicKey("SESSION_PUBLIC_KEY", required("SESSION_PUBLIC_KEY")),
     publicKey("SESSION_PUBLIC_KEY_NEXT", process.env.SESSION_PUBLIC_KEY_NEXT)

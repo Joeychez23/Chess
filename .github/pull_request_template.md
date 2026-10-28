@@ -13,4 +13,4 @@
 
 Related issues: <!-- "Closes #12" for each issue this finishes, "#34" for related ones -->
 
-<!-- Update the README if this changes a route, a Socket.IO event, a stored field or a deploy step. -->
+<!-- Update the folder's README if this changes a route, a Socket.IO event, a stored field or a deploy step. -->

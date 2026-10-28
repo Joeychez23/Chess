@@ -22,18 +22,18 @@ function secret(name, value) {
   return value || null;
 }
 
-// A SESSION KEY MUST BE A P-256 KEY IN PEM, THE KIND ES256 SIGNS WITH (README -> Making the session keys)
+// A SESSION KEY MUST BE A P-256 KEY IN PEM, THE KIND ES256 SIGNS WITH (data-service/README.md -> Making the session keys)
 function sessionKey(name, value, read) {
   if (!value) { return null; }
   const key = read(value);
   if (!key) {
-    console.error(`${name} isn't a P-256 key in PEM. See README -> Making the session keys.`);
+    console.error(`${name} isn't a P-256 key in PEM. See data-service/README.md -> Making the session keys.`);
     process.exit(1);
   }
   return key;
 }
 
-// AUTH0'S PUBLIC KEYS (/.well-known/jwks.json), SAVED HERE BECAUSE THIS INSTANCE HAS NO INTERNET (README -> Saving Auth0's keys)
+// AUTH0'S PUBLIC KEYS (/.well-known/jwks.json), SAVED HERE BECAUSE THIS INSTANCE HAS NO INTERNET (data-service/README.md -> Saving Auth0's keys)
 function auth0Keys(file) {
   try {
     const keys = new Map();
@@ -44,7 +44,7 @@ function auth0Keys(file) {
     if (keys.size == 0) { throw new Error("no RSA signing keys in it"); }
     return keys;
   } catch (err) {
-    console.error(`Can't read Auth0's keys from ${file} (${err.message}). See README -> Saving Auth0's keys.`);
+    console.error(`Can't read Auth0's keys from ${file} (${err.message}). See data-service/README.md -> Saving Auth0's keys.`);
     process.exit(1);
   }
 }
