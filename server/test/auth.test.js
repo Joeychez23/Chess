@@ -1,6 +1,6 @@
 /*
  *  auth.test.js  --  chess server tests
- *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, #252)
+ *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, #252)
  *  The server can't make a session: the login callback passes Auth0's id_token to the data service, which checks it & signs the tokens.
  *  The server only checks tokens with the public key, so a token signed any other way is refused. Logout ends the session on every device
  *
@@ -10,10 +10,11 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, send, player, peek, auth0WillSign } = testServer;
+const { call, send, player, peek, auth0WillSign, auth0WillBlock, auth0Logins } = testServer;
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 const { readSessionUser } = require("../middleware/auth.js");
+const { LOGIN_LIMITS } = require("../middleware/rateLimit.js");
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -37,6 +38,8 @@ function logIn(someone, returnTo) {
 
 const me = (accessToken) => send("GET", "/api/user", { access_token: accessToken });
 const refresh = (refreshToken) => send("POST", "/api/auth/refresh", { refresh_token: refreshToken });
+const loginHeaders = (ip = "203.0.113.5", origin = new URL(config.clientUrl).origin) => ({ "Content-Type": "application/json", Origin: origin, "X-Forwarded-For": ip });
+const passwordLogin = (body, options = {}) => send("POST", "/api/auth/login", {}, { headers: loginHeaders(options.ip, options.origin), body: options.rawBody ?? JSON.stringify(body) });
 
 /* ---------------------------------------------------------------- */
 // Login
@@ -74,6 +77,81 @@ describe("login", () => {
 		const login = await send("GET", `/api/auth/callback?code=alice%40test&state=other`, { auth_state: "state1" });
 		assert.equal(login.location, config.clientUrl);
 		assert.equal(login.cookies.access_token, undefined);
+	});
+});
+
+/* ---------------------------------------------------------------- */
+// Password Login
+/* ---------------------------------------------------------------- */
+
+describe("password login", () => {
+	test("sets session cookies and returns the requested page", async () => {
+		const alice = player("alice");
+		const response = await passwordLogin({ email: alice.email, password: alice.password });
+		assert.equal(response.http, 200);
+		assert.equal(response.body.returnTo, "/");
+		assert.ok(response.cookies.access_token && response.cookies.refresh_token);
+		assert.equal((await me(response.cookies.access_token)).http, 200);
+		assert.equal(auth0Logins()[0].headers["auth0-forwarded-for"], "203.0.113.5");
+	});
+
+	test("wrong password and unknown email have the same response", async () => {
+		const alice = player("alice");
+		const wrong = await passwordLogin({ email: alice.email, password: "wrong" });
+		const unknown = await passwordLogin({ email: "unknown@test", password: "wrong" });
+		assert.equal(wrong.http, 401);
+		assert.deepEqual(wrong.body, unknown.body);
+	});
+
+	test("Auth0 blocks and login buckets refuse requests before calling Auth0", async () => {
+		const alice = player("alice");
+		auth0WillBlock();
+		assert.equal((await passwordLogin({ email: alice.email, password: alice.password })).http, 429);
+
+		testServer.reset();
+		for (let i = 0; i < LOGIN_LIMITS.loginIp.burst; i++) {
+			await passwordLogin({ email: `user${i}@test`, password: "x" }, { ip: "198.51.100.10" });
+		}
+		const beforeIp = auth0Logins().length;
+		const ipLimited = await passwordLogin({ email: "other@test", password: "x" }, { ip: "198.51.100.10" });
+		assert.equal(ipLimited.http, 429);
+		assert.ok(Number(ipLimited.retry_after) > 0);
+		assert.equal(auth0Logins().length, beforeIp);
+
+		testServer.reset();
+		for (let i = 0; i < LOGIN_LIMITS.loginEmail.burst; i++) {
+			await passwordLogin({ email: "Alice@Test", password: "x" }, { ip: `198.51.100.${i + 1}` });
+		}
+		const beforeEmail = auth0Logins().length;
+		const emailLimited = await passwordLogin({ email: "alice@test", password: "x" }, { ip: "203.0.113.10" });
+		assert.equal(emailLimited.http, 429);
+		assert.ok(Number(emailLimited.retry_after) > 0);
+		assert.equal(auth0Logins().length, beforeEmail);
+	});
+
+	test("requires same-origin JSON with non-empty string credentials", async () => {
+		const alice = player("alice");
+		const missingOrigin = await send("POST", "/api/auth/login", {}, { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: alice.email, password: alice.password }) });
+		assert.equal(missingOrigin.http, 403);
+		assert.equal((await passwordLogin({ email: alice.email, password: alice.password }, { origin: "https://wrong.test" })).http, 403);
+		const form = await send("POST", "/api/auth/login", {}, { headers: { ...loginHeaders(), "Content-Type": "application/x-www-form-urlencoded" }, body: `email=${alice.email}&password=${alice.password}` });
+		assert.equal(form.http, 403);
+		for (const body of [{ password: alice.password }, { email: alice.email }, { email: 1, password: alice.password }, { email: alice.email, password: 1 }, { email: "", password: "x" }]) {
+			assert.equal((await passwordLogin(body)).http, 400);
+		}
+	});
+
+	test("keeps safe return paths and refuses forged Auth0 tokens", async () => {
+		const alice = player("alice");
+		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/play/game1" })).body.returnTo, "/play/game1");
+		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "//other.site" })).body.returnTo, "/");
+		testServer.reset();
+		const forgedAlice = player("alice");
+		auth0WillSign((claims) => keys.idToken(claims, { forged: true }));
+		const forged = await passwordLogin({ email: forgedAlice.email, password: forgedAlice.password });
+		assert.equal(forged.http, 401);
+		assert.equal(forged.cookies.access_token, undefined);
+		assert.equal(forged.cookies.refresh_token, undefined);
 	});
 });
 

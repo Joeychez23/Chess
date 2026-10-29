@@ -76,6 +76,7 @@ client secret.
 | Route | What it does |
 | --- | --- |
 | `GET /api/auth/login` | Redirects to the Auth0 login page. `?returnTo=/play/:gameId` is saved in a cookie for the callback (only paths on this site) |
+| `POST /api/auth/login` | JSON `{ email, password, returnTo? }` password login. Returns `200`, `400`, `401`, `403`, `429` or `503`; limited to 20 per IP per 30 seconds and 10 per email per minute. Requires the client `Origin` and `application/json` |
 | `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for Auth0's tokens, looks the player up through the Management API (`getAuth0User`, which replaced the `user` lambda), then the data service checks Auth0's `id_token` and signs the session (`POST /session/login`). Goes to `returnTo` or Home |
 | `POST /api/auth/refresh` | Re-ups the session: the data service checks the refresh token and signs a new access + refresh token |
 | `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it logs in first |

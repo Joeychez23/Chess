@@ -78,6 +78,41 @@ async function exchangeCode(code) {
 }
 
 /* ---------------------------------------------------------------- */
+// Password Login
+/* ---------------------------------------------------------------- */
+/**
+ * @description Trades an email & password for Auth0 tokens on our connection (password-realm grant, needs the client secret).
+ * auth0-forwarded-for is the player's address, so Auth0's brute-force protection blocks them, not our server
+ * @param  {[string]} email [player email]
+ * @param  {[string]} password [player password, never logged]
+ * @param  {[string]} ip [req.ip, the player's address]
+ * @return {[object]} tokens [access_token, id_token, expires_in], throws with err.auth0Error (invalid_grant, too_many_attempts...) when refused
+ */
+async function passwordLogin(email, password, ip) {
+	const tokenResponse = await fetch(`${AUTH0_URL}/oauth/token`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", "auth0-forwarded-for": ip },
+		body: JSON.stringify({
+			grant_type: "http://auth0.com/oauth/grant-type/password-realm",
+			realm: config.auth0Connection,
+			scope: "openid profile email",
+			username: email,
+			password,
+			client_id: config.auth0ClientId,
+			client_secret: config.auth0ClientSecret
+		})
+	});
+
+	const tokenData = await tokenResponse.json();
+	if (!tokenResponse.ok) {
+		const err = new Error(`Auth0 password login failed: ${tokenData.error_description || tokenData.error}`);
+		err.auth0Error = tokenData.error;
+		throw err;
+	}
+	return tokenData;
+}
+
+/* ---------------------------------------------------------------- */
 // Management API Token
 /* ---------------------------------------------------------------- */
 /**
@@ -134,4 +169,4 @@ async function getAuth0User(email) {
 }
 
 
-module.exports = { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, getAuth0User };
+module.exports = { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin, getAuth0User };
