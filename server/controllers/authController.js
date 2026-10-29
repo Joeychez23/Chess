@@ -4,6 +4,7 @@
  *  login -> Auth0 Universal Login or password login -> our JWT session cookies -> back to the page (returnTo) or Home
  *  refresh & resume re-up the session, logout ends it everywhere & on Auth0. Only a 401 from the data service signs a player out (#283)
  *  The session tokens are signed by the data service (#252), this server passes Auth0's id_token on & sets the cookies it gets back
+ *  A failed login goes Home with ?login=failed or ?login=unavailable, so the guest page tells the player (#282)
  *
  */
 
@@ -60,20 +61,33 @@ async function callback(req, res) {
 
 	if (error || !code || !state || state != savedState) { // LOGIN CANCELED OR NOT STARTED BY US
 		console.log(`Login failed: ${error || "invalid state"}`);
-		return res.redirect(config.clientUrl);
+		return res.redirect(loginFailed("failed"));
 	}
 
 	try {
 		const tokens = await exchangeCode(code); // CODE -> AUTH0 TOKENS
 		const session = await startPlayerSession(tokens.id_token);
-		if (!session) { return res.redirect(config.clientUrl); }
+		if (!session) { return res.redirect(loginFailed("failed")); }
 
 		setSessionCookies(res, session);
 		return res.redirect(new URL(returnTo || "/", config.clientUrl).href); // BACK TO THE PAGE THEY CAME FROM, OR HOME
 	} catch (err) {
-		console.log(err);
-		return res.redirect(config.clientUrl);
+		if (err.name == "DataServiceDown") { // THE DATA SERVICE IS DOWN, OR SIGNED WITH A KEY THIS SERVER CAN'T READ
+			console.error(err.message);
+			return res.redirect(loginFailed("unavailable"));
+		}
+		console.error(err);
+		return res.redirect(loginFailed("failed"));
 	}
+}
+
+/**
+ * @description Where a failed callback goes: Home with the reason, so the guest page says sign in didn't work (#282)
+ * @param  {[string]} reason ["failed" (try again) or "unavailable" (the data service is down)]
+ * @return {[string]} url
+ */
+function loginFailed(reason) {
+	return new URL(`/?login=${reason}`, config.clientUrl).href;
 }
 
 /* ---------------------------------------------------------------- */
@@ -125,7 +139,8 @@ async function startPlayerSession(idToken) {
 	}
 	const session = await startSession(idToken, sessionUser(auth0User)); // THE DATA SERVICE SIGNS THE ACCESS & REFRESH TOKENS
 	if (session.status != 200) {
-		console.log(`Login failed: ${session.message}`);
+		const log = session.message?.includes("unknown key") ? console.error : console.log; // AN UNKNOWN KEY IS A SETUP PROBLEM, NOT THE PLAYER'S (#282)
+		log(`Login failed: ${session.message}`);
 		return null;
 	}
 	return session;

@@ -26,9 +26,16 @@ const aiColorSelect = document.getElementById("aiColor"); // RANDOM, WHITE OR BL
 const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BLANK = THE STANDARD POSITION, RESTART KEEPS IT
 const soloNote = document.getElementById("soloNote"); // WHY A START POSITION CAN'T BE PLAYED
 const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY AI, OR NEW GAME WHILE THE GUEST'S GAME IS OPEN
+const loginNote = document.getElementById("loginNote"); // WHY SIGNING IN DIDN'T WORK
+
+const LOGIN_FAILURES = { // ?login= FROM THE LOGIN CALLBACK (server/controllers/authController.js)
+	failed: "Sign in didn't work, try again.",
+	unavailable: "Sign in isn't working right now, try again in a moment."
+};
 
 const auth = new InternalAuth;
 
+showLoginFailure();
 startNav();
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
 startGameLinks(); // CONTINUE CURRENT GAME SAYS LOADING TOO
@@ -46,6 +53,22 @@ optNewSoloBtn.addEventListener("click", handleNewGuestGame);
 async function checkSession() {
 	const sessionUser = await auth.getUser();
 	if (sessionUser) { return window.location.replace("/"); } // THE NEW ACCESS TOKEN IS SET, THE SERVER SENDS HOME NOW
+}
+
+/* ---------------------------------------------------------------- */
+// Login Failure
+/* ---------------------------------------------------------------- */
+/**
+ * @description A failed login comes back here with ?login=failed or ?login=unavailable (#282). Says so under Sign in,
+ * then drops it from the address so a reload doesn't say it again
+ */
+function showLoginFailure() {
+	const url = new URL(window.location.href);
+	const reason = url.searchParams.get("login");
+	if (!reason) { return; }
+	loginNote.innerText = LOGIN_FAILURES[reason] || LOGIN_FAILURES.failed;
+	url.searchParams.delete("login");
+	window.history.replaceState(null, "", url.pathname + url.search + url.hash);
 }
 
 /* ---------------------------------------------------------------- */
