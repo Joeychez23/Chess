@@ -163,6 +163,15 @@ describe("POST /users/me/delete", () => {
 		assert.equal(peek("chess_db", "game1").state.S, "CLOSED"); // THE FINISHED GAME STAYS FOR BOB
 	});
 
+	test("a game on their list that they're not in is pruned & doesn't block it", async () => {
+		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await new DynamoDB({}).putItem({ TableName: "chess_db", Item: { ...peek("chess_db", "game1"), white_player_id: { S: "bob" } } }); // REPLACED UNDER ALICE'S LIST (BEFORE CREATES WERE CONDITIONAL)
+		assert.equal((await call("GET", "/users/me?games=true", { as: alice })).user_data.ai_game_id, null);
+		assert.deepEqual(JSON.parse(peek("user_db", "alice").open_games.S), []);
+		assert.equal((await call("POST", "/users/me/delete", { as: alice })).status, 200);
+		assert.equal(peek("chess_db", "game1").white_player_id.S, "bob"); // BOB'S GAME STAYS
+	});
+
 	test("guests and extra fields are refused", async () => {
 		await refused(["guest1"], "POST", "/users/me/delete", { guest: "guest1" }, 403);
 		await call("POST", "/users/me/settings", { as: alice, body: SETTINGS });
