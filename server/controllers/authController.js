@@ -2,7 +2,7 @@
  *  authController.js  --  chess server
  *	Auth Routes
  *  login -> Auth0 Universal Login or password login -> our JWT session cookies -> back to the page (returnTo) or Home
- *  refresh & resume re-up the session, logout ends it everywhere & on Auth0.
+ *  refresh & resume re-up the session, logout ends it everywhere & on Auth0. Only a 401 from the data service signs a player out (#283)
  *  The session tokens are signed by the data service (#252), this server passes Auth0's id_token on & sets the cookies it gets back
  *
  */
@@ -16,7 +16,7 @@ const jwt = require("jsonwebtoken");
 const config = require("../config");
 const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin: auth0PasswordLogin, getAuth0User } = require("../utils/auth0.js");
 const { setSessionCookies, clearSessionCookies, readRefreshCookie } = require("../middleware/auth.js");
-const { startSession, refreshSession, endSession } = require("../dataClient.js");
+const { startSession, refreshSession, endSession, down } = require("../dataClient.js");
 
 const STATE_COOKIE = "auth_state";
 const RETURN_COOKIE = "auth_return"; // THE PAGE TO GO BACK TO AFTER LOGIN (A GAME LINK, /play/:gameId)
@@ -183,15 +183,18 @@ async function refresh(req, res) {
 }
 
 /**
- * @description New session tokens for the refresh cookie, unless it's missing, expired, changed or its session was ended (logout, Delete my data)
+ * @description New session tokens for the refresh cookie, unless it's missing, expired, changed or its session was ended (logout, Delete my data).
+ * Any other refusal (a 404 while the two instances run different code, a 400) throws, so it answers 503 "Try again in a moment" & keeps the cookies
  * @param  {[object]} req [express request]
- * @return {[object]} session [{ access_token, refresh_token } | null]
+ * @return {[object]} session [{ access_token, refresh_token } | null when there's no cookie or the data service answered 401]
  */
 async function reup(req) {
 	const refreshToken = readRefreshCookie(req);
 	if (!refreshToken) { return null; }
 	const session = await refreshSession(refreshToken);
-	return session.status == 200 ? session : null;
+	if (session.status == 200) { return session; }
+	if (session.status == 401) { return null; } // A BAD REFRESH TOKEN OR AN ENDED SESSION, THE ONLY ANSWERS THAT SIGN A PLAYER OUT
+	throw down(`POST /session/refresh: ${session.status} ${session.message}`);
 }
 
 /**

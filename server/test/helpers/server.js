@@ -28,6 +28,7 @@ const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
 const engineMoves = []; // QUEUED ENGINE ANSWERS: { from, to, promotion }, THE ENGINE IS "DOWN" WHEN IT'S EMPTY
 const guestCookies = new Map(); // GUEST BROWSER NAME -> ITS guest_game COOKIE, LIKE A BROWSER KEEPS IT
 const auth0IdTokens = []; // QUEUED id_token MAKERS FOR THE NEXT LOGINS (auth0WillSign), A REAL ONE WHEN IT'S EMPTY
+const dataServiceAnswers = []; // QUEUED DATA SERVICE ANSWERS: { path, status, message } (dataServiceWillAnswer), THE REAL DATA SERVICE WHEN NONE MATCHES
 let baseUrl;
 
 /* ---------------------------------------------------------------- */
@@ -63,7 +64,7 @@ async function start() {
 }
 
 /**
- * @description Clears the tables, the Auth0 users & id_tokens, the engine's queue, the guests' cookies and the new game limits between tests
+ * @description Clears the tables, the Auth0 users & id_tokens, the engine's & data service's queues, the guests' cookies and the new game limits between tests
  */
 function reset() {
 	fakeDynamo.reset();
@@ -74,6 +75,7 @@ function reset() {
 	engineMoves.length = 0;
 	guestCookies.clear();
 	auth0IdTokens.length = 0;
+	dataServiceAnswers.length = 0;
 	resetLimits();
 }
 
@@ -171,7 +173,8 @@ function engineWillPlay(from, to, promotion) {
 // Stand-in Auth0 & Engine
 /* ---------------------------------------------------------------- */
 /**
- * @description Answers fetch for the Auth0 tenant and the engine API from the test data, everything else goes out as normal (the test's own requests)
+ * @description Answers fetch for the Auth0 tenant and the engine API from the test data, and a data service request a test queued an answer for,
+ * everything else goes out as normal (the test's own requests & the real data service)
  */
 async function standInFetch(url, options) {
 	const { hostname, pathname, searchParams } = new URL(url);
@@ -184,6 +187,13 @@ async function standInFetch(url, options) {
 	if (hostname == "auth0.test" && pathname == "/api/v2/users-by-email") {
 		const user = auth0Users.get(searchParams.get("email"));
 		return json(user ? [user] : []);
+	}
+	if (url.startsWith(config.dataServiceUrl)) {
+		const queued = dataServiceAnswers.findIndex((answer) => answer.path == pathname);
+		if (queued != -1) {
+			const [answer] = dataServiceAnswers.splice(queued, 1);
+			return json({ status: answer.status, message: answer.message }, answer.status);
+		}
 	}
 	if (hostname == "engine.test") {
 		const move = engineMoves.shift();
@@ -237,5 +247,15 @@ function auth0WillSign(make) {
 	auth0IdTokens.push(make);
 }
 
+/**
+ * @description The data service's next answer to this path is this refusal instead (a 404 "No such action" while the two instances run different code)
+ * @param  {[string]} path [data service path, "/session/refresh"]
+ * @param  {[number]} status [HTTP status]
+ * @param  {[string]} message [refusal message]
+ */
+function dataServiceWillAnswer(path, status, message) {
+	dataServiceAnswers.push({ path, status, message });
+}
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, auth0WillSign, auth0WillBlock, auth0Logins, peek: fakeDynamo.peek };
+
+module.exports = { start, reset, player, call, send, page, engineWillPlay, auth0WillSign, auth0WillBlock, auth0Logins, dataServiceWillAnswer, peek: fakeDynamo.peek };
