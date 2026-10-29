@@ -108,4 +108,4 @@ async function call(method, path, options = {}) {
 }
 
 
-module.exports = { start, reset, player, sessionToken, guestCookie, signatureHeaders, call, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, sessionToken, guestCookie, signatureHeaders, call, peek: fakeDynamo.peek, failBatchReads: fakeDynamo.failBatchReads };
