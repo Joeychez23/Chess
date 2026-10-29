@@ -1,7 +1,7 @@
 /*
  *  authController.js  --  chess server
  *	Auth Routes
- *  login -> Auth0 Universal Login -> callback -> our JWT session cookies -> back to the page (returnTo) or Home
+ *  login -> Auth0 Universal Login or password login -> our JWT session cookies -> back to the page (returnTo) or Home
  *  refresh & resume re-up the session, logout ends it everywhere & on Auth0.
  *  The session tokens are signed by the data service (#252), this server passes Auth0's id_token on & sets the cookies it gets back
  *
@@ -14,7 +14,7 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
-const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, getAuth0User } = require("../utils/auth0.js");
+const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin: auth0PasswordLogin, getAuth0User } = require("../utils/auth0.js");
 const { setSessionCookies, clearSessionCookies, readRefreshCookie } = require("../middleware/auth.js");
 const { startSession, refreshSession, endSession } = require("../dataClient.js");
 
@@ -65,19 +65,8 @@ async function callback(req, res) {
 
 	try {
 		const tokens = await exchangeCode(code); // CODE -> AUTH0 TOKENS
-		const email = jwt.decode(tokens.id_token)?.email; // ONLY TO FIND THE USER, THE DATA SERVICE VERIFIES THE id_token ITSELF BEFORE IT SIGNS ANYTHING
-		const auth0User = await getAuth0User(email); // FULL USER (USER_ID + USER_METADATA)
-
-		if (!auth0User) {
-			console.log(`Login failed: no ${config.auth0Connection} user for ${email}`);
-			return res.redirect(config.clientUrl);
-		}
-
-		const session = await startSession(tokens.id_token, sessionUser(auth0User)); // THE DATA SERVICE SIGNS THE ACCESS & REFRESH TOKENS
-		if (session.status != 200) {
-			console.log(`Login failed: ${session.message}`);
-			return res.redirect(config.clientUrl);
-		}
+		const session = await startPlayerSession(tokens.id_token);
+		if (!session) { return res.redirect(config.clientUrl); }
 
 		setSessionCookies(res, session);
 		return res.redirect(new URL(returnTo || "/", config.clientUrl).href); // BACK TO THE PAGE THEY CAME FROM, OR HOME
@@ -85,6 +74,61 @@ async function callback(req, res) {
 		console.log(err);
 		return res.redirect(config.clientUrl);
 	}
+}
+
+/* ---------------------------------------------------------------- */
+// Password Login
+/* ---------------------------------------------------------------- */
+/**
+ * @description POST /api/auth/login's checks: only JSON from our own page (login CSRF: a form post or another site gets 403),
+ * with an email & password that are strings (400)
+ */
+function checkLogin(req, res, next) {
+	if (!req.is("application/json") || req.get("Origin") !== new URL(config.clientUrl).origin) {
+		return res.status(403).json({ status: 403, message: "Forbidden" });
+	}
+	if (typeof req.body?.email != "string" || !req.body.email.trim() || typeof req.body?.password != "string" || !req.body.password) {
+		return res.status(400).json({ status: 400, message: "Email and password are required" });
+	}
+	return next();
+}
+
+/**
+ * @description The login page's sign in: Auth0 checks the password, then the same steps as the callback. Answers { returnTo }
+ * & the page goes there itself. An unknown email & a wrong password get the same 401 (#192). Never logs the password or the body
+ */
+async function passwordLogin(req, res, next) {
+	try {
+		const tokens = await auth0PasswordLogin(req.body.email, req.body.password, req.ip);
+		const session = await startPlayerSession(tokens.id_token);
+		if (!session) { return res.status(401).json({ status: 401, message: "Wrong email or password" }); }
+		setSessionCookies(res, session);
+		return res.json({ status: 200, returnTo: returnPath(req.body.returnTo) || "/" });
+	} catch (err) {
+		if (err.auth0Error == "invalid_grant") { return res.status(401).json({ status: 401, message: "Wrong email or password" }); }
+		if (err.auth0Error == "too_many_attempts") { return res.status(429).json({ status: 429, message: "Too many login attempts. Check the email Auth0 sent to unblock your account." }); }
+		return next(err);
+	}
+}
+
+/**
+ * @description What the callback & a password login both do with Auth0's id_token: find the player, then the data service checks it & signs the session
+ * @param  {[string]} idToken [Auth0's id_token]
+ * @return {[object]} session [{ access_token, refresh_token } | null when it's refused (logged why)]
+ */
+async function startPlayerSession(idToken) {
+	const email = jwt.decode(idToken)?.email; // ONLY TO FIND THE USER, THE DATA SERVICE VERIFIES THE id_token ITSELF BEFORE IT SIGNS ANYTHING
+	const auth0User = await getAuth0User(email); // FULL USER (USER_ID + USER_METADATA)
+	if (!auth0User) {
+		console.log(`Login failed: no ${config.auth0Connection} user for ${email}`);
+		return null;
+	}
+	const session = await startSession(idToken, sessionUser(auth0User)); // THE DATA SERVICE SIGNS THE ACCESS & REFRESH TOKENS
+	if (session.status != 200) {
+		console.log(`Login failed: ${session.message}`);
+		return null;
+	}
+	return session;
 }
 
 /* ---------------------------------------------------------------- */
@@ -181,4 +225,4 @@ function returnPath(value) {
 }
 
 
-module.exports = { login, callback, logout, refresh, resume };
+module.exports = { login, callback, checkLogin, passwordLogin, logout, refresh, resume };

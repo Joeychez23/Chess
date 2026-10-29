@@ -32,6 +32,7 @@ app.use((err, req, res, next) => {
       if (err.type === "entity.too.large") return res.status(413).json({ error: "Request is too large." });
     if (err.name === "ValidationError") return res.status(400).json({ error: err.message });
     if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
+    delete err.body; // A REQUEST BODY (A LOGIN'S PASSWORD) IS NEVER LOGGED, BAD JSON IS ANSWERED ABOVE WITHOUT LOGGING
     console.error(err);
     res.status(500).json({ error: "Something went wrong on our side." });
 });

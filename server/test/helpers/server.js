@@ -22,6 +22,9 @@ const { resetLimits } = require("../../middleware/rateLimit.js");
 
 const realFetch = globalThis.fetch;
 const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
+const auth0Passwords = new Map(); // EMAIL -> PASSWORD, ONLY THE PASSWORD GRANT USES THIS
+const auth0LoginRequests = []; // PASSWORD-REALM REQUESTS (HEADERS + BODY)
+const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
 const engineMoves = []; // QUEUED ENGINE ANSWERS: { from, to, promotion }, THE ENGINE IS "DOWN" WHEN IT'S EMPTY
 const guestCookies = new Map(); // GUEST BROWSER NAME -> ITS guest_game COOKIE, LIKE A BROWSER KEEPS IT
 const auth0IdTokens = []; // QUEUED id_token MAKERS FOR THE NEXT LOGINS (auth0WillSign), A REAL ONE WHEN IT'S EMPTY
@@ -65,6 +68,9 @@ async function start() {
 function reset() {
 	fakeDynamo.reset();
 	auth0Users.clear();
+	auth0Passwords.clear();
+	auth0LoginRequests.length = 0;
+	auth0Blocks.length = 0;
 	engineMoves.length = 0;
 	guestCookies.clear();
 	auth0IdTokens.length = 0;
@@ -82,7 +88,9 @@ function reset() {
 function player(name) {
 	const user = { user_id: `auth0|${name}`, email: `${name}@test`, email_verified: true, user_metadata: { screenname: name[0].toUpperCase() + name.slice(1) } };
 	auth0Users.set(user.email, { ...user, identities: [{ connection: process.env.AUTH0_CONNECTION }] });
-	return { id: name, email: user.email, user };
+	const password = `${name}-password`;
+	auth0Passwords.set(user.email, password);
+	return { id: name, email: user.email, password, user };
 }
 
 /**
@@ -121,18 +129,20 @@ async function call(method, path, options = {}) {
  * @param  {[string]} method ["GET" or "POST"]
  * @param  {[string]} path [e.g. "/api/auth/refresh"]
  * @param  {[object]} cookies [{ name: value }, sent as the Cookie header]
- * @return {[object]} response [{ http, location, cookies: { name: value } set by the response ("" = cleared), body: the JSON body or null }]
+ * @param  {[object]} options [{ headers, body: a raw body string }]
+ * @return {[object]} response [{ http, location, retry_after, cookies: { name: value } set by the response ("" = cleared), body: the JSON body or null }]
  */
-async function send(method, path, cookies = {}) {
+async function send(method, path, cookies = {}, options = {}) {
 	const Cookie = Object.entries(cookies).map(([name, value]) => `${name}=${value}`).join("; ");
-	const res = await realFetch(`${baseUrl}${path}`, { method, headers: Cookie ? { Cookie } : {}, redirect: "manual" });
+	const headers = { ...(Cookie ? { Cookie } : {}), ...(options.headers || {}) };
+	const res = await realFetch(`${baseUrl}${path}`, { method, headers, body: options.body, redirect: "manual" });
 	const set = {};
 	for (const cookie of res.headers.getSetCookie()) {
 		const [pair] = cookie.split(";");
 		set[pair.slice(0, pair.indexOf("="))] = decodeURIComponent(pair.slice(pair.indexOf("=") + 1));
 	}
 	const text = await res.text();
-	return { http: res.status, location: res.headers.get("location"), cookies: set, body: text.startsWith("{") ? JSON.parse(text) : null };
+	return { http: res.status, location: res.headers.get("location"), retry_after: res.headers.get("retry-after"), cookies: set, body: text.startsWith("{") ? JSON.parse(text) : null };
 }
 
 /**
@@ -167,7 +177,10 @@ async function standInFetch(url, options) {
 	const { hostname, pathname, searchParams } = new URL(url);
 	const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-	if (hostname == "auth0.test" && pathname == "/oauth/token") { return json(await auth0Token(JSON.parse(options.body))); }
+	if (hostname == "auth0.test" && pathname == "/oauth/token") {
+		const result = await auth0Token(JSON.parse(options.body), options);
+		return json(result.body, result.status);
+	}
 	if (hostname == "auth0.test" && pathname == "/api/v2/users-by-email") {
 		const user = auth0Users.get(searchParams.get("email"));
 		return json(user ? [user] : []);
@@ -181,15 +194,39 @@ async function standInFetch(url, options) {
 }
 
 /**
- * @description Auth0's /oauth/token: a Management API token, or a login's code (here, the player's email) traded for their id_token
- * @param  {[object]} body [{ grant_type, code }]
- * @return {[object]} tokens
+ * @description Auth0's /oauth/token: a Management API token, a login's code (here, the player's email) traded for their id_token,
+ * or a password login (password-realm) checked against the player's password
+ * @param  {[object]} body [{ grant_type, code | realm, username, password }]
+ * @param  {[object]} options [the fetch options, a password login's headers are kept for auth0Logins()]
+ * @return {[object]} response [{ body, status }]
  */
-function auth0Token(body) {
-	if (body.grant_type != "authorization_code") { return { access_token: "management-token", expires_in: 86400 }; }
+function auth0Token(body, options) {
+	if (body.grant_type == "http://auth0.com/oauth/grant-type/password-realm") {
+		auth0LoginRequests.push({ headers: options.headers, body });
+		if (body.realm != process.env.AUTH0_CONNECTION) { return { body: { error: "invalid_grant", error_description: "Wrong email or password." }, status: 403 }; }
+		if (auth0Blocks.shift()) { return { body: { error: "too_many_attempts" }, status: 429 }; }
+		if (!auth0Users.has(body.username) || auth0Passwords.get(body.username) != body.password) { return { body: { error: "invalid_grant", error_description: "Wrong email or password." }, status: 403 }; }
+		const user = auth0Users.get(body.username);
+		return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email }), expires_in: 86400 }, status: 200 };
+	}
+	if (body.grant_type != "authorization_code") { return { body: { access_token: "management-token", expires_in: 86400 }, status: 200 }; }
 	const user = auth0Users.get(body.code);
 	if (!user) { throw new Error("invalid_grant"); }
-	return { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email }), expires_in: 86400 };
+	return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email }), expires_in: 86400 }, status: 200 };
+}
+
+/**
+ * @description The next password login is blocked by Auth0's brute-force protection (too_many_attempts)
+ */
+function auth0WillBlock() {
+	auth0Blocks.push(true);
+}
+
+/**
+ * @description The password logins Auth0 was asked for: [{ headers, body }]
+ */
+function auth0Logins() {
+	return auth0LoginRequests;
 }
 
 /**
@@ -201,4 +238,4 @@ function auth0WillSign(make) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, auth0WillSign, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, call, send, page, engineWillPlay, auth0WillSign, auth0WillBlock, auth0Logins, peek: fakeDynamo.peek };

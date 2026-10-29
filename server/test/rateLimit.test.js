@@ -1,6 +1,6 @@
 /*
  *  rateLimit.test.js  --  chess server tests
- *	Guest Cookies & New Game Limits (server/middleware/auth.js, server/middleware/rateLimit.js)
+ *	Guest Cookies & New Game & Login Limits (server/middleware/auth.js, server/middleware/rateLimit.js)
  *  A guest's game only answers the browser that made it, and making games in a loop is cut off with a 429 while moves go on
  *
  */
@@ -10,7 +10,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
 const { call, player, peek } = testServer;
-const { takeTokens, ipKey, resetLimits, LIMITS } = require("../middleware/rateLimit.js");
+const { takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS } = require("../middleware/rateLimit.js");
 const { guestToken } = require("../../data-service/test/helpers/keys.js");
 
 let server;
@@ -193,5 +193,13 @@ describe("buckets", () => {
 		assert.equal(ipKey("2001:db8::1"), "2001:db8:0:0::/64");
 		assert.equal(ipKey("::ffff:203.0.113.5"), "203.0.113.5");
 		assert.equal(ipKey("203.0.113.5"), "203.0.113.5");
+	});
+
+	test("login buckets don't take from new-game buckets", () => {
+		for (let i = 0; i < LOGIN_LIMITS.loginIp.burst; i++) {
+			assert.equal(takeTokens({ loginIp: "203.0.113.5" }, 0, LOGIN_LIMITS).ok, true);
+		}
+		assert.equal(takeTokens({ loginIp: "203.0.113.5" }, 0, LOGIN_LIMITS).ok, false);
+		assert.equal(takeTokens({ ip: "203.0.113.5" }, 0, LIMITS).ok, true);
 	});
 });
