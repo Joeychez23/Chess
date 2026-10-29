@@ -88,6 +88,43 @@ describe("new AI game", () => {
 	});
 });
 
+describe("one create per game id", () => {
+	test("two new AI games with one id at once: one is made, the other is refused", async () => {
+		const results = await Promise.all([
+			call("POST", "/games/ai", { as: alice, body: { game_id: "game1", color: "w", level: 3 } }),
+			call("POST", "/games/ai", { as: bob, body: { game_id: "game1", color: "w", level: 5 } }),
+		]);
+		assert.deepEqual(results.map((result) => result.http).sort(), [200, 409]);
+		const winner = results.find((result) => result.http == 200).game_data;
+		assert.deepEqual(peek("chess_db", "game1").white_player_id, winner.white_player_id);
+		const loser = winner.white_player_id.S == "alice" ? "bob" : "alice";
+		assert.deepEqual(list(loser, "open_games"), []);
+	});
+
+	test("two invites with one id at once: one is made, the other is refused", async () => {
+		const results = await Promise.all([
+			call("POST", "/games/invite", { as: alice, body: { opponent_id: "bob", color: "w", game_id: "game1" } }),
+			call("POST", "/games/invite", { as: carol, body: { opponent_id: "bob", color: "w", game_id: "game1" } }),
+		]);
+		assert.deepEqual(results.map((result) => result.http).sort(), [200, 409]);
+		assert.deepEqual(list("bob", "requested_games"), ["game1"]);
+	});
+
+	test("two new guests with one id at once each get a game, neither is overwritten", async () => {
+		const results = await Promise.all([
+			call("POST", "/games/guest", { body: { game_id: "guest1", color: "w", level: 2 } }),
+			call("POST", "/games/guest", { body: { game_id: "guest1", color: "w", level: 7 } }),
+		]);
+		const ids = results.map((result) => result.game_data.game_id.S);
+		assert.notEqual(ids[0], ids[1]);
+		for (const result of results) {
+			const stored = peek("chess_db", result.game_data.game_id.S);
+			assert.equal(stored.ai_level.N, result.game_data.ai_level.N);
+			assert.equal(stored.white_player_id.S, result.game_data.game_id.S);
+		}
+	});
+});
+
 /* ---------------------------------------------------------------- */
 // Guest Games
 /* ---------------------------------------------------------------- */
