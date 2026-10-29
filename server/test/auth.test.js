@@ -1,6 +1,6 @@
 /*
  *  auth.test.js  --  chess server tests
- *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, #252, only a 401 signs out #283)
+ *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, #252, only a 401 signs out #283, a failed login says why #282)
  *  The server can't make a session: the login callback passes Auth0's id_token to the data service, which checks it & signs the tokens.
  *  The server only checks tokens with the public key, so a token signed any other way is refused. Logout ends the session on every device
  *
@@ -36,6 +36,7 @@ function logIn(someone, returnTo) {
 	return send("GET", `/api/auth/callback?code=${encodeURIComponent(someone.email)}&state=state1`, cookies);
 }
 
+const loginFailed = (reason) => new URL(`/?login=${reason}`, config.clientUrl).href; // WHERE A FAILED CALLBACK GOES (#282)
 const me = (accessToken) => send("GET", "/api/user", { access_token: accessToken });
 const refresh = (refreshToken) => send("POST", "/api/auth/refresh", { refresh_token: refreshToken });
 const loginHeaders = (ip = "203.0.113.5", origin = new URL(config.clientUrl).origin) => ({ "Content-Type": "application/json", Origin: origin, "X-Forwarded-For": ip });
@@ -66,7 +67,7 @@ describe("login", () => {
 		auth0WillSign((claims) => keys.idToken({ ...claims, iss: "https://another.auth0.test/" }));
 		for (let i = 0; i < 3; i++) {
 			const login = await logIn(alice);
-			assert.equal(login.location, config.clientUrl);
+			assert.equal(login.location, loginFailed("failed"));
 			assert.deepEqual(login.cookies, { auth_state: "", auth_return: "" }); // ONLY THE LOGIN COOKIES ARE CLEARED
 		}
 		assert.equal(peek("user_db", "alice"), undefined);
@@ -75,8 +76,27 @@ describe("login", () => {
 	test("a login the state doesn't match never reaches the data service", async () => {
 		player("alice");
 		const login = await send("GET", `/api/auth/callback?code=alice%40test&state=other`, { auth_state: "state1" });
-		assert.equal(login.location, config.clientUrl);
+		assert.equal(login.location, loginFailed("failed"));
 		assert.equal(login.cookies.access_token, undefined);
+	});
+
+	test("a login with the data service down lands Home with the unavailable reason & logs an error", async (t) => {
+		player("alice");
+		const errors = t.mock.method(console, "error", () => {});
+		dataServiceWillAnswer("/session/login", 503, "Down");
+		const login = await logIn(alice);
+		assert.equal(login.location, loginFailed("unavailable"));
+		assert.equal(login.cookies.access_token, undefined);
+		assert.match(String(errors.mock.calls[0].arguments[0]), /POST \/session\/login: 503/);
+	});
+
+	test("an id_token with a key the data service doesn't know lands with the failed reason & logs an error", async (t) => {
+		player("alice");
+		const errors = t.mock.method(console, "error", () => {});
+		auth0WillSign((claims) => keys.idToken(claims, { kid: "another-key" }));
+		const login = await logIn(alice);
+		assert.equal(login.location, loginFailed("failed"));
+		assert.match(String(errors.mock.calls[0].arguments[0]), /unknown key/);
 	});
 });
 
