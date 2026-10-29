@@ -143,6 +143,14 @@ describe("POST /users/me/delete", () => {
 		await refused(["alice", "username#alice_k"], "POST", "/users/me/delete", { as: alice }, 409);
 	});
 
+	test("refused when the open games can't be read (a throttled or failed batch read)", async () => {
+		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
+		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		service.failBatchReads(true);
+		await refused(["alice", "username#alice_k"], "POST", "/users/me/delete", { as: alice }, 500);
+		assert.equal((await call("GET", "/users/me?games=true", { as: alice })).http, 500); // HOME TOO, NOT AN EMPTY LIST
+	});
+
 	test("once they've left every game, the row and the username go, other players stay", async () => {
 		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
 		await friendGame("game1", "alice", "bob");
