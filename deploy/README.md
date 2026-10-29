@@ -47,6 +47,10 @@ URLs** and `https://chess.aws-prac-route53.com/` to **Allowed Logout URLs**.
 Both fields take comma-separated lists, so keep the `localhost` entries for
 development.
 
+In **Advanced Settings** -> **Grant Types**, enable **Password**. In the Auth0
+tenant settings, enable **Trust Token Endpoint IP Header** so Auth0 can use the
+`auth0-forwarded-for` header for login protection.
+
 ## 3. Copy the code
 
 From your Mac, in this folder:
