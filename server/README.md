@@ -56,7 +56,7 @@ engine are answered from test data.
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
-| `dataClient.test.js` | The data service down, too slow (3 seconds) or refusing the signature: 503 "Try again in a moment" and nothing half saved. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
+| `dataClient.test.js` | The data service down, too slow (3 seconds for a read, 10 for a write) or refusing the signature: 503 "Try again in a moment". A move, forfeit, accept or rematch that saved but answered too late is read back: the player gets what was saved and the other player is told. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
 | `auth.test.js` | Signing in through the data service: the callback's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 | `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
@@ -257,7 +257,7 @@ server/
   index.js                   Express: serves the client/dist bundles + the page and /api routes, starts Socket.IO
   socket.js                  Socket.IO: session check, game & player rooms, emitToGame() / emitToPlayer()
   config.js                  Reads server/.env
-  dataClient.js              Every read and write through the data service: signed calls for the request's player, 503 when it's down
+  dataClient.js              Every read and write through the data service: signed calls for the request's player, 503 when it's down (a write that timed out is read back first)
   routes/pageRoutes.js       /, /play, /play/:gameId, /settings
   routes/api/                /api/auth/*, /api/user, /api/chess/*
   controllers/
