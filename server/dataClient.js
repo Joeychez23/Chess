@@ -16,7 +16,7 @@ const config = require("./config");
 const { signedHeaders } = require("./utils/signature.js");
 const { readSessionUser, readGuestCookie } = require("./middleware/auth.js");
 
-const TIMEOUT = 3000; // A DATA SERVICE THAT TAKES LONGER IS TREATED AS DOWN (503 "Try again in a moment")
+const timeouts = { GET: 3000, POST: 10000 }; // A DATA SERVICE THAT TAKES LONGER IS TREATED AS DOWN (503 "Try again in a moment"). WRITES GET LONGER: A CLOSING MOVE, AN ACCEPT OR A REMATCH IS MANY DYNAMODB CALLS & THROTTLING BACKOFF CAN SLOW THEM (#281)
 const SIGNATURE_REFUSALS = ["Unsigned request", "Bad signature headers", "Bad signature", "Request too old", "Replayed request"]; // data-service/middleware/signature.js'S 401s ARE A SETUP PROBLEM, ANY OTHER 401 IS AN ANSWER ABOUT THE PLAYER OR THEIR SESSION
 const context = new AsyncLocalStorage(); // { req }: THE REQUEST (OR SOCKET HANDSHAKE) THE CALLS ARE MADE FOR
 
@@ -70,10 +70,13 @@ async function call(method, path, body) {
 	let res;
 	let answer;
 	try {
-		res = await fetch(`${config.dataServiceUrl}${path}`, { method, headers, body: text || undefined, signal: AbortSignal.timeout(TIMEOUT) });
+		res = await fetch(`${config.dataServiceUrl}${path}`, { method, headers, body: text || undefined, signal: AbortSignal.timeout(timeouts[method]) });
 		answer = await res.json();
 	} catch (err) {
-		throw down(`${method} ${path}: ${err.name == "TimeoutError" ? "no answer in 3 seconds" : err.message}`);
+		const timedOut = err.name == "TimeoutError";
+		const failed = down(`${method} ${path}: ${timedOut ? `no answer in ${timeouts[method] / 1000} seconds` : err.message}`);
+		failed.unanswered = timedOut && method == "POST"; // THE DATA SERVICE MAY STILL HAVE SAVED IT (ifSaved)
+		throw failed;
 	}
 	if (res.status >= 500) { throw down(`${method} ${path}: ${res.status} ${answer?.message}`); }
 	if (res.status == 401 && SIGNATURE_REFUSALS.includes(answer?.message)) { throw down(`${method} ${path}: refused the signature (${answer?.message}), check DATA_SERVICE_SECRET`); }
@@ -90,7 +93,27 @@ function down(reason) {
 }
 
 /**
- * @description Express error middleware: a call that couldn't reach the data service answers 503, nothing was half saved (each action is one call)
+ * @description A write whose answer timed out may still have saved: check (a consistent re-read) says what was saved, so the player
+ * gets it & the other player is told, instead of a 503 for an action that went through (#281)
+ * @param  {[function]} write [async () => the write's answer]
+ * @param  {[function]} check [async () => the answer to use when the write saved, null when it didn't]
+ * @return {[object]} answer [the write's answer, or check's]
+ */
+async function ifSaved(write, check) {
+	try {
+		return await write();
+	} catch (err) {
+		if (!err.unanswered) { throw err; }
+		const saved = await check();
+		if (!saved) { throw err; } // NOT SAVED (YET): 503, THE PLAYER TRIES AGAIN
+		console.error(`${err.message}, it saved`);
+		return saved;
+	}
+}
+
+/**
+ * @description Express error middleware: a call that couldn't reach the data service answers 503. A write that timed out is re-read first
+ * (ifSaved), so a 503 means it wasn't seen saved
  */
 function dataServiceDown(err, req, res, next) {
 	if (err.name != "DataServiceDown") { return next(err); }
@@ -226,4 +249,4 @@ const claimUsername = (username) => call("POST", "/users/me/username", { usernam
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { timeouts, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

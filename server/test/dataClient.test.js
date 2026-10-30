@@ -1,7 +1,8 @@
 /*
  *  dataClient.test.js  --  chess server tests
  *	The Data Service Client (server/dataClient.js)
- *  When the data service is down, slow or refuses the signature, the player gets 503 "Try again in a moment" & nothing is half saved.
+ *  When the data service is down, slow or refuses the signature, the player gets 503 "Try again in a moment" & nothing was seen saved.
+ *  A write that saves but answers too late is read back: the player gets what was saved & the other player is told (#281).
  *  Accepting an invite never costs the player their open game when the invite can't be accepted
  *
  */
@@ -11,7 +12,8 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("http");
 const testServer = require("./helpers/server.js");
-const { call, player, peek } = testServer;
+const { call, player, peek, listen, dataServiceWillStall } = testServer;
+const { timeouts } = require("../dataClient.js");
 const config = require("../config");
 const db = require("../../data-service/dynamoDB.js"); // THE DATA SERVICE'S OWN SAVES, TO SET UP A RACE
 
@@ -77,6 +79,97 @@ describe("when the data service can't answer", () => {
 		const { alice, gameId } = await aliceGame();
 		const read = await withConfig("dataServiceSecret", "a-different-secret-0123456789abcdef-xyz", () => call("GET", `/api/chess/game/${gameId}`, { as: alice }));
 		assert.equal(read.http, 503);
+	});
+});
+
+/* ---------------------------------------------------------------- */
+// Saved, But Answered Too Late
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description Runs fn with writes timing out after 300 ms, then puts it back
+ */
+async function withShortWrites(fn) {
+	const saved = timeouts.POST;
+	timeouts.POST = 300;
+	try { return await fn(); } finally { timeouts.POST = saved; }
+}
+
+/**
+ * @description Alice (white) & Bob's open friend game, the game id
+ */
+async function friendGame() {
+	const [alice, bob] = ["alice", "bob"].map(player);
+	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+	await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
+	return { alice, bob, gameId: invite.game_id };
+}
+
+describe("a write that saves but answers too late", () => {
+	test("a move: the player gets the saved board and the opponent's board and Home are told", async () => {
+		const { alice, bob, gameId } = await friendGame();
+		const bobsTab = await listen(bob, gameId);
+		dataServiceWillStall(`/games/${gameId}/move`);
+
+		const moved = await withShortWrites(() => call("PUT", `/api/chess/game/${gameId}`, { as: alice, body: { move: ["e2", "e4"] } }));
+		assert.equal(moved.http, 200);
+		assert.equal(moved.message, "Validation Successful");
+		assert.equal(moved.game_board, peek("chess_db", gameId).game_board.S);
+		assert.match(moved.game_board, / b /); // BLACK'S TURN
+		assert.deepEqual(await bobsTab.heard("move"), { game_id: gameId, player_id: "alice" });
+		assert.deepEqual(await bobsTab.heard("games"), { game_id: gameId });
+	});
+
+	test("a move that didn't save is still 503", async () => {
+		const { alice, gameId } = await friendGame();
+		dataServiceWillStall(`/games/${gameId}/move`);
+		const moved = await withShortWrites(() => call("PUT", `/api/chess/game/${gameId}`, { as: alice, body: { move: ["e2", "e5"] } })); // NOT LEGAL, NOTHING SAVES
+		assert.equal(moved.http, 503);
+	});
+
+	test("a forfeit: the opponent's board opens the menu", async () => {
+		const { alice, bob, gameId } = await friendGame();
+		const bobsTab = await listen(bob, gameId);
+		dataServiceWillStall(`/games/${gameId}/forfeit`);
+
+		const forfeited = await withShortWrites(() => call("POST", `/api/chess/game/${gameId}/forfeit`, { as: alice }));
+		assert.equal(forfeited.http, 200);
+		assert.equal(forfeited.winner, "b");
+		assert.equal((await bobsTab.heard("game-over")).winner, "b");
+	});
+
+	test("an accept: the player gets the open game and the inviter's Home is told", async () => {
+		const [alice, bob] = ["alice", "bob"].map(player);
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		const alicesTab = await listen(alice);
+		dataServiceWillStall(`/games/${invite.game_id}/accept`);
+
+		const accepted = await withShortWrites(() => call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} }));
+		assert.equal(accepted.http, 200);
+		assert.equal(accepted.state, "OPEN");
+		assert.deepEqual(await alicesTab.heard("games"), { game_id: invite.game_id });
+	});
+
+	test("a rematch: the press that started it gets the new game and the other board loads it", async () => {
+		const { alice, bob, gameId } = await friendGame();
+		await call("POST", `/api/chess/game/${gameId}/forfeit`, { as: alice });
+		const alicesTab = await listen(alice, gameId);
+		await call("POST", `/api/chess/game/${gameId}/rematch`, { as: alice });
+		dataServiceWillStall(`/games/${gameId}/rematch`);
+
+		const pressed = await withShortWrites(() => call("POST", `/api/chess/game/${gameId}/rematch`, { as: bob }));
+		assert.equal(pressed.http, 200);
+		assert.equal(pressed.new_game_id, peek("chess_db", gameId).rematch_game_id.S);
+		assert.deepEqual(await alicesTab.heard("rematch"), { game_id: gameId, new_game_id: pressed.new_game_id });
+	});
+
+	test("a first rematch press: waiting", async () => {
+		const { alice, gameId } = await friendGame();
+		await call("POST", `/api/chess/game/${gameId}/forfeit`, { as: alice });
+		dataServiceWillStall(`/games/${gameId}/rematch`);
+		const pressed = await withShortWrites(() => call("POST", `/api/chess/game/${gameId}/rematch`, { as: alice }));
+		assert.equal(pressed.http, 200);
+		assert.equal(pressed.waiting, true);
 	});
 });
 
