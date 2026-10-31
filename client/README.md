@@ -20,11 +20,13 @@
 are git-ignored). They're in the `aws-prac-chess-s3` bucket and CloudFront serves
 them; every asset url starts with `CHESS_ASSETS_URL`. To work offline, copy them
 back into `client/src/`, set `CHESS_ASSETS_URL=.` and turn on the
-`CopyWebpackPlugin` block in `client/webpack.config.js`. To upload changes
-(CloudFront's TTL is 0, so they show at once):
+`CopyWebpackPlugin` block in `client/webpack.config.js`. To upload changes,
+sync them and then invalidate the changed paths, since CloudFront caches assets
+at the edge for up to a day (new file names show at once):
 
 ```bash
 aws s3 sync client/src/images s3://aws-prac-chess-s3/images --exclude "*.DS_Store"
+aws cloudfront create-invalidation --distribution-id <id> --paths "/images/*"
 ```
 
 ## Run

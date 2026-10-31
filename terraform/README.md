@@ -21,7 +21,10 @@
   `assets.chess.aws-prac-route53.com` (us-east-1, as CloudFront requires),
   validated through a Route 53 DNS record, a CloudFront distribution in front
   of the `aws-prac-chess-s3` bucket's website endpoint (HTTP → HTTPS redirect,
-  TTL 0 so new files show up right away), and the Route 53 alias record.
+  TLS 1.2+ only, `GET`/`HEAD`/`OPTIONS` only, the managed `CachingOptimized`
+  cache policy and `SecurityHeadersPolicy` response headers), and the Route 53
+  alias record. Edge caching means a replaced file can take up to a day to
+  show; invalidate it to see it at once (see `client/README.md`).
 - **DynamoDB** (`modules/dynamodb`, us-west-2, next to the instance; moved from
   us-east-1, see [Moving the tables](#moving-the-tables-to-us-west-2)): `chess_db` (key `game_id`,
   TTL on `expireAt`: open games and finished AI games are deleted 25 days
