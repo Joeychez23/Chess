@@ -57,7 +57,7 @@ export function startNav() {
 export function showTable() {
 	const main = document.querySelector("#main");
 	main.style.backgroundRepeat = "repeat-y";
-	main.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
+	main.style.backgroundImage = `url("${process.env.CHESS_ASSETS_URL}/images/board/table.webp")`;
 	main.style.backgroundSize = "cover";
 	main.style.backgroundPosition = "center";
 }

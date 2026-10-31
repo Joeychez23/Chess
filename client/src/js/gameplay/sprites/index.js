@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const ASSETS = process.env.CHESS_ASSESTS_URL; // S3 / CLOUDFRONT
+const ASSETS = process.env.CHESS_ASSETS_URL; // S3 / CLOUDFRONT
 
 /* ---------------------------------------------------------------- */
 // Sprites

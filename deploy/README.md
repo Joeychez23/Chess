@@ -78,7 +78,7 @@ scp -i ~/path/to/key.pem server/.env ubuntu@<elastic-ip>:/opt/chess/server/.env
 ```
 
 `client/.env` is read when the client is built. Check that
-`CHESS_ASSESTS_URL` is `https://assets.chess.aws-prac-route53.com`, not `.`:
+`CHESS_ASSETS_URL` is `https://assets.chess.aws-prac-route53.com`, not `.`:
 every sprite, sound, and the favicon load from it.
 
 `server/.env`, on the instance (`nano /opt/chess/server/.env`):
