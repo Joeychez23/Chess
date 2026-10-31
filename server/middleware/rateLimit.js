@@ -1,6 +1,6 @@
 /*
  *  rateLimit.js  --  chess server
- *	New Game & Login Limits
+ *	New Game, Login & AI Move Limits
  *  Every new game is a chess_db item kept for 25 days, and the table is provisioned at 5 writes a second, so making games
  *  in a loop would throttle everyone's moves. Each browser session, each IP & the whole site get a token bucket:
  *  a burst of new games at once, then one more every so often. There's one server process, so the buckets live in memory
@@ -21,6 +21,10 @@ const LIMITS = {
 const LOGIN_LIMITS = { // PASSWORD LOGINS, CHECKED BEFORE AUTH0 IS ASKED
 	loginIp: { burst: 20, refillMs: 30 * 1000 }, // AN IP (IPv6: ITS /64): 20 AT ONCE, THEN 1 EVERY 30 SECONDS
 	loginEmail: { burst: 10, refillMs: 60 * 1000 }, // AN EMAIL (LOWERCASED), FROM ANY ADDRESS: 10 AT ONCE, THEN 1 A MINUTE
+};
+const AI_MOVE_LIMITS = { // /ai-move ASKS THE ENGINE, A PLAYER NEEDS ONE PER MOVE (PLUS RELOADS)
+	aiMoveSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER OR A GUEST: 20 AT ONCE, THEN 1 A SECOND
+	aiMoveIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
 };
 const MAX_KEYS = 100000; // BUCKETS KEPT PER LIMIT, FULL ONES ARE DROPPED FIRST
 const LOG_EVERY = 60 * 1000; // A KEY THAT KEEPS HITTING ITS LIMIT IS LOGGED ONCE A MINUTE
@@ -67,13 +71,34 @@ function limitLogins(req, res, next) {
 }
 
 /* ---------------------------------------------------------------- */
+// Limit AI Moves
+/* ---------------------------------------------------------------- */
+/**
+ * @description Middleware for POST /api/chess/game/:gameId/ai-move. Runs after optionalAuth & before the engine is asked,
+ * with its own buckets so AI moves never use up new games. Answers 429 with Retry-After when a limit is hit
+ */
+function limitAiMoves(req, res, next) {
+	const guest = readGuestCookie(req);
+	const keys = { aiMoveIp: ipKey(req.ip) };
+	if (req.user) { keys.aiMoveSession = `user:${req.user.user_id}`; }
+	else if (guest) { keys.aiMoveSession = `guest:${guest.session}`; }
+
+	const result = takeTokens(keys, Date.now(), AI_MOVE_LIMITS);
+	if (result.ok) { return next(); }
+	const seconds = Math.ceil(result.retryMs / 1000);
+	if (result.log) { console.log(`AI move limit (${result.limit}: ${keys[result.limit]}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
+	res.set("Retry-After", String(seconds));
+	return res.status(429).json({ status: 429, message: `Too many AI move requests, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
+}
+
+/* ---------------------------------------------------------------- */
 // Take Tokens
 /* ---------------------------------------------------------------- */
 /**
  * @description Takes one token from each key's bucket, or none if any of them is empty (so a refused request costs nothing)
- * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, or { loginIp, loginEmail }]
+ * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail } or { aiMoveSession (optional), aiMoveIp }]
  * @param  {[number]} now [epoch ms]
- * @param  {[object]} limits [LIMITS (new games, the default) or LOGIN_LIMITS]
+ * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS or AI_MOVE_LIMITS]
  * @return {[object]} result [{ ok: true } | { ok: false, limit (the empty one), retryMs (until it has a token), log (first refusal this minute) }]
  */
 function takeTokens(keys, now, limits = LIMITS) {
@@ -113,7 +138,7 @@ function refill(limit, key, now, limits) {
  * @description Drops the buckets that have filled up again (the same as a new one), then the oldest if a limit still has too many
  */
 function sweep(now) {
-	for (const limits of [LIMITS, LOGIN_LIMITS]) {
+	for (const limits of [LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS]) {
 		for (const limit of Object.keys(limits)) {
 			const map = buckets[limit];
 			if (!map) { continue; }
@@ -157,4 +182,4 @@ function resetLimits() {
 }
 
 
-module.exports = { limitNewGames, limitLogins, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS };
+module.exports = { limitNewGames, limitLogins, limitAiMoves, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS };

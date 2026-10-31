@@ -7,7 +7,7 @@
 
 const router = require('express').Router()
 const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
-const { limitNewGames } = require('../../middleware/rateLimit.js')
+const { limitNewGames, limitAiMoves } = require('../../middleware/rateLimit.js')
 const { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
 
 // THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME (THE ONE IN THEIR guest_game COOKIE)
@@ -21,7 +21,7 @@ router.route('/game/:gameId').put(optionalAuth, moveGame);          // /api/ches
 
 router.route('/game/:gameId/restart').post(optionalAuth, limitNewGames, restartGame); // /api/chess/game/:gameId/restart  -> AI GAMES: FORFEITS IF STILL GOING, THEN A NEW GAME AT THE SAME LEVEL & COLOR
 
-router.route('/game/:gameId/ai-move').post(optionalAuth, aiMoveGame);   // /api/chess/game/:gameId/ai-move  -> AI GAMES: THE SERVER PICKS & SAVES THE AI'S MOVE AT THE GAME'S LEVEL
+router.route('/game/:gameId/ai-move').post(optionalAuth, limitAiMoves, aiMoveGame);   // /api/chess/game/:gameId/ai-move  -> AI GAMES: THE SERVER PICKS & SAVES THE AI'S MOVE AT THE GAME'S LEVEL. ONE ENGINE REQUEST AT A TIME PER GAME, 429 PAST THE AI MOVE LIMITS
 
 router.route('/game/:gameId/forfeit').post(requireAuth, forfeitGame);   // /api/chess/game/:gameId/forfeit  -> FRIEND GAMES: CLOSES THE GAME, THE OTHER SIDE WINS
 
