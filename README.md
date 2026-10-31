@@ -130,7 +130,10 @@ data-service/    The only code that reads and writes DynamoDB, on a private inst
 deploy/          systemd units and the nginx site (deploy/README.md)
 terraform/       The AWS resources (terraform/README.md)
 .github/
-  workflows/ci.yml           GitHub Actions: server tests (with the data service), data service tests and the client build on every pull request
+  workflows/ci.yml           GitHub Actions: server tests (with the data service), data service tests, the client build, ESLint and npm audit on every pull request
+  workflows/codeql.yml       CodeQL scan of the JavaScript on every pull request and weekly
+  dependabot.yml             Weekly update PRs for the npm packages and the pinned GitHub Actions
+eslint.config.js  ESLint flat config for the whole repo (npm run lint); rules are warnings for now
 ```
 
 ## License
