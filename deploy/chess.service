@@ -1,4 +1,6 @@
 # systemd unit for the chess server (Express + Socket.IO, serves client/dist)
+# Runs as its own user `chess` (#302): the code in /opt/chess stays owned by ubuntu and is only readable to it,
+# server/.env is owned by chess with mode 600 (README -> Deploy -> 6. Start the server)
 # Install: sudo cp deploy/chess.service /etc/systemd/system/
 #          sudo systemctl daemon-reload && sudo systemctl enable --now chess
 
@@ -8,7 +10,8 @@ After=network.target chess-engine-api.service
 
 [Service]
 Type=simple
-User=ubuntu
+User=chess
+Group=chess
 WorkingDirectory=/opt/chess/server
 ExecStart=/usr/local/bin/node24 index.js
 Restart=always
@@ -16,6 +19,20 @@ RestartSec=5
 
 # HTTPS-only session cookies. The rest (API_PORT=8080, Auth0, SESSION_PUBLIC_KEY, ENGINE_URL, the data service) is in server/.env
 Environment=NODE_ENV=production
+
+# THE SYSTEM IS READ-ONLY TO IT, HOME FOLDERS ARE HIDDEN, & IT GETS NO EXTRA PRIVILEGES (THE SAME BLOCK AS data-service.service)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
 
 [Install]
 WantedBy=multi-user.target

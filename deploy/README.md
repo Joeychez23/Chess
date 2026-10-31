@@ -98,8 +98,8 @@ On a new setup, make the session key on the data service first (step 10, with
 its instance from [Data service instance](../terraform/README.md#data-service-instance)), or fill
 these in before step 6.
 
-The Auth0 values stay the same. Then lock the file to your user:
-`chmod 600 /opt/chess/server/.env`.
+The Auth0 values stay the same. Step 6 hands the file to the service's user
+and locks it.
 
 ## 5. Install and build
 
@@ -118,7 +118,15 @@ build again after copying new client code.
 
 ## 6. Start the server
 
+The server runs as its own user, `chess`, with no sudo and no login (#302).
+The code stays owned by `ubuntu`, so updates copy it as before, and `chess` can
+only read it. Only `server/.env` belongs to `chess`, readable by nobody else:
+after this, read or edit it with `sudo` (`sudo nano /opt/chess/server/.env`).
+
 ```bash
+readlink -f /usr/local/bin/node24      # must not be under /home (see below)
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin chess
+sudo chown chess:chess /opt/chess/server/.env && sudo chmod 600 /opt/chess/server/.env
 cd /opt/chess
 sudo cp deploy/chess.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -127,9 +135,20 @@ curl -s localhost:8080/api/chess/levels
 ```
 
 `/api/chess/levels` answers without DynamoDB or Auth0, so it only checks that
-the server is up. The service runs as `ubuntu` with `NODE_ENV=production`,
-which makes the session cookies HTTPS-only: logging in only works through
-`https://`, after step 7.
+the server is up. The service runs with `NODE_ENV=production`, which makes the
+session cookies HTTPS-only: logging in only works through `https://`, after
+step 7.
+
+The unit has the same sandbox as the data service's: the whole system is
+read-only to it (`ProtectSystem=strict`), home folders are hidden
+(`ProtectHome`), and it can't gain privileges or capabilities. The server
+writes no files, so nothing needs to be writable. Because home folders are
+hidden, `/usr/local/bin/node24` can't point into `/home/ubuntu/.nvm`: if
+`readlink` shows a `/home` path, install Node 24 in `/opt/nvm` the way step 10
+does (`/opt/nvm` owned by `ubuntu`, then `sudo ln -sf "$(nvm which 24)"
+/usr/local/bin/node24`). If the service won't start, `journalctl -u chess -n 20`
+shows why: `EACCES` on `.env` means the `chown` was skipped, `203/EXEC` means
+`node24` points somewhere it can't reach.
 
 ## 7. nginx and HTTPS
 
@@ -310,7 +329,7 @@ logs, and a fix for each error, with the machine each command runs on.
 
 ```text
 deploy/
-  chess.service              systemd unit for the server
+  chess.service              systemd unit for the server (its own user, read-only system)
   data-service.service       systemd unit for the data service (its own user, read-only system, on the private instance)
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
 ```
