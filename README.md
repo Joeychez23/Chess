@@ -78,14 +78,29 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 
 Requires Node 22+ (the server).
 
-Install, fill in the `.env` files ([client](client/README.md#setup), [server](server/README.md#setup), [data service](data-service/README.md)), then run the
-three processes in separate terminals and open http://localhost:3002.
+Install, then fill in the `.env` files ([client](client/README.md#setup), [server](server/README.md#setup), [data service](data-service/README.md)).
+The copy below skips a `.env` that already exists, so it won't wipe your secrets.
 
 ```bash
-npm ci                                        # client (Webpack)
-(cd server && npm ci && cp .env.example .env) # chess server
-(cd data-service && npm ci && cp .env.example .env)
+npm ci                                                         # client (Webpack)
+(cd server && npm ci && { [ -f .env ] || cp .env.example .env; }) # chess server
+(cd data-service && npm ci && { [ -f .env ] || cp .env.example .env; })
+```
 
+Before starting, in the `.env` files:
+
+- Set `CLIENT_URL=http://localhost:3002/` in `server/.env`, or login and logout
+  send you back to :3001.
+- Set the same `DATA_SERVICE_SECRET` in `server/.env` and `data-service/.env`
+  (the command to make one is in `data-service/.env.example`).
+- Make the session key pair: `SESSION_PRIVATE_KEY` in `data-service/.env`,
+  `SESSION_PUBLIC_KEY` in `server/.env`
+  ([Making the session keys](data-service/README.md#making-the-session-keys)).
+  With the placeholders, both processes exit on start.
+
+Then run the three processes in separate terminals and open http://localhost:3002.
+
+```bash
 cd data-service && npm run dev   # terminal 1: data service on http://127.0.0.1:8090
 cd server && npm start           # terminal 2: chess server on http://localhost:3001
 npm run dev                      # terminal 3: client on http://localhost:3002
