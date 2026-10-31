@@ -283,8 +283,9 @@ async function inviteGame(req, res) {
 /**
  * @description The invited player starts the game: PENDING -> OPEN. In this order, so a refusal never costs the requester their game:
  * the requester's open friend game answers 409 (unless replace_current), the inviter in another friend game (a rematch, or they accepted one)
- * answers "They're in another game now" (the chess server then declines it), then the requester's open friend game is forfeited,
- * their sent invite is cancelled (they're in a game now) & the invite is accepted
+ * answers "They're in another game now" (the chess server then declines it), then the invite is accepted (a conditional write, so an
+ * invite declined or cancelled since changes nothing), and only then the requester's open friend game is forfeited & their sent invite
+ * is cancelled (they're in a game now)
  * @param  {[string]} req.params.gameId [PENDING game id]
  * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the requester's open friend game) }]
  * @return {[object]} response [acceptInvite's { status, game_data, message } plus forfeited (the game it forfeited, for both boards) & dropped_invites
@@ -304,13 +305,14 @@ async function acceptGame(req, res) {
 	if (current && replace_current !== true) { return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
 	if (await currentGame(inviterId(gameData), false)) { return refuse(req, res, 409, "They're in another game now"); }
 
+	const accepted = await acceptInvite(gameData); // THE CONDITIONAL WRITE GOES FIRST: A LOST ACCEPT (DECLINED OR CANCELLED SINCE) CHANGES NOTHING
+	if (accepted.status != 200) { return res.json(accepted); }
 	let forfeited = null;
 	if (current) { // ACCEPTING FORFEITS THE OPEN ONE, THE OTHER SIDE WINS
 		const closed = await closeGame(current, playerColor(playerId, current) == "w" ? "b" : "w", "forfeit");
 		if (closed.status == 200) { forfeited = closed.game_data; }
 	}
 	const dropped = await dropSentInvite(playerId);
-	const accepted = await acceptInvite(gameData);
 	return res.json({ ...accepted, forfeited, dropped_invites: dropped ? [dropped] : [] });
 }
 
