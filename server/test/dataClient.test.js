@@ -3,7 +3,8 @@
  *	The Data Service Client (server/dataClient.js)
  *  When the data service is down, slow or refuses the signature, the player gets 503 "Try again in a moment" & nothing was seen saved.
  *  A write that saves but answers too late is read back: the player gets what was saved & the other player is told (#281).
- *  Accepting an invite never costs the player their open game when the invite can't be accepted
+ *  Accepting an invite never costs the player their open game when the invite can't be accepted.
+ *  A signed in player whose token runs out mid-request gets 401 "SESSION EXPIRED" (the client refreshes & retries), never "not in this game" (#278)
  *
  */
 
@@ -12,8 +13,9 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("http");
 const testServer = require("./helpers/server.js");
-const { call, player, peek, listen, dataServiceWillStall } = testServer;
-const { timeouts } = require("../dataClient.js");
+const { call, player, peek, listen, engineWillPlay, dataServiceWillAnswer, dataServiceWillStall } = testServer;
+const { timeouts, withRequest, retrieveGame } = require("../dataClient.js");
+const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 const db = require("../../data-service/dynamoDB.js"); // THE DATA SERVICE'S OWN SAVES, TO SET UP A RACE
 
@@ -203,5 +205,50 @@ describe("accepting an invite", () => {
 		const accepted = await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: { replace_current: true } });
 		assert.equal(accepted.state, "OPEN");
 		assert.equal(peek("chess_db", bobsGame.game_id).winner.S, "w"); // CAROL (WHITE) WINS THE FORFEIT
+	});
+});
+
+/* ---------------------------------------------------------------- */
+// A Session That Runs Out Mid-Request (#278)
+/* ---------------------------------------------------------------- */
+
+describe("a session that runs out mid-request", () => {
+	test("the AI's save refused for the player's token: 401 SESSION EXPIRED, and the retry saves the move", async () => {
+		const { alice, gameId } = await aliceGame();
+		await call("PUT", `/api/chess/game/${gameId}`, { as: alice, body: { move: ["e2", "e4"] } });
+
+		engineWillPlay("e7", "e5");
+		dataServiceWillAnswer(`/games/${gameId}/ai-move`, 401, "Bad player token"); // THE TOKEN RAN OUT WHILE THE ENGINE THOUGHT
+		const expired = await call("POST", `/api/chess/game/${gameId}/ai-move`, { as: alice });
+		assert.equal(expired.http, 401);
+		assert.equal(expired.message, "SESSION EXPIRED");
+
+		engineWillPlay("e7", "e5");
+		const retried = await call("POST", `/api/chess/game/${gameId}/ai-move`, { as: alice }); // AFTER THE CLIENT'S REFRESH
+		assert.equal(retried.status, 200);
+		assert.deepEqual(retried.ai_move, { from: "e7", to: "e5" });
+	});
+
+	test("a signed in player's read refused for their token is 401 SESSION EXPIRED, not 403", async () => {
+		const { alice, gameId } = await aliceGame();
+		dataServiceWillAnswer(`/games/${gameId}`, 401, "No player");
+		const read = await call("GET", `/api/chess/game/${gameId}`, { as: alice });
+		assert.equal(read.http, 401);
+		assert.equal(read.message, "SESSION EXPIRED");
+	});
+
+	test("the player is decided when the request starts: a token that runs out later is still sent, & its refusal is SESSION EXPIRED", async () => {
+		const { alice, gameId } = await aliceGame();
+		const req = { cookies: { access_token: keys.sessionToken(alice.user, { expiresIn: "1s" }) } };
+		await withRequest(req, async () => {
+			await new Promise((resolve) => setTimeout(resolve, 1100)); // WAITING ON THE ENGINE
+			await assert.rejects(retrieveGame(gameId), { name: "SessionExpired" });
+		});
+	});
+
+	test("a guest's refusal is still an answer", async () => {
+		const { gameId } = await aliceGame();
+		const answer = await withRequest({ cookies: {} }, () => retrieveGame(gameId));
+		assert.equal(answer.status, 401);
 	});
 });

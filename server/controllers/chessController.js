@@ -762,7 +762,8 @@ function playerInGame(req, gameData) {
 }
 
 /**
- * @description True when the data service refused because the requester isn't in the game (403), or isn't anyone (401: no token or guest cookie)
+ * @description True when the data service refused because the requester isn't in the game (403), or isn't anyone (401: no token or guest cookie).
+ * A signed in player's token running out mid-request never gets here, dataClient.js throws for it (401 "SESSION EXPIRED", #278)
  * @param  {[object]} response [a data service answer]
  * @return {[boolean]} refused
  */

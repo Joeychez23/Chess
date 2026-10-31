@@ -31,6 +31,7 @@ export function joinGame(gameId, playerId, handlers) {
 
 	gameSocket.on("connect", () => {
 		gameSocket.emit("join-game", `${gameId}`, (response) => { // GAME_ID CAN BE AN ObjectId, SEND IT AS A STRING
+			if (response?.status == 401 && !refreshed) { return refreshAndReconnect(); } // THE HANDSHAKE'S ACCESS TOKEN RAN OUT (#278)
 			if (response?.status != 200) { return console.log(`[SOCKET] ${response?.message}`); }
 			refreshed = false;
 			if (joined) { // RECONNECTED, THE OPPONENT MAY HAVE MOVED OR FORFEITED WHILE OFFLINE
@@ -53,11 +54,20 @@ export function joinGame(gameId, playerId, handlers) {
 		if (data?.game_id == `${gameId}`) { handlers.rematch(data.new_game_id); }
 	});
 
-	gameSocket.on("connect_error", async () => {
-		if (gameSocket.active || refreshed) { return; } // SOCKET.IO RETRIES NETWORK ERRORS BY ITSELF
-		refreshed = true; // THE SERVER TURNED THE SOCKET AWAY: ACCESS TOKEN EXPIRED -> RE-UP ONCE & TRY AGAIN
+	/**
+	 * @description Re-ups the session once & opens a new handshake with the new cookie
+	 */
+	async function refreshAndReconnect() {
+		refreshed = true;
 		const res = await fetch("/api/auth/refresh", { method: "POST" }).catch(() => null);
-		if (res?.ok && socket == gameSocket) { gameSocket.connect(); }
+		if (!res?.ok || socket != gameSocket) { return; }
+		if (gameSocket.connected) { gameSocket.disconnect(); }
+		gameSocket.connect();
+	}
+
+	gameSocket.on("connect_error", () => {
+		if (gameSocket.active || refreshed) { return; } // SOCKET.IO RETRIES NETWORK ERRORS BY ITSELF
+		refreshAndReconnect(); // THE SERVER TURNED THE SOCKET AWAY: ACCESS TOKEN EXPIRED -> RE-UP ONCE & TRY AGAIN
 	});
 }
 

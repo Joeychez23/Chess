@@ -74,6 +74,7 @@ async function joinGame(socket, gameId, ack) {
 		socket.join(`game:${gameId}`);
 		return ack({ status: 200, message: `Joined game id: ${gameId}`, state: state?.S || "OPEN", winner: winner?.S || null, reason: reason?.S || null });
 	} catch (err) {
+		if (err.name == "SessionExpired") { return ack({ status: 401, message: "SESSION EXPIRED" }); }
 		if (err.name == "DataServiceDown") { console.error(err.message); return ack({ status: 503, message: "Try again in a moment" }); }
 		console.log(err);
 		return ack({ status: 500, message: "Join failed" });
