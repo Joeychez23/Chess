@@ -14,20 +14,27 @@
 
 | Variable | Purpose |
 | --- | --- |
-| `CHESS_ASSETS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com` (CloudFront), or `.` to use local copies. It's built into the bundle, so rebuild after changing it. |
+| `CHESS_ASSETS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com/v1` (CloudFront, the version folder of the current upload), or `.` to use local copies. It's built into the bundle, so rebuild after changing it. |
 
 **Images and audio aren't in the repo** (`client/src/images` and `client/src/audio`
 are git-ignored). They're in the `aws-prac-chess-s3` bucket and CloudFront serves
 them; every asset url starts with `CHESS_ASSETS_URL`. To work offline, copy them
 back into `client/src/`, set `CHESS_ASSETS_URL=.` and turn on the
-`CopyWebpackPlugin` block in `client/webpack.config.js`. To upload changes,
-sync them and then invalidate the changed paths, since CloudFront caches assets
-at the edge for up to a day (new file names show at once):
+`CopyWebpackPlugin` block in `client/webpack.config.js`.
+
+Each upload goes into a version folder (`s3://aws-prac-chess-s3/v1/images/...`)
+with `Cache-Control: public, max-age=31536000, immutable`, so browsers keep the
+sprites and the move sound for a year and a second visit doesn't download them
+again. Never change a file inside an uploaded version: upload the whole set to
+the next version, point `CHESS_ASSETS_URL` in `client/.env` at it and rebuild
+the client (the server's CSP only uses the origin, so `server/.env` can stay).
+The new urls show at once, with no CloudFront invalidation:
 
 ```bash
-aws s3 sync client/src/images s3://aws-prac-chess-s3/images --exclude "*.DS_Store"
-aws cloudfront create-invalidation --distribution-id <id> --paths "/images/*"
+deploy/upload-assets.sh v2   # syncs client/src/images & client/src/audio to s3://aws-prac-chess-s3/v2/
 ```
+
+Delete the old version folder once no deployed build uses it.
 
 ## Run
 
@@ -62,9 +69,8 @@ Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.
 The `.html` files are only sent through these routes, never as static files.
 Home and the guest page call `preloadImages()` (`client/src/js/gameplay/images/index.js`)
 as soon as they open, so the game's sprites are already in the browser cache
-when a game opens, and each one is logged to the console. That only sticks once the S3
-objects have a `Cache-Control` header: CloudFront's TTL is 0 and nothing sets
-one yet.
+when a game opens, and each one is logged to the console. With the uploaded
+`Cache-Control` header (above) they stay cached on later visits too.
 
 ## Socket.IO
 

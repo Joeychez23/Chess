@@ -12,7 +12,7 @@
 browser ──HTTPS──> nginx ──> chess server :8080 ──http://127.0.0.1:3001──> chess-engine-api ──> Stockfish 19
    │                         (Express + Socket.IO,
    │                          serves client/dist)
-   └──HTTPS──> CloudFront (assets.chess.aws-prac-route53.com) ──> S3: images/, audio/
+   └──HTTPS──> CloudFront (assets.chess.aws-prac-route53.com) ──> S3: v1/images/, v1/audio/
 ```
 
 One EC2 instance runs the chess server and
@@ -78,7 +78,8 @@ scp -i ~/path/to/key.pem server/.env ubuntu@<elastic-ip>:/opt/chess/server/.env
 ```
 
 `client/.env` is read when the client is built. Check that
-`CHESS_ASSETS_URL` is `https://assets.chess.aws-prac-route53.com`, not `.`:
+`CHESS_ASSETS_URL` is `https://assets.chess.aws-prac-route53.com/v1` (the current
+asset version, [client/README.md](../client/README.md#setup)), not `.`:
 every sprite, sound, and the favicon load from it.
 
 `server/.env`, on the instance (`nano /opt/chess/server/.env`):

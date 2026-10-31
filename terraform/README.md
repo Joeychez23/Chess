@@ -23,8 +23,10 @@
   of the `aws-prac-chess-s3` bucket's website endpoint (HTTP → HTTPS redirect,
   TLS 1.2+ only, `GET`/`HEAD`/`OPTIONS` only, the managed `CachingOptimized`
   cache policy and `SecurityHeadersPolicy` response headers), and the Route 53
-  alias record. Edge caching means a replaced file can take up to a day to
-  show; invalidate it to see it at once (see `client/README.md`).
+  alias record. The pages aren't on CloudFront (the chess server sends them,
+  uncached). Assets are uploaded once per version folder with a one-year
+  `Cache-Control`, so a changed image goes up under a new version instead of
+  replacing a cached file (see `client/README.md`).
 - **DynamoDB** (`modules/dynamodb`, us-west-2, next to the instance; moved from
   us-east-1, see [Moving the tables](#moving-the-tables-to-us-west-2)): `chess_db` (key `game_id`,
   TTL on `expireAt`: open games and finished AI games are deleted 25 days
