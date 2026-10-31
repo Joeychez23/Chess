@@ -1,7 +1,7 @@
 {
 	"scripts": {
-		"dev": "cd client && webpack-dev-server --open --port 3002",
-		"build": "cd client && webpack",
+		"dev": "cd client && webpack-dev-server --mode development --open --port 3002",
+		"build": "cd client && webpack --mode production",
 		"start": "npm run build && cd server && npm start"
 	},
 	"name": "chess",

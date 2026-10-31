@@ -12,11 +12,21 @@ const { InjectManifest } = require('workbox-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const { DefinePlugin } = require('webpack');
 const Dotenv = require('dotenv-webpack');
+const fs = require('fs');
+
+// CHESS_ASSESTS_URL WAS RENAMED: AN OLD client/.env WOULD BUILD EVERY ASSET URL AS "undefined/images/..."
+const envFile = fs.existsSync('./.env') ? fs.readFileSync('./.env', 'utf8') : '';
+if (/^CHESS_ASSESTS_URL=/m.test(envFile) && !/^CHESS_ASSETS_URL=/m.test(envFile)) {
+	throw new Error('client/.env: rename CHESS_ASSESTS_URL to CHESS_ASSETS_URL');
+}
 
 
-module.exports = () => {
+module.exports = (env, argv) => {
+	const mode = argv.mode || 'production'; // npm run dev PASSES --mode development, EVERY OTHER BUILD IS MINIFIED & TREE-SHAKEN
+	const dev = mode === 'development';
 	return {
-		mode: 'development',
+		mode,
+		devtool: dev ? 'eval-source-map' : false, // NO eval IN PRODUCTION: NO READABLE SOURCE & NO 'unsafe-eval' IN THE CSP
 		entry: { // ONE BUNDLE PER PAGE, THE SERVER PICKS THE PAGE (server/routes/pageRoutes.js)
 			home: './src/js/pages/home/index.js',    // /              SIGNED IN
 			guest: './src/js/pages/guest/index.js',  // /              GUEST
@@ -24,7 +34,8 @@ module.exports = () => {
 			settings: './src/js/pages/settings/index.js' // /settings  SIGNED IN
 		},
 		output: {
-			filename: '[name].bundle.js',
+			filename: dev ? '[name].bundle.js' : '[name].[contenthash].bundle.js', // THE HASH CHANGES WITH THE CONTENT, SO BUNDLES CAN BE CACHED LONG-TERM
+			clean: !dev && { keep: (asset) => !/\.js$|\.LICENSE\.txt$/.test(asset) }, // OLD HASHED BUNDLES DON'T PILE UP IN client/dist (LOCAL images/ & audio/ STAY)
 			path: path.resolve(__dirname, 'dist'),
 			publicPath: '/', // BUNDLES LOAD FROM THE ROOT, SO /play/:gameId DOESN'T ASK FOR /play/play.bundle.js
 		},
@@ -42,7 +53,7 @@ module.exports = () => {
 				start_url: '/'
 			}),
 
-			new Dotenv({ // client/.env -> process.env.* IN THE BUNDLES & PAGES (CHESS_ASSESTS_URL, ...)
+			new Dotenv({ // client/.env -> process.env.* IN THE BUNDLES & PAGES (CHESS_ASSETS_URL, ...)
 				path: `./.env`
 			}),
 		],
