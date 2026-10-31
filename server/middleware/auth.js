@@ -137,6 +137,16 @@ function readSessionUser(req) {
 	return payload ? payload.user : null;
 }
 
+/**
+ * @description The access cookie's user & when it runs out (the Socket.IO handshake: the socket is closed then, #298)
+ * @param  {[object]} req [request with req.cookies]
+ * @return {[object]} session [{ user, expiresAt (ms) } | null when it's missing / expired]
+ */
+function readSession(req) {
+	const payload = readToken(req.cookies?.[ACCESS_COOKIE], "access");
+	return payload ? { user: payload.user, expiresAt: payload.exp * 1000 } : null;
+}
+
 /* ---------------------------------------------------------------- */
 // Read Refresh Token
 /* ---------------------------------------------------------------- */
@@ -148,6 +158,15 @@ function readSessionUser(req) {
 function readRefreshCookie(req) {
 	const token = req.cookies?.[REFRESH_COOKIE];
 	return typeof token == "string" && token ? token : null;
+}
+
+/**
+ * @description The user in the refresh cookie, if it's ours & not expired (logout closes that player's sockets, #298)
+ * @param  {[object]} req [express request]
+ * @return {[object]} user [null when there's none]
+ */
+function readRefreshUser(req) {
+	return readToken(readRefreshCookie(req), "refresh")?.user || null;
 }
 
 /* ---------------------------------------------------------------- */
@@ -194,4 +213,4 @@ function readGuestGame(req) {
 }
 
 
-module.exports = { setSessionCookies, clearSessionCookies, requireAuth, optionalAuth, readSessionUser, readRefreshCookie, setGuestCookie, readGuestCookie, readGuestGame };
+module.exports = { setSessionCookies, clearSessionCookies, requireAuth, optionalAuth, readSessionUser, readSession, readRefreshCookie, readRefreshUser, setGuestCookie, readGuestCookie, readGuestGame };

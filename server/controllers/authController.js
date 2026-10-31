@@ -16,8 +16,9 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin: auth0PasswordLogin, getAuth0User } = require("../utils/auth0.js");
-const { setSessionCookies, clearSessionCookies, readRefreshCookie } = require("../middleware/auth.js");
+const { setSessionCookies, clearSessionCookies, readRefreshCookie, readRefreshUser, readSessionUser } = require("../middleware/auth.js");
 const { startSession, refreshSession, endSession, down } = require("../dataClient.js");
+const { disconnectPlayer } = require("../socket.js");
 
 const STATE_COOKIE = "auth_state";
 const RETURN_COOKIE = "auth_return"; // THE PAGE TO GO BACK TO AFTER LOGIN (A GAME LINK, /play/:gameId)
@@ -161,15 +162,17 @@ async function startPlayerSession(idToken) {
 /**
  * @description Ends our session on every device (the data service clears the session id their refresh tokens carry),
  * then answers { logoutUrl } & the page goes there, which ends the Auth0 session so the next login asks for a password again.
- * A POST from our own page only, so another site can't sign a player out everywhere (#297)
+ * A POST from our own page only, so another site can't sign a player out everywhere (#297). Their open sockets on every device are closed too (#298)
  */
 async function logout(req, res) {
 	if (!fromOurPage(req)) { return res.status(403).json({ status: 403, message: "Forbidden" }); }
 	const refreshToken = readRefreshCookie(req);
+	const user = readRefreshUser(req) || readSessionUser(req);
 	clearSessionCookies(res);
 	if (refreshToken) {
 		try {
 			await endSession(refreshToken);
+			if (user) { disconnectPlayer(user.user_id.split("auth0|")[1]); } // EVERY DEVICE'S OPEN SOCKETS STOP GETTING GAMES (#298)
 		} catch (err) {
 			console.error(err.message); // THE DATA SERVICE IS DOWN: THIS BROWSER IS STILL SIGNED OUT, THE OTHERS STAY IN UNTIL THEIR REFRESH TOKEN RUNS OUT
 		}

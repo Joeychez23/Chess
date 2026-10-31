@@ -174,24 +174,29 @@ async function page(path, options = {}) {
  * @description A player's tab: a Socket.IO client signed in as them, recording every event it gets
  * @param  {[object]} who [a player]
  * @param  {[string]} gameId [a game to join (its room's events), left out = only Home's]
- * @return {[object]} tab [{ events: [{ event, data }], heard(event): resolves with the event's data once it's got }]
+ * @param  {[object]} options [{ cookie: a raw Cookie header instead of their access cookie, headers: more handshake headers (Origin) }]
+ * @return {[object]} tab [{ events: [{ event, data }], heard(event): resolves with the event's data once it's got,
+ * closed: resolves with the disconnect reason, join(gameId): join-game's answer }]
  */
-async function listen(who, gameId) {
-	const socket = connect(baseUrl, { transports: ["websocket"], extraHeaders: { Cookie: sessionCookie(who.user) }, reconnection: false });
+async function listen(who, gameId, options = {}) {
+	const Cookie = options.cookie || sessionCookie(who.user);
+	const socket = connect(baseUrl, { transports: ["websocket"], extraHeaders: { Cookie, ...(options.headers || {}) }, reconnection: false });
 	sockets.push(socket);
 	const events = [];
 	const waiting = [];
+	const closed = new Promise((resolve) => socket.once("disconnect", resolve));
 	socket.onAny((event, data) => {
 		events.push({ event, data });
 		waiting.filter((wait) => wait.event == event).forEach((wait) => { waiting.splice(waiting.indexOf(wait), 1); wait.resolve(data); });
 	});
 	await new Promise((resolve, reject) => { socket.once("connect", resolve); socket.once("connect_error", reject); });
-	if (gameId) { await socket.emitWithAck("join-game", gameId); }
+	const join = (id) => socket.emitWithAck("join-game", id);
+	if (gameId) { await join(gameId); }
 	const heard = (event) => {
 		const got = events.find((seen) => seen.event == event);
 		return got ? Promise.resolve(got.data) : new Promise((resolve) => waiting.push({ event, resolve }));
 	};
-	return { events, heard };
+	return { events, heard, closed, join };
 }
 
 /**
