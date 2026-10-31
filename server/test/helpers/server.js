@@ -52,6 +52,8 @@ async function start() {
 	config.dataServiceUrl = `http://127.0.0.1:${dataService.address().port}`; // dataClient.js READS IT ON EVERY CALL
 
 	const app = express();
+	app.disable("x-powered-by"); // SAME AS index.js
+	app.use(require("../../middleware/securityHeaders.js").securityHeaders); // SAME AS index.js
 	app.set("trust proxy", "loopback"); // SAME AS index.js, A TEST'S X-Forwarded-For IS THE PLAYER'S ADDRESS
 	app.use(cookieParser());
 	app.use(express.json());
@@ -142,7 +144,7 @@ async function call(method, path, options = {}) {
  * @param  {[string]} path [e.g. "/api/auth/refresh"]
  * @param  {[object]} cookies [{ name: value }, sent as the Cookie header]
  * @param  {[object]} options [{ headers, body: a raw body string }]
- * @return {[object]} response [{ http, location, retry_after, cookies: { name: value } set by the response ("" = cleared), body: the JSON body or null }]
+ * @return {[object]} response [{ http, headers, location, retry_after, cookies: { name: value } set by the response ("" = cleared), body: the JSON body or null }]
  */
 async function send(method, path, cookies = {}, options = {}) {
 	const Cookie = Object.entries(cookies).map(([name, value]) => `${name}=${value}`).join("; ");
@@ -154,7 +156,7 @@ async function send(method, path, cookies = {}, options = {}) {
 		set[pair.slice(0, pair.indexOf("="))] = decodeURIComponent(pair.slice(pair.indexOf("=") + 1));
 	}
 	const text = await res.text();
-	return { http: res.status, location: res.headers.get("location"), retry_after: res.headers.get("retry-after"), cookies: set, body: text.startsWith("{") ? JSON.parse(text) : null };
+	return { http: res.status, headers: res.headers, location: res.headers.get("location"), retry_after: res.headers.get("retry-after"), cookies: set, body: text.startsWith("{") ? JSON.parse(text) : null };
 }
 
 /**

@@ -146,6 +146,15 @@ IP (bursts of 40). The server also limits making games itself (see [Chess API](.
 because chess-engine-api's site on the same instance already defines
 `$connection_upgrade`, and nginx won't start with two.
 
+The security headers (#191) come from the server, not nginx
+(`server/middleware/securityHeaders.js`): a Content-Security-Policy that allows
+this site, `CHESS_ASSETS_URL` and Google Fonts, `frame-ancestors 'none'`,
+`nosniff` and `Referrer-Policy`. HSTS (one year) is only sent when
+`NODE_ENV=production`, so keep certbot's HTTP -> HTTPS redirect. Set
+`CHESS_ASSETS_URL` in `server/.env` too if the assets aren't on
+`https://assets.chess.aws-prac-route53.com`, or the sprites are blocked. Check
+the live site with https://securityheaders.com or Mozilla Observatory.
+
 ## 8. Check it
 
 - Open `https://chess.aws-prac-route53.com`, log in, and play a level 8 game.
