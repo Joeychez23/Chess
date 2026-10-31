@@ -49,6 +49,25 @@ export function startNav() {
 }
 
 /* ---------------------------------------------------------------- */
+// Logout Buttons
+/* ---------------------------------------------------------------- */
+/**
+ * @description Logout & Sign out (Home & Settings) end the session with a POST (auth.logout()), a link's GET is refused (#297, #332).
+ * The button is turned off so a second press doesn't send a second logout
+ * @param  {[object]} auth [the page's InternalAuth]
+ */
+export function startLogoutButtons(auth) {
+	document.querySelectorAll(".logoutBtn").forEach(function (btn) {
+		btn.addEventListener("click", function (e) {
+			e.preventDefault();
+			if (btn.disabled) { return; }
+			btn.disabled = true;
+			auth.logout(); // POST /api/auth/logout, THEN AUTH0'S LOGOUT & BACK TO THE GUEST PAGE
+		});
+	});
+}
+
+/* ---------------------------------------------------------------- */
 // Show Table
 /* ---------------------------------------------------------------- */
 /**

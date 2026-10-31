@@ -19,7 +19,7 @@ const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
-const { startNav, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
+const { startNav, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
 
@@ -63,6 +63,7 @@ let homeDrawing = Promise.resolve(); // ONE REDRAW AT A TIME (refreshHome)
 let SETTINGS = null; // THE PLAYER'S DEFAULT START SETTINGS (THE SETTINGS PAGE), THE DROPDOWNS START ON THEM
 
 startNav();
+startLogoutButtons(auth); // LOGOUT IN THE MENU IS A POST (#332)
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
 startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
