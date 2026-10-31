@@ -97,7 +97,6 @@ client/
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Sign in)
   play.html                  Game menu markup (Resume, Restart / Forfeit / Rematch, Home, Exit)
   webpack.config.js          One entry + HTML page each (home, guest, play, settings), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
-  src-sw.js                  Workbox service worker (not registered at the moment)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles
   src/css/style.css          Play page layout (canvas), imported by pages/play
