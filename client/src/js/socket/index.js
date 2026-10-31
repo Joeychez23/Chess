@@ -69,6 +69,10 @@ export function joinGame(gameId, playerId, handlers) {
 		if (gameSocket.active || refreshed) { return; } // SOCKET.IO RETRIES NETWORK ERRORS BY ITSELF
 		refreshAndReconnect(); // THE SERVER TURNED THE SOCKET AWAY: ACCESS TOKEN EXPIRED -> RE-UP ONCE & TRY AGAIN
 	});
+
+	gameSocket.on("disconnect", (reason) => { // THE SERVER CLOSED IT: ITS ACCESS TOKEN RAN OUT, OR THE SESSION ENDED (THE RE-UP FAILS & IT STAYS CLOSED, #298)
+		if (reason == "io server disconnect" && !refreshed && socket == gameSocket) { refreshAndReconnect(); }
+	});
 }
 
 /* ---------------------------------------------------------------- */
@@ -110,10 +114,18 @@ export function watchGames(handler) {
 
 	gamesSocket.on("games", redrawSoon);
 
-	gamesSocket.on("connect_error", async () => {
-		if (gamesSocket.active || refreshed) { return; } // SOCKET.IO RETRIES NETWORK ERRORS BY ITSELF
-		refreshed = true; // THE SERVER TURNED THE SOCKET AWAY: ACCESS TOKEN EXPIRED -> RE-UP ONCE & TRY AGAIN
+	async function refreshAndReconnect() { // RE-UP ONCE & TRY AGAIN
+		refreshed = true;
 		const res = await fetch("/api/auth/refresh", { method: "POST" }).catch(() => null);
 		if (res?.ok && homeSocket == gamesSocket) { gamesSocket.connect(); }
+	}
+
+	gamesSocket.on("connect_error", () => {
+		if (gamesSocket.active || refreshed) { return; } // SOCKET.IO RETRIES NETWORK ERRORS BY ITSELF
+		refreshAndReconnect(); // THE SERVER TURNED THE SOCKET AWAY: ACCESS TOKEN EXPIRED
+	});
+
+	gamesSocket.on("disconnect", (reason) => { // THE SERVER CLOSED IT: ITS ACCESS TOKEN RAN OUT, OR THE SESSION ENDED (THE RE-UP FAILS & IT STAYS CLOSED, #298)
+		if (reason == "io server disconnect" && !refreshed && homeSocket == gamesSocket) { refreshAndReconnect(); }
 	});
 }

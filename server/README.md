@@ -168,11 +168,19 @@ body.
 ## Socket.IO
 
 `server/socket.js` runs Socket.IO on the same port as Express. Only signed-in
-players can connect (the handshake reads the same access-token cookie).
+players can connect (the handshake reads the same access-token cookie), and only
+from the game's own page: a handshake whose `Origin` isn't `CLIENT_URL`'s, or whose
+`Sec-Fetch-Site` isn't `same-origin`, is refused.
+
+The token is only read in the handshake, so the server closes a socket when its
+access token runs out, and closes every socket a player has open when they log out
+or use Delete my data. The client re-ups the session with `/api/auth/refresh` and
+connects again; after a logout the re-up fails and the socket stays closed.
+`join-game` is limited to 5 at once, then 1 every 2 seconds per socket (`429`).
 
 | Event | Direction | Meaning |
 | --- | --- | --- |
-| `join-game` | client → server | `gameId`, answered with `{ status, message, state, winner, reason }`. Joins the game's room if you're a player in it. One game per socket |
+| `join-game` | client → server | `gameId`, answered with `{ status, message, state, winner, reason }`. Joins the game's room if you're a player in it. One game per socket. `401` when the socket's access token ran out, `429` when it joins too often |
 | `move` | server → client | `{ game_id, player_id }`. Sent to the room after a move is saved. The client skips its own moves |
 | `game-over` | server → client | `{ game_id, player_id, winner, reason }`. Sent when a player forfeits. The opponent's board opens the menu with Rematch |
 | `rematch` | server → client | `{ game_id, new_game_id }`. Both players asked for a rematch. Both boards load the new game |

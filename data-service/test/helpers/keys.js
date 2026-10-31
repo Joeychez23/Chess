@@ -53,7 +53,7 @@ const settings = {
 /**
  * @description Signs a token like the data service does (utils/tokens.js), or one it would never make
  * @param  {[object]} payload [{ type, ... }]
- * @param  {[object]} options [{ key: "session" (default), "old", "next" or "stranger", expired: true, expiresIn (default 15m),
+ * @param  {[object]} options [{ key: "session" (default), "old", "next" or "stranger", expired: true, expiresIn (default 15m, or a number of seconds),
  * algorithm: "HS256" (signed with secret, default the real public key's PEM, & the real kid) or "none" }]
  * @return {[string]} token
  */
@@ -124,7 +124,7 @@ function keyId(publicKey) { // THE SAME AS utils/sessionKeys.js, WORKED OUT HERE
 function timed(payload, options) {
 	const now = Math.floor(Date.now() / 1000);
 	if (options.expired) { return { ...payload, iat: now - 3600, exp: now - 60 }; }
-	const seconds = { "15m": 15 * 60, "7d": 7 * 24 * 60 * 60, "365d": 365 * 24 * 60 * 60 }[options.expiresIn || "15m"];
+	const seconds = typeof options.expiresIn == "number" ? options.expiresIn : { "15m": 15 * 60, "7d": 7 * 24 * 60 * 60, "365d": 365 * 24 * 60 * 60 }[options.expiresIn || "15m"];
 	return { ...payload, iat: now, exp: now + seconds };
 }
 

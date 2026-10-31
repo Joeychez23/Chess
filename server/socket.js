@@ -6,6 +6,8 @@
  *  then the client loads the new board with GET /api/chess/game/:gameId.
  *  forfeitGame() emits "game-over" and rematchGame() emits "rematch" (the new game id) to the same room.
  *  Every socket is also in its player's room ("player:<player_id>"): Home gets "games" when an invite or friend game changes
+ *  The access token is only read in the handshake, so a socket is closed when that token runs out, & every socket of a player
+ *  is closed when they log out or delete their data (#298). The client re-ups the session & connects again (client/src/js/socket)
  *
  */
 
@@ -15,8 +17,12 @@
 
 const { Server } = require("socket.io");
 const cookieParser = require("cookie-parser");
-const { readSessionUser } = require("./middleware/auth.js");
+const config = require("./config");
+const { readSession } = require("./middleware/auth.js");
 const { retrieveGame, withRequest } = require("./dataClient.js");
+
+const JOIN_LIMIT = { burst: 5, refillMs: 2000 }; // join-game READS THE GAME FROM THE DATA SERVICE: 5 AT ONCE, THEN 1 EVERY 2 SECONDS PER SOCKET
+const MAX_TIMER = 2 ** 31 - 1; // setTimeout'S LONGEST WAIT (ms)
 
 let io = null;
 
@@ -29,22 +35,55 @@ let io = null;
  * @return {[object]} io [Socket.IO server]
  */
 function initSocket(server) {
-	io = new Server(server); // SAME ORIGIN AS THE GAME, NO CORS NEEDED
+	io = new Server(server, { allowRequest: (req, callback) => callback(null, fromOurPage(req)) }); // SAME ORIGIN AS THE GAME, NO CORS NEEDED
 	io.engine.use(cookieParser()); // SESSION TOKENS ARE READ FROM COOKIES (socket.request.cookies)
 
 	io.use((socket, next) => { // SIGNED IN USERS ONLY, GUESTS ONLY PLAY THE AI
-		const user = readSessionUser(socket.request);
-		if (!user) { return next(new Error("NOT SIGNED IN")); }
-		socket.data.playerId = user.user_id.split("auth0|")[1]; // PLAYER IDS DROP THE "auth0|", SAME AS THE CLIENT
+		const session = readSession(socket.request);
+		if (!session) { return next(new Error("NOT SIGNED IN")); }
+		socket.data.playerId = session.user.user_id.split("auth0|")[1]; // PLAYER IDS DROP THE "auth0|", SAME AS THE CLIENT
+		socket.data.expiresAt = session.expiresAt;
 		next();
 	});
 
 	io.on("connection", (socket) => {
+		const expiry = setTimeout(() => socket.disconnect(true), Math.min(Math.max(socket.data.expiresAt - Date.now(), 0), MAX_TIMER)).unref(); // THE ACCESS TOKEN RAN OUT (unref: AN OPEN SOCKET'S TIMER NEVER KEEPS THE PROCESS UP)
+		socket.on("disconnect", () => clearTimeout(expiry));
+		socket.data.joins = { tokens: JOIN_LIMIT.burst, at: Date.now() };
 		socket.join(`player:${socket.data.playerId}`); // HOME'S "games" (emitToPlayer)
 		socket.on("join-game", (gameId, ack) => joinGame(socket, gameId, ack));
 	});
 
 	return io;
+}
+
+/**
+ * @description Every handshake request (polling & websocket): only our own page can open a socket. A browser sends Origin on the
+ * websocket upgrade & on another origin's requests (a same-site subdomain included, which SameSite=Lax lets the cookies through for).
+ * A same-origin polling GET has no Origin, its Sec-Fetch-Site (when sent) says same-origin. Clients with neither still need the session cookie
+ * @param  {[object]} req [http request]
+ * @return {[boolean]} allowed
+ */
+function fromOurPage(req) {
+	const origin = req.headers.origin;
+	const site = req.headers["sec-fetch-site"];
+	if (origin && origin !== new URL(config.clientUrl).origin) { return false; }
+	return !site || site === "same-origin";
+}
+
+/**
+ * @description Takes one join from the socket's bucket (each join is a data service read)
+ * @param  {[object]} socket [player's socket]
+ * @return {[number]} retryMs [0 when the join can go ahead]
+ */
+function takeJoin(socket) {
+	const now = Date.now();
+	const joins = socket.data.joins;
+	joins.tokens = Math.min(JOIN_LIMIT.burst, joins.tokens + (now - joins.at) / JOIN_LIMIT.refillMs);
+	joins.at = now;
+	if (joins.tokens < 1) { return Math.ceil((1 - joins.tokens) * JOIN_LIMIT.refillMs); }
+	joins.tokens -= 1;
+	return 0;
 }
 
 /* ---------------------------------------------------------------- */
@@ -59,6 +98,9 @@ function initSocket(server) {
 async function joinGame(socket, gameId, ack) {
 	if (typeof ack != "function") { return; }
 	if (typeof gameId != "string" || !gameId) { return ack({ status: 400, message: "Invalid game id" }); }
+	const retryMs = takeJoin(socket);
+	if (retryMs) { return ack({ status: 429, message: `Too many joins, try again in ${Math.ceil(retryMs / 1000)} seconds` }); }
+	if (Date.now() >= socket.data.expiresAt) { return ack({ status: 401, message: "SESSION EXPIRED" }); } // THE HANDSHAKE'S COOKIES CAN'T READ THE GAME ANY MORE
 
 	try {
 		const response = await withRequest(socket.request, () => retrieveGame(gameId)); // AS THE SOCKET'S PLAYER (ITS HANDSHAKE HAS THEIR COOKIES)
@@ -107,5 +149,16 @@ function emitToPlayer(playerId, event, data) {
 	if (io && playerId != "CHESS_AI") { io.to(`player:${playerId}`).emit(event, data); }
 }
 
+/* ---------------------------------------------------------------- */
+// Disconnect Player
+/* ---------------------------------------------------------------- */
+/**
+ * @description Closes every socket a player has open, on every device (logout & Delete my data end their session, #298)
+ * @param  {[string]} playerId [auth0 user id without "auth0|"]
+ */
+function disconnectPlayer(playerId) {
+	if (io && playerId) { io.in(`player:${playerId}`).disconnectSockets(true); }
+}
 
-module.exports = { initSocket, emitToGame, emitToPlayer };
+
+module.exports = { initSocket, emitToGame, emitToPlayer, disconnectPlayer };
