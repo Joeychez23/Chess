@@ -46,8 +46,8 @@ ssh ubuntu@172.31.64.10 'sudo systemctl restart data-service && sleep 2 && journ
 curl -s http://172.31.64.10:8090/health; echo
 
 # CHESS SERVER: KEEPS ITS .env, node_modules, images & audio
-rsync -a --delete --exclude .env --exclude node_modules --exclude dist --exclude /.git --exclude /stockfish --exclude /terraform --exclude /data-service --exclude /client/src/images --exclude /client/src/audio /tmp/chess-new/ /opt/chess-frontend/
-cd /opt/chess-frontend && npm ci && npm run build
+rsync -a --delete --exclude .env --exclude node_modules --exclude dist --exclude /.git --exclude /stockfish --exclude /terraform --exclude /data-service --exclude /client/src/images --exclude /client/src/audio /tmp/chess-new/ /opt/chess/
+cd /opt/chess && npm ci && npm run build
 cd server && npm ci --omit=dev && sudo systemctl restart chess
 sleep 2 && journalctl -u chess -n 20 --no-pager
 rm -rf /tmp/chess-new
@@ -79,7 +79,7 @@ terraform apply
 
 **On Chess-Stockfish**
 ```bash
-grep -oE '^[A-Z0-9_]+=' /opt/chess-frontend/server/.env
+grep -oE '^[A-Z0-9_]+=' /opt/chess/server/.env
 ```
 
 **On the data service**
@@ -110,7 +110,7 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish**
 ```bash
-nano /opt/chess-frontend/server/.env
+nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
@@ -141,7 +141,7 @@ cd /opt/data-service && sudo -u dataservice /usr/local/bin/node24 -e 'require("d
 
 **On Chess-Stockfish:** paste it as `SESSION_PUBLIC_KEY="..."` (all lines, in quotes), then restart
 ```bash
-nano /opt/chess-frontend/server/.env
+nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
@@ -156,8 +156,8 @@ sudo grep '^DATA_SERVICE_SECRET=' /opt/data-service/.env
 
 **On Chess-Stockfish:** add it with `DATA_SERVICE_URL=http://172.31.64.10:8090`, then restart
 ```bash
-nano /opt/chess-frontend/server/.env
-cd /opt/chess-frontend/server && npm ci --omit=dev && sudo systemctl restart chess
+nano /opt/chess/server/.env
+cd /opt/chess/server && npm ci --omit=dev && sudo systemctl restart chess
 ```
 
 **`Missing required environment variable AUTH0_...`:** the Auth0 values are in your Mac's `server/.env`. Copy them into the instance's.
@@ -170,7 +170,7 @@ cd /opt/chess-frontend/server && npm ci --omit=dev && sudo systemctl restart che
 
 **On Chess-Stockfish:** print the values
 ```bash
-grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess-frontend/server/.env
+grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess/server/.env
 ```
 
 **On the data service:** add both lines, then restart
@@ -201,7 +201,7 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish**
 ```bash
-grep '^DATA_SERVICE_SECRET=' /opt/chess-frontend/server/.env
+grep '^DATA_SERVICE_SECRET=' /opt/chess/server/.env
 ```
 
 **On the data service:** add it, then restart
@@ -235,7 +235,7 @@ Or do the step on the data service itself (`ssh -J` from your Mac).
 
 **On Chess-Stockfish**
 ```bash
-cd /opt/chess-frontend && git status
+cd /opt/chess && git status
 git checkout -- <file>   # only files that were just rebuilt (package-lock.json, built files)
 ```
 
@@ -246,7 +246,7 @@ git checkout -- <file>   # only files that were just rebuilt (package-lock.json,
 **On Chess-Stockfish**
 ```bash
 curl -s http://172.31.64.10:8090/health; echo
-grep '^DATA_SERVICE_URL=' /opt/chess-frontend/server/.env    # http://172.31.64.10:8090
+grep '^DATA_SERVICE_URL=' /opt/chess/server/.env    # http://172.31.64.10:8090
 ```
 
 **On the data service**
@@ -298,7 +298,7 @@ aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":
 
 **On Chess-Stockfish**
 ```bash
-grep '^ENGINE_URL=' /opt/chess-frontend/server/.env
+grep '^ENGINE_URL=' /opt/chess/server/.env
 systemctl status chess-engine-api --no-pager
 ```
 
@@ -336,8 +336,8 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish:** remove the old public key, then paste the new one as `SESSION_PUBLIC_KEY="..."`
 ```bash
-sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess-frontend/server/.env
-nano /opt/chess-frontend/server/.env
+sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess/server/.env
+nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
@@ -362,7 +362,7 @@ A new key signs everyone out once. To change it without that, see [data-service/
 
 **On Chess-Stockfish**
 ```bash
-sudo cp /opt/chess-frontend/deploy/chess.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart chess
+sudo cp /opt/chess/deploy/chess.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart chess
 ```
 
 **`deploy/data-service.service` changed**
@@ -381,7 +381,7 @@ sudo cp /tmp/data-service.service /etc/systemd/system/ && sudo systemctl daemon-
 
 **On Chess-Stockfish**
 ```bash
-sudo cp /opt/chess-frontend/deploy/nginx.conf /etc/nginx/sites-available/chess && sudo nginx -t && sudo systemctl reload nginx
+sudo cp /opt/chess/deploy/nginx.conf /etc/nginx/sites-available/chess && sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ## Roll back

@@ -56,11 +56,11 @@ tenant settings, enable **Trust Token Endpoint IP Header** so Auth0 can use the
 From your Mac, in this folder:
 
 ```bash
-ssh -i ~/path/to/key.pem ubuntu@<elastic-ip> 'sudo mkdir -p /opt/chess-frontend && sudo chown ubuntu: /opt/chess-frontend'
+ssh -i ~/path/to/key.pem ubuntu@<elastic-ip> 'sudo mkdir -p /opt/chess && sudo chown ubuntu: /opt/chess'
 rsync -av --exclude node_modules --exclude .env --exclude dist --exclude .DS_Store \
   --exclude /.git --exclude /stockfish --exclude /terraform --exclude /data-service \
   --exclude /client/src/images --exclude /client/src/audio \
-  -e "ssh -i ~/path/to/key.pem" ./ ubuntu@<elastic-ip>:/opt/chess-frontend/
+  -e "ssh -i ~/path/to/key.pem" ./ ubuntu@<elastic-ip>:/opt/chess/
 ```
 
 That leaves out your `.env` files (the instance gets its own in step 4), the
@@ -73,15 +73,15 @@ local Stockfish build, the Terraform state, and the images and audio
 Copy both from your Mac, then change what's different on the instance:
 
 ```bash
-scp -i ~/path/to/key.pem client/.env ubuntu@<elastic-ip>:/opt/chess-frontend/client/.env
-scp -i ~/path/to/key.pem server/.env ubuntu@<elastic-ip>:/opt/chess-frontend/server/.env
+scp -i ~/path/to/key.pem client/.env ubuntu@<elastic-ip>:/opt/chess/client/.env
+scp -i ~/path/to/key.pem server/.env ubuntu@<elastic-ip>:/opt/chess/server/.env
 ```
 
 `client/.env` is read when the client is built. Check that
 `CHESS_ASSESTS_URL` is `https://assets.chess.aws-prac-route53.com`, not `.`:
 every sprite, sound, and the favicon load from it.
 
-`server/.env`, on the instance (`nano /opt/chess-frontend/server/.env`):
+`server/.env`, on the instance (`nano /opt/chess/server/.env`):
 
 | Variable | On the instance |
 | --- | --- |
@@ -99,14 +99,14 @@ its instance from [Data service instance](../terraform/README.md#data-service-in
 these in before step 6.
 
 The Auth0 values stay the same. Then lock the file to your user:
-`chmod 600 /opt/chess-frontend/server/.env`.
+`chmod 600 /opt/chess/server/.env`.
 
 ## 5. Install and build
 
 On the instance:
 
 ```bash
-cd /opt/chess-frontend
+cd /opt/chess
 npm ci
 npm run build
 cd server && npm ci --omit=dev
@@ -119,7 +119,7 @@ build again after copying new client code.
 ## 6. Start the server
 
 ```bash
-cd /opt/chess-frontend
+cd /opt/chess
 sudo cp deploy/chess.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now chess
