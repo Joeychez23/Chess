@@ -8,9 +8,18 @@
       "port": 8090
     },
     {
-      "name": "chess",
+      "name": "chess-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "server", "run", "dev"],
       "url": "http://localhost:3001",
       "port": 3001
+    },
+    {
+      "name": "chess-client",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "url": "http://localhost:3002",
+      "port": 3002
     }
   ]
 }
