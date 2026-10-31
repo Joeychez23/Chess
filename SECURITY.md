@@ -68,7 +68,7 @@ The data service signs every session and guest token with its private key (ES256
 3. **Update the data service.** Copy the code with [deploy/README.md step 10](deploy/README.md#10-the-data-service)'s rsync. Then get the two Auth0 values on Chess-Stockfish:
 
    ```bash
-   grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess-frontend/server/.env
+   grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess/server/.env
    ```
 
    On the data service, swap `JWT_SECRET` for the key and those two lines, delete the key file and restart it:
@@ -86,8 +86,8 @@ The data service signs every session and guest token with its private key (ES256
 4. **On Chess-Stockfish, deploy the new server code** ([deploy/README.md → Updating, logs and fixes](deploy/README.md#updating-logs-and-fixes), without the restart), **add the public half** (from step 1) and restart the chess server:
 
    ```bash
-   sed -i '/^JWT_\(SECRET\|EXPIRES_IN\|REFRESH_EXPIRES_IN\)=/d' /opt/chess-frontend/server/.env
-   cat >> /opt/chess-frontend/server/.env <<'EOF'
+   sed -i '/^JWT_\(SECRET\|EXPIRES_IN\|REFRESH_EXPIRES_IN\)=/d' /opt/chess/server/.env
+   cat >> /opt/chess/server/.env <<'EOF'
    SESSION_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----
    <the two lines from step 1>
    -----END PUBLIC KEY-----"
@@ -111,7 +111,7 @@ Make a new pair (step 1) and replace both halves at once, without the overlap in
 
 ```bash
 sudo sed -i '/^SESSION_PRIVATE_KEY=/,/END PRIVATE KEY/d' /opt/data-service/.env    # on the data service
-sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess-frontend/server/.env    # on Chess-Stockfish
+sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess/server/.env    # on Chess-Stockfish
 ```
 
 Then add the new halves with step 3's `SESSION_PRIVATE_KEY` line (not the Auth0 lines, they're already there) and step 4's `cat`, delete the key file, and restart both. Every session and guest token signed with the old key stops working, so everyone is signed out and guests start a new game.

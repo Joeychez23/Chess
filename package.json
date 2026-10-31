@@ -4,7 +4,7 @@
 		"build": "cd client && webpack",
 		"start": "npm run build && cd server && npm start"
 	},
-	"name": "chess-frontend",
+	"name": "chess",
 	"description": "<a href=\"https://aws-prac-route53.com/\" target=\"_blank\"> https://aws-prac-route53.com/ </a>",
 	"version": "1.0.0",
 	"devDependencies": {

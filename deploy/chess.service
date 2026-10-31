@@ -9,7 +9,7 @@ After=network.target chess-engine-api.service
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/opt/chess-frontend/server
+WorkingDirectory=/opt/chess/server
 ExecStart=/usr/local/bin/node24 index.js
 Restart=always
 RestartSec=5
