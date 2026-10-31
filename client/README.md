@@ -14,12 +14,12 @@
 
 | Variable | Purpose |
 | --- | --- |
-| `CHESS_ASSESTS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com` (CloudFront), or `.` to use local copies. It's built into the bundle, so rebuild after changing it. |
+| `CHESS_ASSETS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com` (CloudFront), or `.` to use local copies. It's built into the bundle, so rebuild after changing it. |
 
 **Images and audio aren't in the repo** (`client/src/images` and `client/src/audio`
 are git-ignored). They're in the `aws-prac-chess-s3` bucket and CloudFront serves
-them; every asset url starts with `CHESS_ASSESTS_URL`. To work offline, copy them
-back into `client/src/`, set `CHESS_ASSESTS_URL=.` and turn on the
+them; every asset url starts with `CHESS_ASSETS_URL`. To work offline, copy them
+back into `client/src/`, set `CHESS_ASSETS_URL=.` and turn on the
 `CopyWebpackPlugin` block in `client/webpack.config.js`. To upload changes
 (CloudFront's TTL is 0, so they show at once):
 

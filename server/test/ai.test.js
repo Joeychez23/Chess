@@ -5,10 +5,12 @@
  */
 
 require("./helpers/env.js");
-const { test, describe, beforeEach, afterEach, mock } = require("node:test");
+const { test, describe, before, after, beforeEach, afterEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
 const { Chess } = require("chess.js");
 const { levelList, readLevel, aiMove } = require("../utils/ai.js");
+const testServer = require("./helpers/server.js");
+const { call, peek, engineWillPlay, engineCalls } = testServer;
 
 const START = new Chess().fen();
 const realFetch = globalThis.fetch;
@@ -85,5 +87,42 @@ describe("aiMove", () => {
 		const move = await aiMove(START, 1);
 		assert.ok(isLegal(START, move));
 		assert.equal(globalThis.fetch.mock.callCount(), 0);
+	});
+});
+
+describe("parallel /ai-move requests on one game (#296)", () => { // AFTER "aiMove": ITS afterEach PUTS BACK THE REAL fetch, start() SETS THE STAND-IN
+	let server;
+	before(async () => { server = await testServer.start(); });
+	after(() => server.close());
+	beforeEach(() => testServer.reset());
+
+	test("20 at once ask the engine once, and all get the same move", async () => {
+		await call("POST", "/api/chess/game", { body: { game_id: "guest1", start_color: "w" } });
+		await call("PUT", "/api/chess/game/guest1", { body: { move: ["e2", "e4"] } });
+
+		let answer;
+		engineWillPlay("e7", "e5", undefined, new Promise((resolve) => { answer = resolve; })); // THE ENGINE THINKS UNTIL EVERY REQUEST HAS ARRIVED
+		const requests = Array.from({ length: 20 }, () => call("POST", "/api/chess/game/guest1/ai-move"));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		answer();
+		const responses = await Promise.all(requests);
+
+		assert.equal(engineCalls(), 1);
+		for (const response of responses) {
+			assert.equal(response.status, 200);
+			assert.deepEqual(response.ai_move, { from: "e7", to: "e5" });
+		}
+		assert.deepEqual(JSON.parse(peek("chess_db", "guest1").moves.S), ["e4", "e5"]); // ONE AI MOVE SAVED
+	});
+
+	test("after the AI's move, its next turn asks the engine again", async () => {
+		await call("POST", "/api/chess/game", { body: { game_id: "guest1", start_color: "w" } });
+		await call("PUT", "/api/chess/game/guest1", { body: { move: ["e2", "e4"] } });
+		engineWillPlay("e7", "e5");
+		await call("POST", "/api/chess/game/guest1/ai-move");
+		await call("PUT", "/api/chess/game/guest1", { body: { move: ["g1", "f3"] } });
+		engineWillPlay("b8", "c6");
+		assert.deepEqual((await call("POST", "/api/chess/game/guest1/ai-move")).ai_move, { from: "b8", to: "c6" });
+		assert.equal(engineCalls(), 2);
 	});
 });

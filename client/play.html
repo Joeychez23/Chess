@@ -4,9 +4,9 @@
 <head>
 	<meta charset="UTF-8" />
 	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
-	<link rel="icon" type="image/png" sizes="32x32" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-32.png" />
-	<link rel="icon" type="image/png" sizes="192x192" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-192.png" />
-	<link rel="apple-touch-icon" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-180.png" /> <!-- iOS HOME SCREEN, ON THE BAIZE GREEN -->
+	<link rel="icon" type="image/png" sizes="32x32" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-32.png" />
+	<link rel="icon" type="image/png" sizes="192x192" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-192.png" />
+	<link rel="apple-touch-icon" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-180.png" /> <!-- iOS HOME SCREEN, ON THE BAIZE GREEN -->
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 	<meta name="theme-color" content="#220B00" />
 	<link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,7 +19,7 @@
 		html.loadingPage::view-transition-old(*),
 		html.loadingPage::view-transition-new(*) { animation-play-state: paused; } /* HOME STAYS ON SCREEN UNTIL THE BOARD IS DRAWN */
 		::view-transition-group(*) { animation-duration: 400ms; }
-		body { background: #0c2a1f url("<%= process.env.CHESS_ASSESTS_URL %>/images/board/table.webp") center / cover no-repeat fixed; } /* THE TABLE FROM THE FIRST PAINT, NOT A SOLID COLOR (SAME SIZE & SPOT AS THE CANVAS'S TABLE) */
+		body { background: #0c2a1f url("<%= process.env.CHESS_ASSETS_URL %>/images/board/table.webp") center / cover no-repeat fixed; } /* THE TABLE FROM THE FIRST PAINT, NOT A SOLID COLOR (SAME SIZE & SPOT AS THE CANVAS'S TABLE) */
 		body > * { transition: opacity 400ms ease-out; }
 		html.loadingPage body > * { opacity: 0; } /* NO FADE FROM HOME (A RELOAD, FROM LOGIN, FIREFOX): THE TABLE, THEN THE GAME FADES IN */
 		:active-view-transition body > * { transition: none; } /* FROM HOME THE PAGE FADE DOES IT ALONE (A BROWSER WITHOUT THIS ONLY DROPS THIS LINE) */

@@ -51,10 +51,10 @@ export async function renderCanvas(playerData) {
 
 	game.cw = (canvas.width = window.innerWidth); // CANVAS WIDTH (CSS PIXELS)
 	game.ch = (canvas.height = window.innerHeight); // CANVAS HEIGHT (CSS PIXELS)
-	game.moveAudio = new Audio(`${process.env.CHESS_ASSESTS_URL}/audio/piece-jump.mp4`); // MOVE SOUND
+	game.moveAudio = new Audio(`${process.env.CHESS_ASSETS_URL}/audio/piece-jump.mp4`); // MOVE SOUND
 
 	canvas.style.backgroundRepeat = "repeat-y"; // THE TABLE BEHIND THE BOARD
-	canvas.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
+	canvas.style.backgroundImage = `url("${process.env.CHESS_ASSETS_URL}/images/board/table.webp")`;
 	canvas.style.backgroundSize = "cover";
 	canvas.style.backgroundPosition = "center";
 	main.append(canvas);
@@ -98,7 +98,7 @@ async function startGame() {
 	
 	// JUST IN CASE
 	canvas.style.backgroundRepeat = "repeat-y"; // THE TABLE BEHIND THE BOARD
-	canvas.style.backgroundImage = `url("${process.env.CHESS_ASSESTS_URL}/images/board/table.webp")`;
+	canvas.style.backgroundImage = `url("${process.env.CHESS_ASSETS_URL}/images/board/table.webp")`;
 	canvas.style.backgroundSize = "cover";
 	canvas.style.backgroundPosition = "center";
 	main.append(canvas);

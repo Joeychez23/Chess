@@ -40,6 +40,7 @@ const loginFailed = (reason) => new URL(`/?login=${reason}`, config.clientUrl).h
 const me = (accessToken) => send("GET", "/api/user", { access_token: accessToken });
 const refresh = (refreshToken) => send("POST", "/api/auth/refresh", { refresh_token: refreshToken });
 const loginHeaders = (ip = "203.0.113.5", origin = new URL(config.clientUrl).origin) => ({ "Content-Type": "application/json", Origin: origin, "X-Forwarded-For": ip });
+const logOut = (refreshToken, headers = { Origin: new URL(config.clientUrl).origin, "Sec-Fetch-Site": "same-origin" }) => send("POST", "/api/auth/logout", { refresh_token: refreshToken }, { headers });
 const passwordLogin = (body, options = {}) => send("POST", "/api/auth/login", {}, { headers: loginHeaders(options.ip, options.origin), body: options.rawBody ?? JSON.stringify(body) });
 
 /* ---------------------------------------------------------------- */
@@ -202,9 +203,9 @@ describe("refresh, resume & logout", () => {
 		player("alice");
 		const phone = await logIn(alice);
 		const laptop = await logIn(alice);
-		const logout = await send("GET", "/api/auth/logout", { refresh_token: phone.cookies.refresh_token });
-		assert.equal(logout.http, 302);
-		assert.match(logout.location, /^https:\/\/auth0\.test\/v2\/logout/);
+		const logout = await logOut(phone.cookies.refresh_token);
+		assert.equal(logout.http, 200);
+		assert.match(logout.body.logoutUrl, /^https:\/\/auth0\.test\/v2\/logout/);
 		assert.deepEqual([logout.cookies.access_token, logout.cookies.refresh_token], ["", ""]);
 
 		for (const device of [phone, laptop]) {
@@ -213,6 +214,19 @@ describe("refresh, resume & logout", () => {
 			assert.equal(response.cookies.refresh_token, ""); // CLEARED
 		}
 		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2F", { refresh_token: laptop.cookies.refresh_token })).location, "/api/auth/login?returnTo=%2F");
+	});
+
+	test("logout from another site, or by a link, is refused & the session stays on every device (#297)", async () => {
+		player("alice");
+		const login = await logIn(alice);
+		const ours = new URL(config.clientUrl).origin;
+		for (const headers of [{}, { Origin: "https://evil.test" }, { Origin: "https://evil.test", "Sec-Fetch-Site": "cross-site" }, { Origin: ours, "Sec-Fetch-Site": "cross-site" }]) {
+			const logout = await logOut(login.cookies.refresh_token, headers);
+			assert.equal(logout.http, 403);
+			assert.equal(logout.cookies.refresh_token, undefined); // NOT CLEARED
+		}
+		assert.equal((await send("GET", "/api/auth/logout", { refresh_token: login.cookies.refresh_token })).http, 404); // A GET NO LONGER SIGNS OUT
+		assert.equal((await refresh(login.cookies.refresh_token)).http, 200);
 	});
 
 	test("a 404 or 400 from the data service's refresh answers 503 & keeps both cookies", async () => {

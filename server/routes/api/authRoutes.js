@@ -16,7 +16,7 @@ router.route('/login').post(checkLogin, limitLogins, passwordLogin); // /api/aut
 
 router.route('/callback').get(callback);    // /api/auth/callback -> AUTH0 RETURNS HERE, STARTS SESSION
 
-router.route('/logout').get(logout);        // /api/auth/logout   -> ENDS SESSION + AUTH0 SESSION
+router.route('/logout').post(logout);       // /api/auth/logout   -> ENDS SESSION, ANSWERS { logoutUrl } (AUTH0 LOGOUT). OUR PAGE ONLY (#297)
 
 router.route('/refresh').post(refresh);     // /api/auth/refresh  -> RE-UPS THE ACCESS TOKEN
 

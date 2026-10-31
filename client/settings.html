@@ -4,9 +4,9 @@
 <head>
 	<meta charset="UTF-8" />
 	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
-	<link rel="icon" type="image/png" sizes="32x32" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-32.png" />
-	<link rel="icon" type="image/png" sizes="192x192" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-192.png" />
-	<link rel="apple-touch-icon" href="<%= process.env.CHESS_ASSESTS_URL %>/images/icon/bishop-180.png" /> <!-- iOS HOME SCREEN, ON THE BAIZE GREEN -->
+	<link rel="icon" type="image/png" sizes="32x32" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-32.png" />
+	<link rel="icon" type="image/png" sizes="192x192" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-192.png" />
+	<link rel="apple-touch-icon" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-180.png" /> <!-- iOS HOME SCREEN, ON THE BAIZE GREEN -->
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 	<meta name="theme-color" content="#0c2a1f" />
 	<link rel="preconnect" href="https://fonts.googleapis.com">
@@ -30,7 +30,7 @@
 		<ul id="menuButtonList">
 			<li><a class="menuButton" href="/">Home</a></li>
 			<li><a class="menuButton" href="/settings" aria-current="page">Settings</a></li>
-			<li><a class="menuButton" href="/api/auth/logout">Logout</a></li>
+			<li><button class="menuButton logoutBtn" type="button">Logout</button></li>
 		</ul>
 	</nav>
 
@@ -60,7 +60,7 @@
 				<p class="boxText">You sign in with <span id="accountEmail">your email</span>. Signed in games are kept on your account.</p>
 				<p class="spec" id="gamesFinished">Games finished // 0</p>
 				<div class="actions boxBottom">
-					<a class="btn btnLine" href="/api/auth/logout">Sign out</a>
+					<button class="btn btnLine logoutBtn" type="button">Sign out</button>
 				</div>
 			</div>
 			<div class="box boxWalnut" id="startBox">

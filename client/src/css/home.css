@@ -18,6 +18,18 @@ html {
 	text-size-adjust: 100%;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+	html {
+		scroll-behavior: smooth; /* THE MENU'S #invites, #games & #soloBox LINKS SCROLL TO THEIR BOX INSTEAD OF JUMPING (#240) */
+	}
+}
+
+#soloBox,
+#invites,
+#games {
+	scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 72px); /* THE MENU'S LINKS STOP WITH THE BOX BELOW THE MENU BUTTON */
+}
+
 body {
 	min-height: 100vh;
 	min-height: 100dvh;
@@ -338,6 +350,7 @@ body {
 	flex-direction: column;
 	gap: 8px;
 	list-style: none;
+	overflow-anchor: none; /* REDRAWN BY THE SOCKET: ITS ROWS AREN'T USED TO HOLD THE SCROLL (A REMOVED ONE MADE THE PAGE JUMP, #240) */
 }
 
 .inviteList li,
@@ -395,6 +408,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	list-style: none;
+	overflow-anchor: none; /* SAME AS .inviteList (#240) */
 }
 
 #gameList li + li {

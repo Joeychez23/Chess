@@ -80,7 +80,7 @@ client secret.
 | `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for Auth0's tokens, looks the player up through the Management API (`getAuth0User`, which replaced the `user` lambda), then the data service checks Auth0's `id_token` and signs the session (`POST /session/login`). Goes to `returnTo` or Home |
 | `POST /api/auth/refresh` | Re-ups the session: the data service checks the refresh token and signs a new access + refresh token |
 | `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it logs in first |
-| `GET /api/auth/logout` | Ends the session on every device (the data service clears the session id on the player's row), clears the cookies and logs out of Auth0 |
+| `POST /api/auth/logout` | Ends the session on every device (the data service clears the session id on the player's row), clears the cookies and answers `{ logoutUrl }`, Auth0's logout, which the page goes to. Only from our own page (`Origin` / `Sec-Fetch-Site`, #297); a `GET` is `404` |
 | `GET /api/user` | The signed-in user, and `username` from their `user_db` row (`null` until they pick one), or `401` |
 | `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w` or `b` is `random`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
 | `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
@@ -117,6 +117,10 @@ move or missing game is HTTP 200 with `status: 500`.
   minute), 30 per IP or IPv6 /64 (then 1 every 20 s), or 60 site-wide (then 1 a
   second). Checked before anything is saved. Moves aren't limited. The counts are
   in memory and reset on restart.
+- **AI move limits:** `/ai-move` answers `429` with `Retry-After` past 20 at once
+  per session (then 1 a second) or 60 per IP or IPv6 /64 (then 4 a second), with
+  its own counts. Requests for one game while its AI move is being picked wait for
+  that move instead of asking the engine again.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |
@@ -164,11 +168,19 @@ body.
 ## Socket.IO
 
 `server/socket.js` runs Socket.IO on the same port as Express. Only signed-in
-players can connect (the handshake reads the same access-token cookie).
+players can connect (the handshake reads the same access-token cookie), and only
+from the game's own page: a handshake whose `Origin` isn't `CLIENT_URL`'s, or whose
+`Sec-Fetch-Site` isn't `same-origin`, is refused.
+
+The token is only read in the handshake, so the server closes a socket when its
+access token runs out, and closes every socket a player has open when they log out
+or use Delete my data. The client re-ups the session with `/api/auth/refresh` and
+connects again; after a logout the re-up fails and the socket stays closed.
+`join-game` is limited to 5 at once, then 1 every 2 seconds per socket (`429`).
 
 | Event | Direction | Meaning |
 | --- | --- | --- |
-| `join-game` | client → server | `gameId`, answered with `{ status, message, state, winner, reason }`. Joins the game's room if you're a player in it. One game per socket |
+| `join-game` | client → server | `gameId`, answered with `{ status, message, state, winner, reason }`. Joins the game's room if you're a player in it. One game per socket. `401` when the socket's access token ran out, `429` when it joins too often |
 | `move` | server → client | `{ game_id, player_id }`. Sent to the room after a move is saved. The client skips its own moves |
 | `game-over` | server → client | `{ game_id, player_id, winner, reason }`. Sent when a player forfeits. The opponent's board opens the menu with Rematch |
 | `rematch` | server → client | `{ game_id, new_game_id }`. Both players asked for a rematch. Both boards load the new game |

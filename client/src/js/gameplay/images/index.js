@@ -47,7 +47,7 @@ async function loadImage(path) {
 // Preload Images
 /* ---------------------------------------------------------------- */
 /**
- * @description Loads every image the game draws, from CHESS_ASSESTS_URL (S3 / CloudFront). The list is SPRITES (gameplay/sprites/index.js).
+ * @description Loads every image the game draws, from CHESS_ASSETS_URL (S3 / CloudFront). The list is SPRITES (gameplay/sprites/index.js).
  * !NOTE: THE ORDER MATTERS. EACH IMAGE'S INDEX IN images[] IS ITS IMAGE NUMBER (wFrontKingImg = 5, ... IN sprites/index.js),
  * SO NEW IMAGES GO AT THE END OF SPRITES OR EVERY NUMBER AFTER THEM HAS TO CHANGE
  */

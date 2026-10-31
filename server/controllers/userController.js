@@ -11,6 +11,7 @@
 const { retrieveUser, updateUserSettings, claimUsername, deleteUser } = require("../dataClient.js");
 const { leaveAllGames, readSettings, userPlayerId } = require("./chessController.js");
 const { checkUsername } = require("../utils/username.js");
+const { disconnectPlayer } = require("../socket.js");
 
 /* ---------------------------------------------------------------- */
 // Get User
@@ -66,6 +67,7 @@ async function deleteUserData(req, res) {
 	const playerId = userPlayerId(req.user);
 	await leaveAllGames(playerId);
 	const response = await deleteUser(); // THE DATA SERVICE REFUSES IT WHILE A GAME OR INVITE IS LEFT
+	if (response.status == 200) { disconnectPlayer(playerId); } // THEIR SESSION IS OVER, THEIR OPEN SOCKETS ON EVERY DEVICE ARE CLOSED (#298)
 	return res.json({ status: response.status, message: response.message });
 }
 
