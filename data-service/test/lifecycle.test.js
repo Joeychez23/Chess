@@ -311,6 +311,30 @@ describe("accept with an open friend game", () => {
 		assert.equal(peek("chess_db", "invite2"), undefined);
 	});
 
+	test("an invite cancelled between the checks and the accept leaves the open game open & unrated", async () => {
+		await friendGame("invite1", "alice", "bob", true);
+		await friendGame("game1", "bob", "carol");
+		await friendGame("invite2", "bob", "dave", true); // BOB'S SENT INVITE
+		const { DynamoDB } = require("@aws-sdk/client-dynamodb");
+		const update = DynamoDB.prototype.updateItem;
+		DynamoDB.prototype.updateItem = async (params) => { // ALICE CANCELS JUST BEFORE BOB'S ACCEPT LANDS
+			if (params.Key.game_id?.S == "invite1" && params.ExpressionAttributeValues?.[":open"]) {
+				DynamoDB.prototype.updateItem = update;
+				await db.deleteInvite((await db.retrieveGame("invite1", true)).game_data);
+			}
+			return update(params);
+		};
+		const kept = () => [peek("chess_db", "game1"), peek("chess_db", "invite2"), peek("user_db", "carol"), list("bob", "open_games"), list("bob", "closed_games")]; // THE CANCEL ITSELF DROPS invite1 FROM BOB'S requested_games
+		const before = kept();
+		try {
+			const lost = await call("POST", "/games/invite1/accept", { as: bob, body: { replace_current: true } });
+			assert.match(lost.message, /Invite was already answered/);
+		} finally { DynamoDB.prototype.updateItem = update; }
+		assert.deepEqual(kept(), before);
+		assert.equal(peek("chess_db", "game1").state.S, "OPEN");
+		assert.equal(peek("chess_db", "game1").winner, undefined);
+	});
+
 	test("a busy inviter is refused before the requester's own game is forfeited", async () => {
 		await friendGame("invite1", "alice", "bob", true);
 		await friendGame("game1", "bob", "carol");
