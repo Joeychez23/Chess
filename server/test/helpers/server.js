@@ -106,6 +106,7 @@ function player(name) {
  * @description The access cookie a signed in player's browser sends (signed like the data service signs it, utils/tokens.js)
  */
 function sessionCookie(user) {
+	fakeDynamo.signIn(user.user_id.split("auth0|")[1]); // SIGNED IN: THEIR ROW HAS THE TOKEN'S SESSION ID
 	return `access_token=${keys.sessionToken(user)}`;
 }
 

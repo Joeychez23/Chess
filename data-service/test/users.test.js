@@ -34,6 +34,7 @@ const friendGame = (gameId, white, black, pending) => db.initalizeGame(gameId, w
  * @param  {[array]} keys [user_db keys]
  */
 async function refused(keys, method, path, options, http) {
+	if (options?.as) { service.signIn(options.as.id); } // THE LOGIN THAT MADE THEIR ROW CAME BEFORE, ONLY THIS REQUEST MUST CHANGE NOTHING
 	const before = keys.map((key) => peek("user_db", key));
 	const response = await call(method, path, options);
 	assert.equal(response.http, http, response.message);
@@ -46,8 +47,10 @@ async function refused(keys, method, path, options, http) {
 /* ---------------------------------------------------------------- */
 
 describe("GET /users/me", () => {
-	test("the requester's row as stored, or not found before their first game", async () => {
-		assert.equal((await call("GET", "/users/me", { as: alice })).message, "User data not found");
+	test("the requester's row as stored, with empty lists before their first game (their login made it)", async () => {
+		const first = await call("GET", "/users/me?consistent=true", { as: alice });
+		assert.deepEqual(JSON.parse(first.user_data.open_games.S), []);
+		assert.equal(first.user_data.sid, undefined);
 		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		const response = await call("GET", "/users/me?consistent=true", { as: alice });
 		assert.equal(response.user_data.user_id.S, "alice");

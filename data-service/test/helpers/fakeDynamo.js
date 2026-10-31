@@ -85,6 +85,19 @@ function peek(tableName, key) {
 	return item ? structuredClone(item) : undefined;
 }
 
+/**
+ * @description Signs a player in like a login does (startSession in dynamoDB.js): their row with empty game lists if they have none,
+ * & the session id their test access tokens carry (helpers/keys.js, "test-sid"). A row that already has a session id keeps it
+ * @param  {[string]} userId [user_id without "auth0|"]
+ * @param  {[string]} sid [the session id, default "test-sid"]
+ */
+function signIn(userId, sid = "test-sid") {
+	const row = table("user_db").get(userId);
+	if (row?.sid) { return; }
+	const lists = { open_games: { S: "[]" }, requested_games: { S: "[]" }, closed_games: { S: "[]" } };
+	writeItem("user_db", userId, { ...(row || { user_id: { S: userId }, ...lists }), sid: { S: sid } });
+}
+
 /* ---------------------------------------------------------------- */
 // Calls
 /* ---------------------------------------------------------------- */
@@ -283,4 +296,4 @@ function attributeName(name, names) {
 }
 
 
-module.exports = { install, reset, staleReads, throttleBatchReads, failBatchReads, peek };
+module.exports = { install, reset, staleReads, throttleBatchReads, failBatchReads, peek, signIn };
