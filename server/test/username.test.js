@@ -127,7 +127,8 @@ describe("username rules", () => {
 			assert.equal(refused.http, 400, `${username}`);
 			assert.equal(refused.message, "Usernames are 3 to 20 letters, numbers, _ or -");
 		}
-		assert.equal(peek("user_db", "alice"), undefined); // NOTHING SAVED
+		assert.equal(peek("user_db", "alice").username, undefined); // NOTHING SAVED (THE ROW IS THEIR LOGIN'S)
+		assert.equal(peek("user_db", "username#ab"), undefined);
 		assert.equal((await pick(alice, "a-b_C9")).http, 200);
 		assert.equal((await pick(alice, "x".repeat(20))).http, 200);
 	});

@@ -151,6 +151,30 @@ describe("POST /session/refresh & /session/logout", () => {
 		assert.equal((await refresh(session.refresh_token)).http, 401);
 	});
 
+	test("after logout an access token already out is refused on every device (#277)", async () => {
+		const phone = await login(aliceIdToken());
+		const laptop = await login(aliceIdToken());
+		assert.equal((await call("GET", "/users/me", { token: laptop.access_token })).status, 200);
+		await logout(phone.refresh_token);
+		for (const token of [phone.access_token, laptop.access_token]) {
+			const response = await call("GET", "/users/me", { token });
+			assert.equal(response.http, 401);
+			assert.equal(response.message, "Session ended");
+		}
+		const again = await login(aliceIdToken());
+		assert.equal((await call("GET", "/users/me", { token: phone.access_token })).http, 401); // NOR AFTER THE NEXT LOGIN, A NEW SESSION
+		assert.equal((await call("GET", "/users/me", { token: again.access_token })).status, 200);
+	});
+
+	test("after Delete my data the old access token can't make a game, and no row comes back (#277)", async () => {
+		const session = await login(aliceIdToken());
+		assert.equal((await call("POST", "/users/me/delete", { token: session.access_token })).status, 200);
+		const response = await call("POST", "/games/ai", { token: session.access_token, body: { color: "w", level: 3 } });
+		assert.equal(response.http, 401);
+		assert.equal(response.message, "Session ended");
+		assert.equal(peek("user_db", "alice"), undefined);
+	});
+
 	test("only a refresh token this service signed: an access token, a changed one, another key's or HS256 is refused", async () => {
 		const session = await login(aliceIdToken());
 		const sid = payload(session.refresh_token).sid;

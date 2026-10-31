@@ -42,6 +42,7 @@ async function closedFriendGame(gameId, white, black) {
  * @return {[object]} response
  */
 async function refused(items, method, path, options, http) {
+	if (options?.as) { service.signIn(options.as.id); } // THE LOGIN THAT MADE THEIR ROW CAME BEFORE, ONLY THIS REQUEST MUST CHANGE NOTHING
 	const before = items.map(([table, key]) => peek(table, key));
 	const response = await call(method, path, options);
 	assert.equal(response.http, http, response.message);

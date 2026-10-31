@@ -237,6 +237,14 @@ describe("a session that runs out mid-request", () => {
 		assert.equal(read.message, "SESSION EXPIRED");
 	});
 
+	test("a player whose session ended (logout on another device) is 401 SESSION EXPIRED, so the client's refresh signs them out (#277)", async () => {
+		const { alice, gameId } = await aliceGame();
+		await db.endSession("alice", "test-sid");
+		const read = await call("GET", `/api/chess/game/${gameId}`, { cookie: `access_token=${keys.sessionToken(alice.user)}` });
+		assert.equal(read.http, 401);
+		assert.equal(read.message, "SESSION EXPIRED");
+	});
+
 	test("the player is decided when the request starts: a token that runs out later is still sent, & its refusal is SESSION EXPIRED", async () => {
 		const { alice, gameId } = await aliceGame();
 		const req = { cookies: { access_token: keys.sessionToken(alice.user, { expiresIn: "1s" }) } };

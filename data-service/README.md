@@ -24,7 +24,10 @@ npm run dev            # http://127.0.0.1:8090, uses the DynamoDB tables in DYNA
 The chess server says who it's acting for with the player it already checked:
 `X-Player-Token` (the signed-in player's access token) or `X-Guest-Game` (a
 guest's `guest_game` token). The data service signed both, and checks them again
-with its own key, and a player id in a body is never used. A guest's player id is
+with its own key, and a player id in a body is never used. A player's access
+token also has to carry the session id still on their row (one consistent read
+per signed-in request), so after logout or Delete my data it's refused at once
+with 401 `Session ended`, which the chess server answers as `SESSION EXPIRED`. A guest's player id is
 their game's id, so a guest is only ever in that one game.
 
 Only the chess server can call it. Every request except `/health` is signed
@@ -70,7 +73,7 @@ request is for comes from a token only the data service can sign
 | `POST /users/me/delete` | Refused (409) while the player has an open game or an invite: the chess server forfeits, cancels and declines them first. Then the row and the username claim are deleted |
 | `POST /session/login` `{ id_token, user }` | Needs no player. Auth0's `id_token` checked against Auth0's saved keys (RS256, our tenant and client, not expired, at most 5 minutes old, used once), and `user` (the chess server's `getAuth0User`, which only looks on `AUTH0_CONNECTION`) must be the one it names, with an `auth0|` id. Then the access and refresh tokens, with the session id on the player's row (made at their first login) |
 | `POST /session/refresh` `{ refresh_token }` | A refresh token it signed, whose session id is still the one on the row. A new pair |
-| `POST /session/logout` `{ refresh_token }` | A refresh token it signed. Clears the session id, so no device can refresh. A token from a session that already ended changes nothing |
+| `POST /session/logout` `{ refresh_token }` | A refresh token it signed. Clears the session id, so no device can refresh and every access token already out is refused. A token from a session that already ended changes nothing |
 
 The rules about a player's other games ("one AI game and one friend game at a
 time", `replace_current`, one sent invite) stay on the chess server: it makes
@@ -205,7 +208,7 @@ The data service has its own tests, the same way as the [server's](../server/REA
 | File | What it covers |
 | --- | --- |
 | `signature.test.js` | Signed requests: unsigned, another secret, a changed body, path, query or method, a timestamp over 30 seconds either way, a replayed request, and the old secret during a change. Behind a good signature, another player's token still gets nothing, and a `user_id` in a body is refused |
-| `session.test.js` | Logins: only Auth0's `id_token` (not forged, our client and tenant, not expired, at most 5 minutes old, used once) for the user it names. Refresh while the session id is unchanged, and not after logout (on any device) or Delete my data. The old key during a change. Guest tokens only for the game just made, with the same guest session from game to game |
+| `session.test.js` | Logins: only Auth0's `id_token` (not forged, our client and tenant, not expired, at most 5 minutes old, used once) for the user it names. Refresh while the session id is unchanged, and not after logout (on any device) or Delete my data. An access token already out is refused after either, and can't make the deleted row again. The old key during a change. Guest tokens only for the game just made, with the same guest session from game to game |
 | `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |

@@ -18,7 +18,7 @@ const { readSessionUser, readGuestCookie } = require("./middleware/auth.js");
 
 const timeouts = { GET: 3000, POST: 10000 }; // A DATA SERVICE THAT TAKES LONGER IS TREATED AS DOWN (503 "Try again in a moment"). WRITES GET LONGER: A CLOSING MOVE, AN ACCEPT OR A REMATCH IS MANY DYNAMODB CALLS & THROTTLING BACKOFF CAN SLOW THEM (#281)
 const SIGNATURE_REFUSALS = ["Unsigned request", "Bad signature headers", "Bad signature", "Request too old", "Replayed request"]; // data-service/middleware/signature.js'S 401s ARE A SETUP PROBLEM, ANY OTHER 401 IS AN ANSWER ABOUT THE PLAYER OR THEIR SESSION
-const PLAYER_REFUSALS = ["No player", "Bad player token"]; // data-service/middleware/player.js'S 401s, FOR A REQUEST THAT CAME SIGNED IN: ITS TOKEN RAN OUT (#278)
+const PLAYER_REFUSALS = ["No player", "Bad player token", "Session ended"]; // data-service/middleware/player.js'S 401s, FOR A REQUEST THAT CAME SIGNED IN: ITS TOKEN RAN OUT (#278) OR ITS SESSION ENDED (#277)
 const context = new AsyncLocalStorage(); // { headers, signedIn }: WHO THE REQUEST (OR SOCKET HANDSHAKE) THE CALLS ARE MADE FOR IS, DECIDED ONCE
 
 /* ---------------------------------------------------------------- */

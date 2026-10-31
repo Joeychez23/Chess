@@ -69,6 +69,7 @@ describe("health and bodies", () => {
 
 	test("a refusal is logged with the route and why, never the body or the token", async () => {
 		await aiGame("game1", "alice");
+		service.signIn("alice");
 		const token = sessionToken(alice.user);
 		const lines = [];
 		const log = console.log;
@@ -111,6 +112,7 @@ describe("who's asking", () => {
 
 	test("while the key is being changed, a token signed with the old key still works", async () => {
 		await aiGame("game1", "alice");
+		service.signIn("alice");
 		assert.equal((await call("GET", "/games/game1", { token: sessionToken(alice.user, { key: "old" }) })).status, 200); // SESSION_PUBLIC_KEY_OLD
 	});
 
