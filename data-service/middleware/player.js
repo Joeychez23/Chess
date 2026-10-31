@@ -14,24 +14,30 @@
 const config = require("../config");
 const { readSessionToken } = require("../utils/sessionKeys.js");
 const { refuse } = require("../utils/refuse.js");
+const { retrieveUser } = require("../dynamoDB.js");
 
 /* ---------------------------------------------------------------- */
 // Read Player
 /* ---------------------------------------------------------------- */
 /**
  * @description Sets req.player from the forwarded token or guest cookie. A token that doesn't check out (changed, expired, a refresh token) is refused,
- * the chess server only forwards ones it just checked. Neither header = nobody (req.player = null), only /health & a new guest game work without one
+ * the chess server only forwards ones it just checked. A signed in player's token is also refused once its session ended (logout, Delete my data):
+ * its sid must still be the one on their row, read consistently so a logout that just happened counts (#277).
+ * Neither header = nobody (req.player = null), only /health & a new guest game work without one
  * @return {[object]} req.player [{ id, user } signed in (id = auth0 user id without "auth0|") | { id, guest: true, session } a guest (id = their game id,
  * session = their guest session id, kept from game to game) | null]
  */
-function readPlayer(req, res, next) {
+async function readPlayer(req, res, next) {
 	const token = req.get("X-Player-Token");
 	const guestCookie = req.get("X-Guest-Game");
 	req.player = null;
 	if (token) {
-		const user = readAccessToken(token);
-		if (!user) { return refuse(req, res, 401, "Bad player token"); }
-		req.player = { id: user.user_id.split("auth0|")[1], user };
+		const session = readAccessToken(token);
+		if (!session) { return refuse(req, res, 401, "Bad player token"); }
+		const id = session.user.user_id.split("auth0|")[1];
+		const row = await retrieveUser(id, true); // CONSISTENT: A LOGOUT OR Delete my data THAT JUST HAPPENED COUNTS
+		if (row.user_data?.sid?.S != session.sid) { return refuse(req, res, 401, "Session ended"); } // NO ROW, OR ANOTHER (OR NO) SESSION
+		req.player = { id, user: session.user };
 	} else if (guestCookie) {
 		const guest = readGuestToken(guestCookie);
 		if (!guest) { return refuse(req, res, 401, "Bad guest cookie"); }
@@ -61,14 +67,14 @@ function requireSignedIn(req, res, next) {
 // Tokens
 /* ---------------------------------------------------------------- */
 /**
- * @description The user in a signed in player's access token, checked like readToken() in server/middleware/auth.js
+ * @description A signed in player's access token, checked like readToken() in server/middleware/auth.js
  * @param  {[string]} token [the access_token cookie's JWT]
- * @return {[object]} user [{ user_id, email, ... } | null when it's changed, expired, another key's or not an access token]
+ * @return {[object]} payload [{ user: { user_id, email, ... }, sid } | null when it's changed, expired, another key's, has no sid or isn't an access token]
  */
 function readAccessToken(token) {
 	const payload = readSessionToken(token, "access", config.sessionPublicKeys); // A REFRESH OR GUEST TOKEN CAN'T ACT FOR A PLAYER
-	if (typeof payload?.user?.user_id != "string" || !payload.user.user_id.startsWith("auth0|")) { return null; }
-	return payload.user;
+	if (typeof payload?.user?.user_id != "string" || !payload.user.user_id.startsWith("auth0|") || typeof payload.sid != "string") { return null; }
+	return payload;
 }
 
 /**

@@ -95,7 +95,7 @@ function signatureHeaders(method, path, body, options = {}) {
  */
 async function call(method, path, options = {}) {
 	const headers = {};
-	if (options.as) { headers["X-Player-Token"] = sessionToken(options.as.user); }
+	if (options.as) { fakeDynamo.signIn(options.as.id); headers["X-Player-Token"] = sessionToken(options.as.user); } // SIGNED IN: THEIR ROW HAS THE TOKEN'S SESSION ID
 	if (options.token) { headers["X-Player-Token"] = options.token; }
 	if (options.guest) { headers["X-Guest-Game"] = guestCookie(options.guest); }
 	if (options.cookie) { headers["X-Guest-Game"] = options.cookie; }
@@ -108,4 +108,4 @@ async function call(method, path, options = {}) {
 }
 
 
-module.exports = { start, reset, player, sessionToken, guestCookie, signatureHeaders, call, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, sessionToken, guestCookie, signatureHeaders, call, peek: fakeDynamo.peek, signIn: fakeDynamo.signIn, failBatchReads: fakeDynamo.failBatchReads };

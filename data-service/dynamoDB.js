@@ -28,6 +28,8 @@ const GAME_TTL = 60 * 60 * 24 * 25; // GAMES EXPIRE 25 DAYS AFTER THE LAST MOVE 
 
 const GAME_LISTS = ["requested_games", "open_games", "closed_games"]; // A user_db ROW'S GAME LISTS (JSON STRINGS)
 const LIST_SAVE_TRIES = 5; // A GAME LIST SAVE THAT LOST A RACE READS THE ROW AGAIN & RETRIES
+const BATCH_READ_TRIES = 5; // A THROTTLED BATCH GET (UnprocessedKeys) ASKS AGAIN FOR THE KEYS IT DIDN'T READ
+const BATCH_READ_DELAY = 50; // MS BEFORE THE FIRST RETRY, DOUBLED EACH TRY
 
 /* ---------------------------------------------------------------- */
 // Expire Time
@@ -44,7 +46,8 @@ function expireTime() {
 // Initalize game (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Creates a new game, or overwrites an existing game_id with a new board (restart)
+ * @description Creates a new game only if its game_id is free, or a guest's reset: overwrites their own game with a new board (restart).
+ * Both are conditional writes, so two creates of one id at once can't both save: the one that lost answers 409 & touches no game list
  * @param  {[string]} existingGameId [game id to use, false to generate one]
  * @param  {[string]} playerId1 [white player id]
  * @param  {[string]} playerId2 [black player id]
@@ -52,11 +55,12 @@ function expireTime() {
  * @param  {[object]} options [{ names: friend games' { w, b } names (usernames, or Auth0 screennames) for Home's caption,
  * pending: friend invites, the game is PENDING & waits in requested_games until it's accepted (acceptInvite),
  * start_params: the start settings ({ color, fen }, Restart & Rematch reuse them, left out = Random from the standard position. fen = a set position, checked by checkStartFen),
- * inviter_id: friend games, the player who sent the invite (their pick is start_params.color) }]
- * @return {[object]} response [{ status, game_data, message }]
+ * inviter_id: friend games, the player who sent the invite (their pick is start_params.color),
+ * reset_player: a guest's reset, their player id: the stored game is replaced only while it's still theirs (or it expired) }]
+ * @return {[object]} response [{ status, game_data, message } | { status: 409, message: "Game id already in use" }]
  */
 async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, options) {
-	const { names, pending, start_params, inviter_id } = options || {};
+	const { names, pending, start_params, inviter_id, reset_player } = options || {};
 	const board = start_params?.fen || new Chess().fen(); // A SET POSITION (THE START POSITION BOX) OR THE STANDARD ONE
 	const pieces = startPieces(board); // EVERY KNIGHT, KING, QUEEN, BISHOP & ROOK ON THE BOARD, NONE HAVE MOVED
 
@@ -86,7 +90,18 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 	if (names?.b) { params.Item.black_name = { S: names.b }; }
 	if (inviter_id) { params.Item.inviter_id = { S: inviter_id }; } // FRIEND GAMES: SENT OR RECEIVED, & WHOSE COLOR start_params HOLDS (CARRIED OVER ON A REMATCH)
 
-	await connection.putItem(params); // POST REQUEST FOR GAME CREATION TO DYNAMODB
+	if (reset_player) { // A GUEST'S RESET: STILL THEIR GAME, ANOTHER CREATE OF THIS ID MAY HAVE SAVED SINCE THE READ
+		params.ConditionExpression = 'attribute_not_exists(game_id) OR white_player_id = :reset_player OR black_player_id = :reset_player';
+		params.ExpressionAttributeValues = { ":reset_player": { S: reset_player } };
+	}
+	else { params.ConditionExpression = 'attribute_not_exists(game_id)'; } // A NEW GAME NEVER REPLACES ONE (TWO CREATES OF ONE ID AT ONCE)
+
+	try {
+		await connection.putItem(params); // POST REQUEST FOR GAME CREATION TO DYNAMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 409, message: "Game id already in use" }; } // LOST THE RACE, THE OTHER GAME STAYS
+		throw err;
+	}
 
 	async function handleUser(userId) { // ADDS THE GAME TO A PLAYER'S GAME LIST (OPEN, OR REQUESTED FOR AN INVITE)
 		if (userId != "CHESS_AI" && userId != "GUEST_USER" && userId != gameId) { // GUESTS HAVE NO GAME LIST, SKIP THEM LIKE THE AI (A GUEST'S PLAYER ID IS THEIR GAME ID)
@@ -235,8 +250,7 @@ async function closeGame(gameData, winner, reason) {
 		throw err;
 	}
 
-	await moveUserGame(gameData.white_player_id.S, gameId, "open_games", "closed_games");
-	await moveUserGame(gameData.black_player_id.S, gameId, "open_games", "closed_games");
+	const listError = await movePlayersGame(gameData, gameId, "open_games", "closed_games"); // THROWN AFTER THE RATING, THE GAME IS CLOSED EITHER WAY
 
 	if (isRated(gameData)) { // ONLY ONE CLOSE GETS HERE, SO A GAME IS RATED ONCE
 		try {
@@ -245,6 +259,8 @@ async function closeGame(gameData, winner, reason) {
 			console.log(`Rating failed: ${gameId}: ${err.message}`); // THE GAME STILL CLOSES
 		}
 	}
+
+	if (listError) { throw listError; }
 
 	gameData.state = { S: "CLOSED" };
 	gameData.winner = { S: winner };
@@ -362,8 +378,8 @@ async function acceptInvite(gameData) {
 		throw err;
 	}
 
-	await moveUserGame(gameData.white_player_id.S, gameId, "requested_games", "open_games");
-	await moveUserGame(gameData.black_player_id.S, gameId, "requested_games", "open_games");
+	const listError = await movePlayersGame(gameData, gameId, "requested_games", "open_games");
+	if (listError) { throw listError; }
 
 	gameData.state = { S: "OPEN" };
 	return {
@@ -402,8 +418,8 @@ async function deleteInvite(gameData) {
 		throw err;
 	}
 
-	await moveUserGame(gameData.white_player_id.S, gameId, "requested_games", null);
-	await moveUserGame(gameData.black_player_id.S, gameId, "requested_games", null);
+	const listError = await movePlayersGame(gameData, gameId, "requested_games", null);
+	if (listError) { throw listError; }
 
 	return {
 		status: 200,
@@ -418,13 +434,28 @@ async function deleteInvite(gameData) {
  * @param  {[string]} gameId [game id]
  * @param  {[string]} fromList ["requested_games" or "open_games"]
  * @param  {[string]} toList ["open_games" or "closed_games", null just drops it]
+ * @throws when the lists couldn't be saved (changeUserGames' 500 after LIST_SAVE_TRIES), so the route never answers 200 with stale lists
  */
 async function moveUserGame(userId, gameId, fromList, toList) {
 	if (userId == "CHESS_AI" || userId == "GUEST_USER" || userId == gameId) { return; } // A GUEST'S PLAYER ID IS THEIR GAME ID
-	await changeUserGames(userId, (gameLists) => {
+	const response = await changeUserGames(userId, (gameLists) => {
 		gameLists[fromList] = gameLists[fromList].filter((listGameId) => listGameId != gameId);
 		if (toList && !gameLists[toList].includes(gameId)) { gameLists[toList][gameLists[toList].length] = gameId; }
 	});
+	if (response.status != 200) { throw new Error(response.message); }
+}
+
+/**
+ * @description moveUserGame for both players. Both are tried even when the first fails, so one player's failed save doesn't leave the other's stale too
+ * @param  {[object]} gameData [game item]
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} fromList [moveUserGame's fromList]
+ * @param  {[string]} toList [moveUserGame's toList]
+ * @return {[object]} error [the first failed save's error, for the caller to throw, null when both saved]
+ */
+async function movePlayersGame(gameData, gameId, fromList, toList) {
+	const results = await Promise.allSettled([gameData.white_player_id.S, gameData.black_player_id.S].map((userId) => moveUserGame(userId, gameId, fromList, toList)));
+	return results.find((result) => result.status == "rejected")?.reason || null;
 }
 
 /* ---------------------------------------------------------------- */
@@ -890,7 +921,7 @@ async function endSession(userId, sid) {
 // Prune open games
 /* ---------------------------------------------------------------- */
 /**
- * @description Drops games TTL already deleted from a user's open_games & saves the shorter list. Also finds the user's
+ * @description Drops games TTL already deleted (or that the user isn't in) from a user's open_games & saves the shorter list. Also finds the user's
  * AI game & friend game (a player has one of each open at a time, chessController.js newGame & inviteGame)
  * @param  {[object]} userData [user item from retrieveUser]
  * @return {[object]} userData [same item, open_games.S only lists games that still exist,
@@ -944,47 +975,26 @@ async function pruneInvites(userData) {
 }
 
 /**
- * @description Checks every game in one of a user's lists still exists (TTL deletes expired games) & saves the shorter list
+ * @description Checks every game in one of a user's lists still exists (TTL deletes expired games) & has the user in it, & saves the shorter list
  * @param  {[object]} userData [user item from retrieveUser, userData[listName].S is updated to the pruned list]
  * @param  {[string]} listName ["open_games" or "requested_games"]
  * @return {[array]} games [the found games in list order (newest last): game_id, player ids, names, state, level & start settings]
+ * @throws when the games can't all be read (batchReadGames), a missed game would look expired
  */
 async function pruneGameList(userData, listName) {
 	const gameIds = [...new Set(JSON.parse(userData[listName].S))]; // BATCH GET FAILS ON DUPLICATE KEYS
 	if (gameIds.length == 0) { return []; }
 
-	let liveGames = [];
 	let foundItems = [];
-	try {
-		for (let i = 0; i < gameIds.length; i += 100) { // BATCH GET TAKES 100 KEYS MAX
-			const batchIds = gameIds.slice(i, i + 100);
-			const params = {
-				RequestItems: {
-					[CHESS_TABLE]: {
-						Keys: batchIds.map((gameId) => ({ game_id: { S: gameId } })),
-						ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, ai_level, start_params, inviter_id", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME & HOW IT STARTED (YOUR GAMES & INVITES)
-						ExpressionAttributeNames: { "#state": "state" }
-					}
-				}
-			};
-
-			const response = await connection.batchGetItem(params);
-			const batchItems = response.Responses?.[CHESS_TABLE] || [];
-			const foundGames = batchItems.map((game) => game.game_id.S);
-			const uncheckedGames = (response.UnprocessedKeys?.[CHESS_TABLE]?.Keys || []).map((key) => key.game_id.S);
-			foundItems = foundItems.concat(batchItems);
-
-			for (let j = 0; j < batchIds.length; j++) {
-				if (foundGames.includes(batchIds[j]) || uncheckedGames.includes(batchIds[j])) { liveGames.push(batchIds[j]); } // UNCHECKED GAMES ARE KEPT, NEVER DROP A REAL GAME
-			}
-		}
-	} catch (err) {
-		console.log(`Game list check failed (${listName}): ${err.message}`);
-		return []; // SHOW THE LIST AS IS RATHER THAN BREAKING HOME
+	for (let i = 0; i < gameIds.length; i += 100) { // BATCH GET TAKES 100 KEYS MAX
+		foundItems = foundItems.concat(await batchReadGames(gameIds.slice(i, i + 100), listName));
 	}
 
-	const games = liveGames.map((gameId) => foundItems.find((game) => game.game_id.S == gameId)).filter(Boolean); // BATCH GET ISN'T IN ORDER
-	if (liveGames.length == gameIds.length) { return games; } // NOTHING EXPIRED
+	const userId = userData.user_id.S;
+	const theirs = (game) => game.white_player_id?.S == userId || game.black_player_id?.S == userId; // A GAME THAT WAS REPLACED UNDER THEIR LIST ISN'T THEIRS
+	const liveGames = gameIds.filter((gameId) => foundItems.some((game) => game.game_id.S == gameId && theirs(game))); // EVERY KEY WAS READ, A GAME THAT WASN'T FOUND EXPIRED
+	const games = liveGames.map((gameId) => foundItems.find((game) => game.game_id.S == gameId)); // BATCH GET ISN'T IN ORDER
+	if (liveGames.length == gameIds.length) { return games; } // NOTHING EXPIRED OR REPLACED
 
 	const prunedGames = JSON.stringify(liveGames);
 	const params = {
@@ -1008,6 +1018,39 @@ async function pruneGameList(userData, listName) {
 
 	userData[listName].S = prunedGames;
 	return games;
+}
+
+/**
+ * @description Reads up to 100 games in one batch get. Keys DynamoDB didn't read (UnprocessedKeys, when it's throttled) are asked for again
+ * with backoff, so a game is never missed: a game left out would let a check that it's open pass (Delete my data, one friend game at a time)
+ * @param  {[array]} gameIds [game ids, no duplicates]
+ * @param  {[string]} listName [the list they're from, for the error]
+ * @return {[array]} games [the games that exist, in any order]
+ * @throws when some keys are still unread after BATCH_READ_TRIES, or the batch get fails (the route answers 500, the chess server 503)
+ */
+async function batchReadGames(gameIds, listName) {
+	let keys = gameIds.map((gameId) => ({ game_id: { S: gameId } }));
+	let games = [];
+	for (let i = 0; i < BATCH_READ_TRIES; i++) {
+		if (i > 0) { await new Promise((resolve) => setTimeout(resolve, BATCH_READ_DELAY * 2 ** (i - 1))); }
+		const params = {
+			RequestItems: {
+				[CHESS_TABLE]: {
+					Keys: keys,
+					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, ai_level, start_params, inviter_id", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME & HOW IT STARTED (YOUR GAMES & INVITES)
+					ExpressionAttributeNames: { "#state": "state" }
+				}
+			}
+		};
+
+		const response = await connection.batchGetItem(params); // GET REQUEST TO DYNAMODB
+		games = games.concat(response.Responses?.[CHESS_TABLE] || []);
+		keys = response.UnprocessedKeys?.[CHESS_TABLE]?.Keys || [];
+		if (keys.length == 0) { return games; }
+	}
+
+	console.log(`Game list check throttled (${listName}): ${keys.length} games unread after ${BATCH_READ_TRIES} tries`);
+	throw new Error(`Game list check throttled (${listName})`);
 }
 
 

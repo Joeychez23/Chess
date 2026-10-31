@@ -17,7 +17,7 @@ const { levelList, readLevel, aiMove } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames } = require("../dataClient.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames } = require("../dataClient.js");
 const { emitToGame, emitToPlayer } = require("../socket.js");
 
 /* ---------------------------------------------------------------- */
@@ -126,7 +126,11 @@ async function moveGame(req, res) {
 	if (gamePending(response.game_data)) { return res.json({ status: 500, message: "Invite not accepted yet" }); }
 	if (!gameOpen(response.game_data)) { return res.json({ status: 500, message: "Game is over" }); }
 
-	response = await saveMove(req.params.gameId, move, promotion); // THE DATA SERVICE PLAYS IT ON THE STORED BOARD, SAVES IT & CLOSES THE GAME ON CHECKMATE OR A DRAW
+	const board = response.game_data.game_board.S;
+	response = await ifSaved(() => saveMove(req.params.gameId, move, promotion), async () => { // THE DATA SERVICE PLAYS IT ON THE STORED BOARD, SAVES IT & CLOSES THE GAME ON CHECKMATE OR A DRAW
+		const latest = await retrieveGame(req.params.gameId, true); // TOO SLOW: SAVED IF THE BOARD MOVED (ONLY THIS PLAYER CAN MOVE ON THEIR TURN)
+		return latest.game_data && latest.game_data.game_board.S != board ? latest : null;
+	});
 	if (response.status != 200) { return res.json({ status: 500, message: response.message == "Not your turn" ? "Invalid piece movement" : response.message }); } // NOT LEGAL, NOT THEIR TURN, OR ANOTHER MOVE SAVED FIRST
 	response.message = "Validation Successful";
 	emitToGame(req.params.gameId, "move", { game_id: req.params.gameId, player_id: playerId }); // THE OPPONENT'S CLIENT LOADS THE NEW BOARD
@@ -247,7 +251,10 @@ async function forfeitGame(req, res) {
  * @return {[object]} response [the data service's forfeit answer, { status: 500 } when the game was already over]
  */
 async function forfeitFriendGame(gameData, playerId) {
-	const closed = await forfeit(gameData.game_id.S); // THE OTHER SIDE WINS
+	const closed = await ifSaved(() => forfeit(gameData.game_id.S), async () => { // THE OTHER SIDE WINS
+		const latest = await retrieveGame(gameData.game_id.S, true); // TOO SLOW: SAVED IF IT'S CLOSED NOW
+		return latest.game_data && !gameOpen(latest.game_data) ? latest : null;
+	});
 	if (closed.status != 200) { return { status: 500, message: closed.message }; } // ALREADY OVER
 	tellGameOver(gameData, playerId, playerId == gameData.white_player_id.S ? "b" : "w");
 	return closed;
@@ -287,7 +294,7 @@ async function rematchGame(req, res) {
 	if (gameOpen(gameData) || gamePending(gameData)) { return res.json({ status: 500, message: "Game isn't over yet" }); }
 	if (gameData.rematch_game_id) { return res.json({ status: 200, new_game_id: gameData.rematch_game_id.S, message: "Rematch started" }); }
 
-	const pressed = await rematch(gameId); // THE DATA SERVICE: BOTH PRESSES WITHIN 1 MINUTE, NEITHER PLAYER IN ANOTHER FRIEND GAME, THE NEW GAME WITH THE INVITER'S PICK
+	const pressed = await ifSaved(() => rematch(gameId), () => savedRematch(gameId, playerId)); // THE DATA SERVICE: BOTH PRESSES WITHIN 1 MINUTE, NEITHER PLAYER IN ANOTHER FRIEND GAME, THE NEW GAME WITH THE INVITER'S PICK
 	if (pressed.status == 409) { return res.json({ status: 409, message: pressed.message }); } // ONE FRIEND GAME AT A TIME
 	if (pressed.waiting) { return res.json({ status: 200, waiting: true, expires_in: pressed.expires_in, message: pressed.message }); } // FIRST PRESS
 	if (!pressed.new_game_id) { return res.json({ status: 500, message: pressed.message || "Rematch failed" }); }
@@ -298,6 +305,26 @@ async function rematchGame(req, res) {
 		for (let i = 0; i < pressed.dropped_invites.length; i++) { notifyHome(pressed.dropped_invites[i]); } // THEY'RE BOTH IN A FRIEND GAME NOW, THEIR SENT INVITES ARE CANCELLED
 	}
 	return res.json({ status: 200, new_game_id: pressed.new_game_id, message: "Rematch started" });
+}
+
+
+/**
+ * @description A rematch press that timed out, read back: the new game (both boards are told again, loading it twice is harmless) or this press waiting.
+ * The invites it dropped aren't known here, those Homes redraw when next loaded
+ * @param  {[string]} gameId [closed game id]
+ * @param  {[string]} playerId [player who pressed]
+ * @return {[object]} pressed [the data service's rematch answer as it would have been, null when nothing saved]
+ */
+async function savedRematch(gameId, playerId) {
+	const latest = (await retrieveGame(gameId, true)).game_data;
+	if (latest?.rematch_game_id) {
+		const made = await retrieveGame(latest.rematch_game_id.S, true);
+		if (!made.game_data) { return null; }
+		return { status: 200, new_game_id: latest.rematch_game_id.S, game_data: made.game_data, dropped_invites: [] };
+	}
+	const expiresIn = Number(latest?.rematch_expires?.N) - Date.now();
+	if (latest?.rematch_player_id?.S == playerId && expiresIn > 0) { return { status: 200, waiting: true, expires_in: expiresIn, message: "Waiting for opponent" }; }
+	return null;
 }
 
 
@@ -375,7 +402,10 @@ async function acceptGame(req, res) {
 	if (!gamePending(gameData)) { return res.json({ status: 500, message: "Invite was already answered" }); }
 	if (playerId == inviterId(gameData)) { return res.json({ status: 500, message: "Only the invited player can accept" }); }
 
-	const accepted = await accept(gameData.game_id.S, replace_current); // THE DATA SERVICE: THEIR OPEN FRIEND GAME (409 UNLESS replace_current), THE INVITER ISN'T BUSY, THEN THE FORFEIT, THEIR SENT INVITE & THE ACCEPT
+	const accepted = await ifSaved(() => accept(gameData.game_id.S, replace_current), async () => { // THE DATA SERVICE: THEIR OPEN FRIEND GAME (409 UNLESS replace_current), THE INVITER ISN'T BUSY, THEN THE FORFEIT, THEIR SENT INVITE & THE ACCEPT
+		const latest = await retrieveGame(gameData.game_id.S, true); // TOO SLOW: SAVED IF IT'S OPEN NOW. WHAT IT FORFEITED & DROPPED ISN'T KNOWN HERE, THOSE BOARDS & HOMES SEE IT WHEN NEXT LOADED
+		return latest.game_data && gameOpen(latest.game_data) ? { ...latest, forfeited: null, dropped_invites: [] } : null;
+	});
 	if (accepted.status == 409 && accepted.game_id) { return res.json({ status: 409, game_id: accepted.game_id, message: "Friend game already open" }); }
 	if (accepted.message == "They're in another game now") { // THE INVITER STARTED ANOTHER FRIEND GAME SINCE (A REMATCH, OR THEY ACCEPTED ONE)
 		await dropInvite(gameData.game_id.S);
@@ -732,7 +762,8 @@ function playerInGame(req, gameData) {
 }
 
 /**
- * @description True when the data service refused because the requester isn't in the game (403), or isn't anyone (401: no token or guest cookie)
+ * @description True when the data service refused because the requester isn't in the game (403), or isn't anyone (401: no token or guest cookie).
+ * A signed in player's token running out mid-request never gets here, dataClient.js throws for it (401 "SESSION EXPIRED", #278)
  * @param  {[object]} response [a data service answer]
  * @return {[boolean]} refused
  */

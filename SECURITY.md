@@ -32,7 +32,7 @@ Only the latest `main` and the live site are supported. Older commits don't get 
   - it holds the only session key, and signs a session only for an Auth0 login it checked itself (Auth0's signature, our tenant and app, recent and used once), and a guest token only for the game it just made;
   - it acts only for the player whose session token or guest token the request carries;
   - it re-checks every action against the stored data (the player is in the game, it's their turn, the move is legal), and takes only the fields that action allows.
-- **Someone who takes over the public instance** gets no AWS keys and can't scan, delete or rewrite the tables, and can't sign a session or guest token. What it still doesn't stop: they would see the cookies of players using the site during that time, and could reuse those sessions until they expire (15 minutes for an access token, 7 days for a refresh token) or the player logs out, which ends their session on every device.
+- **Someone who takes over the public instance** gets no AWS keys and can't scan, delete or rewrite the tables, and can't sign a session or guest token. What it still doesn't stop: they would see the cookies of players using the site during that time, and could reuse those sessions until they expire (15 minutes for an access token, 7 days for a refresh token) or the player logs out, which ends their session on every device: the data service checks every access token's session id against the player's row, so tokens already out stop working at once too.
 
 ## Session keys
 

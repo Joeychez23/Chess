@@ -17,6 +17,8 @@ const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const tables = new Map(); // TABLE NAME -> Map(KEY -> ITEM)
 const previous = new Map(); // TABLE NAME -> Map(KEY -> THE ITEM BEFORE ITS LAST WRITE, null = IT DIDN'T EXIST)
 let lagging = false; // staleReads()
+let throttledReads = 0; // throttleBatchReads()
+let failingReads = false; // failBatchReads()
 const KEYS = { chess_db: "game_id", user_db: "user_id" }; // HASH KEYS, MATCH terraform/modules/dynamodb
 
 /* ---------------------------------------------------------------- */
@@ -42,6 +44,8 @@ function reset() {
 	tables.clear();
 	previous.clear();
 	lagging = false;
+	throttledReads = 0;
+	failingReads = false;
 }
 
 /**
@@ -54,6 +58,23 @@ function staleReads(on) {
 }
 
 /**
+ * @description Makes the next batch gets act throttled, like DynamoDB under load: each table's last key isn't read,
+ * it comes back in UnprocessedKeys
+ * @param  {[number]} calls [how many batch gets, Infinity = every one until reset()]
+ */
+function throttleBatchReads(calls) {
+	throttledReads = calls;
+}
+
+/**
+ * @description Makes every batch get throw, like DynamoDB when it can't answer
+ * @param  {[boolean]} on [true until reset()]
+ */
+function failBatchReads(on) {
+	failingReads = on;
+}
+
+/**
  * @description An item as stored, for checking what a route saved
  * @param  {[string]} tableName ["chess_db" or "user_db"]
  * @param  {[string]} key [game_id or user_id]
@@ -62,6 +83,19 @@ function staleReads(on) {
 function peek(tableName, key) {
 	const item = table(tableName).get(key);
 	return item ? structuredClone(item) : undefined;
+}
+
+/**
+ * @description Signs a player in like a login does (startSession in dynamoDB.js): their row with empty game lists if they have none,
+ * & the session id their test access tokens carry (helpers/keys.js, "test-sid"). A row that already has a session id keeps it
+ * @param  {[string]} userId [user_id without "auth0|"]
+ * @param  {[string]} sid [the session id, default "test-sid"]
+ */
+function signIn(userId, sid = "test-sid") {
+	const row = table("user_db").get(userId);
+	if (row?.sid) { return; }
+	const lists = { open_games: { S: "[]" }, requested_games: { S: "[]" }, closed_games: { S: "[]" } };
+	writeItem("user_db", userId, { ...(row || { user_id: { S: userId }, ...lists }), sid: { S: sid } });
 }
 
 /* ---------------------------------------------------------------- */
@@ -134,11 +168,17 @@ async function deleteItem({ TableName, Key, ConditionExpression, ExpressionAttri
 }
 
 async function batchGetItem({ RequestItems }) {
+	if (failingReads) { throw Object.assign(new Error("Throughput exceeds the current capacity of your table"), { name: "ProvisionedThroughputExceededException" }); }
+	const throttled = throttledReads > 0;
+	if (throttled) { throttledReads--; }
 	const Responses = {};
-	for (const [TableName, { Keys, ConsistentRead }] of Object.entries(RequestItems)) {
-		Responses[TableName] = Keys.map((key) => readItem(TableName, keyOf(TableName, key), ConsistentRead)).filter(Boolean).map((item) => structuredClone(item));
+	const UnprocessedKeys = {};
+	for (const [TableName, request] of Object.entries(RequestItems)) {
+		const keys = throttled ? request.Keys.slice(0, -1) : request.Keys;
+		if (throttled) { UnprocessedKeys[TableName] = { ...request, Keys: request.Keys.slice(-1) }; }
+		Responses[TableName] = keys.map((key) => readItem(TableName, keyOf(TableName, key), request.ConsistentRead)).filter(Boolean).map((item) => structuredClone(item));
 	}
-	return { Responses, UnprocessedKeys: {} };
+	return { Responses, UnprocessedKeys };
 }
 
 /**
@@ -256,4 +296,4 @@ function attributeName(name, names) {
 }
 
 
-module.exports = { install, reset, staleReads, peek };
+module.exports = { install, reset, staleReads, throttleBatchReads, failBatchReads, peek, signIn };

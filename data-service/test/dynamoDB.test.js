@@ -94,6 +94,34 @@ describe("saves without a read back", () => {
 	});
 });
 
+describe("initalizeGame", () => {
+	test("two creates of one id at once: one wins, the other is refused & the game isn't overwritten", async () => {
+		const results = await Promise.all([
+			db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } }),
+			db.initalizeGame("game1", "bob", "CHESS_AI", 5, { start_params: { color: "w" } }),
+		]);
+		assert.deepEqual(results.map((result) => result.status), [200, 409]);
+		assert.equal(results[1].game_data, undefined);
+		const stored = fakeDynamo.peek("chess_db", "game1");
+		assert.equal(stored.white_player_id.S, "alice");
+		assert.equal(stored.ai_level.N, "3");
+		assert.deepEqual(list(fakeDynamo.peek("user_db", "alice"), "open_games"), ["game1"]);
+		assert.equal(fakeDynamo.peek("user_db", "bob"), undefined); // THE LOSER'S LIST ISN'T TOUCHED
+	});
+
+	test("a reset only replaces the stored game while it's still the player's (or it expired)", async () => {
+		await db.initalizeGame("guest1", "guest1", "CHESS_AI", 3, {});
+		assert.equal((await db.initalizeGame("guest1", "guest1", "CHESS_AI", 6, { reset_player: "guest1" })).status, 200);
+		assert.equal(fakeDynamo.peek("chess_db", "guest1").ai_level.N, "6");
+		assert.equal((await db.initalizeGame("guest2", "guest2", "CHESS_AI", 3, { reset_player: "guest2" })).status, 200); // EXPIRED, MADE AGAIN
+
+		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, {});
+		const before = fakeDynamo.peek("chess_db", "game1");
+		assert.equal((await db.initalizeGame("game1", "game1", "CHESS_AI", 3, { reset_player: "game1" })).status, 409);
+		assert.deepEqual(fakeDynamo.peek("chess_db", "game1"), before);
+	});
+});
+
 describe("closeGame", () => {
 	test("only the first close wins (a forfeit and a checkmate at the same time)", async () => {
 		const gameData = await newGame();
@@ -195,6 +223,47 @@ describe("game lists", () => {
 		assert.equal(userData.ai_game_id, "game1"); // NOT game2, THE NEWEST
 		assert.equal(userData.friend_game_id, null);
 		assert.deepEqual(userData.open_game_list.map((game) => game.game_id.S), ["game1"]);
+	});
+
+	test("a throttled batch read still returns every open game", async () => {
+		await newGame();
+		await db.initalizeGame("game2", "alice", "bob", false, {});
+		fakeDynamo.throttleBatchReads(1); // THE FIRST READ MISSES game2, IT COMES BACK UNPROCESSED
+
+		const userData = await db.pruneOpenGames((await db.retrieveUser("alice")).user_data);
+		assert.deepEqual(userData.open_game_list.map((game) => game.game_id.S), ["game1", "game2"]);
+		assert.equal(userData.ai_game_id, "game1");
+		assert.equal(userData.friend_game_id, "game2");
+		assert.deepEqual(list(fakeDynamo.peek("user_db", "alice"), "open_games"), ["game1", "game2"]); // NOT PRUNED
+	});
+
+	test("a batch read still throttled after every try, or one that fails, throws instead of missing a game", async () => {
+		await newGame();
+		await db.initalizeGame("game2", "alice", "bob", false, {});
+		fakeDynamo.throttleBatchReads(Infinity);
+		await assert.rejects(db.pruneOpenGames((await db.retrieveUser("alice")).user_data), /throttled/);
+
+		fakeDynamo.reset();
+		await newGame();
+		fakeDynamo.failBatchReads(true);
+		await assert.rejects(db.pruneOpenGames((await db.retrieveUser("alice")).user_data), /capacity/);
+		assert.deepEqual(list(fakeDynamo.peek("user_db", "alice"), "open_games"), ["game1"]);
+	});
+
+	test("a game list save that fails every try throws, after the game is closed", async () => {
+		const gameData = await newGame();
+		const { DynamoDB } = require("@aws-sdk/client-dynamodb");
+		const updateItem = DynamoDB.prototype.updateItem;
+		DynamoDB.prototype.updateItem = async (params) => {
+			if (params.TableName == "user_db") { throw Object.assign(new Error("The conditional request failed"), { name: "ConditionalCheckFailedException" }); }
+			return updateItem(params);
+		};
+		try {
+			await assert.rejects(db.closeGame(gameData, "b", "forfeit"), /failed to update/);
+		} finally {
+			DynamoDB.prototype.updateItem = updateItem;
+		}
+		assert.equal(fakeDynamo.peek("chess_db", "game1").state.S, "CLOSED");
 	});
 
 	test("a save made from lists that changed since they were read is refused", async () => {

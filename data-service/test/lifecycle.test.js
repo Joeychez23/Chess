@@ -42,6 +42,7 @@ async function closedFriendGame(gameId, white, black) {
  * @return {[object]} response
  */
 async function refused(items, method, path, options, http) {
+	if (options?.as) { service.signIn(options.as.id); } // THE LOGIN THAT MADE THEIR ROW CAME BEFORE, ONLY THIS REQUEST MUST CHANGE NOTHING
 	const before = items.map(([table, key]) => peek(table, key));
 	const response = await call(method, path, options);
 	assert.equal(response.http, http, response.message);
@@ -85,6 +86,43 @@ describe("new AI game", () => {
 		await refused(made, "POST", "/games/ai", { as: alice, body: { game_id: "game2", white_player_id: "bob" } }, 400);
 		await refused([["chess_db", "CHESS_AI"]], "POST", "/games/ai", { as: alice, body: { game_id: "CHESS_AI" } }, 400);
 		await refused([["chess_db", "game1"]], "POST", "/games/ai", { as: alice, body: { game_id: "game1" } }, 409); // BOB'S GAME ISN'T RESET
+	});
+});
+
+describe("one create per game id", () => {
+	test("two new AI games with one id at once: one is made, the other is refused", async () => {
+		const results = await Promise.all([
+			call("POST", "/games/ai", { as: alice, body: { game_id: "game1", color: "w", level: 3 } }),
+			call("POST", "/games/ai", { as: bob, body: { game_id: "game1", color: "w", level: 5 } }),
+		]);
+		assert.deepEqual(results.map((result) => result.http).sort(), [200, 409]);
+		const winner = results.find((result) => result.http == 200).game_data;
+		assert.deepEqual(peek("chess_db", "game1").white_player_id, winner.white_player_id);
+		const loser = winner.white_player_id.S == "alice" ? "bob" : "alice";
+		assert.deepEqual(list(loser, "open_games"), []);
+	});
+
+	test("two invites with one id at once: one is made, the other is refused", async () => {
+		const results = await Promise.all([
+			call("POST", "/games/invite", { as: alice, body: { opponent_id: "bob", color: "w", game_id: "game1" } }),
+			call("POST", "/games/invite", { as: carol, body: { opponent_id: "bob", color: "w", game_id: "game1" } }),
+		]);
+		assert.deepEqual(results.map((result) => result.http).sort(), [200, 409]);
+		assert.deepEqual(list("bob", "requested_games"), ["game1"]);
+	});
+
+	test("two new guests with one id at once each get a game, neither is overwritten", async () => {
+		const results = await Promise.all([
+			call("POST", "/games/guest", { body: { game_id: "guest1", color: "w", level: 2 } }),
+			call("POST", "/games/guest", { body: { game_id: "guest1", color: "w", level: 7 } }),
+		]);
+		const ids = results.map((result) => result.game_data.game_id.S);
+		assert.notEqual(ids[0], ids[1]);
+		for (const result of results) {
+			const stored = peek("chess_db", result.game_data.game_id.S);
+			assert.equal(stored.ai_level.N, result.game_data.ai_level.N);
+			assert.equal(stored.white_player_id.S, result.game_data.game_id.S);
+		}
 	});
 });
 
@@ -272,6 +310,30 @@ describe("accept with an open friend game", () => {
 		assert.equal(peek("chess_db", "game1").winner.S, "b"); // CAROL WINS
 		assert.deepEqual(accepted.dropped_invites.map((invite) => invite.game_id.S), ["invite2"]);
 		assert.equal(peek("chess_db", "invite2"), undefined);
+	});
+
+	test("an invite cancelled between the checks and the accept leaves the open game open & unrated", async () => {
+		await friendGame("invite1", "alice", "bob", true);
+		await friendGame("game1", "bob", "carol");
+		await friendGame("invite2", "bob", "dave", true); // BOB'S SENT INVITE
+		const { DynamoDB } = require("@aws-sdk/client-dynamodb");
+		const update = DynamoDB.prototype.updateItem;
+		DynamoDB.prototype.updateItem = async (params) => { // ALICE CANCELS JUST BEFORE BOB'S ACCEPT LANDS
+			if (params.Key.game_id?.S == "invite1" && params.ExpressionAttributeValues?.[":open"]) {
+				DynamoDB.prototype.updateItem = update;
+				await db.deleteInvite((await db.retrieveGame("invite1", true)).game_data);
+			}
+			return update(params);
+		};
+		const kept = () => [peek("chess_db", "game1"), peek("chess_db", "invite2"), peek("user_db", "carol"), list("bob", "open_games"), list("bob", "closed_games")]; // THE CANCEL ITSELF DROPS invite1 FROM BOB'S requested_games
+		const before = kept();
+		try {
+			const lost = await call("POST", "/games/invite1/accept", { as: bob, body: { replace_current: true } });
+			assert.match(lost.message, /Invite was already answered/);
+		} finally { DynamoDB.prototype.updateItem = update; }
+		assert.deepEqual(kept(), before);
+		assert.equal(peek("chess_db", "game1").state.S, "OPEN");
+		assert.equal(peek("chess_db", "game1").winner, undefined);
 	});
 
 	test("a busy inviter is refused before the requester's own game is forfeited", async () => {

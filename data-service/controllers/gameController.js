@@ -186,7 +186,7 @@ async function newAiGame(req, res) {
 
 	const params = newStartParams(color, position.fen);
 	const sides = pickSides(params, req.player.id, "CHESS_AI"); // RANDOM IS DRAWN HERE
-	return res.json(await initalizeGame(game_id || false, sides.white, sides.black, aiLevel, { start_params: params }));
+	return created(req, res, await initalizeGame(game_id || false, sides.white, sides.black, aiLevel, { start_params: params }));
 }
 
 /* ---------------------------------------------------------------- */
@@ -195,7 +195,7 @@ async function newAiGame(req, res) {
 /**
  * @description A guest's game vs the AI. A guest's player id is their game's id, so the game they name is overwritten only when it's
  * their own (their cookie): New game & Restart. Any other id they can't have (another browser's game, a signed in player's, "CHESS_AI")
- * gets a new id, and that game isn't touched. The response has the guest's token for that id (guest_token), the chess server sets it as their cookie
+ * gets a new id, and that game isn't touched (also when another create of the id saved since the read). The response has the guest's token for that id (guest_token), the chess server sets it as their cookie
  * @param  {[object]} req.body [{ game_id (the guest's saved id, left out = a new one), color (saved for Restart), side ("w" | "b", optional: this game's side,
  * the play page's fallback for a guest's first game is white & random from its restarts on), level (left out = their game's, or 3), start_fen }]
  * @return {[object]} response [initalizeGame's { status, game_data (game_id is the id used), message } & guest_token (the guest_game cookie)]
@@ -219,8 +219,22 @@ async function newGuestGame(req, res) {
 	const aiLevel = level === undefined && existing ? readAiLevel(Number(existing.ai_level?.N)) || DEFAULT_LEVEL : readAiLevel(level); // A RESET KEEPS THE LEVEL
 	const params = newStartParams(color, position.fen);
 	const sides = pickSides(side ? { color: side } : params, gameId, "CHESS_AI"); // A GUEST'S PLAYER ID IS THEIR GAME ID
-	const response = await initalizeGame(gameId, sides.white, sides.black, aiLevel, { start_params: params });
+	let response = await initalizeGame(gameId, sides.white, sides.black, aiLevel, { start_params: params, reset_player: existing ? gameId : undefined }); // A RESET ONLY REPLACES THEIR OWN GAME
+	if (response.status == 409) { // ANOTHER CREATE OF THIS ID SAVED SINCE THE READ: A NEW ID, LIKE ONE THAT ISN'T THEIRS
+		gameId = `${new ObjectId()}`;
+		const newSides = pickSides(side ? { color: side } : params, gameId, "CHESS_AI");
+		response = await initalizeGame(gameId, newSides.white, newSides.black, aiLevel, { start_params: params });
+	}
 	if (response.game_data) { response.guest_token = guestToken(gameId, req.player?.session); } // ONLY SIGNED FOR THE GAME JUST SAVED, THE CHESS SERVER SETS IT AS THE guest_game COOKIE
+	return res.json(response);
+}
+
+/**
+ * @description Answers initalizeGame's response, a lost race for the game id (409) is refused like a read that found the id taken
+ * @param  {[object]} response [initalizeGame's { status, game_data, message }]
+ */
+function created(req, res, response) {
+	if (response.status == 409) { return refuse(req, res, 409, response.message); }
 	return res.json(response);
 }
 
@@ -260,7 +274,7 @@ async function inviteGame(req, res) {
 		[req.player.id]: (await username(req.player.id)) || req.player.user.user_metadata?.screenname,
 		[opponent_id]: (await username(opponent_id)) || opponent_screenname,
 	};
-	return res.json(await initalizeGame(game_id || false, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, pending: true, start_params: params, inviter_id: req.player.id }));
+	return created(req, res, await initalizeGame(game_id || false, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, pending: true, start_params: params, inviter_id: req.player.id }));
 }
 
 /* ---------------------------------------------------------------- */
@@ -269,8 +283,9 @@ async function inviteGame(req, res) {
 /**
  * @description The invited player starts the game: PENDING -> OPEN. In this order, so a refusal never costs the requester their game:
  * the requester's open friend game answers 409 (unless replace_current), the inviter in another friend game (a rematch, or they accepted one)
- * answers "They're in another game now" (the chess server then declines it), then the requester's open friend game is forfeited,
- * their sent invite is cancelled (they're in a game now) & the invite is accepted
+ * answers "They're in another game now" (the chess server then declines it), then the invite is accepted (a conditional write, so an
+ * invite declined or cancelled since changes nothing), and only then the requester's open friend game is forfeited & their sent invite
+ * is cancelled (they're in a game now)
  * @param  {[string]} req.params.gameId [PENDING game id]
  * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the requester's open friend game) }]
  * @return {[object]} response [acceptInvite's { status, game_data, message } plus forfeited (the game it forfeited, for both boards) & dropped_invites
@@ -290,13 +305,14 @@ async function acceptGame(req, res) {
 	if (current && replace_current !== true) { return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
 	if (await currentGame(inviterId(gameData), false)) { return refuse(req, res, 409, "They're in another game now"); }
 
+	const accepted = await acceptInvite(gameData); // THE CONDITIONAL WRITE GOES FIRST: A LOST ACCEPT (DECLINED OR CANCELLED SINCE) CHANGES NOTHING
+	if (accepted.status != 200) { return res.json(accepted); }
 	let forfeited = null;
 	if (current) { // ACCEPTING FORFEITS THE OPEN ONE, THE OTHER SIDE WINS
 		const closed = await closeGame(current, playerColor(playerId, current) == "w" ? "b" : "w", "forfeit");
 		if (closed.status == 200) { forfeited = closed.game_data; }
 	}
 	const dropped = await dropSentInvite(playerId);
-	const accepted = await acceptInvite(gameData);
 	return res.json({ ...accepted, forfeited, dropped_invites: dropped ? [dropped] : [] });
 }
 
@@ -356,15 +372,15 @@ async function rematchGame(req, res) {
 	const inviter = inviterId(gameData);
 	const sides = pickSides(params, inviter, inviter == players[0] ? players[1] : players[0]);
 	const names = { [players[0]]: (await username(players[0])) || playerName(gameData, "w"), [players[1]]: (await username(players[1])) || playerName(gameData, "b") }; // A NEW USERNAME SHOWS FROM THE REMATCH ON
-	const created = await initalizeGame(newGameId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter });
-	if (!created.game_data) { return res.json(created); }
+	const made = await initalizeGame(newGameId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter });
+	if (!made.game_data) { return made.status == 409 ? refuse(req, res, 409, made.message) : res.json(made); }
 
 	let dropped = [];
 	for (let i = 0; i < players.length; i++) {
 		const invite = await dropSentInvite(players[i]);
 		if (invite) { dropped.push(invite); }
 	}
-	return res.json({ status: 200, new_game_id: newGameId, game_data: created.game_data, dropped_invites: dropped, message: "Rematch started" });
+	return res.json({ status: 200, new_game_id: newGameId, game_data: made.game_data, dropped_invites: dropped, message: "Rematch started" });
 }
 
 /* ---------------------------------------------------------------- */

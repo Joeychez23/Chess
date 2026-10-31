@@ -16,9 +16,10 @@ const config = require("./config");
 const { signedHeaders } = require("./utils/signature.js");
 const { readSessionUser, readGuestCookie } = require("./middleware/auth.js");
 
-const TIMEOUT = 3000; // A DATA SERVICE THAT TAKES LONGER IS TREATED AS DOWN (503 "Try again in a moment")
+const timeouts = { GET: 3000, POST: 10000 }; // A DATA SERVICE THAT TAKES LONGER IS TREATED AS DOWN (503 "Try again in a moment"). WRITES GET LONGER: A CLOSING MOVE, AN ACCEPT OR A REMATCH IS MANY DYNAMODB CALLS & THROTTLING BACKOFF CAN SLOW THEM (#281)
 const SIGNATURE_REFUSALS = ["Unsigned request", "Bad signature headers", "Bad signature", "Request too old", "Replayed request"]; // data-service/middleware/signature.js'S 401s ARE A SETUP PROBLEM, ANY OTHER 401 IS AN ANSWER ABOUT THE PLAYER OR THEIR SESSION
-const context = new AsyncLocalStorage(); // { req }: THE REQUEST (OR SOCKET HANDSHAKE) THE CALLS ARE MADE FOR
+const PLAYER_REFUSALS = ["No player", "Bad player token", "Session ended"]; // data-service/middleware/player.js'S 401s, FOR A REQUEST THAT CAME SIGNED IN: ITS TOKEN RAN OUT (#278) OR ITS SESSION ENDED (#277)
+const context = new AsyncLocalStorage(); // { headers, signedIn }: WHO THE REQUEST (OR SOCKET HANDSHAKE) THE CALLS ARE MADE FOR IS, DECIDED ONCE
 
 /* ---------------------------------------------------------------- */
 // Player Context
@@ -27,7 +28,7 @@ const context = new AsyncLocalStorage(); // { req }: THE REQUEST (OR SOCKET HAND
  * @description Express middleware: the rest of the request runs inside its own context, so every call below knows whose request it is
  */
 function playerContext(req, res, next) {
-	context.run({ req }, next);
+	context.run(requestContext(req), next);
 }
 
 /**
@@ -36,16 +37,23 @@ function playerContext(req, res, next) {
  * @param  {[function]} fn [async () => ...]
  */
 function withRequest(req, fn) {
-	return context.run({ req }, fn);
+	return context.run(requestContext(req), fn);
 }
 
 /**
- * @description Who the call is for: the access token when it's still good (the data service checks it again), otherwise the guest cookie
+ * @description The request's context: who its calls are for, & whether it came signed in (an access cookie, good or not)
+ */
+function requestContext(req) {
+	return { headers: playerHeaders(req), signedIn: !!req.cookies?.access_token };
+}
+
+/**
+ * @description Who the request's calls are for: the access token when it's still good (the data service checks it again), otherwise the guest cookie.
+ * Decided once when the request starts, so a token that runs out mid-request (waiting on the engine) isn't swapped for nobody halfway (#278)
+ * @param  {[object]} req [express request or socket.request]
  * @return {[object]} headers [{ "X-Player-Token" } | { "X-Guest-Game" } | {} for nobody]
  */
-function playerHeaders() {
-	const req = context.getStore()?.req;
-	if (!req) { return {}; }
+function playerHeaders(req) {
 	if (req.cookies?.access_token && readSessionUser(req)) { return { "X-Player-Token": req.cookies.access_token }; }
 	if (req.cookies?.guest_game && readGuestCookie(req)) { return { "X-Guest-Game": req.cookies.guest_game }; } // ONLY SENT TO /api/chess. ONE SIGNED BEFORE #252 ISN'T, THAT GUEST GETS A NEW GAME
 	return {};
@@ -64,20 +72,35 @@ function playerHeaders() {
  */
 async function call(method, path, body) {
 	const text = body === undefined ? "" : JSON.stringify(body);
-	const headers = { ...playerHeaders(), ...signedHeaders(config.dataServiceSecret, method, path, text) };
+	const store = context.getStore();
+	const headers = { ...store?.headers, ...signedHeaders(config.dataServiceSecret, method, path, text) };
 	if (text) { headers["Content-Type"] = "application/json"; }
 
 	let res;
 	let answer;
 	try {
-		res = await fetch(`${config.dataServiceUrl}${path}`, { method, headers, body: text || undefined, signal: AbortSignal.timeout(TIMEOUT) });
+		res = await fetch(`${config.dataServiceUrl}${path}`, { method, headers, body: text || undefined, signal: AbortSignal.timeout(timeouts[method]) });
 		answer = await res.json();
 	} catch (err) {
-		throw down(`${method} ${path}: ${err.name == "TimeoutError" ? "no answer in 3 seconds" : err.message}`);
+		const timedOut = err.name == "TimeoutError";
+		const failed = down(`${method} ${path}: ${timedOut ? `no answer in ${timeouts[method] / 1000} seconds` : err.message}`);
+		failed.unanswered = timedOut && method == "POST"; // THE DATA SERVICE MAY STILL HAVE SAVED IT (ifSaved)
+		throw failed;
 	}
 	if (res.status >= 500) { throw down(`${method} ${path}: ${res.status} ${answer?.message}`); }
 	if (res.status == 401 && SIGNATURE_REFUSALS.includes(answer?.message)) { throw down(`${method} ${path}: refused the signature (${answer?.message}), check DATA_SERVICE_SECRET`); }
+	if (res.status == 401 && store?.signedIn && PLAYER_REFUSALS.includes(answer?.message) && !path.startsWith("/session/")) { throw sessionExpired(); } // THE TOKEN RAN OUT (MID-REQUEST, OR SINCE A SOCKET'S HANDSHAKE)
 	return answer;
+}
+
+/**
+ * @description The error a call throws when the signed in player's access token ran out mid-request: dataServiceDown answers 401 "SESSION EXPIRED",
+ * so the client re-ups the session & tries again instead of being told they're not in the game (#278)
+ */
+function sessionExpired() {
+	const err = new Error("Data service: the player's access token ran out mid-request");
+	err.name = "SessionExpired";
+	return err;
 }
 
 /**
@@ -90,9 +113,30 @@ function down(reason) {
 }
 
 /**
- * @description Express error middleware: a call that couldn't reach the data service answers 503, nothing was half saved (each action is one call)
+ * @description A write whose answer timed out may still have saved: check (a consistent re-read) says what was saved, so the player
+ * gets it & the other player is told, instead of a 503 for an action that went through (#281)
+ * @param  {[function]} write [async () => the write's answer]
+ * @param  {[function]} check [async () => the answer to use when the write saved, null when it didn't]
+ * @return {[object]} answer [the write's answer, or check's]
+ */
+async function ifSaved(write, check) {
+	try {
+		return await write();
+	} catch (err) {
+		if (!err.unanswered) { throw err; }
+		const saved = await check();
+		if (!saved) { throw err; } // NOT SAVED (YET): 503, THE PLAYER TRIES AGAIN
+		console.error(`${err.message}, it saved`);
+		return saved;
+	}
+}
+
+/**
+ * @description Express error middleware: a call that couldn't reach the data service answers 503, a session that ran out mid-request 401 "SESSION EXPIRED". A write that timed out is re-read first
+ * (ifSaved), so a 503 means it wasn't seen saved
  */
 function dataServiceDown(err, req, res, next) {
+	if (err.name == "SessionExpired" && !res.headersSent) { return res.status(401).json({ status: 401, message: "SESSION EXPIRED" }); }
 	if (err.name != "DataServiceDown") { return next(err); }
 	console.error(err.message);
 	if (res.headersSent) { return next(err); }
@@ -226,4 +270,4 @@ const claimUsername = (username) => call("POST", "/users/me/username", { usernam
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { playerContext, withRequest, dataServiceDown, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { timeouts, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

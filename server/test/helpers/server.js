@@ -3,7 +3,7 @@
  *	Test Server
  *  Starts the real /api routes & page routes on a random local port, and the real data service (data-service/) next to it on the
  *  in-memory tables, so every test goes server -> data service -> tables like the live site. The server's other calls out
- *  (Auth0 and the Stockfish engine API) are answered from test data instead of the network
+ *  (Auth0 and the Stockfish engine API) are answered from test data instead of the network. Socket.IO runs on the API like index.js, listen() hears what a player's tabs get
  *
  */
 
@@ -17,7 +17,9 @@ const cookieParser = require("cookie-parser");
 const fakeDynamo = require("../../../data-service/test/helpers/fakeDynamo.js"); // THE DATA SERVICE'S TABLES (IT'S THE ONLY CODE WITH DYNAMODB)
 const keys = require("../../../data-service/test/helpers/keys.js"); // THE TEST RUN'S SESSION KEYS & THE STAND-IN AUTH0 KEY
 const config = require("../../config");
+const { io: connect } = require("socket.io-client");
 const { playerContext, dataServiceDown } = require("../../dataClient.js");
+const { initSocket } = require("../../socket.js");
 const { resetLimits } = require("../../middleware/rateLimit.js");
 
 const realFetch = globalThis.fetch;
@@ -28,6 +30,9 @@ const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
 const engineMoves = []; // QUEUED ENGINE ANSWERS: { from, to, promotion }, THE ENGINE IS "DOWN" WHEN IT'S EMPTY
 const guestCookies = new Map(); // GUEST BROWSER NAME -> ITS guest_game COOKIE, LIKE A BROWSER KEEPS IT
 const auth0IdTokens = []; // QUEUED id_token MAKERS FOR THE NEXT LOGINS (auth0WillSign), A REAL ONE WHEN IT'S EMPTY
+const dataServiceAnswers = []; // QUEUED DATA SERVICE ANSWERS: { path, status, message } (dataServiceWillAnswer), THE REAL DATA SERVICE WHEN NONE MATCHES
+const dataServiceStalls = []; // DATA SERVICE PATHS WHOSE NEXT ANSWER NEVER ARRIVES, AFTER THE DATA SERVICE DID THE WORK (dataServiceWillStall)
+const sockets = []; // listen()'S CLIENTS, CLOSED BY reset()
 let baseUrl;
 
 /* ---------------------------------------------------------------- */
@@ -55,6 +60,7 @@ async function start() {
 	app.use(dataServiceDown);
 
 	const server = http.createServer(app);
+	initSocket(server); // SAME AS index.js
 	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 	baseUrl = `http://127.0.0.1:${server.address().port}`;
 	const close = server.close.bind(server);
@@ -63,7 +69,7 @@ async function start() {
 }
 
 /**
- * @description Clears the tables, the Auth0 users & id_tokens, the engine's queue, the guests' cookies and the new game limits between tests
+ * @description Clears the tables, the Auth0 users & id_tokens, the engine's & data service's queues, the guests' cookies and the new game limits between tests
  */
 function reset() {
 	fakeDynamo.reset();
@@ -74,6 +80,9 @@ function reset() {
 	engineMoves.length = 0;
 	guestCookies.clear();
 	auth0IdTokens.length = 0;
+	dataServiceAnswers.length = 0;
+	dataServiceStalls.length = 0;
+	sockets.splice(0).forEach((socket) => socket.disconnect());
 	resetLimits();
 }
 
@@ -97,6 +106,7 @@ function player(name) {
  * @description The access cookie a signed in player's browser sends (signed like the data service signs it, utils/tokens.js)
  */
 function sessionCookie(user) {
+	fakeDynamo.signIn(user.user_id.split("auth0|")[1]); // SIGNED IN: THEIR ROW HAS THE TOKEN'S SESSION ID
 	return `access_token=${keys.sessionToken(user)}`;
 }
 
@@ -159,6 +169,30 @@ async function page(path, options = {}) {
 }
 
 /**
+ * @description A player's tab: a Socket.IO client signed in as them, recording every event it gets
+ * @param  {[object]} who [a player]
+ * @param  {[string]} gameId [a game to join (its room's events), left out = only Home's]
+ * @return {[object]} tab [{ events: [{ event, data }], heard(event): resolves with the event's data once it's got }]
+ */
+async function listen(who, gameId) {
+	const socket = connect(baseUrl, { transports: ["websocket"], extraHeaders: { Cookie: sessionCookie(who.user) }, reconnection: false });
+	sockets.push(socket);
+	const events = [];
+	const waiting = [];
+	socket.onAny((event, data) => {
+		events.push({ event, data });
+		waiting.filter((wait) => wait.event == event).forEach((wait) => { waiting.splice(waiting.indexOf(wait), 1); wait.resolve(data); });
+	});
+	await new Promise((resolve, reject) => { socket.once("connect", resolve); socket.once("connect_error", reject); });
+	if (gameId) { await socket.emitWithAck("join-game", gameId); }
+	const heard = (event) => {
+		const got = events.find((seen) => seen.event == event);
+		return got ? Promise.resolve(got.data) : new Promise((resolve) => waiting.push({ event, resolve }));
+	};
+	return { events, heard };
+}
+
+/**
  * @description Queues the engine's next answer, the server's next AI move
  * @param  {[string]} from [e.g. "e7"]
  * @param  {[string]} to [e.g. "e5"]
@@ -171,7 +205,8 @@ function engineWillPlay(from, to, promotion) {
 // Stand-in Auth0 & Engine
 /* ---------------------------------------------------------------- */
 /**
- * @description Answers fetch for the Auth0 tenant and the engine API from the test data, everything else goes out as normal (the test's own requests)
+ * @description Answers fetch for the Auth0 tenant and the engine API from the test data, and a data service request a test queued an answer for,
+ * everything else goes out as normal (the test's own requests & the real data service)
  */
 async function standInFetch(url, options) {
 	const { hostname, pathname, searchParams } = new URL(url);
@@ -184,6 +219,20 @@ async function standInFetch(url, options) {
 	if (hostname == "auth0.test" && pathname == "/api/v2/users-by-email") {
 		const user = auth0Users.get(searchParams.get("email"));
 		return json(user ? [user] : []);
+	}
+	if (url.startsWith(config.dataServiceUrl)) {
+		const queued = dataServiceAnswers.findIndex((answer) => answer.path == pathname);
+		if (queued != -1) {
+			const [answer] = dataServiceAnswers.splice(queued, 1);
+			return json({ status: answer.status, message: answer.message }, answer.status);
+		}
+		const stalled = dataServiceStalls.indexOf(pathname);
+		if (stalled != -1) {
+			dataServiceStalls.splice(stalled, 1);
+			const res = await realFetch(url, { ...options, signal: undefined }); // THE DATA SERVICE DOES THE WORK & SAVES
+			await res.arrayBuffer();
+			return new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason))); // ITS ANSWER NEVER COMES, THE CALLER TIMES OUT
+		}
 	}
 	if (hostname == "engine.test") {
 		const move = engineMoves.shift();
@@ -237,5 +286,23 @@ function auth0WillSign(make) {
 	auth0IdTokens.push(make);
 }
 
+/**
+ * @description The data service's next answer to this path is this refusal instead (a 404 "No such action" while the two instances run different code)
+ * @param  {[string]} path [data service path, "/session/refresh"]
+ * @param  {[number]} status [HTTP status]
+ * @param  {[string]} message [refusal message]
+ */
+function dataServiceWillAnswer(path, status, message) {
+	dataServiceAnswers.push({ path, status, message });
+}
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, auth0WillSign, auth0WillBlock, auth0Logins, peek: fakeDynamo.peek };
+/**
+ * @description The data service's next answer to this path comes too late: it saves, then the caller times out (a throttled DynamoDB, #281)
+ * @param  {[string]} path [data service path, "/games/<id>/move"]
+ */
+function dataServiceWillStall(path) {
+	dataServiceStalls.push(path);
+}
+
+
+module.exports = { start, reset, player, call, send, page, engineWillPlay, auth0WillSign, auth0WillBlock, auth0Logins, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };

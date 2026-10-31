@@ -34,6 +34,7 @@ const friendGame = (gameId, white, black, pending) => db.initalizeGame(gameId, w
  * @param  {[array]} keys [user_db keys]
  */
 async function refused(keys, method, path, options, http) {
+	if (options?.as) { service.signIn(options.as.id); } // THE LOGIN THAT MADE THEIR ROW CAME BEFORE, ONLY THIS REQUEST MUST CHANGE NOTHING
 	const before = keys.map((key) => peek("user_db", key));
 	const response = await call(method, path, options);
 	assert.equal(response.http, http, response.message);
@@ -46,8 +47,10 @@ async function refused(keys, method, path, options, http) {
 /* ---------------------------------------------------------------- */
 
 describe("GET /users/me", () => {
-	test("the requester's row as stored, or not found before their first game", async () => {
-		assert.equal((await call("GET", "/users/me", { as: alice })).message, "User data not found");
+	test("the requester's row as stored, with empty lists before their first game (their login made it)", async () => {
+		const first = await call("GET", "/users/me?consistent=true", { as: alice });
+		assert.deepEqual(JSON.parse(first.user_data.open_games.S), []);
+		assert.equal(first.user_data.sid, undefined);
 		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		const response = await call("GET", "/users/me?consistent=true", { as: alice });
 		assert.equal(response.user_data.user_id.S, "alice");
@@ -143,6 +146,14 @@ describe("POST /users/me/delete", () => {
 		await refused(["alice", "username#alice_k"], "POST", "/users/me/delete", { as: alice }, 409);
 	});
 
+	test("refused when the open games can't be read (a throttled or failed batch read)", async () => {
+		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
+		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		service.failBatchReads(true);
+		await refused(["alice", "username#alice_k"], "POST", "/users/me/delete", { as: alice }, 500);
+		assert.equal((await call("GET", "/users/me?games=true", { as: alice })).http, 500); // HOME TOO, NOT AN EMPTY LIST
+	});
+
 	test("once they've left every game, the row and the username go, other players stay", async () => {
 		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
 		await friendGame("game1", "alice", "bob");
@@ -153,6 +164,15 @@ describe("POST /users/me/delete", () => {
 		assert.equal(peek("user_db", "username#alice_k"), undefined);
 		assert.ok(peek("user_db", "bob"));
 		assert.equal(peek("chess_db", "game1").state.S, "CLOSED"); // THE FINISHED GAME STAYS FOR BOB
+	});
+
+	test("a game on their list that they're not in is pruned & doesn't block it", async () => {
+		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await new DynamoDB({}).putItem({ TableName: "chess_db", Item: { ...peek("chess_db", "game1"), white_player_id: { S: "bob" } } }); // REPLACED UNDER ALICE'S LIST (BEFORE CREATES WERE CONDITIONAL)
+		assert.equal((await call("GET", "/users/me?games=true", { as: alice })).user_data.ai_game_id, null);
+		assert.deepEqual(JSON.parse(peek("user_db", "alice").open_games.S), []);
+		assert.equal((await call("POST", "/users/me/delete", { as: alice })).status, 200);
+		assert.equal(peek("chess_db", "game1").white_player_id.S, "bob"); // BOB'S GAME STAYS
 	});
 
 	test("guests and extra fields are refused", async () => {
