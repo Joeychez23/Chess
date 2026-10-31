@@ -117,6 +117,10 @@ move or missing game is HTTP 200 with `status: 500`.
   minute), 30 per IP or IPv6 /64 (then 1 every 20 s), or 60 site-wide (then 1 a
   second). Checked before anything is saved. Moves aren't limited. The counts are
   in memory and reset on restart.
+- **AI move limits:** `/ai-move` answers `429` with `Retry-After` past 20 at once
+  per session (then 1 a second) or 60 per IP or IPv6 /64 (then 4 a second), with
+  its own counts. Requests for one game while its AI move is being picked wait for
+  that move instead of asking the engine again.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |

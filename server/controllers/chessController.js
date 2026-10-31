@@ -20,6 +20,8 @@ const { readRating, ratingSummary } = require("../utils/rating.js");
 const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames } = require("../dataClient.js");
 const { emitToGame, emitToPlayer } = require("../socket.js");
 
+const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PROMISE), SO PARALLEL /ai-move REQUESTS ASK THE ENGINE ONCE
+
 /* ---------------------------------------------------------------- */
 // Get Game (GET)
 /* ---------------------------------------------------------------- */
@@ -195,16 +197,31 @@ async function aiMoveGame(req, res) {
 	if (new Chess(gameData.game_board.S).turn() != aiColor) { return res.json(savedAiMove(response)); } // ALREADY MOVED
 	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is over" }); }
 
-	const move = await aiMove(gameData.game_board.S, aiLevel(gameData)); // STOCKFISH AT THE GAME'S LEVEL
-	response = await saveAiMove(req.params.gameId, move); // THE DATA SERVICE CHECKS IT'S THE AI'S TURN & THE MOVE IS LEGAL (SAME RULES AS A PLAYER'S MOVE)
-	if (response.status == 409) { // ANOTHER REQUEST SAVED THE AI'S MOVE FIRST
-		const latest = await retrieveGame(req.params.gameId, true); // CONSISTENT, SO IT SEES THAT MOVE
-		if (!latest.game_data) { return res.json({ status: latest.status, message: latest.message }); }
-		return res.json(savedAiMove(latest));
+	let turn = aiTurns.get(req.params.gameId);
+	if (!turn) { // NO AI MOVE IN FLIGHT FOR THIS GAME: THIS REQUEST PICKS IT, LATER ONES WAIT ON IT & GET THE SAME ANSWER
+		turn = playAiTurn(req.params.gameId, gameData).finally(() => aiTurns.delete(req.params.gameId));
+		aiTurns.set(req.params.gameId, turn);
 	}
-	if (response.status != 200) { return res.json({ status: 500, message: response.message }); }
+	return res.json(await turn);
+}
+
+/**
+ * @description Picks the AI's move & saves it. One at a time per game (aiTurns), each one asks the engine once
+ * @param  {[string]} gameId [game id]
+ * @param  {[object]} gameData [the game, it's the AI's turn]
+ * @return {[object]} response [gameResponse + ai_move, or an error]
+ */
+async function playAiTurn(gameId, gameData) {
+	const move = await aiMove(gameData.game_board.S, aiLevel(gameData)); // STOCKFISH AT THE GAME'S LEVEL
+	const response = await saveAiMove(gameId, move); // THE DATA SERVICE CHECKS IT'S THE AI'S TURN & THE MOVE IS LEGAL (SAME RULES AS A PLAYER'S MOVE)
+	if (response.status == 409) { // ANOTHER REQUEST SAVED THE AI'S MOVE FIRST (ONE THAT READ THE GAME BEFORE THIS TURN STARTED)
+		const latest = await retrieveGame(gameId, true); // CONSISTENT, SO IT SEES THAT MOVE
+		if (!latest.game_data) { return { status: latest.status, message: latest.message }; }
+		return savedAiMove(latest);
+	}
+	if (response.status != 200) { return { status: 500, message: response.message }; }
 	response.message = "AI moved";
-	return res.json({ ...gameResponse(response), ai_move: move });
+	return { ...gameResponse(response), ai_move: move };
 }
 
 

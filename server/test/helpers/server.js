@@ -27,6 +27,7 @@ const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
 const auth0Passwords = new Map(); // EMAIL -> PASSWORD, ONLY THE PASSWORD GRANT USES THIS
 const auth0LoginRequests = []; // PASSWORD-REALM REQUESTS (HEADERS + BODY)
 const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
+let engineRequests = 0; // ENGINE API REQUESTS SINCE THE LAST reset()
 const engineMoves = []; // QUEUED ENGINE ANSWERS: { from, to, promotion }, THE ENGINE IS "DOWN" WHEN IT'S EMPTY
 const guestCookies = new Map(); // GUEST BROWSER NAME -> ITS guest_game COOKIE, LIKE A BROWSER KEEPS IT
 const auth0IdTokens = []; // QUEUED id_token MAKERS FOR THE NEXT LOGINS (auth0WillSign), A REAL ONE WHEN IT'S EMPTY
@@ -78,6 +79,7 @@ function reset() {
 	auth0LoginRequests.length = 0;
 	auth0Blocks.length = 0;
 	engineMoves.length = 0;
+	engineRequests = 0;
 	guestCookies.clear();
 	auth0IdTokens.length = 0;
 	dataServiceAnswers.length = 0;
@@ -196,9 +198,18 @@ async function listen(who, gameId) {
  * @description Queues the engine's next answer, the server's next AI move
  * @param  {[string]} from [e.g. "e7"]
  * @param  {[string]} to [e.g. "e5"]
+ * @param  {[string]} promotion [optional, e.g. "q"]
+ * @param  {[Promise]} wait [optional, the engine answers once it settles]
  */
-function engineWillPlay(from, to, promotion) {
-	engineMoves.push({ from, to, promotion });
+function engineWillPlay(from, to, promotion, wait) {
+	engineMoves.push({ from, to, promotion, wait });
+}
+
+/**
+ * @description How many times the server asked the engine API since the last reset()
+ */
+function engineCalls() {
+	return engineRequests;
 }
 
 /* ---------------------------------------------------------------- */
@@ -235,8 +246,11 @@ async function standInFetch(url, options) {
 		}
 	}
 	if (hostname == "engine.test") {
-		const move = engineMoves.shift();
-		if (!move) { throw new Error("engine.test is down"); } // NOTHING QUEUED: THE SERVER FALLS BACK TO js-chess-engine
+		engineRequests++;
+		const queued = engineMoves.shift();
+		if (!queued) { throw new Error("engine.test is down"); } // NOTHING QUEUED: THE SERVER FALLS BACK TO js-chess-engine
+		const { wait, ...move } = queued;
+		if (wait) { await wait; } // THE ENGINE IS STILL THINKING UNTIL THE TEST LETS IT ANSWER
 		return json({ type: "bestmove", ...move });
 	}
 	return realFetch(url, options);
@@ -305,4 +319,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, auth0WillSign, auth0WillBlock, auth0Logins, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0Logins, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };

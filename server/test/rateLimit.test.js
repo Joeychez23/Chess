@@ -10,7 +10,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
 const { call, player, peek } = testServer;
-const { takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS } = require("../middleware/rateLimit.js");
+const { takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS } = require("../middleware/rateLimit.js");
 const { guestToken } = require("../../data-service/test/helpers/keys.js");
 
 let server;
@@ -159,6 +159,31 @@ describe("new game limits", () => {
 		const lines = log.mock.calls.map((call) => call.arguments[0]).filter((line) => /^New game limit/.test(line));
 		assert.equal(lines.length, 1);
 		assert.match(lines[0], /^New game limit \(session: guest:.+\) POST \/api\/chess\/game, retry in \d+s$/);
+	});
+});
+
+/* ---------------------------------------------------------------- */
+// AI Move Limits
+/* ---------------------------------------------------------------- */
+
+describe("AI move limits", () => {
+	test("one browser asking for the AI's move in a loop is cut off with a 429, and its moves still go through", async () => {
+		await newGuestGame("guest1");
+		await call("PUT", "/api/chess/game/guest1", { body: { move: ["e2", "e4"] } });
+		for (let i = 0; i < AI_MOVE_LIMITS.aiMoveSession.burst; i++) { assert.equal((await call("POST", "/api/chess/game/guest1/ai-move")).status, 200, `request ${i}`); }
+
+		const limited = await call("POST", "/api/chess/game/guest1/ai-move");
+		assert.equal(limited.http, 429);
+		assert.match(limited.message, /^Too many AI move requests, try again in \d+ seconds?$/);
+		assert.ok(Number(limited.retry_after) > 0);
+		assert.equal((await call("PUT", "/api/chess/game/guest1", { body: { move: ["d2", "d4"] } })).status, 200); // MOVES AREN'T LIMITED
+	});
+
+	test("AI moves don't use up new games", async () => {
+		await newGuestGame("guest1");
+		await call("PUT", "/api/chess/game/guest1", { body: { move: ["e2", "e4"] } });
+		for (let i = 0; i < AI_MOVE_LIMITS.aiMoveSession.burst; i++) { await call("POST", "/api/chess/game/guest1/ai-move"); }
+		assert.equal((await newGuestGame("guest1")).status, 200);
 	});
 });
 
