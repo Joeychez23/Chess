@@ -122,13 +122,27 @@ function refreshHome(firstLoad) {
 async function drawHome(firstLoad) {
 	const gameData = await getUserGameData(CHESS_URL, PLAYER_ID);
 	if (firstLoad) { SETTINGS = gameData?.settings || null; } // ONLY ON LOAD, A REDRAW DOESN'T UNDO A PICK
-	showRating(gameData?.rating); // A FINISHED FRIEND GAME REDRAWS HOME (SOCKET "games"), SO THE NEW RATING SHOWS
-	const friendGame = await openGame(gameData?.friend_game_id);
-	const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
-	listGames(gameData);
-	loadInvites(gameData);
-	await loadFriendBox(gameData, friendGame);
-	await currentGame; // HOME IS DRAWN ONCE IT'S IN TOO (showPageWhenDrawn)
+	const releaseHeight = holdPageHeight(); // THE PAGE DOESN'T GET SHORTER WHILE IT'S REDRAWN, SO THE SCROLL STAYS PUT (#240)
+	try {
+		showRating(gameData?.rating); // A FINISHED FRIEND GAME REDRAWS HOME (SOCKET "games"), SO THE NEW RATING SHOWS
+		const friendGame = await openGame(gameData?.friend_game_id);
+		const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
+		listGames(gameData);
+		loadInvites(gameData);
+		await loadFriendBox(gameData, friendGame);
+		await currentGame; // HOME IS DRAWN ONCE IT'S IN TOO (showPageWhenDrawn)
+	} finally { releaseHeight(); }
+}
+
+/**
+ * @description Keeps the page at least as tall as it is now until the returned function is called. A redraw swaps boxes & lists
+ * part by part (some wait on the server or a board picture), & a page that got shorter for a moment moved the scroll (#240)
+ * @return {[function]} release [puts the page's height back to its CSS (body min-height 100dvh)]
+ */
+function holdPageHeight() {
+	const body = document.body;
+	body.style.minHeight = `${body.offsetHeight}px`;
+	return function () { body.style.removeProperty("min-height"); };
 }
 
 /**
@@ -165,9 +179,7 @@ async function openGame(gameId) {
  */
 function listGames(gameData) {
 	const openGames = gameData?.open_game_list || []; // NEW USERS HAVE NO GAMES YET
-	gameList.replaceChildren(); // REDRAWN WHEN THE SOCKET SAYS A GAME CHANGED
-	loadingDiv.hidden = openGames.length > 0;
-	if (!openGames.length) { return loadingDiv.innerText = "No open games yet. Start one with the AI or a friend."; }
+	const rows = [];
 	for (let i = 0; i < openGames.length; i++) {
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
@@ -176,8 +188,11 @@ function listGames(gameData) {
 		gameLink.innerHTML = `<span class="label">Game ${i + 1}</span><span class="spec gameInfo"></span><span class="label gameOpen">Open</span>`;
 		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(openGames[i].player_color, openGames[i].start_params)}`; // innerText, THE NAME IS NEVER READ AS HTML
 		listElement.append(gameLink);
-		gameList.append(listElement);
+		rows.push(listElement);
 	}
+	gameList.replaceChildren(...rows); // REDRAWN WHEN THE SOCKET SAYS A GAME CHANGED: BUILT FIRST, THEN SWAPPED IN ONE STEP (#240)
+	loadingDiv.hidden = openGames.length > 0;
+	if (!openGames.length) { loadingDiv.innerText = "No open games yet. Start one with the AI or a friend."; }
 }
 
 
@@ -339,8 +354,7 @@ function loadInvites(gameData) {
  * @param  {[array]} invites [received_invites: [{ game_id, name, player_color, start_params }]]
  */
 function listInvites(invites) {
-	inviteList.replaceChildren();
-	inviteList.hidden = !invites.length;
+	const rows = [];
 	for (let i = 0; i < invites.length; i++) {
 		const listElement = document.createElement("li");
 		listElement.innerHTML = `<span class="inviteText"><span class="label inviteName"></span><span class="spec inviteParams"></span></span><span class="inviteButtons"><button class="btn btnCream" type="button">Accept</button><button class="btn btnLine" type="button">Decline</button></span>`;
@@ -350,8 +364,10 @@ function listInvites(invites) {
 		if (confirmAccept == invites[i].game_id) { acceptBtn.innerText = "Forfeit & accept"; } // STILL WARNING AFTER A REDRAW
 		acceptBtn.addEventListener("click", (e) => handleAccept(e, invites[i].game_id, acceptBtn));
 		declineBtn.addEventListener("click", (e) => handleDecline(e, invites[i].game_id, declineBtn));
-		inviteList.append(listElement);
+		rows.push(listElement);
 	}
+	inviteList.replaceChildren(...rows); // BUILT FIRST, THEN SWAPPED IN ONE STEP (#240)
+	inviteList.hidden = !invites.length;
 }
 
 /**
