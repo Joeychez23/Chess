@@ -94,11 +94,20 @@ function loginFailed(reason) {
 // Password Login
 /* ---------------------------------------------------------------- */
 /**
+ * @description A request our own page sent: its Origin is the game's, & Sec-Fetch-Site (when the browser sends it) is same-origin.
+ * Another site's link, redirect or form gets false (login & logout CSRF, #297)
+ */
+function fromOurPage(req) {
+	const site = req.get("Sec-Fetch-Site");
+	return req.get("Origin") === new URL(config.clientUrl).origin && (!site || site === "same-origin");
+}
+
+/**
  * @description POST /api/auth/login's checks: only JSON from our own page (login CSRF: a form post or another site gets 403),
  * with an email & password that are strings (400)
  */
 function checkLogin(req, res, next) {
-	if (!req.is("application/json") || req.get("Origin") !== new URL(config.clientUrl).origin) {
+	if (!req.is("application/json") || !fromOurPage(req)) {
 		return res.status(403).json({ status: 403, message: "Forbidden" });
 	}
 	if (typeof req.body?.email != "string" || !req.body.email.trim() || typeof req.body?.password != "string" || !req.body.password) {
@@ -151,9 +160,11 @@ async function startPlayerSession(idToken) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Ends our session on every device (the data service clears the session id their refresh tokens carry),
- * then ends the Auth0 session so the next login asks for a password again
+ * then answers { logoutUrl } & the page goes there, which ends the Auth0 session so the next login asks for a password again.
+ * A POST from our own page only, so another site can't sign a player out everywhere (#297)
  */
 async function logout(req, res) {
+	if (!fromOurPage(req)) { return res.status(403).json({ status: 403, message: "Forbidden" }); }
 	const refreshToken = readRefreshCookie(req);
 	clearSessionCookies(res);
 	if (refreshToken) {
@@ -163,7 +174,7 @@ async function logout(req, res) {
 			console.error(err.message); // THE DATA SERVICE IS DOWN: THIS BROWSER IS STILL SIGNED OUT, THE OTHERS STAY IN UNTIL THEIR REFRESH TOKEN RUNS OUT
 		}
 	}
-	return res.redirect(buildLogoutUrl());
+	return res.json({ status: 200, logoutUrl: buildLogoutUrl(), message: "SIGNED OUT" });
 }
 
 /* ---------------------------------------------------------------- */

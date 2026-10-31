@@ -16,6 +16,7 @@ const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
 const { setInitialData, checkOpponentMove, refreshData } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD
+const { InternalAuth } = require("../../auth/index.js"); // LOGOUT IS A POST TO THE SERVER (#297)
 const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const menu = document.getElementById("menuContainer"); // IN GAME MENU
@@ -240,5 +241,6 @@ export function handleHomepage(e) {
 export function handleExit(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	window.location.href = game.SIGNED_IN ? "/api/auth/logout" : "/api/auth/login";
+	if (game.SIGNED_IN) { return new InternalAuth().logout(); }
+	window.location.href = "/api/auth/login";
 }
