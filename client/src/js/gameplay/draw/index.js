@@ -35,7 +35,7 @@ let availableMoves; // LEGAL MOVES OF THE SELECTED PIECE (chess.js VERBOSE MOVES
 let currInst; // 8 x 8 BOARD FROM chessInst.board(), FLIPPED WHEN PLAYING BLACK
 let xPos; // TAKEN PIECE TRAY COLUMN (renderTakenPieces)
 let yPos; // TAKEN PIECE TRAY ROW
-let overlapSlideObj = null; // THE 3 x 3 SQUARES AROUND A SLIDING PIECE, SO THE PIECES IT PASSES BEHIND ARE DRAWN ON TOP (drawSlideBox)
+let overlapSlideObj = null; // THE 3 x 3 SQUARES AROUND A SLIDING PIECE (drawActivePiece), ONLY A HOPPING OR LANDED KNIGHT IS DRAWN AGAIN FROM IT (drawSlideBox)
 let yPositive = false; // THE SLIDING PIECE IS GOING DOWN THE SCREEN
 let xPositive = false; // THE SLIDING PIECE IS GOING RIGHT
 
@@ -106,9 +106,9 @@ export function handleInitialData() {
  * @param [inst] A object array which reperesents the current game board to be rendered
  * @description Renders game data based on input params. Goes through the board one square at a time (row by row,
  * index = row * 8 + column) & draws its piece: a held piece follows the mouse, a clicked piece sits lifted where it was
- * dropped, the rest sit on their square. Also draws the selected piece's legal moves, slides a moving piece toward its
- * new square & draws the pieces it passes behind again on top (drawSlideBox). A hopping knight is drawn in the turn of the
- * square it's over (hopTurn), not its start square's
+ * dropped, the rest sit on their square. Also draws the selected piece's legal moves & slides a moving piece toward its
+ * new square. A sliding king, queen, bishop, rook or pawn is drawn once, in the turn of the first square after it (slideTurn),
+ * & a hopping knight in the turn of the square it's over (hopTurn), not their start square's
  * @param  {[number]} clickX [pixel x of the square under the mouse, from renderBoard()]
  * @param  {[number]} clickY [pixel y of the square under the mouse]
  * @param  {[boolean]} lightObstruction [true draws the reflections & shadows]
@@ -126,6 +126,24 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			const row = Math.min(Math.max(Math.round(game.tiles[q].y - game.tiles[q].yDiff / game.tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
 			const column = Math.min(Math.max(Math.round(game.tiles[q].x + game.tiles[q].xDiff / game.tileWidth), 0), 7);
 			if (row * 8 + column != q) { hopTurn = { index: q, square: row * 8 + column }; }
+			break;
+		}
+	}
+
+	// A SLIDING KING, QUEEN, BISHOP, ROOK OR PAWN IS DRAWN ONCE, IN THE TURN OF THE FIRST SQUARE AFTER IT (PAINTER'S ORDER: LOWER ROWS IN FRONT,
+	// FURTHER RIGHT OVER FURTHER LEFT), NOT ITS START SQUARE'S, SO EVERY REFLECTION, SHADOW & PIECE IS DRAWN EXACTLY ONCE A FRAME
+	// !NOTE: DRAWING THE PIECES IN FRONT OF IT AGAIN AT THE END OF THE FRAME PUT THEM OVER THEIR RIGHT NEIGHBOUR'S SHADOW, SO THEY FLASHED (#239)
+	let slideTurn = null; // { index: THE SLIDING TILE, sx, sy: WHERE IT'S DRAWN THIS FRAME (IN SQUARES), drawn: ALREADY DRAWN THIS FRAME }
+	for (let q = 0; q < game.tiles.length; q++) {
+		const tile = game.tiles[q];
+		if (tile.isSliding && tile.type && tile.type.match(/[kqbrp]/)) {
+			tile.x = q % 8; // ITS START SQUARE, AS ITS OWN TURN SETS IT BELOW (THE CLICK THAT STARTED THE SLIDE LEFT x, y ON THE NEW SQUARE),
+			tile.y = Math.floor(q / 8); // SO IT'S RIGHT IF IT'S DRAWN BEFORE ITS OWN TURN (SLIDING UP OR LEFT)
+			// drawActivePiece STEPS THE SLIDE BEFORE IT DRAWS IT, SO ORDER IT BY WHERE IT WILL BE AFTER THIS FRAME'S STEP (SAME STEP & SNAP AS drawActivePiece)
+			const step = 3.48513659 / frameRate; // SQUARES MOVED PER FRAME
+			const sx = tile.x + Math.sign(tile.xSlideTo - tile.x) * Math.min(Math.abs(tile.xDiff || 0) / game.tileWidth + step, Math.abs(tile.xSlideTo - tile.x));
+			const sy = tile.y + Math.sign(tile.ySlideTo - tile.y) * Math.min(Math.abs(tile.yDiff || 0) / game.tileHeight + step, Math.abs(tile.ySlideTo - tile.y));
+			slideTurn = { index: q, sx, sy, drawn: false };
 			break;
 		}
 	}
@@ -624,6 +642,158 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			}
 			if (hopTurn && hopTurn.square == index) { drawHoppingKnight(); } // THE HOPPING KNIGHT IS OVER THIS SQUARE: UNDER THIS SQUARE'S PIECE & THE ONES AFTER IT
 
+			/* ---------------------------------------------------------------- */
+			// Draw Board Piece
+			/* ---------------------------------------------------------------- */
+			/**
+			 * @description Draws the king, queen, bishop, rook or pawn on tile index with its reflection & shadow (drawActivePiece), facing
+			 * the way the server's piece list says. Used in its own square's turn & for a sliding piece in the turn of the square after it (slideTurn)
+			 * @param  {[string]} pieceType [k | q | b | r | p]
+			 * @param  {[string]} pieceColor [w | b]
+			 * @param  {[boolean]} opacity [false = always solid (a clicked piece back on its own square)]
+			 */
+			function drawBoardPiece(pieceType, pieceColor, opacity) {
+				if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
+					/* ---------------------------------------------------------------- */
+					// Draw Piece (Draw Screen)
+					/* ---------------------------------------------------------------- */
+					/**
+					 * @description Draws the king, queen, bishop or rook to the board with the images the loops below picked (handlePieceDirectionW / B).
+					 * While the player holds their piece it faces the way it's dragged (up or down from its square)
+					 */
+					function drawPiece() {
+						if (game.tiles[index].isMousedown && game.tiles[index].y != game.tiles[index].originY && game.playerColor == pieceColor) { // HELD: FACE THE WAY IT'S DRAGGED (UP OR DOWN)
+							if (pieceColor == 'w') { handlePieceDirectionW(game.tiles[index].originY, game.tiles[index].y); }
+							else if (pieceColor == 'b') { handlePieceDirectionB(game.tiles[index].originY, game.tiles[index].y); }
+						}
+						if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
+							if (pieceColor == "w") {
+								if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
+									ctx.globalAlpha = 0.70;
+									ctx.drawImage(images[checkHighlight].image, (game.tiles[index].x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
+									ctx.globalAlpha = 1.00;
+								}
+								drawActivePiece([game.wKingRefl, game.wKingShdw, game.wKingImg], x, y, opacity);
+								game.wPieceCount.king++;
+							}
+							else if (pieceColor == "b") {
+								if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
+									ctx.globalAlpha = 0.70;
+									ctx.drawImage(images[checkHighlight].image, (game.tiles[index].x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
+									ctx.globalAlpha = 1.00;
+								}
+								drawActivePiece([game.bKingRefl, game.bKingShdw, game.bKingImg], x, y, opacity);
+								game.bPieceCount.king++;
+							}
+						} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
+							if (pieceColor == "w") { drawActivePiece([game.wQueenRefl, game.wQueenShdw, game.wQueenImg], x, y, opacity); game.wPieceCount.queen++; }
+							else if (pieceColor == "b") { drawActivePiece([game.bQueenRefl, game.bQueenShdw, game.bQueenImg], x, y, opacity); game.bPieceCount.queen++; }
+						} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
+							if (pieceColor == "w") { // THE IMAGE GOES BY THE COLOR OF THE BISHOP'S SQUARE
+								if (chessInst.squareColor(game.tiles[index].square) == 'light') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopWhiteSqImg], x, y, opacity); game.wPieceCount.bishop++; }
+								else if (chessInst.squareColor(game.tiles[index].square) == 'dark') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopBlackSqImg], x, y, opacity); game.wPieceCount.bishop++; }
+							} else if (pieceColor == "b") {
+								if (chessInst.squareColor(game.tiles[index].square) == 'light') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopWhiteSqImg], x, y, opacity); game.bPieceCount.bishop++; }
+								else if (chessInst.squareColor(game.tiles[index].square) == 'dark') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopBlackSqImg], x, y, opacity); game.bPieceCount.bishop++; }
+							}
+						} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
+							if (pieceColor == "w") { drawActivePiece([game.wRookRefl, game.wRookShdw, game.wRookImg], x, y, opacity); game.wPieceCount.rook++; }
+							else if (pieceColor == "b") { drawActivePiece([game.bRookRefl, game.bRookShdw, game.bRookImg], x, y, opacity); game.bPieceCount.rook++; }
+						}
+					}
+					// WHICH WAY A KING, QUEEN, BISHOP OR ROOK FACES COMES FROM THE SERVER'S PIECE LIST (w_piece / b_piece):
+					// { from, to } OF EACH ONE'S LAST MOVE UP OR DOWN (A SIDEWAYS MOVE ONLY CHANGES to), from IS null BEFORE IT HAS ONE
+					// & BOTH ARE null ONCE IT'S TAKEN
+					if (pieceColor == "w") {
+						let yFrom; // SCREEN ROW IT CAME FROM
+						let yTo; // SCREEN ROW IT WENT TO
+						for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
+							if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+								if (game.playerColor == 'w') {
+									yFrom = 8 - game.moveObj.from.split("")[1];
+									yTo = 8 - game.moveObj.to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = game.moveObj.from.split("")[1] - 1;
+									yTo = game.moveObj.to.split("")[1] - 1;
+								}
+								handlePieceDirectionW(yFrom, yTo);
+								drawPiece();
+								break;
+							} else if (JSON.parse(game.response.w_piece)[n].from && JSON.parse(game.response.w_piece)[n].to == game.tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+								if (game.playerColor == 'w') {
+									yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
+									yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
+									yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
+								}
+								handlePieceDirectionW(yFrom, yTo);
+								drawPiece();
+								break;
+							} else if (JSON.parse(game.response.w_piece)[n].from == null && JSON.parse(game.response.w_piece)[n].to == game.tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
+								handlePieceDirectionW(null, null);
+								drawPiece();
+								break;
+							}
+						}
+					} else if (pieceColor == "b") {
+						let yFrom; // SCREEN ROW IT CAME FROM
+						let yTo; // SCREEN ROW IT WENT TO
+						for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
+							if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+								if (game.playerColor == 'w') {
+									yFrom = 8 - game.moveObj.from.split("")[1];
+									yTo = 8 - game.moveObj.to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = game.moveObj.from.split("")[1] - 1;
+									yTo = game.moveObj.to.split("")[1] - 1;
+								}
+								handlePieceDirectionB(yFrom, yTo);
+								drawPiece();
+								break;
+							} else if (JSON.parse(game.response.b_piece)[n].from && JSON.parse(game.response.b_piece)[n].to == game.tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
+								if (game.playerColor == 'w') {
+									yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
+									yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
+								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
+									yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
+								}
+								handlePieceDirectionB(yFrom, yTo);
+								drawPiece();
+								break;
+							} else if (JSON.parse(game.response.b_piece)[n].from == null && JSON.parse(game.response.b_piece)[n].to == game.tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
+								handlePieceDirectionB(null, null);
+								drawPiece();
+								break;
+							}
+						}
+					}
+				} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
+					handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
+					if (pieceColor == "w") { drawActivePiece([game.wPawnRefl, game.wPawnShdw, game.wPawnImg], x, y, opacity); game.wPieceCount.pawn++; }
+					else if (pieceColor == "b") { drawActivePiece([game.bPawnRefl, game.bPawnShdw, game.bPawnImg], x, y, opacity); game.bPieceCount.pawn++; }
+				}
+			}
+
+			/* ---------------------------------------------------------------- */
+			// Draw Sliding Piece
+			/* ---------------------------------------------------------------- */
+			/**
+			 * @description Draws the sliding king, queen, bishop, rook or pawn in this square's turn, before this square's piece (slideTurn),
+			 * like Draw Hopping Knight. index is the sliding tile while it draws (drawActivePiece reads it)
+			 */
+			function drawSlidingPiece() {
+				slideTurn.drawn = true;
+				if (game.currPromotion) { return; } // NO PIECES ON THE BOARD WHILE THE PROMOTION PICKER IS UP
+				const squareIndex = index; // THIS SQUARE'S TILE
+				index = slideTurn.index;
+				drawBoardPiece(game.tiles[index].type, game.tiles[index].color, true);
+				index = squareIndex;
+			}
+			// THE SLIDING PIECE IS DRAWN BEFORE THE FIRST SQUARE AFTER IT: A LOWER ROW, OR ITS ROW & FURTHER RIGHT (THE BOARD AT REST DRAWS IN THIS ORDER)
+			if (slideTurn && !slideTurn.drawn && (i > slideTurn.sy + 0.001 || (Math.abs(i - slideTurn.sy) <= 0.001 && j > slideTurn.sx + 0.001))) { drawSlidingPiece(); }
+
 			if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
 				game.tiles[index].originX = j; // THE PIECE'S OWN SQUARE (x, y FOLLOW THE MOUSE WHILE IT'S HELD)
 				game.tiles[index].originY = i;
@@ -633,122 +803,8 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 					if (!(game.mousedownTile.xAvailInt == game.tiles[index].x && game.mousedownTile.yAvailInt == game.tiles[index].y)) { // IF A MOUSE DOWN TILE IS ON AVAILABLE MOVE TILE RENDERING OF THE PIECE FALLS ON THE RESPONSIBILITY OF "checkAvailableMoves()"
 						let opacity = true
 						if (game.tiles[index].isClicked && (game.tiles[index].x == game.tiles[index].originX && game.tiles[index].y == game.tiles[index].originY)) { opacity = false } // IF TILE IS IN ORIGINAL POSITION SET OPACITY TO FALSE
-						if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
-							/* ---------------------------------------------------------------- */
-							// Draw Piece (Draw Screen)
-							/* ---------------------------------------------------------------- */
-							/**
-							 * @description Draws the king, queen, bishop or rook to the board with the images the loops below picked (handlePieceDirectionW / B).
-							 * While the player holds their piece it faces the way it's dragged (up or down from its square)
-							 */
-							function drawPiece() {
-								if (game.tiles[index].isMousedown && game.tiles[index].y != game.tiles[index].originY && game.playerColor == pieceColor) { // HELD: FACE THE WAY IT'S DRAGGED (UP OR DOWN)
-									if (pieceColor == 'w') { handlePieceDirectionW(game.tiles[index].originY, game.tiles[index].y); }
-									else if (pieceColor == 'b') { handlePieceDirectionB(game.tiles[index].originY, game.tiles[index].y); }
-								}
-								if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-									if (pieceColor == "w") {
-										if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
-											ctx.globalAlpha = 0.70;
-											ctx.drawImage(images[checkHighlight].image, (game.tiles[index].x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
-											ctx.globalAlpha = 1.00;
-										}
-										drawActivePiece([game.wKingRefl, game.wKingShdw, game.wKingImg], x, y, opacity);
-										game.wPieceCount.king++;
-									}
-									else if (pieceColor == "b") {
-										if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
-											ctx.globalAlpha = 0.70;
-											ctx.drawImage(images[checkHighlight].image, (game.tiles[index].x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
-											ctx.globalAlpha = 1.00;
-										}
-										drawActivePiece([game.bKingRefl, game.bKingShdw, game.bKingImg], x, y, opacity);
-										game.bPieceCount.king++;
-									}
-								} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-									if (pieceColor == "w") { drawActivePiece([game.wQueenRefl, game.wQueenShdw, game.wQueenImg], x, y, opacity); game.wPieceCount.queen++; }
-									else if (pieceColor == "b") { drawActivePiece([game.bQueenRefl, game.bQueenShdw, game.bQueenImg], x, y, opacity); game.bPieceCount.queen++; }
-								} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
-									if (pieceColor == "w") { // THE IMAGE GOES BY THE COLOR OF THE BISHOP'S SQUARE
-										if (chessInst.squareColor(game.tiles[index].square) == 'light') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopWhiteSqImg], x, y, opacity); game.wPieceCount.bishop++; }
-										else if (chessInst.squareColor(game.tiles[index].square) == 'dark') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopBlackSqImg], x, y, opacity); game.wPieceCount.bishop++; }
-									} else if (pieceColor == "b") {
-										if (chessInst.squareColor(game.tiles[index].square) == 'light') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopWhiteSqImg], x, y, opacity); game.bPieceCount.bishop++; }
-										else if (chessInst.squareColor(game.tiles[index].square) == 'dark') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopBlackSqImg], x, y, opacity); game.bPieceCount.bishop++; }
-									}
-								} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-									if (pieceColor == "w") { drawActivePiece([game.wRookRefl, game.wRookShdw, game.wRookImg], x, y, opacity); game.wPieceCount.rook++; }
-									else if (pieceColor == "b") { drawActivePiece([game.bRookRefl, game.bRookShdw, game.bRookImg], x, y, opacity); game.bPieceCount.rook++; }
-								}
-							}
-							// WHICH WAY A KING, QUEEN, BISHOP OR ROOK FACES COMES FROM THE SERVER'S PIECE LIST (w_piece / b_piece):
-							// { from, to } OF EACH ONE'S LAST MOVE UP OR DOWN (A SIDEWAYS MOVE ONLY CHANGES to), from IS null BEFORE IT HAS ONE
-							// & BOTH ARE null ONCE IT'S TAKEN
-							if (pieceColor == "w") {
-								let yFrom; // SCREEN ROW IT CAME FROM
-								let yTo; // SCREEN ROW IT WENT TO
-								for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
-									if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-										if (game.playerColor == 'w') {
-											yFrom = 8 - game.moveObj.from.split("")[1];
-											yTo = 8 - game.moveObj.to.split("")[1];
-										} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-											yFrom = game.moveObj.from.split("")[1] - 1;
-											yTo = game.moveObj.to.split("")[1] - 1;
-										}
-										handlePieceDirectionW(yFrom, yTo);
-										drawPiece();
-										break;
-									} else if (JSON.parse(game.response.w_piece)[n].from && JSON.parse(game.response.w_piece)[n].to == game.tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-										if (game.playerColor == 'w') {
-											yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
-											yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
-										} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-											yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
-											yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
-										}
-										handlePieceDirectionW(yFrom, yTo);
-										drawPiece();
-										break;
-									} else if (JSON.parse(game.response.w_piece)[n].from == null && JSON.parse(game.response.w_piece)[n].to == game.tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE
-										handlePieceDirectionW(null, null);
-										drawPiece();
-										break;
-									}
-								}
-							} else if (pieceColor == "b") {
-								let yFrom; // SCREEN ROW IT CAME FROM
-								let yTo; // SCREEN ROW IT WENT TO
-								for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
-									if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-										if (game.playerColor == 'w') {
-											yFrom = 8 - game.moveObj.from.split("")[1];
-											yTo = 8 - game.moveObj.to.split("")[1];
-										} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-											yFrom = game.moveObj.from.split("")[1] - 1;
-											yTo = game.moveObj.to.split("")[1] - 1;
-										}
-										handlePieceDirectionB(yFrom, yTo);
-										drawPiece();
-										break;
-									} else if (JSON.parse(game.response.b_piece)[n].from && JSON.parse(game.response.b_piece)[n].to == game.tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-										if (game.playerColor == 'w') {
-											yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
-											yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
-										} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-											yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
-											yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
-										}
-										handlePieceDirectionB(yFrom, yTo);
-										drawPiece();
-										break;
-									} else if (JSON.parse(game.response.b_piece)[n].from == null && JSON.parse(game.response.b_piece)[n].to == game.tiles[index].square) { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE
-										handlePieceDirectionB(null, null);
-										drawPiece();
-										break;
-									}
-								}
-							}
+						if (pieceType.match(/[kqbrp]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP, ROOK OR PAWN
+							if (!(slideTurn && slideTurn.index == index)) { drawBoardPiece(pieceType, pieceColor, opacity); } // SLIDING: DRAWN IN THE TURN OF THE SQUARE AFTER IT (drawSlidingPiece)
 						} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 							/* ---------------------------------------------------------------- */
 							// Draw Knight (Draw Screen)
@@ -851,14 +907,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 								}
 								game.bPieceCount.knight++;
 							}
-						} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
-							handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
-							if (pieceColor == "w") { drawActivePiece([game.wPawnRefl, game.wPawnShdw, game.wPawnImg], x, y, opacity); game.wPieceCount.pawn++; }
-							else if (pieceColor == "b") { drawActivePiece([game.bPawnRefl, game.bPawnShdw, game.bPawnImg], x, y, opacity); game.bPieceCount.pawn++; }
 						}
 					}
 				}
 			}
+			if (index == 63 && slideTurn && !slideTurn.drawn) { drawSlidingPiece(); } // NO SQUARE AFTER IT: DRAWN LAST
 		}
 	}
 
@@ -868,8 +921,8 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 	/* ---------------------------------------------------------------- */
 	/**
 	 * @description Handles pieceObj which draws piece over board render. Draws a piece's image again on top of the frame
-	 * (no shadow or reflection), so a sliding piece looks like it passes behind the pieces in front of it.
-	 * A sliding knight is drawn on top of everything (it hops over them)
+	 * (no shadow or reflection): a hopping knight on top of everything (it hops over them), a landed knight & the pieces
+	 * in front of it (drawPieceBelow). Other slides aren't drawn again, they're drawn once at their depth (slideTurn)
 	 * @param  {[object]} pieceObj [tile of the piece to draw again]
 	 */
 	function drawSlideBox(pieceObj) {
@@ -1130,12 +1183,13 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 		}
 	}
 
-	// LANDED: UNTIL THE MOVE COMES BACK & THE BOARD IS REBUILT, THE PIECE IS STILL ON ITS OLD TILE (MOVED BY xDiff / yDiff),
+	// LANDED KNIGHT: UNTIL THE MOVE COMES BACK & THE BOARD IS REBUILT, THE KNIGHT IS STILL ON ITS OLD TILE (MOVED BY xDiff / yDiff),
 	// SO THE BOARD DRAWS IT IN ITS OLD SQUARE'S TURN & NO SLIDE BOX IS MADE. ITS BOX IS JUST ITSELF (drawPieceBelow NEEDS y2x2)
+	// (A KING, QUEEN, BISHOP, ROOK OR PAWN IS ALREADY DRAWN ONCE AT ITS DEPTH, slideTurn, SO IT ISN'T DRAWN AGAIN HERE)
 	let landedTile = null;
 	if (!overlapSlideObj) { // currSlide CAN ALREADY BE false HERE (validateMove TURNS IT OFF BEFORE setTiles() IS DONE)
 		for (let q = 0; q < game.tiles.length; q++) {
-			if (game.tiles[q].square == game.moveObj.from && (!game.tiles[q].isSliding || (game.tiles[q].type == 'n' && game.knightHop == 0)) && (game.tiles[q].xDiff || game.tiles[q].yDiff) && game.tiles[q].type) { landedTile = game.tiles[q]; overlapSlideObj = { y2x2: game.tiles[q] }; break; } // KNIGHTS TOO, FROM THE FRAME THEY'RE BACK ON THE BOARD (drawSlideBox FINDS A LANDED KNIGHT BY moveObj.to)
+			if (game.tiles[q].square == game.moveObj.from && game.tiles[q].type == 'n' && (!game.tiles[q].isSliding || game.knightHop == 0) && (game.tiles[q].xDiff || game.tiles[q].yDiff)) { landedTile = game.tiles[q]; overlapSlideObj = { y2x2: game.tiles[q] }; break; } // FROM THE FRAME IT'S BACK ON THE BOARD (drawSlideBox FINDS A LANDED KNIGHT BY moveObj.to)
 		}
 	}
 
@@ -1181,65 +1235,8 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			drawPieceBelow(game.moveObj.to);
 			drawPieceBelow(`${String.fromCharCode(to[0].charCodeAt(0) - 1)}${to[1]}`);
 			drawPieceBelow(`${String.fromCharCode(to[0].charCodeAt(0) + 1)}${to[1]}`);
-		} else if (game.playerColor == 'w') {
-			if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
-				drawSlideBox(overlapSlideObj.y2x2);
-			} else { // DRAW THE PIECES BESIDE & BELOW THE SLIDE (IN FRONT OF IT) AGAIN, BY DIRECTION
-				if (!yPositive && !xPositive) { // UP TO LEFT
-					if (overlapSlideObj.y2x1 && typeof overlapSlideObj.y2x1 == "object") { drawSlideBox(overlapSlideObj.y2x1); drawPieceBelow(overlapSlideObj.y2x1.square); }
-					if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-				}
-				if (!yPositive && xPositive) { // UP TO RIGHT
-					if (overlapSlideObj.y2x3 && typeof overlapSlideObj.y2x3 == "object") { drawSlideBox(overlapSlideObj.y2x3); drawPieceBelow(overlapSlideObj.y2x3.square); }
-					if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-				}
-				if (yPositive && !xPositive) { // DOWN TO LEFT
-					if (overlapSlideObj.y2x1 && typeof overlapSlideObj.y2x1 == "object") { drawSlideBox(overlapSlideObj.y2x1); drawPieceBelow(overlapSlideObj.y2x1.square); }
-					if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "object") { drawSlideBox(overlapSlideObj.y3x2); drawPieceBelow(overlapSlideObj.y3x2.square); }
-					if (overlapSlideObj.y2x2 && typeof overlapSlideObj.y2x2 == "object") { drawSlideBox(overlapSlideObj.y2x2); drawPieceBelow(slidePos); }
-					if (overlapSlideObj.y2x3 && typeof overlapSlideObj.y2x3 == "object") { drawSlideBox(overlapSlideObj.y2x3); drawPieceBelow(overlapSlideObj.y2x3.square); }
-					if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-					if (overlapSlideObj.y1x1 && typeof overlapSlideObj.y1x1 == "string") { drawPieceBelow(overlapSlideObj.y1x1); }
-				}
-				if (yPositive && xPositive) { // DOWN TO RIGHT
-					if (overlapSlideObj.y2x3 && typeof overlapSlideObj.y2x3 == "object") { drawSlideBox(overlapSlideObj.y2x3); drawPieceBelow(overlapSlideObj.y2x3.square); }
-					if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-					if (overlapSlideObj.y2x2 && typeof overlapSlideObj.y2x2 == "object") { drawSlideBox(overlapSlideObj.y2x2); drawPieceBelow(slidePos); }
-					if (overlapSlideObj.y2x1 && typeof overlapSlideObj.y2x1 == "object") { drawSlideBox(overlapSlideObj.y2x1); drawPieceBelow(overlapSlideObj.y2x1.square); }
-					if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-					if (overlapSlideObj.y1x3 && typeof overlapSlideObj.y1x3 == "string") { drawPieceBelow(overlapSlideObj.y1x3); }
-				}
-			}
-		} else if (game.playerColor == 'b') {
-			const slideSquare = `${String.fromCharCode(97 + (7 - (slidePos.split("")[0].charCodeAt(0) - 97)))}${9 - Number(slidePos.split("")[1])}`; // slidePos IN BLACK'S SQUARE NAMES (slidePos USES WHITE'S LETTERS)
-			if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
-				drawSlideBox(overlapSlideObj.y2x2);
-			} else { // DRAW THE PIECES BESIDE & BELOW THE SLIDE (IN FRONT OF IT) AGAIN, BY DIRECTION
-				if (!yPositive && !xPositive) { // UP TO LEFT
-					if (overlapSlideObj.y2x1 && typeof overlapSlideObj.y2x1 == "object") { drawSlideBox(overlapSlideObj.y2x1); drawPieceBelow(overlapSlideObj.y2x1.square); }
-					if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "object") { drawSlideBox(overlapSlideObj.y3x2); drawPieceBelow(overlapSlideObj.y3x2.square); }
-				}
-				if (!yPositive && xPositive) { // UP TO RIGHT
-					if (overlapSlideObj.y2x3 && typeof overlapSlideObj.y2x3 == "object") { drawSlideBox(overlapSlideObj.y2x3); drawPieceBelow(overlapSlideObj.y2x3.square); }
-					if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "object") { drawSlideBox(overlapSlideObj.y3x2); drawPieceBelow(overlapSlideObj.y3x2.square); }
-				}
-				if (yPositive && !xPositive) { // DOWN TO LEFT
-					if (overlapSlideObj.y2x1 && typeof overlapSlideObj.y2x1 == "object") { drawSlideBox(overlapSlideObj.y2x1); drawPieceBelow(overlapSlideObj.y2x1.square); }
-					if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-					if (overlapSlideObj.y2x2 && typeof overlapSlideObj.y2x2 == "object") { drawSlideBox(overlapSlideObj.y2x2); drawPieceBelow(slideSquare); }
-					if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "string") { drawPieceBelow(overlapSlideObj.y3x2); }
-					if (overlapSlideObj.y3x1 && typeof overlapSlideObj.y3x1 == "string") { drawPieceBelow(overlapSlideObj.y3x1); }
-					if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "object") { drawSlideBox(overlapSlideObj.y3x2); drawPieceBelow(overlapSlideObj.y3x2.square); }
-				}
-				if (yPositive && xPositive) { // DOWN TO RIGHT
-					if (overlapSlideObj.y2x3 && typeof overlapSlideObj.y2x3 == "object") { drawSlideBox(overlapSlideObj.y2x3); drawPieceBelow(overlapSlideObj.y2x3.square); }
-					if (overlapSlideObj.y1x2 && typeof overlapSlideObj.y1x2 == "object") { drawSlideBox(overlapSlideObj.y1x2); drawPieceBelow(overlapSlideObj.y1x2.square); }
-					if (overlapSlideObj.y2x2 && typeof overlapSlideObj.y2x2 == "object") { drawSlideBox(overlapSlideObj.y2x2); drawPieceBelow(slideSquare); }
-					if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "string") { drawPieceBelow(overlapSlideObj.y3x2); }
-					if (overlapSlideObj.y3x3 && typeof overlapSlideObj.y3x3 == "string") { drawPieceBelow(overlapSlideObj.y3x3); }
-					if (overlapSlideObj.y3x2 && typeof overlapSlideObj.y3x2 == "object") { drawSlideBox(overlapSlideObj.y3x2); drawPieceBelow(overlapSlideObj.y3x2.square); }
-				}
-			}
+		} else if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
+			drawSlideBox(overlapSlideObj.y2x2);
 		}
 		overlapSlideObj = null
 	}
