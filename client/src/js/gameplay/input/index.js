@@ -13,7 +13,7 @@
 const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, TV REMOTE FOR TESTING
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { handleMenuBtn, handleResume, handleSound, handleRestart, handleHomepage, handleExit } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM)
+const { handleMenuBtn, handleResume, handleSound, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
@@ -174,6 +174,11 @@ function getCanvasPoint(e) {
 export async function handleCanvasClick(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	if (game.menuToggled) { // THE CLICK ONLY CLOSES THE MENU (IF IT CAN), THE HOVER IS SET SO THE NEXT CLICK PLAYS WITHOUT MOVING THE MOUSE
+		closeMenu();
+		handleMouseMove(e);
+		return;
+	}
 	const point = getCanvasPoint(e);
 	game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth); // SCREEN COLUMN CLICKED
 	game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // SCREEN ROW CLICKED
@@ -431,6 +436,8 @@ export function handleTouchEnd(e) { // FINGER UP = MOUSE UP + CLICK
 	handleMouseUp(point);
 	handleCanvasClick(point);
 }
+
+export function clearTouch() { touchState = null; } // THE MENU OPENED: THIS FINGER'S RELEASE ISN'T A CLICK
 
 export function handleTouchCancel() { // THE BROWSER TOOK THE TOUCH (A SYSTEM GESTURE): LET GO WITHOUT A CLICK
 	if (!touchState) { return; }

@@ -14,8 +14,8 @@ const { game, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED 
 const { restartGame, forfeitGame, rematchGame } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
-const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
-const { setInitialData, checkOpponentMove, refreshData } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD
+const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
+const { setInitialData, checkOpponentMove, refreshData, revertUnfinishedMove } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD, TAKES BACK A MOVE THAT ISN'T FINISHED
 const { InternalAuth } = require("../../auth/index.js"); // LOGOUT IS A POST TO THE SERVER (#297)
 const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
@@ -40,6 +40,41 @@ export const socketHandlers = { // SOCKET EVENT -> HANDLER
 };
 
 /* ---------------------------------------------------------------- */
+// Open & Close
+/* ---------------------------------------------------------------- */
+/**
+ * @description Every way the menu opens comes through here. A move that isn't finished goes back (revertUnfinishedMove) &
+ * no piece stays hovered, so pieces can't be touched until the menu closes
+ */
+export function openMenu() {
+	clearTouch();
+	revertUnfinishedMove();
+	for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isHovering = false; }
+	game.menuToggled = true;
+	game.refresh = true;
+	menu.style.display = "flex";
+}
+
+/**
+ * @description Back to the game (Resume or a click away from the menu). The menu stays open while a new board loads
+ * (the old board under it is locked) & when the game is over (Resume is hidden, there's no game to go back to)
+ */
+export function closeMenu() {
+	if (game.boardReset || optResumeBtn.parentElement.style.display == "none") { return; }
+	game.menuToggled = false;
+	menu.style.display = "none";
+}
+
+/**
+ * @description A click outside the board, the menu & the menu button closes the menu. Clicks on the board are handled by
+ * handleCanvasClick (input/index.js), it stops them before they get here
+ */
+export function handleClickAway(e) {
+	if (!game.menuToggled || menu.contains(e.target) || optBtn.contains(e.target)) { return; }
+	closeMenu();
+}
+
+/* ---------------------------------------------------------------- */
 // Options (Menu) Button
 /* ---------------------------------------------------------------- */
 /**
@@ -48,26 +83,22 @@ export const socketHandlers = { // SOCKET EVENT -> HANDLER
 export function handleMenuBtn(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	game.menuToggled = !game.menuToggled;
-	game.refresh = false; // THE BOARD STAYS AS IT IS UNDER THE MENU
-	if (game.menuToggled) { menu.style.display = "flex" }
-	else { menu.style.display = "none" }
+	if (game.menuToggled) {
+		game.menuToggled = false;
+		menu.style.display = "none";
+	} else { openMenu(); }
 }
 
 /* ---------------------------------------------------------------- */
 // Resume Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Opens or closes menu based on menu state. Resume is only seen while the menu is open, so it closes it
+ * @description Closes the menu. Resume is only seen while the menu is open
  */
 export function handleResume(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (game.boardReset) { return; } // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS (THE OLD BOARD UNDER IT IS LOCKED)
-	game.menuToggled = !game.menuToggled;
-	game.refresh = false;
-	if (game.menuToggled) { menu.style.display = "flex" }
-	else { menu.style.display = "none" }
+	closeMenu();
 }
 
 /* ---------------------------------------------------------------- */
@@ -146,7 +177,8 @@ async function loadNewBoard(fromPieces) {
 	menu.style.display = "none"
 	optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 	resultDisplay.innerText = "Chess"
-	await refreshData(game.response); // ALSO SETS menuToggled TO FALSE
+	game.menuToggled = false;
+	await refreshData(game.response);
 	game.opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
 	startRestartSlide(fromPieces);
 }
@@ -220,9 +252,8 @@ async function handleFriendBtn() {
 export function showGameOver(result) {
 	if (game.gameOver) { return; } // ALREADY SHOWN
 	game.gameOver = true;
-	game.opposingMove = true; // NO MORE MOVES
-	game.menuToggled = true;
-	menu.style.display = "flex"
+	openMenu();
+	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
 	optResumeBtn.parentElement.style.display = 'none';
 	if (result?.reason == "forfeit") { resultDisplay.innerText = result.winner == 'w' ? "Black Forfeits" : "White Forfeits" } // THE TITLE ONLY FITS ONE LINE
 	else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }

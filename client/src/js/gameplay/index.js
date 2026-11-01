@@ -22,7 +22,7 @@ const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // D
 const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & TV REMOTE HANDLERS (ADDED IN startGame)
 const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
-const { handleMenuBtn, handleResume, handleSound, loadSound, handleRestart, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
+const { handleMenuBtn, handleResume, handleClickAway, handleSound, loadSound, handleRestart, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
@@ -132,6 +132,7 @@ async function startGame() {
 	}
 	if (!game.TV_BOOL || OVERRIDE_TV) { optBtn.addEventListener("click", handleMenuBtn); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optResumeBtn.addEventListener("click", handleResume); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { document.addEventListener("click", handleClickAway); } // THE REST OF THE PAGE CLOSES THE MENU (THE BOARD: handleCanvasClick)
 	if (!game.TV_BOOL || OVERRIDE_TV) { optSoundBtn.addEventListener("click", handleSound); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }

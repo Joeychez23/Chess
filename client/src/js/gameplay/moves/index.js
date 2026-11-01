@@ -15,9 +15,8 @@ const { validate } = require("../validate/index.js"); // REQUESTS TO THE CHESS S
 const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
 const { setTiles, countStartPieces } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH
 const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
-const { showGameOver } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT)
+const { showGameOver, openMenu } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), OPENS THE MENU
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
-const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
@@ -93,8 +92,7 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 		clearStatus("server");
 		if (updatedResponse.game_board != game.revert.game_board && game.opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
 			if (chessInst.isGameOver()) { // THIS BOARD WAS ALREADY OVER
-				game.menuToggled = true;
-				menu.style.display = "flex"
+				openMenu();
 				optResumeBtn.parentElement.style.display = 'none';
 				if (game.playerColor == 'w') { resultDisplay.innerText = "White Wins!" }
 				else if (game.playerColor == 'b') { resultDisplay.innerText = "Black Wins!" }
@@ -414,7 +412,7 @@ export async function updateOpponentStateSlide(index) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Refreshes data based on passed in response. Loads its board, clears every tile (selection, drag, slide),
- * closes the promotion picker & the menu & draws the next frame
+ * closes the promotion picker & draws the next frame. The menu stays as it is, moves still land while it's open
  * @param  {[object]} response [game from the server]
  * @return {[object]} response
  */
@@ -429,8 +427,24 @@ export function refreshData(response) {
 		game.slideStart = false;
 		game.refresh = true;
 		game.availableMovesData = { piece: null, square: null }
-		game.menuToggled = false;
-		
+
 		return response;
 	} catch (err) { console.log(err); game.tiles = setTiles(); game.refresh = true; return response; }
+}
+
+/* ---------------------------------------------------------------- */
+// Revert Unfinished Move
+/* ---------------------------------------------------------------- */
+/**
+ * @description The menu is opening: a move that isn't finished goes back to the last server board. That's a picked up or
+ * dragged piece, an open promotion picker or the player's pawn sliding to the last rank (no piece is chosen yet).
+ * Any other slide of the player's lands & is sent, the click committed it. A move already sent & the opponent's slides stay.
+ * !NOTE: opposingMove IS ALSO TRUE DURING THE PLAYER'S OWN SLIDE, SO THE SLIDING PIECE'S COLOR SAYS WHOSE SLIDE IT IS
+ */
+export function revertUnfinishedMove() {
+	const heldPiece = !game.opposingMove && (game.clickedTile || game.mousedownTile); // THE TURN CHECK: A DROPPED PROMOTION KEEPS clickedTile AFTER IT'S SENT
+	const promotionSlide = game.currSlide && game.moveObj.promotion && game.tiles.some(function (tile) { return tile.isSliding && tile.color == game.playerColor; });
+	if (!heldPiece && !game.currPromotion && !promotionSlide) { return; }
+	game.opposingMove = false; // STILL THE PLAYER'S TURN
+	refreshData(game.response);
 }
