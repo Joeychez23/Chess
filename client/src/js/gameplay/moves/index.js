@@ -64,7 +64,6 @@ export async function setInitialData() {
 				game.tiles = await setTiles();
 				game.aiTurn = true;
 				game.refresh = true;
-				setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500);
 				return;
 			}
 
