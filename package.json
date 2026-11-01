@@ -12,7 +12,7 @@
 		"@babel/core": "^7.15.0",
 		"@babel/preset-env": "^7.15.0",
 		"@eslint/js": "^9.39.5",
-		"babel-loader": "^8.2.2",
+		"babel-loader": "^10.1.1",
 		"css-loader": "^6.2.0",
 		"dotenv-webpack": "^8.0.1",
 		"eslint": "^9.39.5",
