@@ -40,6 +40,8 @@ deploy/deploy.sh
 
 It logs in to Chess-Stockfish with your key forwarded and deploys `main` from GitHub: the data service first, then the chess server's copy, `npm ci`, client build and restart. Each instance keeps its `.env` files, `auth0-jwks.json`, images and audio. It checks the data service's `/health`, the chess server's `/api/chess/levels`, then `https://chess.aws-prac-route53.com/api/chess/levels`.
 
+A restart waits for running requests to finish, so a game closing during a deploy still gets its lists and rating. See [deploy/README.md → Updating, logs and fixes](deploy/README.md#updating-logs-and-fixes).
+
 It worked when the last line is `OK: deploy finished and the site is up.` and the exit code is 0. Any other ending names the step that failed and whether anything changed. A `WARNING` about a `.service` file means the unit changed and needs installing: see [deploy/README.md → Updating, logs and fixes](deploy/README.md#updating-logs-and-fixes).
 
 **Go back to the version before the last deploy**

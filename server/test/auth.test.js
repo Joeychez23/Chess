@@ -10,7 +10,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, send, player, peek, auth0WillSign, auth0WillBlock, auth0Logins, dataServiceWillAnswer } = testServer;
+const { call, send, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, dataServiceWillAnswer } = testServer;
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 const { readSessionUser } = require("../middleware/auth.js");
@@ -99,6 +99,41 @@ describe("login", () => {
 		assert.equal(login.location, loginFailed("failed"));
 		assert.match(String(errors.mock.calls[0].arguments[0]), /unknown key/);
 	});
+});
+
+/* ---------------------------------------------------------------- */
+// Auth0 Stalls (#365)
+/* ---------------------------------------------------------------- */
+
+test("with Auth0 not answering, a login & an invite say try again within about 5 seconds", async (t) => {
+	const alice = player("alice");
+	const bob = player("bob");
+	const errors = t.mock.method(console, "error", () => {});
+	auth0WillStall("/oauth/token", "authorization_code");
+	auth0WillStall("/oauth/token", "http://auth0.com/oauth/grant-type/password-realm");
+	auth0WillStall("/api/v2/users-by-email");
+
+	const started = Date.now();
+	const [callback, password, invite] = await Promise.all([
+		logIn(alice),
+		passwordLogin({ email: alice.email, password: alice.password }),
+		call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } })
+	]);
+	const took = Date.now() - started;
+
+	assert.equal(callback.location, loginFailed("unavailable"));
+	assert.equal(password.http, 503);
+	assert.equal(password.body.message, "Try again in a moment");
+	assert.equal(invite.http, 503);
+	assert.equal(invite.message, "Try again in a moment");
+	assert.ok(took >= 4500 && took < 6000, `took ${took}ms`);
+	assert.equal(auth0Logins().length, 0); // THE STALLED LOGIN WASN'T TRIED AGAIN
+
+	const logged = errors.mock.calls.map((call) => String(call.arguments[0])).join("\n");
+	assert.match(logged, /Auth0: code exchange: no answer in 5 seconds/);
+	assert.match(logged, /Auth0: password login: no answer in 5 seconds/);
+	assert.match(logged, /Auth0: user search: no answer in 5 seconds/);
+	assert.ok(!logged.includes(alice.email) && !logged.includes(bob.email) && !logged.includes(alice.password));
 });
 
 /* ---------------------------------------------------------------- */

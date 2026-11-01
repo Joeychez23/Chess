@@ -71,6 +71,7 @@ async function checkTables() {
  * inviter_id: friend games, the player who sent the invite (their pick is start_params.color),
  * reset_player: a guest's reset, their player id: the stored game is replaced only while it's still theirs (or it expired) }]
  * @return {[object]} response [{ status, game_data, message } | { status: 409, message: "Game id already in use" }]
+ * @throws when a player's game list couldn't be saved, so a game is only reported as created once it's on both lists (the route answers 500, the chess server 503)
  */
 async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, options) {
 	const { names, pending, start_params, inviter_id, reset_player } = options || {};
@@ -118,15 +119,21 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 
 	async function handleUser(userId) { // ADDS THE GAME TO A PLAYER'S GAME LIST (OPEN, OR REQUESTED FOR AN INVITE)
 		if (userId != "CHESS_AI" && userId != "GUEST_USER" && userId != gameId) { // GUESTS HAVE NO GAME LIST, SKIP THEM LIKE THE AI (A GUEST'S PLAYER ID IS THEIR GAME ID)
-			await changeUserGames(userId, (gameLists) => {
+			const response = await changeUserGames(userId, (gameLists) => {
 				let gameList = pending ? gameLists.requested_games : gameLists.open_games; // INVITES WAIT IN requested_games UNTIL THEY'RE ACCEPTED
 				if (!gameList.includes(gameId)) { gameList[gameList.length] = gameId; } // ADD ONCE, RESTARTS KEEP THE SAME game_id
 			});
+			if (response.status != 200) { throw new Error(response.message); }
 		}
 	}
 
-	await handleUser(playerId1);
-	await handleUser(playerId2);
+	const results = await Promise.allSettled([handleUser(playerId1), handleUser(playerId2)]); // BOTH ARE TRIED, ONE PLAYER'S FAILED SAVE DOESN'T LEAVE THE OTHER'S STALE TOO
+	const failed = results.find((result) => result.status == "rejected");
+	if (failed) {
+		// A RETRY MAKES A NEW INVITE: ONE LEFT ONLY ON THE INVITED PLAYER'S LIST WOULD SHOW THEM TWO. pruneGameList DROPS ANY ENTRY THIS CAN'T REMOVE
+		if (pending) { await deleteInvite(params.Item).catch((err) => console.log(`Failed invite not deleted: ${gameId}: ${err.message}`)); }
+		throw failed.reason;
+	}
 
 	return { // putItem THROWS IF IT FAILED, SO THE GAME IS SAVED AS WRITTEN (A READ BACK CAN STILL MISS IT)
 		status: 200,
@@ -183,33 +190,43 @@ function gameItem(item) {
 // Update game (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Saves a validated move
+ * @description Saves a validated move, only on a game that's still open (a forfeit can land after the move's read). A move that ends the game saves its result in the same write, so the board & the result land together or
+ * not at all (run finishClosedGame after it). Finished friend games are kept forever (expireAt is removed)
  * @param  {[object]} gameData [Validated server data, modified by a successful client request]
  * @param  {[string]} prevBoard [board the move was made on, the save fails if the board changed since (two requests at once)]
+ * @param  {[object]} result [gameResult's { winner, reason } when the move ends the game]
  * @return {[object]} response [{ status, game_data (the game as saved), message }]
  */
-async function updateGame(gameData, prevBoard) {
+async function updateGame(gameData, prevBoard, result) {
+	const keepForever = result && gameData.white_player_id.S != "CHESS_AI" && gameData.black_player_id.S != "CHESS_AI"; // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameData.game_id.S }
 		},
-		UpdateExpression: 'SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece, expireAt = :expireAt', // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""}${keepForever ? " REMOVE expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		ConditionExpression: '(attribute_not_exists(#state) OR #state = :open)', // GAMES FROM BEFORE state ARE OPEN
+		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
+			":open": { S: "OPEN" },
 			":moves": { S: JSON.stringify(gameData.moves.S) }, // UPDATED MOVE ARRAY
 			":prev_move": { S: JSON.stringify(gameData.prev_move.S) },
 			":game_board": { S: gameData.game_board.S }, // UPDATED GAME FEN
 			":w_knight": { S: gameData.w_knight.S }, // UPDATED WHITE KNIGHTS
 			":b_knight": { S: gameData.b_knight.S }, // UPDATED BLACK KNIGHTS
 			":w_piece": { S: gameData.w_piece.S }, // UPDATED WHITE KINGS, QUEENS, BISHOPS & ROOKS
-			":b_piece": { S: gameData.b_piece.S }, // UPDATED BLACK KINGS, QUEENS, BISHOPS & ROOKS
-			":expireAt": { N: expireTime() } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
+			":b_piece": { S: gameData.b_piece.S } // UPDATED BLACK KINGS, QUEENS, BISHOPS & ROOKS
 		},
 		ReturnValues: "ALL_NEW" // THE GAME AS SAVED, NO READ BACK (AN EVENTUALLY CONSISTENT READ CAN RETURN THE OLD BOARD)
 	}
 	if (prevBoard) {
-		params.ConditionExpression = 'game_board = :prev_board'; // ONLY ONE MOVE PER BOARD
+		params.ConditionExpression = `game_board = :prev_board AND ${params.ConditionExpression}`; // ONLY ONE MOVE PER BOARD
 		params.ExpressionAttributeValues[":prev_board"] = { S: prevBoard };
+	}
+	if (!keepForever) { params.ExpressionAttributeValues[":expireAt"] = { N: expireTime() }; } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
+	if (result) {
+		Object.assign(params.ExpressionAttributeNames, { "#winner": "winner", "#reason": "reason" });
+		Object.assign(params.ExpressionAttributeValues, { ":closed": { S: "CLOSED" }, ":winner": { S: result.winner }, ":reason": { S: result.reason } });
 	}
 
 	let response;
@@ -231,8 +248,8 @@ async function updateGame(gameData, prevBoard) {
 // Close game (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Ends a game: saves the result & moves it from open_games to closed_games for both players, then rates it (rateGame,
- * friend games once both sides moved). Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
+ * @description Ends a game without a move (a forfeit): saves the result, then finishClosedGame. A move that ends the game saves its result in updateGame.
+ * Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
  * @param  {[object]} gameData [game item from retrieveGame]
  * @param  {[string]} winner ["w", "b" or "draw"]
  * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition" or "forfeit"]
@@ -263,17 +280,7 @@ async function closeGame(gameData, winner, reason) {
 		throw err;
 	}
 
-	const listError = await movePlayersGame(gameData, gameId, "open_games", "closed_games"); // THROWN AFTER THE RATING, THE GAME IS CLOSED EITHER WAY
-
-	if (isRated(gameData)) { // ONLY ONE CLOSE GETS HERE, SO A GAME IS RATED ONCE
-		try {
-			gameData.ratings = { S: JSON.stringify(await rateGame(gameData, winner)) };
-		} catch (err) {
-			console.log(`Rating failed: ${gameId}: ${err.message}`); // THE GAME STILL CLOSES
-		}
-	}
-
-	if (listError) { throw listError; }
+	await finishClosedGame(gameData, winner);
 
 	gameData.state = { S: "CLOSED" };
 	gameData.winner = { S: winner };
@@ -286,77 +293,96 @@ async function closeGame(gameData, winner, reason) {
 	}
 }
 
+/**
+ * @description The work after the write that closed a game: moves it from open_games to closed_games for both players, then rates it (rateGame,
+ * friend games once both sides moved) & adds ratings to gameData. Only the write that closed the game may call this, so a game is rated once
+ * @param  {[object]} gameData [the closed game item]
+ * @param  {[string]} winner ["w", "b" or "draw"]
+ * @throws a failed list save, after the rating: the game is closed either way & pruneOpenGames ignores it in open_games
+ */
+async function finishClosedGame(gameData, winner) {
+	const gameId = gameData.game_id.S;
+	const listError = await movePlayersGame(gameData, gameId, "open_games", "closed_games");
+
+	if (isRated(gameData)) {
+		try {
+			gameData.ratings = { S: JSON.stringify(await rateGame(gameData, winner)) };
+		} catch (err) {
+			console.log(`RATING FAILED ${gameId}: ${err.message}`); // THE GAME STILL CLOSES, BUT THE RATING IS LOST & NEEDS A LOOK. KEEP THE START: rating.test.js PINS IT TO ALARM ON
+		}
+	}
+
+	if (listError) { throw listError; }
+}
+
 /* ---------------------------------------------------------------- */
 // Rate game (PUT)
 /* ---------------------------------------------------------------- */
 /**
  * @description Changes both players' ratings after a finished game (utils/rating.js) & saves what changed on the game, where it stays:
- * rated friend games are never deleted, so a player's closed_games are their rating history (profiles, #81)
+ * rated friend games are never deleted, so a player's closed_games are their rating history (profiles, #81). All three writes land together or none do.
+ * Two of a player's games can end at once, so each save needs rated_games to still be what was read, otherwise the rows are read again & the ratings worked out again
  * @param  {[object]} gameData [the closed game item]
  * @param  {[string]} winner ["w", "b" or "draw"]
- * @return {[object]} ratings [{ w: { before, after }, b: { before, after }, at (epoch ms) }, null for a player without a row]
+ * @return {[object]} ratings [{ w: { before, after }, b: { before, after }, at (epoch ms) }, null for a player without a row. A game already rated keeps & returns its ratings]
+ * @throws when the save still fails after LIST_SAVE_TRIES: neither rating changed
  */
 async function rateGame(gameData, winner) {
+	const gameId = gameData.game_id.S;
 	const players = { w: gameData.white_player_id.S, b: gameData.black_player_id.S };
-	let before = {};
-	for (const color of ["w", "b"]) { before[color] = readRating((await retrieveUser(players[color], true)).user_data); } // EACH SIDE IS RATED AGAINST THE OTHER'S RATING FROM BEFORE THE GAME
+	let preGame; // EACH SIDE IS RATED AGAINST THE OTHER'S RATING FROM BEFORE THE GAME, SO A RETRY ONLY UPDATES THEIR OWN
 
-	let ratings = { at: Date.now() };
-	for (const color of ["w", "b"]) {
-		const opponent = before[color == "w" ? "b" : "w"];
-		ratings[color] = await saveRating(players[color], (rating) => newRating(rating, opponent, scoreFor(winner, color)));
-	}
-
-	const params = {
-		TableName: CHESS_TABLE,
-		Key: {
-			game_id: { S: gameData.game_id.S }
-		},
-		UpdateExpression: 'SET ratings = :ratings',
-		ExpressionAttributeValues: {
-			":ratings": { S: JSON.stringify(ratings) }
-		}
-	}
-	await connection.updateItem(params); // PUT REQUEST TO DYANMODB
-	return ratings;
-}
-
-/**
- * @description Saves a player's new rating. Two of their games can end at once, so it only saves if rated_games is still what was read,
- * otherwise it reads the row again & works the rating out again
- * @param  {[string]} userId [auth0 user id without "auth0|"]
- * @param  {[function]} compute [({ rating, rated_games }) => the new rating]
- * @return {[object]} change [{ before, after }, null when the player has no row (they deleted their data)]
- */
-async function saveRating(userId, compute) {
 	for (let i = 0; i < LIST_SAVE_TRIES; i++) {
-		const user = await retrieveUser(userId, true);
-		if (!user.user_data) { return null; }
-		const rating = readRating(user.user_data);
-		const after = compute(rating);
+		const users = {};
+		for (const color of ["w", "b"]) { users[color] = (await retrieveUser(players[color], true)).user_data; }
+		preGame ||= { w: readRating(users.w), b: readRating(users.b) };
 
-		const params = {
-			TableName: USER_TABLE,
-			Key: {
-				user_id: { S: userId }
-			},
-			UpdateExpression: 'SET rating = :rating, rated_games = :rated_games',
-			ConditionExpression: user.user_data.rated_games ? 'rated_games = :old_rated_games' : 'attribute_exists(user_id) AND attribute_not_exists(rated_games)', // THEIR FIRST RATED GAME, OR NO OTHER GAME WAS RATED SINCE THE READ
-			ExpressionAttributeValues: {
-				":rating": { N: `${after}` },
-				":rated_games": { N: `${rating.rated_games + 1}` }
+		const ratings = { at: Date.now() };
+		const transactItems = [];
+		for (const color of ["w", "b"]) {
+			if (!users[color]) { ratings[color] = null; continue; } // THEY DELETED THEIR DATA, AN UPDATE WOULD MAKE THE ROW AGAIN
+			const rating = readRating(users[color]);
+			const after = newRating(rating, preGame[color == "w" ? "b" : "w"], scoreFor(winner, color));
+			ratings[color] = { before: rating.rating, after };
+
+			const update = {
+				TableName: USER_TABLE,
+				Key: {
+					user_id: { S: players[color] }
+				},
+				UpdateExpression: 'SET rating = :rating, rated_games = :rated_games',
+				ConditionExpression: users[color].rated_games ? 'rated_games = :old_rated_games' : 'attribute_exists(user_id) AND attribute_not_exists(rated_games)', // THEIR FIRST RATED GAME, OR NO OTHER GAME WAS RATED SINCE THE READ
+				ExpressionAttributeValues: {
+					":rating": { N: `${after}` },
+					":rated_games": { N: `${rating.rated_games + 1}` }
+				}
 			}
+			if (users[color].rated_games) { update.ExpressionAttributeValues[":old_rated_games"] = { N: users[color].rated_games.N }; }
+			transactItems.push({ Update: update });
 		}
-		if (user.user_data.rated_games) { params.ExpressionAttributeValues[":old_rated_games"] = { N: user.user_data.rated_games.N }; }
+		transactItems.push({
+			Update: {
+				TableName: CHESS_TABLE,
+				Key: {
+					game_id: { S: gameId }
+				},
+				UpdateExpression: 'SET ratings = :ratings',
+				ConditionExpression: 'attribute_not_exists(ratings)', // A GAME IS NEVER RATED TWICE
+				ExpressionAttributeValues: {
+					":ratings": { S: JSON.stringify(ratings) }
+				}
+			}
+		});
 
 		try {
-			await connection.updateItem(params); // PUT REQUEST TO DYANMODB
-			return { before: rating.rating, after };
+			await connection.transactWriteItems({ TransactItems: transactItems }); // UPDATE REQUESTS TO DYNAMODB, ALL OR NONE
+			return ratings;
 		} catch (err) {
-			if (err.name != "ConditionalCheckFailedException") { throw err; }
+			if (err.name != "TransactionCanceledException") { throw err; }
+			if (err.CancellationReasons?.at(-1)?.Code == "ConditionalCheckFailed") { return JSON.parse((await retrieveGame(gameId, true)).game_data.ratings.S); } // ALREADY RATED, RETRYING CAN'T HELP
 		}
 	}
-	throw new Error(`Rating save failed after ${LIST_SAVE_TRIES} tries: ${userId}`);
+	throw new Error(`Rating save failed after ${LIST_SAVE_TRIES} tries: ${gameId}`);
 }
 
 /* ---------------------------------------------------------------- */
@@ -663,7 +689,7 @@ async function updateUser(userData, gameLists) {
 	try {
 		response = await connection.updateItem(params); // PUT REQUEST TO DYANMODB
 	} catch (err) {
-		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Game lists changed before the save: ${userId}` }; }
+		if (err.name == "ConditionalCheckFailedException" || err.name == "TransactionConflictException") { return { status: 500, message: `Game lists changed before the save: ${userId}` }; } // A CONFLICT: A RATING OR USERNAME TRANSACTION IS ON THIS ROW RIGHT NOW, THE SDK DOESN'T RETRY IT
 		throw err;
 	}
 
@@ -1067,4 +1093,4 @@ async function batchReadGames(gameIds, listName) {
 }
 
 
-module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

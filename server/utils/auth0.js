@@ -14,8 +14,45 @@ const config = require("../config");
 
 const AUTH0_URL = `https://${config.auth0Domain}`;
 
+const timeouts = { request: 5000 }; // AN AUTH0 THAT TAKES LONGER IS TREATED AS DOWN (#365)
+
 let managementToken = null; // CACHED MANAGEMENT API TOKEN, REUSED UNTIL IT EXPIRES
 let managementTokenExpires = 0;
+
+/* ---------------------------------------------------------------- */
+// Call
+/* ---------------------------------------------------------------- */
+/**
+ * @description One call to Auth0, with a timeout that also covers reading the answer. Never retried: a password login tried twice counts twice against
+ * Auth0's brute-force limits. A timeout is a DataServiceDown like the data service's: 503 "Try again in a moment", or ?login=unavailable in the callback
+ * @param  {[string]} name [which call, for the log. Not the path: three calls share /oauth/token & the user search's has the email in it]
+ * @param  {[string]} path [e.g. "/oauth/token"]
+ * @param  {[object]} options [fetch options]
+ * @return {[object]} answer [{ ok, status, body: the JSON answer, null when it isn't JSON }]
+ */
+async function auth0Fetch(name, path, options) {
+	try {
+		const response = await fetch(`${AUTH0_URL}${path}`, { ...options, signal: AbortSignal.timeout(timeouts.request) });
+		const body = await response.json().catch((err) => {
+			if (err.name == "TimeoutError") { throw err; }
+			return null; // A GATEWAY'S ERROR PAGE: THE CALLER STILL SEES THE STATUS
+		});
+		return { ok: response.ok, status: response.status, body };
+	} catch (err) {
+		if (err.name == "TimeoutError") { throw auth0Down(name); }
+		throw err;
+	}
+}
+
+/**
+ * @description The error a call throws when Auth0 doesn't answer in time, named like the data service's so it's answered the same way
+ * @param  {[string]} name [which call]
+ */
+function auth0Down(name) {
+	const err = new Error(`Auth0: ${name}: no answer in ${timeouts.request / 1000} seconds`);
+	err.name = "DataServiceDown";
+	return err;
+}
 
 /* ---------------------------------------------------------------- */
 // Login URL
@@ -60,7 +97,7 @@ function buildLogoutUrl() {
  * @return {[object]} tokens [access_token, id_token, expires_in]
  */
 async function exchangeCode(code) {
-	const tokenResponse = await fetch(`${AUTH0_URL}/oauth/token`, {
+	const tokenResponse = await auth0Fetch("code exchange", "/oauth/token", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -72,8 +109,8 @@ async function exchangeCode(code) {
 		})
 	});
 
-	const tokenData = await tokenResponse.json();
-	if (!tokenResponse.ok) { throw new Error(`Auth0 code exchange failed: ${tokenData.error_description || tokenData.error}`); }
+	const tokenData = tokenResponse.body;
+	if (!tokenResponse.ok) { throw new Error(`Auth0 code exchange failed: ${tokenData?.error_description || tokenData?.error || tokenResponse.status}`); }
 	return tokenData;
 }
 
@@ -89,7 +126,7 @@ async function exchangeCode(code) {
  * @return {[object]} tokens [access_token, id_token, expires_in], throws with err.auth0Error (invalid_grant, too_many_attempts...) when refused
  */
 async function passwordLogin(email, password, ip) {
-	const tokenResponse = await fetch(`${AUTH0_URL}/oauth/token`, {
+	const tokenResponse = await auth0Fetch("password login", "/oauth/token", {
 		method: "POST",
 		headers: { "Content-Type": "application/json", "auth0-forwarded-for": ip },
 		body: JSON.stringify({
@@ -103,10 +140,10 @@ async function passwordLogin(email, password, ip) {
 		})
 	});
 
-	const tokenData = await tokenResponse.json();
+	const tokenData = tokenResponse.body;
 	if (!tokenResponse.ok) {
-		const err = new Error(`Auth0 password login failed: ${tokenData.error_description || tokenData.error}`);
-		err.auth0Error = tokenData.error;
+		const err = new Error(`Auth0 password login failed: ${tokenData?.error_description || tokenData?.error || tokenResponse.status}`);
+		err.auth0Error = tokenData?.error;
 		throw err;
 	}
 	return tokenData;
@@ -122,7 +159,7 @@ async function passwordLogin(email, password, ip) {
 async function getManagementToken() {
 	if (managementToken && Date.now() < managementTokenExpires) { return managementToken; } // CACHED TOKEN IS STILL GOOD
 
-	const clientTokenResponse = await fetch(`${AUTH0_URL}/oauth/token`, {
+	const clientTokenResponse = await auth0Fetch("management token", "/oauth/token", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -133,8 +170,8 @@ async function getManagementToken() {
 		})
 	});
 
-	const clientTokenData = await clientTokenResponse.json();
-	if (!clientTokenResponse.ok) { throw new Error(`Auth0 management token failed: ${clientTokenData.error_description || clientTokenData.error}`); }
+	const clientTokenData = clientTokenResponse.body;
+	if (!clientTokenResponse.ok) { throw new Error(`Auth0 management token failed: ${clientTokenData?.error_description || clientTokenData?.error || clientTokenResponse.status}`); }
 
 	managementToken = clientTokenData.access_token;
 	managementTokenExpires = Date.now() + ((clientTokenData.expires_in - 60) * 1000); // RENEW A MINUTE EARLY
@@ -158,10 +195,10 @@ async function getAuth0User(email) {
 		headers: { authorization: `Bearer ${clientToken}` }
 	};
 
-	const userSearchResponse = await fetch(`${AUTH0_URL}/api/v2/users-by-email?email=${encodeURIComponent(email)}`, userSearchOptions); // EXACT EMAIL MATCH
+	const userSearchResponse = await auth0Fetch("user search", `/api/v2/users-by-email?email=${encodeURIComponent(email)}`, userSearchOptions); // EXACT EMAIL MATCH
 	if (!userSearchResponse.ok) { throw new Error(`Auth0 user search failed: ${userSearchResponse.status}`); }
 
-	const userResponse = await userSearchResponse.json();
+	const userResponse = userSearchResponse.body;
 	for (let i = 0; i < userResponse.length; i++) { // SAME EMAIL CAN EXIST ON OTHER CONNECTIONS (GOOGLE ETC), ONLY USE OURS
 		if (userResponse[i].identities?.[0]?.connection == config.auth0Connection) { return userResponse[i]; }
 	}
@@ -169,4 +206,4 @@ async function getAuth0User(email) {
 }
 
 
-module.exports = { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin, getAuth0User };
+module.exports = { timeouts, buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin, getAuth0User };

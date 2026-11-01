@@ -15,7 +15,7 @@
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?logo=socketdotio&logoColor=white)
 ![DynamoDB](https://img.shields.io/badge/DynamoDB-4053D6?logo=amazondynamodb&logoColor=white)
 ![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
-![Node](https://img.shields.io/badge/Node-22+-5FA04E?logo=nodedotjs&logoColor=white)
+![Node](https://img.shields.io/badge/Node-24+-5FA04E?logo=nodedotjs&logoColor=white)
 
 **Home** · [Client](client/README.md) · [Server](server/README.md) · [Data service](data-service/README.md) · [Deploy](deploy/README.md) · [Terraform](terraform/README.md) · [Setup & fixes](SETUP.md)
 
@@ -49,7 +49,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Play a friend** | Invite by email with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
 | **Set positions** | An optional FEN in **Start position**. The server refuses broken or finished positions with the reason, and Restart and Rematch keep it. |
 | **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition or a forfeit. Both boards show the result. |
-| **Rematch** | Both players press within 1 minute and a new game loads on both boards. "Can't rematch" when either is in another friend game. |
+| **Rematch** | Both players press within 1 minute and a new game loads on both boards. "Can't rematch" when either is in another friend game, or that rematch expired. |
 | **Ratings** | Elo from 1500. Only finished friend games (both sides moved, not from a set position) count. Shown on Home and in a friend game's menu. |
 | **Usernames** | 3 to 20 letters, numbers, `_` or `-`, unique in any capitals, some reserved. Picked on Settings after the first sign-in. |
 | **Settings** | `/settings`: username, account, default start settings, and Delete my data (forfeits your games, deletes your row and frees your username). |
@@ -76,7 +76,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 
 ## Quick start
 
-Requires Node 22+ (the server).
+Requires Node 24+ (the server).
 
 Install, then fill in the `.env` files ([client](client/README.md#setup), [server](server/README.md#setup), [data service](data-service/README.md)).
 The copy below skips a `.env` that already exists, so it won't wipe your secrets.

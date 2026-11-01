@@ -231,7 +231,7 @@ async function handleFriendBtn() {
 	}
 	if (rematchWaiting) { return; } // ALREADY ASKED, STILL WAITING
 	const rematchResponse = await rematchGame(game.GAME_URL, game.GAME_ID);
-	if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME
+	if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME, OR THE REMATCH EXPIRED
 	if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
 	if (rematchResponse?.waiting) { // WAIT 1 MINUTE FOR THE OPPONENT
 		optRestartBtn.innerHTML = "Waiting...";
