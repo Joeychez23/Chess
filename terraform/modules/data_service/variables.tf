@@ -32,5 +32,5 @@ variable "table_arns" {
 }
 variable "maintenance" {
   type    = bool
-  default = false # true ADDS THE UPKEEP NAT GATEWAY (README -> Data service instance)
+  default = false # true ADDS THE UPKEEP NAT GATEWAY (terraform/README.md -> Data service instance)
 }

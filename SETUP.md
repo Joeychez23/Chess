@@ -33,7 +33,42 @@ ssh -J ubuntu@52.11.177.148 ubuntu@172.31.64.10
 
 ## Deploy a new version
 
-Data service first, then the chess server.
+**On your Mac** (or any machine with the key loaded with `ssh-add`), from the repo root
+```bash
+deploy/deploy.sh
+```
+
+It logs in to Chess-Stockfish with your key forwarded and deploys `main` from GitHub: the data service first, then the chess server's copy, `npm ci`, client build and restart. Each instance keeps its `.env` files, `auth0-jwks.json`, images and audio. It checks the data service's `/health`, the chess server's `/api/chess/levels`, then `https://chess.aws-prac-route53.com/api/chess/levels`.
+
+It worked when the last line is `OK: deploy finished and the site is up.` and the exit code is 0. Any other ending names the step that failed and whether anything changed. A `WARNING` about a `.service` file means the unit changed and needs installing: see [deploy/README.md → Updating, logs and fixes](deploy/README.md#updating-logs-and-fixes).
+
+**Go back to the version before the last deploy**
+```bash
+deploy/deploy.sh --rollback
+```
+
+It restores the saved copy (`~/chess-previous` on Chess-Stockfish, `~/data-service-previous` on the data service), including `client/dist` and `node_modules`, so nothing is installed or built. It doesn't undo `.env` or unit changes, and only one version is kept: rolling back twice changes nothing. A deploy that fails keeps the last good copy, even if you run the deploy again.
+
+**The data service's packages changed** (`data-service/package-lock.json`). The deploy stops before changing anything, because the data service has no internet. Open an upkeep window around the install.
+
+**On your Mac** (in `terraform/aws-enviroment`)
+```bash
+terraform apply -var maintenance=true
+```
+
+**On your Mac** (from the repo root)
+```bash
+deploy/deploy.sh --data-service-packages
+```
+
+**On your Mac** (in `terraform/aws-enviroment`): close the window, about 4.5¢ an hour while it's open
+```bash
+terraform apply
+```
+
+### Deploy by hand
+
+For when a step has to happen between the copy and the restart, like the key change in [SECURITY.md](SECURITY.md#session-keys). `deploy/deploy.sh` does the same steps. Data service first, then the chess server.
 
 **On Chess-Stockfish** (logged in with `ssh -A`)
 ```bash
@@ -58,28 +93,11 @@ It worked when:
 - `/health` prints `{"status":200,"message":"OK"}`;
 - the chess journal has no `Missing required environment variable`.
 
-**The data service's packages changed** (`data-service/package-lock.json`). It has no internet, so open an upkeep window around the install.
-
-**On your Mac** (in `terraform/aws-enviroment`)
-```bash
-terraform apply -var maintenance=true
-```
-
-**On the data service**
-```bash
-cd /opt/data-service && . /opt/nvm/nvm.sh && npm ci --omit=dev && sudo systemctl restart data-service
-```
-
-**On your Mac** (in `terraform/aws-enviroment`): close the window, about 4.5¢ an hour while it's open
-```bash
-terraform apply
-```
-
 ## Check a `.env` without showing it
 
 **On Chess-Stockfish**
 ```bash
-grep -oE '^[A-Z0-9_]+=' /opt/chess/server/.env
+sudo grep -oE '^[A-Z0-9_]+=' /opt/chess/server/.env
 ```
 
 **On the data service**
@@ -110,7 +128,7 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish**
 ```bash
-nano /opt/chess/server/.env
+sudo nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
@@ -141,7 +159,7 @@ cd /opt/data-service && sudo -u dataservice /usr/local/bin/node24 -e 'require("d
 
 **On Chess-Stockfish:** paste it as `SESSION_PUBLIC_KEY="..."` (all lines, in quotes), then restart
 ```bash
-nano /opt/chess/server/.env
+sudo nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
@@ -156,7 +174,7 @@ sudo grep '^DATA_SERVICE_SECRET=' /opt/data-service/.env
 
 **On Chess-Stockfish:** add it with `DATA_SERVICE_URL=http://172.31.64.10:8090`, then restart
 ```bash
-nano /opt/chess/server/.env
+sudo nano /opt/chess/server/.env
 cd /opt/chess/server && npm ci --omit=dev && sudo systemctl restart chess
 ```
 
@@ -170,7 +188,7 @@ cd /opt/chess/server && npm ci --omit=dev && sudo systemctl restart chess
 
 **On Chess-Stockfish:** print the values
 ```bash
-grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess/server/.env
+sudo grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess/server/.env
 ```
 
 **On the data service:** add both lines, then restart
@@ -201,7 +219,7 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish**
 ```bash
-grep '^DATA_SERVICE_SECRET=' /opt/chess/server/.env
+sudo grep '^DATA_SERVICE_SECRET=' /opt/chess/server/.env
 ```
 
 **On the data service:** add it, then restart
@@ -246,7 +264,7 @@ git checkout -- <file>   # only files that were just rebuilt (package-lock.json,
 **On Chess-Stockfish**
 ```bash
 curl -s http://172.31.64.10:8090/health; echo
-grep '^DATA_SERVICE_URL=' /opt/chess/server/.env    # http://172.31.64.10:8090
+sudo grep '^DATA_SERVICE_URL=' /opt/chess/server/.env    # http://172.31.64.10:8090
 ```
 
 **On the data service**
@@ -298,11 +316,50 @@ aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":
 
 **On Chess-Stockfish**
 ```bash
-grep '^ENGINE_URL=' /opt/chess/server/.env
+sudo grep '^ENGINE_URL=' /opt/chess/server/.env
 systemctl status chess-engine-api --no-pager
 ```
 
+## Alerts
+
+Emails from AWS, set up in [deploy/README.md → 12. Monitoring](deploy/README.md#12-monitoring). Each one also emails `OK` when it clears.
+
+**`chess-site-down`:** see which part is down.
+
+**On your Mac**
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://chess.aws-prac-route53.com/; curl -s https://chess.aws-prac-route53.com/api/health; echo
+```
+
+| You see | What's down | Fix |
+| --- | --- | --- |
+| `502` or no answer | The chess server or nginx | `sudo systemctl status chess nginx` and `journalctl -u chess -n 30`, then [`chess` won't start](#chess-wont-start) |
+| `"engine":"down"` | The engine. Every AI level plays at about level 1 | `sudo systemctl status chess-engine-api`, `sudo systemctl restart chess-engine-api` |
+| `"dynamodb":"down"` | The data service or DynamoDB | `journalctl -u chess -n 30 \| grep HEALTH` says why. `curl -s http://172.31.64.10:8090/health` tells the data service apart from DynamoDB, then [`data-service` won't start](#data-service-wont-start). On the data service: `journalctl -u data-service -n 30 \| grep HEALTH` |
+
+**`chess-stockfish-failed`:** the AI played a weak backup move. One now and then is a slow engine. If it repeats, treat it as `"engine":"down"` above.
+
+**On Chess-Stockfish**
+```bash
+journalctl -u chess --since "15 min ago" | grep "STOCKFISH FAILED"
+```
+
+**`chess-server-5xx`:** players got errors.
+
+**On Chess-Stockfish**
+```bash
+journalctl -u chess --since "15 min ago" | grep -E "HTTP 5[0-9][0-9] |Data service"
+```
+
+**`chess-dynamodb-throttled-*`:** the table is over its capacity, so moves are slow or failing. Look at the table's **Monitor** tab in the DynamoDB console, and raise its capacity in `terraform/modules/dynamodb` if the traffic is real.
+
 ## Logs
+
+**In CloudWatch, from your Mac** (the chess server's, kept 30 days)
+```bash
+aws logs tail /chess/server --region us-west-2 --since 1h
+aws logs tail /chess/server --region us-west-2 --since 1d --filter-pattern '"CLIENT ERROR"'   # what's failing in players' browsers
+```
 
 **On Chess-Stockfish**
 ```bash
@@ -336,8 +393,8 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish:** remove the old public key, then paste the new one as `SESSION_PUBLIC_KEY="..."`
 ```bash
-sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess/server/.env
-nano /opt/chess/server/.env
+sudo sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess/server/.env
+sudo nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
@@ -377,6 +434,13 @@ scp -J ubuntu@52.11.177.148 /Users/josephsanchez/Desktop/TimeLost/Portfolio/ches
 sudo cp /tmp/data-service.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart data-service
 ```
 
+**`deploy/chess-logs.service` changed**
+
+**On Chess-Stockfish**
+```bash
+sudo cp /opt/chess/deploy/chess-logs.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart chess-logs
+```
+
 **`deploy/nginx.conf` changed:** copying it removes certbot's HTTPS block, so run certbot again ([deploy/README.md → 7. nginx and HTTPS](deploy/README.md#7-nginx-and-https)).
 
 **On Chess-Stockfish**
@@ -386,7 +450,9 @@ sudo cp /opt/chess/deploy/nginx.conf /etc/nginx/sites-available/chess && sudo ng
 
 ## Roll back
 
-Deploy the previous commit the same way, but clone the whole history (no `--depth 1`) and check out the commit before the `rsync`s:
+To the version before the last deploy: `deploy/deploy.sh --rollback` on your Mac ([Deploy a new version](#deploy-a-new-version)).
+
+Further back: follow [Deploy by hand](#deploy-by-hand), but clone the whole history (no `--depth 1`) and check out the commit before the `rsync`s:
 
 **On Chess-Stockfish**
 ```bash

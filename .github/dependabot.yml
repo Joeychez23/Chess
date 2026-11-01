@@ -1,0 +1,40 @@
+# Weekly dependency update PRs for the three npm packages and the GitHub Actions in .github/workflows.
+# Dependabot security alerts and security updates are switched on separately under Settings > Code security.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: / # CLIENT (webpack build)
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      client-dev:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      server-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /data-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      data-service-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

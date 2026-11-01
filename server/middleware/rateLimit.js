@@ -26,6 +26,10 @@ const AI_MOVE_LIMITS = { // /ai-move ASKS THE ENGINE, A PLAYER NEEDS ONE PER MOV
 	aiMoveSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER OR A GUEST: 20 AT ONCE, THEN 1 A SECOND
 	aiMoveIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
 };
+const CLIENT_ERROR_LIMITS = { // BROWSER ERROR REPORTS BECOME LOG LINES, SO A LOOP CAN'T FILL THE LOGS (#194)
+	clientErrorIp: { burst: 10, refillMs: 30 * 1000 }, // AN IP (IPv6: ITS /64): 10 AT ONCE, THEN 1 EVERY 30 SECONDS
+	clientErrorSite: { burst: 60, refillMs: 2 * 1000 }, // EVERYONE: 60 AT ONCE, THEN 1 EVERY 2 SECONDS
+};
 const MAX_KEYS = 100000; // BUCKETS KEPT PER LIMIT, FULL ONES ARE DROPPED FIRST
 const LOG_EVERY = 60 * 1000; // A KEY THAT KEEPS HITTING ITS LIMIT IS LOGGED ONCE A MINUTE
 
@@ -65,7 +69,7 @@ function limitLogins(req, res, next) {
 	const result = takeTokens(keys, Date.now(), LOGIN_LIMITS);
 	if (result.ok) { return next(); }
 	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`Login limit (${result.limit}: ${keys[result.limit]}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
+	if (result.log) { console.log(`Login limit (${result.limit}: ${JSON.stringify(keys[result.limit])}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
 	res.set("Retry-After", String(seconds));
 	return res.status(429).json({ status: 429, message: `Too many logins, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
 }
@@ -92,13 +96,29 @@ function limitAiMoves(req, res, next) {
 }
 
 /* ---------------------------------------------------------------- */
+// Limit Browser Error Reports
+/* ---------------------------------------------------------------- */
+/**
+ * @description Middleware for POST /api/client-errors, with its own buckets. Answers 429 with Retry-After when a limit is hit
+ */
+function limitClientErrors(req, res, next) {
+	const keys = { clientErrorIp: ipKey(req.ip), clientErrorSite: "all" };
+	const result = takeTokens(keys, Date.now(), CLIENT_ERROR_LIMITS);
+	if (result.ok) { return next(); }
+	const seconds = Math.ceil(result.retryMs / 1000);
+	if (result.log) { console.log(`Browser error report limit (${result.limit}: ${keys[result.limit]}), retry in ${seconds}s`); }
+	res.set("Retry-After", String(seconds));
+	return res.status(429).json({ status: 429, message: `Too many error reports, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
+}
+
+/* ---------------------------------------------------------------- */
 // Take Tokens
 /* ---------------------------------------------------------------- */
 /**
  * @description Takes one token from each key's bucket, or none if any of them is empty (so a refused request costs nothing)
  * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail } or { aiMoveSession (optional), aiMoveIp }]
  * @param  {[number]} now [epoch ms]
- * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS or AI_MOVE_LIMITS]
+ * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, AI_MOVE_LIMITS or CLIENT_ERROR_LIMITS]
  * @return {[object]} result [{ ok: true } | { ok: false, limit (the empty one), retryMs (until it has a token), log (first refusal this minute) }]
  */
 function takeTokens(keys, now, limits = LIMITS) {
@@ -138,7 +158,7 @@ function refill(limit, key, now, limits) {
  * @description Drops the buckets that have filled up again (the same as a new one), then the oldest if a limit still has too many
  */
 function sweep(now) {
-	for (const limits of [LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS]) {
+	for (const limits of [LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS]) {
 		for (const limit of Object.keys(limits)) {
 			const map = buckets[limit];
 			if (!map) { continue; }
@@ -182,4 +202,4 @@ function resetLimits() {
 }
 
 
-module.exports = { limitNewGames, limitLogins, limitAiMoves, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS };
+module.exports = { limitNewGames, limitLogins, limitAiMoves, limitClientErrors, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS };

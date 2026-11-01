@@ -21,7 +21,12 @@
   `assets.chess.aws-prac-route53.com` (us-east-1, as CloudFront requires),
   validated through a Route 53 DNS record, a CloudFront distribution in front
   of the `aws-prac-chess-s3` bucket's website endpoint (HTTP → HTTPS redirect,
-  TTL 0 so new files show up right away), and the Route 53 alias record.
+  TLS 1.2+ only, `GET`/`HEAD`/`OPTIONS` only, the managed `CachingOptimized`
+  cache policy and `SecurityHeadersPolicy` response headers), and the Route 53
+  alias record. The pages aren't on CloudFront (the chess server sends them,
+  uncached). Assets are uploaded once per version folder with a one-year
+  `Cache-Control`, so a changed image goes up under a new version instead of
+  replacing a cached file (see `client/README.md`).
 - **DynamoDB** (`modules/dynamodb`, us-west-2, next to the instance; moved from
   us-east-1, see [Moving the tables](#moving-the-tables-to-us-west-2)): `chess_db` (key `game_id`,
   TTL on `expireAt`: open games and finished AI games are deleted 25 days
@@ -29,6 +34,8 @@
   `user_id`). Both have point-in-time recovery on, so either can be put back
   the way it was at any second in the last 35 days
   ([Restoring a table](#restoring-a-table)).
+- **Monitoring** (`modules/monitoring`, us-west-2 and us-east-1): the uptime check,
+  the chess server's log group, the alarms and the emails they send ([Monitoring](#monitoring)).
 - **Data service** (`modules/data_service`, us-west-2): the private instance the
   data service runs on (#245), in its own subnet next to `Chess-Stockfish`
   (`usw2-az2`, `us-west-2a` in this account), with no public IP and no route
@@ -216,6 +223,31 @@ terraform apply                         # removes them again
 5 cents an hour (the NAT gateway and its public IP), plus 4.5 cents per GB
 downloaded.
 
+## Monitoring
+
+Alerts go to `alert_email`. Set it in `terraform/aws-enviroment/terraform.auto.tfvars`, which Git
+ignores so the address stays out of the repo. `terraform apply` picks it up on its own:
+
+```hcl
+alert_email = "you@example.com"
+```
+
+Each `apply` that makes the subscriptions sends two emails, one per region. Click the link in both,
+or nothing is delivered. Route 53's metrics only exist in us-east-1, so the uptime alarm and its topic are there.
+The rest is in us-west-2. The module also adds a policy to `EC2_Chess_DynamoDB` that only allows
+writing to the `/chess/server` log group. Installing the agent is in
+[deploy/README.md → 12. Monitoring](../deploy/README.md#12-monitoring).
+
+Every alarm emails when it fires and again when it clears:
+
+- `chess-site-down`: `GET /api/health` is failing, about 3 minutes after it starts.
+- `chess-stockfish-failed`: a `STOCKFISH FAILED` line in 5 minutes.
+- `chess-server-5xx`: 5 or more 5xx answers in 5 minutes. Not 1, because a deploy's restart can cause a few.
+- `chess-dynamodb-throttled-chess_db` and `-user_db`: any throttled request in 5 minutes.
+
+The two log alarms stay quiet if the agent stops, because no lines looks the same as no errors.
+`chess-site-down` doesn't depend on the agent.
+
 ## Layout
 
 ```text
@@ -224,6 +256,7 @@ terraform/
   modules/server/            IAM role + instance profile, chess + engine DNS records
   modules/cloudfront/        Assets: ACM cert, DNS validation, CloudFront, Route 53 alias
   modules/dynamodb/          Chess (games) and user tables
+  modules/monitoring/        The uptime check, the chess server's log group, the alarms and their emails
   modules/data_service/      The data service's private subnet, DynamoDB endpoint, security group, role and instance, and the upkeep NAT
 ```
 

@@ -1,0 +1,12 @@
+# Keeps /var/log/chess/server.log small, CloudWatch Logs has the last 30 days (#194)
+# Install: sudo cp deploy/chess-logs.logrotate /etc/logrotate.d/chess-logs
+# copytruncate: chess-logs.service keeps the file open, in append mode, so it carries on at the start of the emptied file
+/var/log/chess/server.log {
+	daily
+	rotate 3
+	compress
+	delaycompress
+	missingok
+	notifempty
+	copytruncate
+}

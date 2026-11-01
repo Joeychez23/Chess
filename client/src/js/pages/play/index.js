@@ -13,12 +13,12 @@
 
 import "../../../css/style.css"; // PLAY PAGE STYLES (CANVAS LAYOUT)
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
+require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { renderCanvas } = require("../../gameplay/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
 const { startNav, showTable, showPage, startLoading, goToPage } = require("../utils/index.js");
-const { ObjectId } = require("bson");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
 const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD OF THE MOUSE
@@ -58,6 +58,7 @@ window.addEventListener("load", async function () {
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: gameId, PLAYER_ID: playerId }
 	} else {
 		const guestId = await newGuestGame(guestGameId()); // A GUEST'S PLAYER ID IS THEIR GAME ID
+		if (!guestId) { return gameNotFound(); } // NO SAVED ID & THE SERVER COULDN'T MAKE A GAME
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: guestId, PLAYER_ID: guestId }
 	}
 	playerData.TV_BOOL = TV_DEV; // TV CONDITIONAL
@@ -92,17 +93,11 @@ async function showRatings(gameId) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Each guest gets their own game vs the AI, its id is saved in localStorage so a reload opens it again
- * (the guest page's Play AI saves it). None saved -> a new id, newGuestGame makes its game
- * @return {[string]} gameId [also the guest's player id]
+ * (the guest page's Play AI saves it). None saved -> newGuestGame asks the server for a new game, which makes the id
+ * @return {[string]} gameId [also the guest's player id, null when none is saved]
  */
 function guestGameId() {
-	let gameId;
-	try { gameId = localStorage.getItem("GUEST_GAME_ID"); } catch { } // STORAGE BLOCKED (PRIVATE MODE)
-	if (!gameId) {
-		gameId = `${new ObjectId()}`; // NEW GAME
-		try { localStorage.setItem("GUEST_GAME_ID", gameId); } catch { } // NOT SAVED -> A NEW GAME EACH LOAD
-	}
-	return gameId;
+	try { return localStorage.getItem("GUEST_GAME_ID"); } catch { return null; } // STORAGE BLOCKED (PRIVATE MODE)
 }
 
 
@@ -110,13 +105,15 @@ function guestGameId() {
  * @description No game for the guest's id yet (a bare /play, or their game expired): a new game vs the AI with a random color
  * at the default level, made before the game starts. Otherwise setInitialData (gameplay/moves/index.js) makes it & the guest is always white.
  * The server only lets the browser with the game's guest_game cookie play it, another guest's id (or one from before the cookie) gets a new id
- * @param  {[string]} gameId [the guest's saved game id, also their player id]
- * @return {[string]} gameId [the id their game has, saved for the next load]
+ * @param  {[string]} gameId [the guest's saved game id, also their player id (null = none, the server makes one)]
+ * @return {[string]} gameId [the id their game has, saved for the next load (null when there's none & the create failed)]
  */
 async function newGuestGame(gameId) {
-	const response = await validate(CHESS_URL, gameId, gameId, false, false, false); // GET THE GAME
-	if (response?.game_board) { return gameId; } // THEIR GAME IS THERE (OPEN OR OVER)
-	const created = await newAiGame(CHESS_URL, gameId, "random"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
+	if (gameId) {
+		const response = await validate(CHESS_URL, gameId, gameId, false, false, false); // GET THE GAME
+		if (response?.game_board) { return gameId; } // THEIR GAME IS THERE (OPEN OR OVER)
+	}
+	const created = await newAiGame(CHESS_URL, gameId || undefined, "random"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
 	if (!created?.game_id) { return gameId; }
 	try { localStorage.setItem("GUEST_GAME_ID", created.game_id); } catch { } // NOT SAVED (PRIVATE MODE) -> A NEW GAME EACH LOAD
 	return created.game_id;

@@ -182,7 +182,7 @@ const retrieveRatings = (gameId) => call("GET", `/games/${id(gameId)}/ratings`);
 
 /**
  * @description A signed in player's new game vs the AI, the data service draws the side when the color is random
- * @param  {[object]} settings [{ color, level, start_fen, game_id (optional, must be new) }]
+ * @param  {[object]} settings [{ color, level, start_fen }], the data service makes the game id
  */
 const newAiGame = (settings) => call("POST", "/games/ai", settings);
 
@@ -194,7 +194,7 @@ const newGuestGame = (settings) => call("POST", "/games/guest", settings);
 
 /**
  * @description The requester invites a friend, a PENDING game. The names come from the usernames, else the screennames
- * @param  {[object]} details [{ opponent_id, opponent_screenname, color, start_fen, game_id }]
+ * @param  {[object]} details [{ opponent_id, opponent_screenname, color, start_fen }], the data service makes the game id
  */
 const invite = (details) => call("POST", "/games/invite", details);
 
@@ -215,6 +215,15 @@ const decline = (gameId) => call("POST", `/games/${id(gameId)}/decline`);
  * @return {[object]} response [{ status, waiting, expires_in } | { status, new_game_id, game_data, dropped_invites } (this press started it) | { status: 409 }]
  */
 const rematch = (gameId) => call("POST", `/games/${id(gameId)}/rematch`);
+
+/* ---------------------------------------------------------------- */
+// Health (#194)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The data service reads both tables (GET /api/health). Throws like any call when it's down or DynamoDB can't answer
+ * @return {[object]} response [{ status: 200, message }]
+ */
+const checkTables = () => call("GET", "/health/tables");
 
 /* ---------------------------------------------------------------- */
 // Sessions (#252)
@@ -270,4 +279,4 @@ const claimUsername = (username) => call("POST", "/users/me/username", { usernam
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { timeouts, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

@@ -28,7 +28,7 @@ resource "aws_route53_record" "server_A_records" {
 # ---------------------------------------------------------------- #
 # IAM Role (Chess-Stockfish's, with no DynamoDB access since #250)
 # ---------------------------------------------------------------- #
-# THE ROLE AND PROFILE WERE MADE IN THE CONSOLE, IMPORT THEM BEFORE THE FIRST apply (README -> Terraform).
+# THE ROLE AND PROFILE WERE MADE IN THE CONSOLE, IMPORT THEM BEFORE THE FIRST apply (terraform/README.md).
 # ITS DYNAMODB POLICY IS GONE: THE CHESS SERVER CALLS THE DATA SERVICE (#249), THE ONLY INSTANCE THAT CAN USE THE TABLES (modules/data_service).
 # THE ROLE & PROFILE STAY, SO NOTHING CHANGES ON THE INSTANCE
 resource "aws_iam_role" "server_role" {

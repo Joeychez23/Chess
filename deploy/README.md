@@ -12,7 +12,7 @@
 browser ──HTTPS──> nginx ──> chess server :8080 ──http://127.0.0.1:3001──> chess-engine-api ──> Stockfish 19
    │                         (Express + Socket.IO,
    │                          serves client/dist)
-   └──HTTPS──> CloudFront (assets.chess.aws-prac-route53.com) ──> S3: images/, audio/
+   └──HTTPS──> CloudFront (assets.chess.aws-prac-route53.com) ──> S3: v1/images/, v1/audio/
 ```
 
 One EC2 instance runs the chess server and
@@ -78,7 +78,8 @@ scp -i ~/path/to/key.pem server/.env ubuntu@<elastic-ip>:/opt/chess/server/.env
 ```
 
 `client/.env` is read when the client is built. Check that
-`CHESS_ASSETS_URL` is `https://assets.chess.aws-prac-route53.com`, not `.`:
+`CHESS_ASSETS_URL` is `https://assets.chess.aws-prac-route53.com/v1` (the current
+asset version, [client/README.md](../client/README.md#setup)), not `.`:
 every sprite, sound, and the favicon load from it.
 
 `server/.env`, on the instance (`nano /opt/chess/server/.env`):
@@ -98,8 +99,8 @@ On a new setup, make the session key on the data service first (step 10, with
 its instance from [Data service instance](../terraform/README.md#data-service-instance)), or fill
 these in before step 6.
 
-The Auth0 values stay the same. Then lock the file to your user:
-`chmod 600 /opt/chess/server/.env`.
+The Auth0 values stay the same. Step 6 hands the file to the service's user
+and locks it.
 
 ## 5. Install and build
 
@@ -118,7 +119,15 @@ build again after copying new client code.
 
 ## 6. Start the server
 
+The server runs as its own user, `chess`, with no sudo and no login (#302).
+The code stays owned by `ubuntu`, so updates copy it as before, and `chess` can
+only read it. Only `server/.env` belongs to `chess`, readable by nobody else:
+after this, read or edit it with `sudo` (`sudo nano /opt/chess/server/.env`).
+
 ```bash
+readlink -f /usr/local/bin/node24      # must not be under /home (see below)
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin chess
+sudo chown chess:chess /opt/chess/server/.env && sudo chmod 600 /opt/chess/server/.env
 cd /opt/chess
 sudo cp deploy/chess.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -127,9 +136,20 @@ curl -s localhost:8080/api/chess/levels
 ```
 
 `/api/chess/levels` answers without DynamoDB or Auth0, so it only checks that
-the server is up. The service runs as `ubuntu` with `NODE_ENV=production`,
-which makes the session cookies HTTPS-only: logging in only works through
-`https://`, after step 7.
+the server is up. The service runs with `NODE_ENV=production`, which makes the
+session cookies HTTPS-only: logging in only works through `https://`, after
+step 7.
+
+The unit has the same sandbox as the data service's: the whole system is
+read-only to it (`ProtectSystem=strict`), home folders are hidden
+(`ProtectHome`), and it can't gain privileges or capabilities. The server
+writes no files, so nothing needs to be writable. Because home folders are
+hidden, `/usr/local/bin/node24` can't point into `/home/ubuntu/.nvm`: if
+`readlink` shows a `/home` path, install Node 24 in `/opt/nvm` the way step 10
+does (`/opt/nvm` owned by `ubuntu`, then `sudo ln -sf "$(nvm which 24)"
+/usr/local/bin/node24`). If the service won't start, `journalctl -u chess -n 20`
+shows why: `EACCES` on `.env` means the `chown` was skipped, `203/EXEC` means
+`node24` points somewhere it can't reach.
 
 ## 7. nginx and HTTPS
 
@@ -145,6 +165,15 @@ Socket.IO's WebSocket upgrade through, and allows 10 requests per second per
 IP (bursts of 40). The server also limits making games itself (see [Chess API](../server/README.md#chess-api)). Its upgrade variable is named `$chess_connection_upgrade`
 because chess-engine-api's site on the same instance already defines
 `$connection_upgrade`, and nginx won't start with two.
+
+The security headers (#191) come from the server, not nginx
+(`server/middleware/securityHeaders.js`): a Content-Security-Policy that allows
+this site, `CHESS_ASSETS_URL` and Google Fonts, `frame-ancestors 'none'`,
+`nosniff` and `Referrer-Policy`. HSTS (one year) is only sent when
+`NODE_ENV=production`, so keep certbot's HTTP -> HTTPS redirect. Set
+`CHESS_ASSETS_URL` in `server/.env` too if the assets aren't on
+`https://assets.chess.aws-prac-route53.com`, or the sprites are blocked. Check
+the live site with https://securityheaders.com or Mozilla Observatory.
 
 ## 8. Check it
 
@@ -281,19 +310,78 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
    aws dynamodb put-item --region us-west-2 --table-name user_db --item '{"user_id":{"S":"iam-check"}}' --condition-expression "attribute_exists(user_id)"
    ```
 
+## 12. Monitoring
+
+An uptime check, the chess server's logs in CloudWatch, and email alarms (#194). The alarms are in
+[Terraform](../terraform/README.md#monitoring). [SETUP.md → Alerts](../SETUP.md#alerts) says what to do about each one.
+
+1. **Make the alarms.** Set `alert_email` and run `terraform apply`
+   ([Monitoring](../terraform/README.md#monitoring)), then **click the link in both emails from AWS**.
+   Nothing is delivered until both are confirmed.
+
+2. **Deploy the code** (`deploy/deploy.sh`), so `/api/health` exists:
+
+   ```bash
+   curl -s https://chess.aws-prac-route53.com/api/health; echo     # {"status":200,"checks":{"dynamodb":"ok","engine":"ok"}}
+   ```
+
+3. **Send the logs**, on Chess-Stockfish:
+
+   ```bash
+   # COPIES THE JOURNAL TO A FILE, THE AGENT ONLY READS FILES. journalctl -u chess KEEPS WORKING
+   sudo install -d -m 750 /var/log/chess
+   sudo cp /opt/chess/deploy/chess-logs.logrotate /etc/logrotate.d/chess-logs
+   sudo cp /opt/chess/deploy/chess-logs.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now chess-logs
+
+   # THE CLOUDWATCH AGENT
+   curl -fsSLo /tmp/cloudwatch-agent.deb https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+   sudo dpkg -i /tmp/cloudwatch-agent.deb && rm /tmp/cloudwatch-agent.deb
+   sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/chess/deploy/cloudwatch-agent.json
+   ```
+
+4. **Check the logs arrive:** load the site, then on your Mac:
+
+   ```bash
+   aws logs tail /chess/server --region us-west-2 --since 10m
+   ```
+
+   Lines only appear when the server logs something. To make one, open the site and run
+   `Promise.reject(new Error("log test"))` in the browser's console: a `CLIENT ERROR` line should appear within a minute.
+
+5. **Check you get alerted.** This takes the AI down for a few minutes, so pick a quiet time:
+
+   ```bash
+   sudo systemctl stop chess-engine-api     # "ALARM: chess-site-down" arrives in about 3 minutes
+   sudo systemctl start chess-engine-api    # "OK: chess-site-down" follows
+
+   sudo systemctl stop chess                # the same alarm, with the whole site down
+   sudo systemctl start chess
+   ```
+
+The data service's logs stay in its journal: its subnet has no way to CloudWatch without a paid VPC endpoint.
+Its failures still show up here, through `/api/health` and the chess server's 503s.
+
 ## Updating, logs and fixes
 
-[SETUP.md](../SETUP.md) has the update commands (one paste on Chess-Stockfish), the
-logs, and a fix for each error, with the machine each command runs on.
+To update the live site, run `deploy/deploy.sh` from the repo root: it deploys `main`,
+checks each service and the public site, and reports whether it came back up.
+`deploy/deploy.sh --rollback` goes back to the version before the last deploy.
+[SETUP.md](../SETUP.md#deploy-a-new-version) has the details, the logs, and a fix for
+each error, with the machine each command runs on.
 
 - **Refused requests** are one `REFUSED` line each in the data service's journal
   (route and reason, never a body or token). Many 401s mean a secret or version
   mismatch; 400s or 403s mean a bug, or requests that aren't the chess server's.
 - **Changed `deploy/chess.service` or `deploy/data-service.service`?** Copy it to
   `/etc/systemd/system/` and run `sudo systemctl daemon-reload` before the restart.
+- **Changed `deploy/chess-logs.service`?** Copy it the same way, then `sudo systemctl restart chess-logs`.
+  Not installed yet? `deploy.sh` warns about it until [12. Monitoring](#12-monitoring) is done.
+- **Changed `deploy/cloudwatch-agent.json`?** Run the `amazon-cloudwatch-agent-ctl` line in [12. Monitoring](#12-monitoring) again.
 - **Changed `deploy/nginx.conf`?** Copy it, then `sudo nginx -t && sudo systemctl reload nginx`.
   The copy replaces certbot's HTTPS block, so run the certbot line again.
-- **Rollback:** deploy the previous commit. Code from before #252 (`112b1c0`) needs
+- **Rolling back further:** `--rollback` only keeps one version. To go further, deploy
+  an older commit by hand. Code from before #252 (`112b1c0`) needs
   the same `JWT_SECRET` back in both `.env` files; code from before #249 (`8414ecc`)
   talks to DynamoDB itself and needs #250's role policy back.
 
@@ -301,8 +389,13 @@ logs, and a fix for each error, with the machine each command runs on.
 
 ```text
 deploy/
-  chess.service              systemd unit for the server
+  deploy.sh                  one command deploy and rollback of the live site
+  upload-assets.sh           uploads the images and audio to S3 under a new version
+  chess.service              systemd unit for the server (its own user, read-only system)
   data-service.service       systemd unit for the data service (its own user, read-only system, on the private instance)
+  chess-logs.service         systemd unit that copies the chess server's journal to /var/log/chess/server.log
+  chess-logs.logrotate       keeps that file small
+  cloudwatch-agent.json      sends that file to CloudWatch Logs
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
 ```
 

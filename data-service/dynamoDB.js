@@ -12,11 +12,11 @@
 
 const crypto = require("crypto");
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
-const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
 const { usernameKey } = require("./utils/username.js");
+const { newGameId } = require("./utils/games.js");
 const config = require("./config");
 
 const connection = new DynamoDB({ region: config.dynamoRegion }); // DYNAMODB_REGION, us-west-2 BY DEFAULT. CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE DATA SERVICE'S IAM ROLE ON AWS
@@ -43,6 +43,19 @@ function expireTime() {
 }
 
 /* ---------------------------------------------------------------- */
+// Check Tables
+/* ---------------------------------------------------------------- */
+/**
+ * @description Reads a key that's never saved from each table (GET /health/tables), the cheapest call this role is allowed. Throws when DynamoDB can't answer (#194)
+ */
+async function checkTables() {
+	await Promise.all([
+		connection.getItem({ TableName: CHESS_TABLE, Key: { game_id: { S: "health-check" } } }),
+		connection.getItem({ TableName: USER_TABLE, Key: { user_id: { S: "health-check" } } })
+	]);
+}
+
+/* ---------------------------------------------------------------- */
 // Initalize game (POST)
 /* ---------------------------------------------------------------- */
 /**
@@ -66,7 +79,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 
 	let gameId;
 	if (existingGameId) { gameId = existingGameId; }
-	else { gameId = `${new ObjectId()}`; } // CREATES UNIQUE GAME IDENTIFIER
+	else { gameId = newGameId(); } // CREATES UNIQUE GAME IDENTIFIER (RANDOM, NOT GUESSABLE)
 	let params = {
 		TableName: CHESS_TABLE,
 		Item: {
@@ -1054,4 +1067,4 @@ async function batchReadGames(gameIds, listName) {
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

@@ -14,7 +14,7 @@
 
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
-const { ObjectId } = require("bson");
+require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
@@ -231,8 +231,7 @@ async function handleNewSoloGame(e) {
 	}
 	startLoading(optNewSoloBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
 	soloNote.innerText = "";
-	let _id = new ObjectId();
-	const response = await newAiGame(CHESS_URL, `${_id}`, aiColorSelect.value, aiLevelSelect.value, confirmNewGame, aiFenInput.value); // CREATE NEW GAME AT THE PICKED LEVEL, COLOR & POSITION
+	const response = await newAiGame(CHESS_URL, undefined, aiColorSelect.value, aiLevelSelect.value, confirmNewGame, aiFenInput.value); // CREATE NEW GAME AT THE PICKED LEVEL, COLOR & POSITION (THE SERVER MAKES THE ID)
 	if (response?.status == 400 || response?.status == 429) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, OR TOO MANY NEW GAMES: NOTHING WAS FORFEITED
 	if (response?.status == 409) { // AN AI GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
 		stopLoading();
@@ -294,9 +293,8 @@ async function handleMultiSubmit(e) {
 	}
 	multiNote.innerText = "";
 	multiEmailBtn.disabled = true; // ONE INVITE PER PRESS
-	let _id = new ObjectId();
 	try {
-		const response = await initMultiplayerGame(CHESS_URL, _id, PLAYER_ID, email, confirmInvite, friendColorSelect.value, friendFenInput.value);
+		const response = await initMultiplayerGame(CHESS_URL, PLAYER_ID, email, confirmInvite, friendColorSelect.value, friendFenInput.value);
 		if (response?.status == 200) {
 			multiEmailInput.value = "";
 			friendFenInput.value = "";

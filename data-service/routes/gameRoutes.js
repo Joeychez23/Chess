@@ -10,9 +10,9 @@ const { requirePlayer } = require('../middleware/player.js')
 const { onlyFields } = require('../middleware/fields.js')
 const { getGame, moveGame, aiMoveGame, forfeitGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame } = require('../controllers/gameController.js')
 // EVERY ROUTE ACTS FOR req.player (middleware/player.js) & NAMES THE BODY FIELDS IT TAKES, A BODY WITH ANYTHING ELSE IS REFUSED (400)
-router.route('/ai').post(requirePlayer, onlyFields(["color", "level", "start_fen", "game_id"]), newAiGame);                     // POST /games/ai              -> A SIGNED IN PLAYER'S NEW GAME VS THE AI (A NEW ID ONLY)
+router.route('/ai').post(requirePlayer, onlyFields(["color", "level", "start_fen"]), newAiGame);                     // POST /games/ai              -> A SIGNED IN PLAYER'S NEW GAME VS THE AI (A NEW ID ONLY)
 router.route('/guest').post(onlyFields(["game_id", "color", "side", "level", "start_fen"]), newGuestGame);                               // POST /games/guest           -> A GUEST'S GAME VS THE AI, OVERWRITES ONLY THEIR OWN (NO PLAYER = A NEW GUEST)
-router.route('/invite').post(requirePlayer, onlyFields(["opponent_id", "opponent_screenname", "color", "start_fen", "game_id"]), inviteGame); // POST /games/invite -> A PENDING FRIEND GAME, THE REQUESTER IS THE INVITER
+router.route('/invite').post(requirePlayer, onlyFields(["opponent_id", "opponent_screenname", "color", "start_fen"]), inviteGame); // POST /games/invite -> A PENDING FRIEND GAME, THE REQUESTER IS THE INVITER
 router.route('/:gameId').get(onlyFields([]), getGame);                                   // GET /games/:gameId          -> THE GAME, ONLY FOR A PLAYER IN IT (A MISSING GAME SAYS SO TO ANYONE, ?consistent=true SEES A SAVE THAT JUST HAPPENED)
 router.route('/:gameId/move').post(requirePlayer, onlyFields(["from", "to", "promotion"]), moveGame);     // POST /games/:gameId/move    -> THE REQUESTER'S MOVE ON THE STORED BOARD, CLOSES THE GAME ON MATE OR A DRAW
 router.route('/:gameId/ai-move').post(requirePlayer, onlyFields(["from", "to", "promotion"]), aiMoveGame); // POST /games/:gameId/ai-move -> AI GAMES: THE AI'S MOVE (FROM THE ENGINE), ONLY ON ITS TURN

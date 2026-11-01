@@ -75,7 +75,7 @@ async function aiMove(fen, level) {
 	try {
 		return await stockfishMove(fen, settings);
 	} catch (err) {
-		console.log(`STOCKFISH FAILED, js-chess-engine PLAYS INSTEAD: ${err.message}`);
+		console.log(`STOCKFISH FAILED, js-chess-engine PLAYS INSTEAD: ${err.message}`); // THE LINE MUST START WITH THIS: AN ALARM MATCHES IT (terraform/modules/monitoring)
 		return backupMove(fen);
 	}
 }
@@ -103,6 +103,14 @@ async function stockfishMove(fen, settings) {
 }
 
 /**
+ * @description The health check (utils/health.js): a real search of the start position, so a running API with a broken Stockfish fails it.
+ * Throws when the engine can't answer, the same answers that make aiMove fall back to js-chess-engine
+ */
+function checkEngine() {
+	return stockfishMove(new Chess().fen(), { depth: 1, time: 100 });
+}
+
+/**
  * @description js-chess-engine level 1, it always promotes to a queen
  * @param  {[string]} fen [game board]
  * @return {[object]} move [{ from, to, promotion }]
@@ -115,4 +123,4 @@ function backupMove(fen) {
 }
 
 
-module.exports = { levelList, readLevel, aiMove }
+module.exports = { levelList, readLevel, aiMove, checkEngine }

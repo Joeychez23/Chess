@@ -14,18 +14,39 @@
 
 | Variable | Purpose |
 | --- | --- |
-| `CHESS_ASSETS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com` (CloudFront), or `.` to use local copies. It's built into the bundle, so rebuild after changing it. |
+| `CHESS_ASSETS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com/v1` (CloudFront, the version folder of the current upload), or `http://localhost:3001` to use local copies (see below). It's built into the bundle, so rebuild after changing it. |
 
 **Images and audio aren't in the repo** (`client/src/images` and `client/src/audio`
 are git-ignored). They're in the `aws-prac-chess-s3` bucket and CloudFront serves
-them; every asset url starts with `CHESS_ASSETS_URL`. To work offline, copy them
-back into `client/src/`, set `CHESS_ASSETS_URL=.` and turn on the
-`CopyWebpackPlugin` block in `client/webpack.config.js`. To upload changes
-(CloudFront's TTL is 0, so they show at once):
+them; every asset url starts with `CHESS_ASSETS_URL`.
+
+To use local copies instead of CloudFront, put them in `client/dist`, which the
+server already serves (and builds leave in place). From the repo root:
 
 ```bash
-aws s3 sync client/src/images s3://aws-prac-chess-s3/images --exclude "*.DS_Store"
+aws s3 sync s3://aws-prac-chess-s3/v1/images client/src/images   # skip if client/src already has them
+aws s3 sync s3://aws-prac-chess-s3/v1/audio client/src/audio
+mkdir -p client/dist && cp -R client/src/images client/src/audio client/dist/
 ```
+
+Then set `CHESS_ASSETS_URL=http://localhost:3001` in both `client/.env` and
+`server/.env` (the server's CSP has to allow it under `npm run dev`) and rebuild
+with `npm start` or `npm run dev`. Don't use `.`: on `/play/:gameId` it asks for
+`/play/images/...`, which isn't an asset. Copy again after an image or sound changes.
+
+Each upload goes into a version folder (`s3://aws-prac-chess-s3/v1/images/...`)
+with `Cache-Control: public, max-age=31536000, immutable`, so browsers keep the
+sprites and the move sound for a year and a second visit doesn't download them
+again. Never change a file inside an uploaded version: upload the whole set to
+the next version, point `CHESS_ASSETS_URL` in `client/.env` at it and rebuild
+the client (the server's CSP only uses the origin, so `server/.env` can stay).
+The new urls show at once, with no CloudFront invalidation:
+
+```bash
+deploy/upload-assets.sh v2   # syncs client/src/images & client/src/audio to s3://aws-prac-chess-s3/v2/
+```
+
+Delete the old version folder once no deployed build uses it.
 
 ## Run
 
@@ -60,9 +81,12 @@ Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.
 The `.html` files are only sent through these routes, never as static files.
 Home and the guest page call `preloadImages()` (`client/src/js/gameplay/images/index.js`)
 as soon as they open, so the game's sprites are already in the browser cache
-when a game opens, and each one is logged to the console. That only sticks once the S3
-objects have a `Cache-Control` header: CloudFront's TTL is 0 and nothing sets
-one yet.
+when a game opens, and each one is logged to the console. With the uploaded
+`Cache-Control` header (above) they stay cached on later visits too.
+
+Each page's first step is `startErrorReports()` (`pages/utils/reportErrors.js`). It sends uncaught
+errors, rejected promises, 5xx answers and failed requests to `POST /api/client-errors`, at most 10
+different ones per page load. 4xx answers are left out because they're normal, and so are game ids and queries.
 
 ## Socket.IO
 
@@ -97,7 +121,6 @@ client/
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Sign in)
   play.html                  Game menu markup (Resume, Restart / Forfeit / Rematch, Home, Exit)
   webpack.config.js          One entry + HTML page each (home, guest, play, settings), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
-  src-sw.js                  Workbox service worker (not registered at the moment)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles
   src/css/style.css          Play page layout (canvas), imported by pages/play

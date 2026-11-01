@@ -63,6 +63,7 @@ engine are answered from test data.
 | `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
 | `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
 | `settings.test.js` | The settings page's Default start settings and Delete my data |
+| `monitoring.test.js` | `GET /api/health` (a slow engine counts as down in time, the answer is kept, it never says why), the log lines the alarms match, and browser error reports from `reportErrors.js` to the log line: limited, cut short, and unable to set off an alarm |
 | `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
@@ -125,14 +126,14 @@ move or missing game is HTTP 200 with `status: 500`.
 | Route | Body / query | What it does |
 | --- | --- | --- |
 | `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), the start settings (`start_params`), the friend's name (`opponent_name`), and the result (`state`, `winner`, `reason`) |
-| `POST /api/chess/game` | `{ game_id, start_color, ai_level, start_fen, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). `start_color` is your color, `random` (the default, anything else counts as it), `w` or `b`, and the server picks the sides (Home, the guest page, and the play page with `random` when a guest has no game yet). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (gameplay's fallback if that request failed, saved as Random). Leave out `game_id` to generate one. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first. `start_fen` (optional) starts from a set position, saved in `start_params.fen`; one that can't be played returns `{ status: 400, message }` (HTTP 400) before anything is saved or forfeited |
+| `POST /api/chess/game` | `{ game_id, start_color, ai_level, start_fen, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). `start_color` is your color, `random` (the default, anything else counts as it), `w` or `b`, and the server picks the sides (Home, the guest page, and the play page with `random` when a guest has no game yet). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (gameplay's fallback if that request failed, saved as Random). `game_id` is only for guests (their saved id): the data service makes every new id (random, not guessable) and the response has it. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't name or overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first. `start_fen` (optional) starts from a set position, saved in `start_params.fen`; one that can't be played returns `{ status: 400, message }` (HTTP 400) before anything is saved or forfeited |
 | `PUT /api/chess/game/:gameId` | `{ move: [from, to], promotion }` | Your move. Validates it against the stored board and saves it. Closes the game on checkmate or a draw. Refused while the game is `PENDING` or once it's closed, and refused if the board changed first (two moves at once) |
 | `POST /api/chess/game/:gameId/ai-move` | | AI games, on the AI's turn. The server picks the AI's move at the game's level, saves it, and returns the game with `ai_move: { from, to, promotion }`. After the AI moved, it returns that saved move instead of a new one |
 | `POST /api/chess/game/:gameId/restart` | | AI games. Forfeits the game if it's still going, then starts a new game with a new id and the same start settings: the level, your color (Random draws again) and the set position, if any. Guests' one game is overwritten instead |
 | `GET /api/chess/levels` | | The AI levels for Home's dropdown: `{ levels: [{ level, elo }], default_level }` |
 | `POST /api/chess/game/:gameId/forfeit` | | Signed in, friend games. Closes the game, and the other side wins. Emits `game-over` |
 | `POST /api/chess/game/:gameId/rematch` | | Signed in, finished friend games. The first press waits 1 minute (`{ waiting, expires_in }`). If the other player presses in time, a new game starts with the same start settings (`{ new_game_id }`, the inviter keeps their color pick, Random draws again), both players' sent invites are cancelled, and `rematch` is emitted. `{ status: 409 }` if either player is in another friend game |
-| `POST /api/chess/invite` | `{ game_id, opponent_email, start_color, start_fen, replace_current }` | Signed in only. Invites a friend: finds their Auth0 account by email (`getAuth0User`) and creates a `PENDING` game with both names (`white_name`, `black_name`: each player's username, or their Auth0 screenname until they pick one), `inviter_id` and `start_params`. `start_color` is your color (`random`, `w` or `b`), and the sides are drawn now so the invite shows them. `start_fen` (optional) starts the game and its rematches from a set position, with the same `400` as `/game` when it can't be played. Your last sent invite is deleted. `game_id` must not exist yet. Refused for your own email, and for a friend who already invited you. While you have a friend game open this returns `{ status: 409, game_id }`, unless `replace_current: true` forfeits it first |
+| `POST /api/chess/invite` | `{ opponent_email, start_color, start_fen, replace_current }` | Signed in only. Invites a friend: finds their Auth0 account by email (`getAuth0User`) and creates a `PENDING` game with both names (`white_name`, `black_name`: each player's username, or their Auth0 screenname until they pick one), `inviter_id` and `start_params`. `start_color` is your color (`random`, `w` or `b`), and the sides are drawn now so the invite shows them. `start_fen` (optional) starts the game and its rematches from a set position, with the same `400` as `/game` when it can't be played. Your last sent invite is deleted. The data service makes the game id. Refused for your own email, and for a friend who already invited you. While you have a friend game open this returns `{ status: 409, game_id }`, unless `replace_current: true` forfeits it first |
 | `POST /api/chess/game/:gameId/accept` | `{ replace_current }` | Signed in, the invited player. `PENDING` → `OPEN`, the game moves from both players' `requested_games` to `open_games`, and your own sent invite is cancelled. Same `409` / `replace_current` rule as `/invite`. Refused if the inviter is in another friend game by then (the invite is deleted) |
 | `POST /api/chess/game/:gameId/decline` | | Signed in, either player of a `PENDING` game. The invited player declines or the inviter cancels: the game is deleted and dropped from both players' `requested_games` |
 | `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home, plus `ai_game_id` and `friend_game_id` (your open AI and friend games, or `null`), `open_game_list` (`[{ game_id, ai, ai_level, opponent_name, player_color, start_params }]`, newest last, for Your games), `sent_invite` (`{ game_id, name, player_color, start_params }` or `null`) and `received_invites` (`[{ game_id, name, player_color, start_params }]`, `player_color` is yours), `settings` (`{ ai_level, ai_color, friend_color }`, the defaults until you save some) and `games_finished`. Ids of games and invites TTL already deleted are pruned first, and `rating` (`{ rating, provisional, rated_games }`, the starting 1500 before your first game) |
@@ -262,6 +263,22 @@ Insomnia, or curl. Signed out, this only works for a guest game, so
 With an existing `game_id`, that game is overwritten with a new board. If you
 leave out `game_id`, the backend creates a new game and generates its id.
 
+## Monitoring
+
+Neither route needs a session. [SETUP.md → Alerts](../SETUP.md#alerts) says what to do about each alert.
+
+- **`GET /api/health`** answers `200` when both work, otherwise `503`, with
+  `{ status, checks: { dynamodb, engine } }`, each `"ok"` or `"down"`. The reason only goes in the log
+  (`HEALTH engine down: ...`). DynamoDB is checked through the data service's `GET /health/tables`.
+  The engine has to finish a real search, so a running API with a broken Stockfish
+  fails. Each check gets 1.5 seconds, because Route 53 only waits 2. The answer is kept for 15 seconds.
+- **`POST /api/client-errors`** takes `{ kind: "error" | "rejection" | "request", message, page, source, line, column, status }`
+  from `client/src/js/pages/utils/reportErrors.js` and logs one `CLIENT ERROR {...}` line. Answers `204`, `400`
+  for a bad report, `429` past 10 at once per IP then 1 every 30 seconds (60 at once then 1 every 2 seconds for the whole site).
+- **Log lines the alarms match:** `STOCKFISH FAILED...` (`utils/ai.js`) and `HTTP 5xx METHOD /path`
+  (`middleware/logServerErrors.js`, every 5xx except `/api/health`'s). The alarms only match the start of a line, so
+  changing how these lines start breaks them. `monitoring.test.js` pins both.
+
 ## Layout
 
 ```text
@@ -271,22 +288,25 @@ server/
   config.js                  Reads server/.env
   dataClient.js              Every read and write through the data service: signed calls for the request's player, 503 when it's down (a write that timed out is read back first)
   routes/pageRoutes.js       /, /play, /play/:gameId, /settings
-  routes/api/                /api/auth/*, /api/user, /api/chess/*
+  routes/api/                /api/auth/*, /api/user, /api/chess/*, /api/health, /api/client-errors
   controllers/
     pageController.js        Picks the page (home, guest, play, settings) from the session cookie, PENDING invites go Home, no username yet goes to settings
     authController.js        login, callback, logout, refresh, resume
     userController.js        getUser (with the username), saveSettings, saveUsername, deleteUserData (Delete my data)
     chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
+    monitorController.js     The health route & browser error reports
   middleware/auth.js         Session cookies (checked with the public key), requireAuth, optionalAuth, the guest_game cookie
   middleware/rateLimit.js    New game limits per session, IP and site (429)
+  middleware/logServerErrors.js  A log line for each 5xx answer, an alarm counts them
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
+  utils/health.js            Checks DynamoDB & the engine for GET /api/health, keeps the answer for 15 seconds
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
   utils/rating.js            Elo ratings: the math & which games are rated
   utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
   utils/signature.js         Signs each call to the data service (the same file as data-service/utils/signature.js)
   utils/sessionKeys.js       Reads the session keys & checks a token's ES256 signature (the same file as data-service/utils/sessionKeys.js)
-  test/                      Server tests (npm test): validate, ai, undo, games, dataClient, auth, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, the test server with the data service next to it)
+  test/                      Server tests (npm test): validate, ai, undo, games, dataClient, auth, rateLimit, rating, startPosition, settings, username, monitoring, plus helpers/ (test settings, the test server with the data service next to it)
 ```
 
 ---
