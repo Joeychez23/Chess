@@ -12,7 +12,7 @@
 browser ──HTTPS──> nginx ──> chess server :8080 ──http://127.0.0.1:3001──> chess-engine-api ──> Stockfish 19
    │                         (Express + Socket.IO,
    │                          serves client/dist)
-   └──HTTPS──> CloudFront (assets.chess.aws-prac-route53.com) ──> S3: images/, audio/
+   └──HTTPS──> CloudFront (assets.chess.aws-prac-route53.com) ──> S3: v1/images/, v1/audio/
 ```
 
 One EC2 instance runs the chess server and
@@ -78,7 +78,8 @@ scp -i ~/path/to/key.pem server/.env ubuntu@<elastic-ip>:/opt/chess/server/.env
 ```
 
 `client/.env` is read when the client is built. Check that
-`CHESS_ASSETS_URL` is `https://assets.chess.aws-prac-route53.com`, not `.`:
+`CHESS_ASSETS_URL` is `https://assets.chess.aws-prac-route53.com/v1` (the current
+asset version, [client/README.md](../client/README.md#setup)), not `.`:
 every sprite, sound, and the favicon load from it.
 
 `server/.env`, on the instance (`nano /opt/chess/server/.env`):
@@ -98,8 +99,8 @@ On a new setup, make the session key on the data service first (step 10, with
 its instance from [Data service instance](../terraform/README.md#data-service-instance)), or fill
 these in before step 6.
 
-The Auth0 values stay the same. Then lock the file to your user:
-`chmod 600 /opt/chess/server/.env`.
+The Auth0 values stay the same. Step 6 hands the file to the service's user
+and locks it.
 
 ## 5. Install and build
 
@@ -118,7 +119,15 @@ build again after copying new client code.
 
 ## 6. Start the server
 
+The server runs as its own user, `chess`, with no sudo and no login (#302).
+The code stays owned by `ubuntu`, so updates copy it as before, and `chess` can
+only read it. Only `server/.env` belongs to `chess`, readable by nobody else:
+after this, read or edit it with `sudo` (`sudo nano /opt/chess/server/.env`).
+
 ```bash
+readlink -f /usr/local/bin/node24      # must not be under /home (see below)
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin chess
+sudo chown chess:chess /opt/chess/server/.env && sudo chmod 600 /opt/chess/server/.env
 cd /opt/chess
 sudo cp deploy/chess.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -127,9 +136,20 @@ curl -s localhost:8080/api/chess/levels
 ```
 
 `/api/chess/levels` answers without DynamoDB or Auth0, so it only checks that
-the server is up. The service runs as `ubuntu` with `NODE_ENV=production`,
-which makes the session cookies HTTPS-only: logging in only works through
-`https://`, after step 7.
+the server is up. The service runs with `NODE_ENV=production`, which makes the
+session cookies HTTPS-only: logging in only works through `https://`, after
+step 7.
+
+The unit has the same sandbox as the data service's: the whole system is
+read-only to it (`ProtectSystem=strict`), home folders are hidden
+(`ProtectHome`), and it can't gain privileges or capabilities. The server
+writes no files, so nothing needs to be writable. Because home folders are
+hidden, `/usr/local/bin/node24` can't point into `/home/ubuntu/.nvm`: if
+`readlink` shows a `/home` path, install Node 24 in `/opt/nvm` the way step 10
+does (`/opt/nvm` owned by `ubuntu`, then `sudo ln -sf "$(nvm which 24)"
+/usr/local/bin/node24`). If the service won't start, `journalctl -u chess -n 20`
+shows why: `EACCES` on `.env` means the `chown` was skipped, `203/EXEC` means
+`node24` points somewhere it can't reach.
 
 ## 7. nginx and HTTPS
 
@@ -145,6 +165,15 @@ Socket.IO's WebSocket upgrade through, and allows 10 requests per second per
 IP (bursts of 40). The server also limits making games itself (see [Chess API](../server/README.md#chess-api)). Its upgrade variable is named `$chess_connection_upgrade`
 because chess-engine-api's site on the same instance already defines
 `$connection_upgrade`, and nginx won't start with two.
+
+The security headers (#191) come from the server, not nginx
+(`server/middleware/securityHeaders.js`): a Content-Security-Policy that allows
+this site, `CHESS_ASSETS_URL` and Google Fonts, `frame-ancestors 'none'`,
+`nosniff` and `Referrer-Policy`. HSTS (one year) is only sent when
+`NODE_ENV=production`, so keep certbot's HTTP -> HTTPS redirect. Set
+`CHESS_ASSETS_URL` in `server/.env` too if the assets aren't on
+`https://assets.chess.aws-prac-route53.com`, or the sprites are blocked. Check
+the live site with https://securityheaders.com or Mozilla Observatory.
 
 ## 8. Check it
 
@@ -301,7 +330,7 @@ logs, and a fix for each error, with the machine each command runs on.
 
 ```text
 deploy/
-  chess.service              systemd unit for the server
+  chess.service              systemd unit for the server (its own user, read-only system)
   data-service.service       systemd unit for the data service (its own user, read-only system, on the private instance)
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
 ```

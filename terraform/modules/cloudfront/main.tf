@@ -12,6 +12,15 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# AWS MANAGED POLICIES: CACHE ASSETS AT THE EDGE (1 DAY DEFAULT, UP TO 1 YEAR) AND ADD HSTS / NOSNIFF / FRAME / REFERRER HEADERS
+data "aws_cloudfront_cache_policy" "caching_optimized" {
+  name = "Managed-CachingOptimized"
+}
+
+data "aws_cloudfront_response_headers_policy" "security_headers" {
+  name = "Managed-SecurityHeadersPolicy"
+}
+
 data "aws_route53_zone" "route53_domain" {
   name = var.root_domain_name
 }
@@ -51,24 +60,18 @@ resource "aws_cloudfront_distribution" "cloudfront_dist" {
       http_port              = 80
       https_port             = 443
       origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1"]
+      origin_ssl_protocols   = ["TLSv1.2"]
     }
   }
   aliases = ["${var.domain_name}"]
   default_cache_behavior {
-    target_origin_id = local.s3_origin_id
-    allowed_methods  = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods   = ["GET", "HEAD"]
-    forwarded_values {
-      query_string = false
-      cookies {
-        forward = "none"
-      }
-    }
-    viewer_protocol_policy = "redirect-to-https"
-    min_ttl                = 0
-    default_ttl            = 0
-    max_ttl                = 0
+    target_origin_id           = local.s3_origin_id
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"] # STATIC ORIGIN: READ-ONLY
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+    compress                   = true
+    viewer_protocol_policy     = "redirect-to-https"
   }
   restrictions {
     geo_restriction {
@@ -76,16 +79,17 @@ resource "aws_cloudfront_distribution" "cloudfront_dist" {
     }
   }
   viewer_certificate {
-    acm_certificate_arn = aws_acm_certificate.cert.arn
-    ssl_support_method  = "sni-only"
+    acm_certificate_arn      = aws_acm_certificate.cert.arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 }
 
 resource "aws_route53_record" "cloudfront_A_record" {
-	depends_on = [data.aws_route53_zone.route53_domain, aws_cloudfront_distribution.cloudfront_dist]
-  zone_id = data.aws_route53_zone.route53_domain.zone_id
-  name    = var.domain_name
-  type    = "A"
+  depends_on = [data.aws_route53_zone.route53_domain, aws_cloudfront_distribution.cloudfront_dist]
+  zone_id    = data.aws_route53_zone.route53_domain.zone_id
+  name       = var.domain_name
+  type       = "A"
   alias {
     name                   = aws_cloudfront_distribution.cloudfront_dist.domain_name
     zone_id                = aws_cloudfront_distribution.cloudfront_dist.hosted_zone_id

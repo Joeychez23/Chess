@@ -8,8 +8,6 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const WebpackPwaManifest = require('webpack-pwa-manifest');
 const path = require('path');
-const { InjectManifest } = require('workbox-webpack-plugin');
-const CopyWebpackPlugin = require('copy-webpack-plugin');
 const { DefinePlugin } = require('webpack');
 const Dotenv = require('dotenv-webpack');
 const fs = require('fs');
@@ -26,7 +24,7 @@ module.exports = (env, argv) => {
 	const dev = mode === 'development';
 	return {
 		mode,
-		devtool: dev ? 'eval-source-map' : false, // NO eval IN PRODUCTION: NO READABLE SOURCE & NO 'unsafe-eval' IN THE CSP
+		devtool: dev ? 'source-map' : false, // NEVER AN eval DEVTOOL: THE CSP HAS NO 'unsafe-eval' IN ANY ENVIRONMENT (server/middleware/securityHeaders.js), PRODUCTION SHIPS NO READABLE SOURCE
 		entry: { // ONE BUNDLE PER PAGE, THE SERVER PICKS THE PAGE (server/routes/pageRoutes.js)
 			home: './src/js/pages/home/index.js',    // /              SIGNED IN
 			guest: './src/js/pages/guest/index.js',  // /              GUEST

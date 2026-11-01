@@ -10,9 +10,11 @@
 // Global
 /* ---------------------------------------------------------------- */
 
+const crypto = require("crypto");
+
 const AI_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]; // THE LEVELS IN server/utils/ai.js (LEVELS), THE ENGINE SETTINGS STAY ON THE CHESS SERVER
 const DEFAULT_LEVEL = 3;
-const ID = /^[A-Za-z0-9_-]{1,64}$/; // GAME IDS (OBJECT IDS, THE TESTS' "game1") & PLAYER IDS (AUTH0 IDS WITHOUT "auth0|")
+const ID = /^[A-Za-z0-9_-]{1,64}$/; // GAME IDS (newGameId'S, OLDER OBJECT IDS, THE TESTS' "game1") & PLAYER IDS (AUTH0 IDS WITHOUT "auth0|")
 
 /* ---------------------------------------------------------------- */
 // Players
@@ -170,5 +172,13 @@ function isId(value) {
 	return typeof value == "string" && ID.test(value) && value != "CHESS_AI";
 }
 
+/**
+ * @description A new game id, made here & never taken from a body: 16 random bytes in base64url (22 characters, passes isId).
+ * Unlike an ObjectId (a timestamp, a per-process value & a counter) it can't be guessed from another game's id (#304)
+ * @return {[string]} gameId
+ */
+function newGameId() {
+	return crypto.randomBytes(16).toString("base64url");
+}
 
-module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isColor, isId, DEFAULT_LEVEL };
+module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isColor, isId, newGameId, DEFAULT_LEVEL };

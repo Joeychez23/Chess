@@ -79,7 +79,7 @@ terraform apply
 
 **On Chess-Stockfish**
 ```bash
-grep -oE '^[A-Z0-9_]+=' /opt/chess/server/.env
+sudo grep -oE '^[A-Z0-9_]+=' /opt/chess/server/.env
 ```
 
 **On the data service**
@@ -110,7 +110,7 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish**
 ```bash
-nano /opt/chess/server/.env
+sudo nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
@@ -141,7 +141,7 @@ cd /opt/data-service && sudo -u dataservice /usr/local/bin/node24 -e 'require("d
 
 **On Chess-Stockfish:** paste it as `SESSION_PUBLIC_KEY="..."` (all lines, in quotes), then restart
 ```bash
-nano /opt/chess/server/.env
+sudo nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 
@@ -156,7 +156,7 @@ sudo grep '^DATA_SERVICE_SECRET=' /opt/data-service/.env
 
 **On Chess-Stockfish:** add it with `DATA_SERVICE_URL=http://172.31.64.10:8090`, then restart
 ```bash
-nano /opt/chess/server/.env
+sudo nano /opt/chess/server/.env
 cd /opt/chess/server && npm ci --omit=dev && sudo systemctl restart chess
 ```
 
@@ -170,7 +170,7 @@ cd /opt/chess/server && npm ci --omit=dev && sudo systemctl restart chess
 
 **On Chess-Stockfish:** print the values
 ```bash
-grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess/server/.env
+sudo grep -E '^AUTH0_(ISSUER_BASE_URL_ORIGIN|CLIENT_ID)=' /opt/chess/server/.env
 ```
 
 **On the data service:** add both lines, then restart
@@ -201,7 +201,7 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish**
 ```bash
-grep '^DATA_SERVICE_SECRET=' /opt/chess/server/.env
+sudo grep '^DATA_SERVICE_SECRET=' /opt/chess/server/.env
 ```
 
 **On the data service:** add it, then restart
@@ -246,7 +246,7 @@ git checkout -- <file>   # only files that were just rebuilt (package-lock.json,
 **On Chess-Stockfish**
 ```bash
 curl -s http://172.31.64.10:8090/health; echo
-grep '^DATA_SERVICE_URL=' /opt/chess/server/.env    # http://172.31.64.10:8090
+sudo grep '^DATA_SERVICE_URL=' /opt/chess/server/.env    # http://172.31.64.10:8090
 ```
 
 **On the data service**
@@ -298,7 +298,7 @@ aws dynamodb get-item --region us-west-2 --table-name user_db --key '{"user_id":
 
 **On Chess-Stockfish**
 ```bash
-grep '^ENGINE_URL=' /opt/chess/server/.env
+sudo grep '^ENGINE_URL=' /opt/chess/server/.env
 systemctl status chess-engine-api --no-pager
 ```
 
@@ -336,8 +336,8 @@ sudo systemctl restart data-service && journalctl -u data-service -n 5 --no-page
 
 **On Chess-Stockfish:** remove the old public key, then paste the new one as `SESSION_PUBLIC_KEY="..."`
 ```bash
-sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess/server/.env
-nano /opt/chess/server/.env
+sudo sed -i '/^SESSION_PUBLIC_KEY=/,/END PUBLIC KEY/d' /opt/chess/server/.env
+sudo nano /opt/chess/server/.env
 sudo systemctl restart chess && journalctl -u chess -n 10 --no-pager
 ```
 

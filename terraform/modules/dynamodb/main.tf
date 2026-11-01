@@ -10,7 +10,7 @@ provider "aws" {
 # ---------------------------------------------------------------- #
 # Chess Table (one item per game)
 # ---------------------------------------------------------------- #
-# MADE BY TERRAFORM IN us-west-2 (README -> Moving the tables)
+# MADE BY TERRAFORM IN us-west-2 (terraform/README.md -> Moving the tables to us-west-2)
 resource "aws_dynamodb_table" "chess_table" {
   name           = var.chess_table_name
   billing_mode   = "PROVISIONED"
@@ -29,7 +29,7 @@ resource "aws_dynamodb_table" "chess_table" {
   }
 
   point_in_time_recovery {
-    enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (README -> Restoring a table)
+    enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (terraform/README.md -> Restoring a table)
   }
 
   lifecycle {
@@ -40,7 +40,7 @@ resource "aws_dynamodb_table" "chess_table" {
 # ---------------------------------------------------------------- #
 # User Table (one item per user)
 # ---------------------------------------------------------------- #
-# MADE BY TERRAFORM IN us-west-2 (README -> Moving the tables)
+# MADE BY TERRAFORM IN us-west-2 (terraform/README.md -> Moving the tables to us-west-2)
 resource "aws_dynamodb_table" "user_table" {
   name           = var.user_table_name
   billing_mode   = "PROVISIONED"
@@ -54,7 +54,7 @@ resource "aws_dynamodb_table" "user_table" {
   }
 
   point_in_time_recovery {
-    enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (README -> Restoring a table)
+    enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (terraform/README.md -> Restoring a table)
   }
 
   lifecycle {

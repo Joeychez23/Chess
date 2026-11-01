@@ -182,7 +182,7 @@ const retrieveRatings = (gameId) => call("GET", `/games/${id(gameId)}/ratings`);
 
 /**
  * @description A signed in player's new game vs the AI, the data service draws the side when the color is random
- * @param  {[object]} settings [{ color, level, start_fen, game_id (optional, must be new) }]
+ * @param  {[object]} settings [{ color, level, start_fen }], the data service makes the game id
  */
 const newAiGame = (settings) => call("POST", "/games/ai", settings);
 
@@ -194,7 +194,7 @@ const newGuestGame = (settings) => call("POST", "/games/guest", settings);
 
 /**
  * @description The requester invites a friend, a PENDING game. The names come from the usernames, else the screennames
- * @param  {[object]} details [{ opponent_id, opponent_screenname, color, start_fen, game_id }]
+ * @param  {[object]} details [{ opponent_id, opponent_screenname, color, start_fen }], the data service makes the game id
  */
 const invite = (details) => call("POST", "/games/invite", details);
 

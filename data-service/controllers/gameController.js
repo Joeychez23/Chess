@@ -10,10 +10,9 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { ObjectId } = require("bson");
 const { initalizeGame, retrieveGame, updateGame, closeGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
-const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, DEFAULT_LEVEL } = require("../utils/games.js");
+const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
 const { guestToken } = require("../utils/tokens.js");
 
@@ -169,24 +168,22 @@ async function getRatings(req, res) {
 /* ---------------------------------------------------------------- */
 /**
  * @description A signed in player's new game vs the AI: they're one side & CHESS_AI the other, at a real level, from the standard position
- * or a checked set position. A game id from the body must be new (a signed in player's Restart is a forfeit & a new game).
+ * or a checked set position. The game id is always made here, the response has it (a signed in player's Restart is a forfeit & a new game).
  * One AI game at a time stays on the chess server, it forfeits the open one first
- * @param  {[object]} req.body [{ color ("w" | "b" | "random"), level (1 - 8, left out = 3), start_fen (optional), game_id (optional, must be new) }]
- * @return {[object]} response [initalizeGame's { status, game_data, message }]
+ * @param  {[object]} req.body [{ color ("w" | "b" | "random"), level (1 - 8, left out = 3), start_fen (optional) }]
+ * @return {[object]} response [initalizeGame's { status, game_data (game_id is the new id), message }]
  */
 async function newAiGame(req, res) {
 	if (req.player.guest) { return refuse(req, res, 403, "Guests make games with /games/guest"); }
-	const { color, level, start_fen, game_id } = req.body || {};
+	const { color, level, start_fen } = req.body || {};
 	const aiLevel = readAiLevel(level);
 	if (!aiLevel) { return refuse(req, res, 400, "Invalid level"); }
-	if (game_id !== undefined && !isId(game_id)) { return refuse(req, res, 400, "Invalid game id"); }
 	const position = readStartFen(start_fen);
 	if (position.message) { return refuse(req, res, 400, position.message); }
-	if (game_id && (await retrieveGame(game_id, true)).game_data) { return refuse(req, res, 409, "Game id already in use"); }
 
 	const params = newStartParams(color, position.fen);
 	const sides = pickSides(params, req.player.id, "CHESS_AI"); // RANDOM IS DRAWN HERE
-	return created(req, res, await initalizeGame(game_id || false, sides.white, sides.black, aiLevel, { start_params: params }));
+	return created(req, res, await initalizeGame(false, sides.white, sides.black, aiLevel, { start_params: params }));
 }
 
 /* ---------------------------------------------------------------- */
@@ -209,10 +206,10 @@ async function newGuestGame(req, res) {
 	const position = readStartFen(start_fen);
 	if (position.message) { return refuse(req, res, 400, position.message); }
 
-	let gameId = isId(game_id) ? game_id : `${new ObjectId()}`;
+	let gameId = isId(game_id) ? game_id : newGameId();
 	let existing = (await retrieveGame(gameId, true)).game_data;
 	if (existing && !playerInGame(req.player, existing)) { // NOT THEIR GAME: A NEW ONE WITH A NEW ID
-		gameId = `${new ObjectId()}`;
+		gameId = newGameId();
 		existing = null;
 	}
 
@@ -221,7 +218,7 @@ async function newGuestGame(req, res) {
 	const sides = pickSides(side ? { color: side } : params, gameId, "CHESS_AI"); // A GUEST'S PLAYER ID IS THEIR GAME ID
 	let response = await initalizeGame(gameId, sides.white, sides.black, aiLevel, { start_params: params, reset_player: existing ? gameId : undefined }); // A RESET ONLY REPLACES THEIR OWN GAME
 	if (response.status == 409) { // ANOTHER CREATE OF THIS ID SAVED SINCE THE READ: A NEW ID, LIKE ONE THAT ISN'T THEIRS
-		gameId = `${new ObjectId()}`;
+		gameId = newGameId();
 		const newSides = pickSides(side ? { color: side } : params, gameId, "CHESS_AI");
 		response = await initalizeGame(gameId, newSides.white, newSides.black, aiLevel, { start_params: params });
 	}
@@ -254,19 +251,17 @@ function readStartFen(value) {
  * @description A signed in player invites a friend: a PENDING game with the requester as the inviter. The chess server found the friend
  * in Auth0 (opponent_id) & answers the rules around it (one sent invite, their invite to you, one friend game at a time) before this.
  * The names are each player's username, or their Auth0 screenname until they pick one (the requester's comes from their token)
- * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional), game_id (optional, must be new) }]
- * @return {[object]} response [initalizeGame's { status, game_data (PENDING), message }]
+ * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional) }]. The game id is made here
+ * @return {[object]} response [initalizeGame's { status, game_data (PENDING, game_id is the new id), message }]
  */
 async function inviteGame(req, res) {
 	if (req.player.guest) { return refuse(req, res, 403, "Guests can't invite"); }
-	const { opponent_id, opponent_screenname, color, start_fen, game_id } = req.body || {};
+	const { opponent_id, opponent_screenname, color, start_fen } = req.body || {};
 	if (!isId(opponent_id)) { return refuse(req, res, 400, "Invalid opponent"); }
 	if (opponent_id == req.player.id) { return refuse(req, res, 400, "That's your own id"); }
 	if (opponent_screenname !== undefined && (typeof opponent_screenname != "string" || opponent_screenname.length > NAME_LENGTH)) { return refuse(req, res, 400, "Invalid screenname"); }
-	if (game_id !== undefined && !isId(game_id)) { return refuse(req, res, 400, "Invalid game id"); }
 	const position = readStartFen(start_fen);
 	if (position.message) { return refuse(req, res, 400, position.message); }
-	if (game_id && (await retrieveGame(game_id, true)).game_data) { return refuse(req, res, 409, "Game id already in use"); }
 
 	const params = newStartParams(color, position.fen);
 	const sides = pickSides(params, req.player.id, opponent_id); // RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
@@ -274,7 +269,7 @@ async function inviteGame(req, res) {
 		[req.player.id]: (await username(req.player.id)) || req.player.user.user_metadata?.screenname,
 		[opponent_id]: (await username(opponent_id)) || opponent_screenname,
 	};
-	return created(req, res, await initalizeGame(game_id || false, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, pending: true, start_params: params, inviter_id: req.player.id }));
+	return created(req, res, await initalizeGame(false, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, pending: true, start_params: params, inviter_id: req.player.id }));
 }
 
 /* ---------------------------------------------------------------- */
@@ -360,8 +355,8 @@ async function rematchGame(req, res) {
 	const waiting = { status: 200, waiting: true, expires_in: REMATCH_TIME, message: "Waiting for opponent" };
 	if (await requestRematch(gameId, playerId, Date.now() + REMATCH_TIME)) { return res.json(waiting); } // FIRST PRESS
 
-	const newGameId = `${new ObjectId()}`;
-	if (!(await acceptRematch(gameId, playerId, newGameId))) { // THE OTHER MINUTE JUST RAN OUT, OR THE OTHER PRESS STARTED IT
+	const rematchId = newGameId();
+	if (!(await acceptRematch(gameId, playerId, rematchId))) { // THE OTHER MINUTE JUST RAN OUT, OR THE OTHER PRESS STARTED IT
 		const latest = await retrieveGame(gameId, true);
 		if (latest.game_data?.rematch_game_id) { return res.json(started(latest.game_data)); }
 		if (await requestRematch(gameId, playerId, Date.now() + REMATCH_TIME)) { return res.json(waiting); }
@@ -372,7 +367,7 @@ async function rematchGame(req, res) {
 	const inviter = inviterId(gameData);
 	const sides = pickSides(params, inviter, inviter == players[0] ? players[1] : players[0]);
 	const names = { [players[0]]: (await username(players[0])) || playerName(gameData, "w"), [players[1]]: (await username(players[1])) || playerName(gameData, "b") }; // A NEW USERNAME SHOWS FROM THE REMATCH ON
-	const made = await initalizeGame(newGameId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter });
+	const made = await initalizeGame(rematchId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter });
 	if (!made.game_data) { return made.status == 409 ? refuse(req, res, 409, made.message) : res.json(made); }
 
 	let dropped = [];
@@ -380,7 +375,7 @@ async function rematchGame(req, res) {
 		const invite = await dropSentInvite(players[i]);
 		if (invite) { dropped.push(invite); }
 	}
-	return res.json({ status: 200, new_game_id: newGameId, game_data: made.game_data, dropped_invites: dropped, message: "Rematch started" });
+	return res.json({ status: 200, new_game_id: rematchId, game_data: made.game_data, dropped_invites: dropped, message: "Rematch started" });
 }
 
 /* ---------------------------------------------------------------- */

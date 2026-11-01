@@ -83,7 +83,7 @@ The data service signs every session and guest token with its private key (ES256
    sudo systemctl restart data-service && journalctl -u data-service -n 5   # "Data service on http://172.31.64.10:8090"
    ```
 
-4. **On Chess-Stockfish, deploy the new server code** ([deploy/README.md → Updating, logs and fixes](deploy/README.md#updating-logs-and-fixes), without the restart), **add the public half** (from step 1) and restart the chess server:
+4. **On Chess-Stockfish, deploy the new server code** ([SETUP.md → Deploy a new version](SETUP.md#deploy-a-new-version), the chess server part, without the restart), **add the public half** (from step 1) and restart the chess server:
 
    ```bash
    sed -i '/^JWT_\(SECRET\|EXPIRES_IN\|REFRESH_EXPIRES_IN\)=/d' /opt/chess/server/.env

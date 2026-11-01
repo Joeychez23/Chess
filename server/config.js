@@ -63,6 +63,9 @@ const config = {
     publicKey("SESSION_PUBLIC_KEY_NEXT", process.env.SESSION_PUBLIC_KEY_NEXT)
   ]),
 
+  // WHERE THE CLIENT LOADS ITS SPRITES, SOUNDS & FAVICONS (THE SAME CHESS_ASSETS_URL AS client/.env), ALLOWED BY THE CSP (middleware/securityHeaders.js)
+  assetsUrl: process.env.CHESS_ASSETS_URL || "https://assets.chess.aws-prac-route53.com",
+
   // STOCKFISH ENGINE API (chess-engine-api), THE SERVER ASKS IT FOR THE AI'S MOVES
   engineUrl: process.env.ENGINE_URL || "https://engine.aws-prac-route53.com/v1",
 
