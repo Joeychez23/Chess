@@ -61,7 +61,7 @@ async function callback(req, res) {
 	res.clearCookie(RETURN_COOKIE, { path: STATE_PATH });
 
 	if (error || !code || !state || state != savedState) { // LOGIN CANCELED OR NOT STARTED BY US
-		console.log(`Login failed: ${error || "invalid state"}`);
+		console.log(`Login failed: ${JSON.stringify(error || "invalid state")}`); // JSON.stringify ESCAPES LINE BREAKS: ANYONE CAN SEND error, AND A LINE OF ITS OWN COULD SET OFF AN ALARM (terraform/modules/monitoring)
 		return res.redirect(loginFailed("failed"));
 	}
 
@@ -144,13 +144,13 @@ async function startPlayerSession(idToken) {
 	const email = jwt.decode(idToken)?.email; // ONLY TO FIND THE USER, THE DATA SERVICE VERIFIES THE id_token ITSELF BEFORE IT SIGNS ANYTHING
 	const auth0User = await getAuth0User(email); // FULL USER (USER_ID + USER_METADATA)
 	if (!auth0User) {
-		console.log(`Login failed: no ${config.auth0Connection} user for ${email}`);
+		console.log(`Login failed: no ${config.auth0Connection} user for ${JSON.stringify(email)}`);
 		return null;
 	}
 	const session = await startSession(idToken, sessionUser(auth0User)); // THE DATA SERVICE SIGNS THE ACCESS & REFRESH TOKENS
 	if (session.status != 200) {
 		const log = session.message?.includes("unknown key") ? console.error : console.log; // AN UNKNOWN KEY IS A SETUP PROBLEM, NOT THE PLAYER'S (#282)
-		log(`Login failed: ${session.message}`);
+		log(`Login failed: ${JSON.stringify(session.message)}`);
 		return null;
 	}
 	return session;

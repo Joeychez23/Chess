@@ -11,8 +11,11 @@ const { test, describe, before, after, beforeEach, afterEach, mock } = require("
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
 const { aiMove } = require("../utils/ai.js");
+const config = require("../config.js");
+const { LOGIN_LIMITS } = require("../middleware/rateLimit.js");
+const keys = require("../../data-service/test/helpers/keys.js");
 const { startErrorReports } = require("../../client/src/js/pages/utils/reportErrors.js");
-const { send, engineWillPlay, engineCalls, dataServiceWillAnswer } = testServer;
+const { send, engineWillPlay, engineCalls, dataServiceWillAnswer, auth0WillSign } = testServer;
 
 const STOCKFISH_ALARM = /^STOCKFISH FAILED/; // THE PATTERNS IN terraform/modules/monitoring/main.tf
 const SERVER_ERROR_ALARM = /^HTTP 5[0-9][0-9] /;
@@ -122,6 +125,69 @@ describe("the lines the alarms match", () => {
 		assert.ok(!reports()[0].includes("\n"));
 		assert.ok(!STOCKFISH_ALARM.test(reports()[0]));
 		assert.ok(!SERVER_ERROR_ALARM.test(reports()[0]));
+	});
+});
+
+describe("a request can't add a line to the log (#339)", () => {
+	const FORGED = "x\nSTOCKFISH FAILED\r\nHTTP 500 GET /";
+	const LOGIN_HEADERS = { "Content-Type": "application/json", Origin: new URL(config.clientUrl).origin };
+	const failures = () => logged.filter((line) => line.startsWith("Login failed: "));
+	const logIn = (someone) => send("GET", `/api/auth/callback?code=${encodeURIComponent(someone.email)}&state=state1`, { auth_state: "state1" });
+
+	/**
+	 * @description No line in the log has a line break, or starts like a line an alarm counts
+	 */
+	function assertOneLineEach() {
+		for (const line of logged) {
+			assert.ok(!/[\r\n]/.test(line), `a line break in: ${line}`);
+			assert.ok(!STOCKFISH_ALARM.test(line) && !SERVER_ERROR_ALARM.test(line), `an alarm matches: ${line}`);
+		}
+	}
+
+	test("the callback's error, with no cookies, is one escaped line", async () => {
+		const res = await send("GET", `/api/auth/callback?error=${encodeURIComponent(FORGED)}`);
+		assert.equal(res.http, 302);
+		assert.deepEqual(failures(), [`Login failed: ${JSON.stringify(FORGED)}`]);
+		assertOneLineEach();
+	});
+
+	test("the callback's error sent more than once is one line too", async () => {
+		await send("GET", `/api/auth/callback?error=a&error=${encodeURIComponent(FORGED)}`);
+		assert.deepEqual(failures(), [`Login failed: ${JSON.stringify(["a", FORGED])}`]);
+		assertOneLineEach();
+	});
+
+	test("a callback with no error still says why", async () => {
+		await send("GET", "/api/auth/callback?code=x&state=other", { auth_state: "state1" });
+		assert.deepEqual(failures(), ['Login failed: "invalid state"']);
+	});
+
+	test("the email in an id_token is one escaped line", async () => {
+		const someone = testServer.player("alice");
+		auth0WillSign((claims) => keys.idToken({ ...claims, email: FORGED }));
+		await logIn(someone);
+		assert.equal(failures().length, 1);
+		assert.ok(failures()[0].endsWith(` user for ${JSON.stringify(FORGED)}`));
+		assertOneLineEach();
+	});
+
+	test("the data service's refusal is one escaped line", async () => {
+		const someone = testServer.player("alice");
+		dataServiceWillAnswer("/session/login", 401, FORGED);
+		await logIn(someone);
+		assert.deepEqual(failures(), [`Login failed: ${JSON.stringify(FORGED)}`]);
+		assertOneLineEach();
+	});
+
+	test("the email the login limit logs is one escaped line", async () => {
+		const email = FORGED.toLowerCase();
+		const login = () => send("POST", "/api/auth/login", {}, { headers: LOGIN_HEADERS, body: JSON.stringify({ email: FORGED, password: "wrong" }) });
+		for (let i = 0; i < LOGIN_LIMITS.loginEmail.burst; i++) { assert.equal((await login()).http, 401); }
+		assert.equal((await login()).http, 429);
+		const lines = logged.filter((line) => line.startsWith("Login limit "));
+		assert.equal(lines.length, 1);
+		assert.ok(lines[0].startsWith(`Login limit (loginEmail: ${JSON.stringify(email)}) POST /api/auth/login`));
+		assertOneLineEach();
 	});
 });
 

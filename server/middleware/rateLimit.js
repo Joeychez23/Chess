@@ -69,7 +69,7 @@ function limitLogins(req, res, next) {
 	const result = takeTokens(keys, Date.now(), LOGIN_LIMITS);
 	if (result.ok) { return next(); }
 	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`Login limit (${result.limit}: ${keys[result.limit]}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
+	if (result.log) { console.log(`Login limit (${result.limit}: ${JSON.stringify(keys[result.limit])}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
 	res.set("Retry-After", String(seconds));
 	return res.status(429).json({ status: 429, message: `Too many logins, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
 }
