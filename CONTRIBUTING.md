@@ -10,7 +10,7 @@ Open an [issue](https://github.com/Joeychez23/Chess/issues/new/choose) with the 
 
 ## Setting up
 
-The quick start is in the README's [Quick start](README.md#quick-start), the `.env` files are in the [client](client/README.md#setup), [server](server/README.md#setup) and [data service](data-service/README.md) READMEs, and the run commands are in [client/README.md](client/README.md#run). You'll need Node 22+, an Auth0 app, a local session key pair, and AWS credentials for the DynamoDB tables (used by `data-service/`).
+The quick start is in the README's [Quick start](README.md#quick-start), the `.env` files are in the [client](client/README.md#setup), [server](server/README.md#setup) and [data service](data-service/README.md) READMEs, and the run commands are in [client/README.md](client/README.md#run). You'll need Node 24+, an Auth0 app, a local session key pair, and AWS credentials for the DynamoDB tables (used by `data-service/`).
 
 ## Making a change
 

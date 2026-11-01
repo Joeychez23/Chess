@@ -15,7 +15,7 @@
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?logo=socketdotio&logoColor=white)
 ![DynamoDB](https://img.shields.io/badge/DynamoDB-4053D6?logo=amazondynamodb&logoColor=white)
 ![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
-![Node](https://img.shields.io/badge/Node-22+-5FA04E?logo=nodedotjs&logoColor=white)
+![Node](https://img.shields.io/badge/Node-24+-5FA04E?logo=nodedotjs&logoColor=white)
 
 **Home** · [Client](client/README.md) · [Server](server/README.md) · [Data service](data-service/README.md) · [Deploy](deploy/README.md) · [Terraform](terraform/README.md) · [Setup & fixes](SETUP.md)
 
@@ -76,7 +76,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 
 ## Quick start
 
-Requires Node 22+ (the server).
+Requires Node 24+ (the server).
 
 Install, then fill in the `.env` files ([client](client/README.md#setup), [server](server/README.md#setup), [data service](data-service/README.md)).
 The copy below skips a `.env` that already exists, so it won't wipe your secrets.
