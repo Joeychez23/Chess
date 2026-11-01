@@ -183,6 +183,8 @@ deploy() {
 
 	say "Getting $BRANCH from GitHub"
 	NEW="$(mktemp -d)"
+	# mktemp MAKES IT 0700 & THE rsync BELOW COPIES THAT ONTO /opt/chess, WHERE THE chess USER ONLY GETS IN THROUGH "OTHER"
+	chmod 755 "$NEW"
 	git clone --quiet --depth 1 --branch "$BRANCH" "$REPO" "$NEW"
 	local commit before
 	commit="$(git -C "$NEW" rev-parse --short HEAD)"
