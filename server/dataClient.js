@@ -104,7 +104,7 @@ function sessionExpired() {
 }
 
 /**
- * @description The error a call throws when the data service can't answer: server/index.js answers 503 "Try again in a moment"
+ * @description The error a call throws when the data service can't answer: server/index.js answers 503 "Try again in a moment". utils/auth0.js throws one named the same when Auth0 doesn't answer (#365)
  */
 function down(reason) {
 	const err = new Error(`Data service: ${reason}`);

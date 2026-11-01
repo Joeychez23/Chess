@@ -73,7 +73,7 @@ async function callback(req, res) {
 		setSessionCookies(res, session);
 		return res.redirect(new URL(returnTo || "/", config.clientUrl).href); // BACK TO THE PAGE THEY CAME FROM, OR HOME
 	} catch (err) {
-		if (err.name == "DataServiceDown") { // THE DATA SERVICE IS DOWN, OR SIGNED WITH A KEY THIS SERVER CAN'T READ
+		if (err.name == "DataServiceDown") { // THE DATA SERVICE OR AUTH0 IS DOWN, OR THE DATA SERVICE SIGNED WITH A KEY THIS SERVER CAN'T READ
 			console.error(err.message);
 			return res.redirect(loginFailed("unavailable"));
 		}
@@ -84,7 +84,7 @@ async function callback(req, res) {
 
 /**
  * @description Where a failed callback goes: Home with the reason, so the guest page says sign in didn't work (#282)
- * @param  {[string]} reason ["failed" (try again) or "unavailable" (the data service is down)]
+ * @param  {[string]} reason ["failed" (try again) or "unavailable" (the data service or Auth0 is down)]
  * @return {[string]} url
  */
 function loginFailed(reason) {
