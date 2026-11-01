@@ -19,6 +19,7 @@ const { guestToken } = require("../utils/tokens.js");
 const SQUARE = /^[a-h][1-8]$/;
 const PROMOTIONS = ["q", "r", "b", "n"];
 const REMATCH_TIME = 60 * 1000; // BOTH PLAYERS MUST PRESS REMATCH WITHIN 1 MINUTE
+const REMATCH_REPAIR_TIME = 60 * 60 * 1000; // A CLAIMED REMATCH WITH NO GAME IS ONLY MADE AGAIN FOR 1 HOUR, AFTER THAT THE GAME EXPIRED OR WAS NEVER MADE
 const NAME_LENGTH = 50; // AN INVITE'S SCREENNAME FROM AUTH0 (USERNAMES ARE 3 - 20)
 
 /* ---------------------------------------------------------------- */
@@ -370,8 +371,9 @@ async function rematchGame(req, res) {
 /**
  * @description Everything after a rematch is claimed, safe to repeat: a press that failed part way is finished by the next one. Makes the game under
  * the claimed id if it isn't there (neither player can be in another friend game), then puts it on both lists & cancels both players' sent invites.
- * A rematch that has ended is only answered with: its lists are settled, & an invite sent since it ended stays
- * @param  {[object]} gameData [the finished game]
+ * A rematch that has ended is only answered with: its lists are settled, & an invite sent since it ended stays. A claim whose game is missing long
+ * after it was made is refused: TTL deleted the rematch, & one player's press can't start a new game for both
+ * @param  {[object]} gameData [the finished game, as read before this press claimed anything: a saved rematch_game_id means an earlier press claimed it]
  * @param  {[string]} rematchId [the id claimed on it]
  * @return {[object]} response [{ status, new_game_id, message } plus, while the rematch is open, game_data & dropped_invites]
  * @throws when a save fails: the press answers an error & pressing again finishes the work
@@ -382,6 +384,8 @@ async function finishRematch(req, res, gameData, rematchId) {
 
 	const players = [gameData.white_player_id.S, gameData.black_player_id.S];
 	if (!game) {
+		const claimTooOld = gameData.rematch_game_id && !(Number(gameData.rematch_expires?.N) + REMATCH_REPAIR_TIME > Date.now()); // rematch_expires STOPS CHANGING ONCE CLAIMED, NO VALUE COUNTS AS OLD. THIS PRESS'S OWN CLAIM IS NEVER OLD
+		if (claimTooOld) { return refuse(req, res, 409, "Rematch ended"); }
 		for (let i = 0; i < players.length; i++) {
 			const current = await currentGame(players[i], false);
 			if (current && current.game_id.S != rematchId) { return refuse(req, res, 409, "A player is in another friend game"); } // ONE FRIEND GAME AT A TIME

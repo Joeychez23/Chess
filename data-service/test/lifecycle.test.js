@@ -381,6 +381,66 @@ describe("rematch", () => {
 		assert.equal(list("alice", "open_games").includes(new_game_id), false);
 	});
 
+	async function expiredRematch(claimAge) { // BOTH PRESSED, THEN TTL DELETED THE REMATCH
+		await closedFriendGame("game1", "alice", "bob");
+		await call("POST", "/games/game1/rematch", { as: alice });
+		const { new_game_id } = await call("POST", "/games/game1/rematch", { as: bob });
+		await DynamoDB.prototype.deleteItem({ TableName: "chess_db", Key: { game_id: { S: new_game_id } } });
+		await DynamoDB.prototype.updateItem({ TableName: "chess_db", Key: { game_id: { S: "game1" } }, UpdateExpression: "SET rematch_expires = :expires", ExpressionAttributeValues: { ":expires": { N: `${Date.now() - claimAge}` } } });
+		return new_game_id;
+	}
+
+	test("a rematch TTL deleted: a press makes nothing and leaves the other player alone", async () => {
+		const rematchId = await expiredRematch(25 * 24 * 60 * 60 * 1000);
+		await friendGame("invite1", "bob", "carol", true); // BOB'S SENT INVITE
+		const bobBefore = peek("user_db", "bob");
+		const again = await call("POST", "/games/game1/rematch", { as: alice });
+		assert.equal(again.http, 409);
+		assert.equal(again.message, "Rematch ended");
+		assert.equal(peek("chess_db", rematchId), undefined);
+		assert.ok(peek("chess_db", "invite1"));
+		assert.deepEqual(peek("user_db", "bob"), bobBefore);
+	});
+
+	test("a rematch TTL deleted: a press doesn't bring back the row of a player who deleted their data", async () => {
+		await expiredRematch(25 * 24 * 60 * 60 * 1000);
+		await DynamoDB.prototype.deleteItem({ TableName: "user_db", Key: { user_id: { S: "bob" } } });
+		assert.equal((await call("POST", "/games/game1/rematch", { as: alice })).http, 409);
+		assert.equal(peek("user_db", "bob"), undefined);
+	});
+
+	test("the repair window: a missing game is made just inside it and refused just past it", async () => {
+		const rematchId = await expiredRematch(59 * 60 * 1000);
+		assert.equal((await call("POST", "/games/game1/rematch", { as: alice })).new_game_id, rematchId);
+		assert.equal(peek("chess_db", rematchId).state.S, "OPEN");
+
+		service.reset();
+		const oldId = await expiredRematch(61 * 60 * 1000);
+		assert.equal((await call("POST", "/games/game1/rematch", { as: alice })).http, 409);
+		assert.equal(peek("chess_db", oldId), undefined);
+	});
+
+	test("a claim with no rematch_expires counts as old", async () => {
+		const rematchId = await expiredRematch(0);
+		await DynamoDB.prototype.updateItem({ TableName: "chess_db", Key: { game_id: { S: "game1" } }, UpdateExpression: "REMOVE rematch_expires" });
+		assert.equal((await call("POST", "/games/game1/rematch", { as: alice })).http, 409);
+		assert.equal(peek("chess_db", rematchId), undefined);
+	});
+
+	test("this press's own claim is made even when the game it read had a long gone request", async () => {
+		await closedFriendGame("game1", "alice", "bob");
+		await db.requestRematch("game1", "alice", Date.now() - 2 * 60 * 60 * 1000);
+		const updateItem = DynamoDB.prototype.updateItem;
+		DynamoDB.prototype.updateItem = async (params) => { // ALICE PRESSES AGAIN AFTER BOB'S PRESS READ THE GAME
+			DynamoDB.prototype.updateItem = updateItem;
+			await db.requestRematch("game1", "alice", Date.now() + 60 * 1000);
+			return updateItem(params);
+		};
+		const second = await call("POST", "/games/game1/rematch", { as: bob });
+		assert.equal(second.status, 200);
+		assert.equal(peek("chess_db", second.new_game_id).state.S, "OPEN");
+	});
+
 	test("a press after the other player's minute ran out waits again", async () => {
 		await closedFriendGame("game1", "alice", "bob");
 		await db.requestRematch("game1", "alice", Date.now() - 1000);
