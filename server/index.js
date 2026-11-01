@@ -43,10 +43,12 @@ app.use((err, req, res, next) => {
 });
 
 const server = http.createServer(app); // SOCKET.IO SHARES THE PORT WITH EXPRESS
-initSocket(server);
+const io = initSocket(server);
 
     server.listen(config.port, () => {
         console.log(`Listening on http://localhost:${config.port}`);
     });
+
+process.on("SIGTERM", () => io.close(() => process.exit(0))); // A RESTART ENDS THE SOCKETS (CLIENTS RECONNECT), TAKES NO NEW REQUESTS & LETS THE RUNNING ONES FINISH (#358)
 
 module.exports = app;

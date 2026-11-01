@@ -67,7 +67,8 @@ function hasBody(req) {
 /* ---------------------------------------------------------------- */
 
 if (require.main === module) { // node index.js, THE TESTS START THE APP THEMSELVES
-	app.listen(config.port, config.host, () => console.log(`Data service on http://${config.host}:${config.port}`));
+	const server = app.listen(config.port, config.host, () => console.log(`Data service on http://${config.host}:${config.port}`));
+	process.on("SIGTERM", () => server.close(() => process.exit(0))); // A RESTART TAKES NO NEW REQUESTS & LETS THE RUNNING ONES FINISH THEIR WRITES (#358)
 }
 
 module.exports = app;

@@ -64,6 +64,7 @@ engine are answered from test data.
 | `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
 | `settings.test.js` | The settings page's Default start settings and Delete my data |
 | `monitoring.test.js` | `GET /api/health` (a slow engine counts as down in time, the answer is kept, it never says why), the log lines the alarms match, and browser error reports from `reportErrors.js` to the log line: limited, cut short, and unable to set off an alarm |
+| `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and an open socket reconnects to the next start |
 | `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
