@@ -320,7 +320,46 @@ sudo grep '^ENGINE_URL=' /opt/chess/server/.env
 systemctl status chess-engine-api --no-pager
 ```
 
+## Alerts
+
+Emails from AWS, set up in [deploy/README.md → 12. Monitoring](deploy/README.md#12-monitoring). Each one also emails `OK` when it clears.
+
+**`chess-site-down`:** see which part is down.
+
+**On your Mac**
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://chess.aws-prac-route53.com/; curl -s https://chess.aws-prac-route53.com/api/health; echo
+```
+
+| You see | What's down | Fix |
+| --- | --- | --- |
+| `502` or no answer | The chess server or nginx | `sudo systemctl status chess nginx` and `journalctl -u chess -n 30`, then [`chess` won't start](#chess-wont-start) |
+| `"engine":"down"` | The engine. Every AI level plays at about level 1 | `sudo systemctl status chess-engine-api`, `sudo systemctl restart chess-engine-api` |
+| `"dynamodb":"down"` | The data service or DynamoDB | `journalctl -u chess -n 30 \| grep HEALTH` says why. `curl -s http://172.31.64.10:8090/health` tells the data service apart from DynamoDB, then [`data-service` won't start](#data-service-wont-start). On the data service: `journalctl -u data-service -n 30 \| grep HEALTH` |
+
+**`chess-stockfish-failed`:** the AI played a weak backup move. One now and then is a slow engine. If it repeats, treat it as `"engine":"down"` above.
+
+**On Chess-Stockfish**
+```bash
+journalctl -u chess --since "15 min ago" | grep "STOCKFISH FAILED"
+```
+
+**`chess-server-5xx`:** players got errors.
+
+**On Chess-Stockfish**
+```bash
+journalctl -u chess --since "15 min ago" | grep -E "HTTP 5[0-9][0-9] |Data service"
+```
+
+**`chess-dynamodb-throttled-*`:** the table is over its capacity, so moves are slow or failing. Look at the table's **Monitor** tab in the DynamoDB console, and raise its capacity in `terraform/modules/dynamodb` if the traffic is real.
+
 ## Logs
+
+**In CloudWatch, from your Mac** (the chess server's, kept 30 days)
+```bash
+aws logs tail /chess/server --region us-west-2 --since 1h
+aws logs tail /chess/server --region us-west-2 --since 1d --filter-pattern '"CLIENT ERROR"'   # what's failing in players' browsers
+```
 
 **On Chess-Stockfish**
 ```bash
@@ -393,6 +432,13 @@ scp -J ubuntu@52.11.177.148 /Users/josephsanchez/Desktop/TimeLost/Portfolio/ches
 **On the data service**
 ```bash
 sudo cp /tmp/data-service.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart data-service
+```
+
+**`deploy/chess-logs.service` changed**
+
+**On Chess-Stockfish**
+```bash
+sudo cp /opt/chess/deploy/chess-logs.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart chess-logs
 ```
 
 **`deploy/nginx.conf` changed:** copying it removes certbot's HTTPS block, so run certbot again ([deploy/README.md → 7. nginx and HTTPS](deploy/README.md#7-nginx-and-https)).

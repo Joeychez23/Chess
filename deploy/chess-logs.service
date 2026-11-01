@@ -1,0 +1,37 @@
+# systemd unit that copies the chess server's journal to a file, because the CloudWatch agent reads files and not the journal (#194)
+# journalctl -u chess keeps working. Lines written while this unit restarts aren't copied
+# Install: deploy/README.md -> 12. Monitoring
+
+[Unit]
+Description=Copies the chess server's journal to /var/log/chess/server.log
+After=systemd-journald.service
+
+[Service]
+Type=simple
+User=chess
+Group=chess
+SupplementaryGroups=systemd-journal
+ExecStart=/usr/bin/journalctl -u chess -f -n 0 -o cat --no-pager
+StandardOutput=append:/var/log/chess/server.log
+Restart=always
+RestartSec=5
+
+# THE LOG HAS EMAIL ADDRESSES (FAILED LOGINS, THE LOGIN LIMIT), ONLY ROOT (THE AGENT & logrotate) READS IT
+UMask=0027
+
+# THE SAME BLOCK AS chess.service
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

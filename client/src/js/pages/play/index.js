@@ -13,6 +13,7 @@
 
 import "../../../css/style.css"; // PLAY PAGE STYLES (CANVAS LAYOUT)
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
+require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { renderCanvas } = require("../../gameplay/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");

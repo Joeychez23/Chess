@@ -237,6 +237,7 @@ deploy() {
 	rm -f "$UNFINISHED"
 
 	cmp -s "$NEW/deploy/chess.service" "$SYSTEMD_DIR/chess.service" || warn_unit deploy/chess.service
+	cmp -s "$NEW/deploy/chess-logs.service" "$SYSTEMD_DIR/chess-logs.service" || warn_unit deploy/chess-logs.service
 	on_data cat "$SYSTEMD_DIR/data-service.service" | cmp -s - "$NEW/deploy/data-service.service" || warn_unit deploy/data-service.service
 
 	echo "    Deployed $commit (was $before)"

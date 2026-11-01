@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------- #
 # AWS Environment
-# THE ROOT MODULE: THE ASSETS CDN, THE TABLES, THE CHESS SERVER'S DNS & ROLE AND THE DATA SERVICE (terraform/README.md)
+# THE ROOT MODULE: THE ASSETS CDN, THE TABLES, THE CHESS SERVER'S DNS & ROLE, THE DATA SERVICE AND THE ALERTS (terraform/README.md)
 # ---------------------------------------------------------------- #
 
 terraform {
@@ -46,6 +46,19 @@ module "data_service_module" {
   key_name                 = local.key_name
   table_arns               = module.dynamodb_module.table_arns
   maintenance              = var.maintenance
+}
+
+module "monitoring_module" {
+  source           = "../modules/monitoring"
+  alert_email      = var.alert_email
+  site_domain_name = local.server_domain_names[0]
+  table_names      = [local.chess_table_name, local.user_table_name]
+  server_role_name = local.server_role_name
+}
+
+# WHERE THE ALERTS GO. SET IT IN terraform.auto.tfvars (NOT COMMITTED): alert_email = "you@example.com"
+variable "alert_email" {
+  type = string
 }
 
 # terraform apply -var maintenance=true: THE DATA SERVICE CAN REACH THE INTERNET (THROUGH A NAT GATEWAY) TO INSTALL OR UPDATE.

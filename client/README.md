@@ -84,6 +84,10 @@ as soon as they open, so the game's sprites are already in the browser cache
 when a game opens, and each one is logged to the console. With the uploaded
 `Cache-Control` header (above) they stay cached on later visits too.
 
+Each page's first step is `startErrorReports()` (`pages/utils/reportErrors.js`). It sends uncaught
+errors, rejected promises, 5xx answers and failed requests to `POST /api/client-errors`, at most 10
+different ones per page load. 4xx answers are left out because they're normal, and so are game ids and queries.
+
 ## Socket.IO
 
 The client side is `client/src/js/socket/index.js`. `renderCanvas()` calls

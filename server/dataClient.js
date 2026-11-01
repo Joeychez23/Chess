@@ -217,6 +217,15 @@ const decline = (gameId) => call("POST", `/games/${id(gameId)}/decline`);
 const rematch = (gameId) => call("POST", `/games/${id(gameId)}/rematch`);
 
 /* ---------------------------------------------------------------- */
+// Health (#194)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The data service reads both tables (GET /api/health). Throws like any call when it's down or DynamoDB can't answer
+ * @return {[object]} response [{ status: 200, message }]
+ */
+const checkTables = () => call("GET", "/health/tables");
+
+/* ---------------------------------------------------------------- */
 // Sessions (#252)
 /* ---------------------------------------------------------------- */
 /**
@@ -270,4 +279,4 @@ const claimUsername = (username) => call("POST", "/users/me/username", { usernam
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { timeouts, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
