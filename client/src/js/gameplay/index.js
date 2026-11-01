@@ -94,7 +94,11 @@ async function startGame() {
 	game.cw = 0; // SET BY renderBoard()
 	game.ch = 0;
 
-	await setInitialData(); // SETS INITIAL DATA
+	if (await setInitialData() === false) { // COULDN'T LOAD: NO GAME TO DRAW OR PLAY, ONLY ITS MESSAGE (setInitialData) ON THE TABLE
+		optBtn.style.display = "none"; // ITS LISTENER IS ADDED BELOW, A RELOAD STARTS AGAIN
+		document.documentElement.classList.remove("loadingPage"); // loadingPage HIDES THE MESSAGE (play.html)
+		return;
+	}
 	handleInitialData(); // HANDLES INITIAL DATA
 	if (!game.ai && game.response?.status == 200) { // FRIEND GAME
 		joinGame(game.GAME_ID, game.PLAYER_ID, socketHandlers); // THE SERVER PUSHES MOVES, FORFEITS & REMATCHES (server/socket.js)
