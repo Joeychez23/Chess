@@ -117,6 +117,7 @@ export const game = {
 	set currSlide(value) { currSlide = value; if (value) { requestFrame(); } },
 	slideStart: false, // FIRST FRAME OF A SLIDE, A KNIGHT STOPS FOR 100MS BEFORE ITS HOP
 	knightHop: 0, // HOW HIGH A HOPPING KNIGHT IS: 0 ON THE BOARD, 1 AT THE TOP (HALF A SQUARE UP), SET BY handleKnightHop()
+	reduceMotion: false, // THE DEVICE ASKS FOR LESS MOTION: PIECES ARE SET WITHOUT SLIDING OR HOPPING (SET & KEPT UP TO DATE BY renderCanvas)
 
 	// TAKEN PIECES
 	wPieceCount: { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }, // WHITE PIECES DRAWN THIS FRAME, TAKEN PIECES = START COUNT - THIS

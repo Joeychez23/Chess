@@ -24,13 +24,13 @@ Chess should be playable by as many people as possible, including people who use
 - Legal moves are highlighted when you pick up a piece, and a king in check is highlighted.
 - The board fits phones in portrait and landscape, and tablets and desktops.
 - Friend games are saved after every move, so there's no time limit on making one.
+- The site follows your device's "reduce motion" setting: pieces appear on their new squares without sliding or hopping, Restart and Rematch set the pieces straight away, and pages change without fading.
 
 ## Known limitations
 
 - **The game board can't be read by a screen reader.** It's drawn as a picture (an HTML canvas) with no text version, so a screen reader can't tell you where the pieces are, which moves are legal or what your opponent played.
 - **You can't play with only a keyboard.** The menus work with a keyboard, but moving pieces needs a mouse or touch. Arrow keys and Enter work only in a TV remote mode that's switched off on the live site.
 - **Moves are shown only by animation and sound.** Nothing announces your opponent's move in words, and there's no move list to look back at.
-- **Motion can't be reduced.** Pieces slide and knights hop on every move, the pieces slide home on Restart and Rematch, and pages fade between each other. The site doesn't yet follow your device's "reduce motion" setting.
 - **The move sound can't be turned off** without muting your device.
 - **There are no board coordinates** (a–h, 1–8).
 - **The result doesn't always say why the game ended.** The menu shows "White Wins!", "Black Wins!" or "Draw", but only forfeits are named, not checkmate, stalemate and so on.
@@ -51,7 +51,6 @@ Not tracked yet, but needed:
 
 - Announcing each move to screen readers ("Black: knight to f6")
 - Moving pieces with the keyboard on the live site
-- Following the device's "reduce motion" setting
 
 ## Report a problem
 

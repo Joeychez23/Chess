@@ -30,7 +30,8 @@ export const KNIGHT_PAUSE_MS = 100; // A KNIGHT STOPS THIS LONG BEFORE ITS HOP
  * @description Puts a sliding piece where the time says it is (progress = elapsed / duration), so it moves at the same speed
  * at any frame rate, lands on time after a hidden tab comes back & stays lined up after a resize. The clock starts on the
  * slide's first frame (a slide that starts in a hidden tab plays when the tab is shown). A knight takes the time of one square
- * (its long side goes twice as fast, so both sides finish together) & stays put for KNIGHT_PAUSE_MS first
+ * (its long side goes twice as fast, so both sides finish together) & stays put for KNIGHT_PAUSE_MS first.
+ * With reduce motion on it's there on its first frame: no slide, no knight stop or hop (slideProgress 1 lands it, sin(PI) is no hop)
  * @param  {[object]} tile [the sliding tile]
  * @param  {[number]} square [its index in tiles (row * 8 + column), its start square]
  */
@@ -41,7 +42,8 @@ export function stepSlide(tile, square) {
 	const now = performance.now();
 	if (tile.slideStartTime === null || tile.slideStartTime === undefined) { tile.slideStartTime = now + (knight ? KNIGHT_PAUSE_MS : 0); }
 	const duration = (knight ? 1 : Math.max(Math.abs(xSquares), Math.abs(ySquares))) * SLIDE_MS_PER_SQUARE;
-	tile.slideProgress = duration ? Math.min(Math.max((now - tile.slideStartTime) / duration, 0), 1) : 1; // 0 - 1 OF THE TIME
+	tile.slideProgress = duration && !game.reduceMotion ? Math.min(Math.max((now - tile.slideStartTime) / duration, 0), 1) : 1; // 0 - 1 OF THE TIME
+	if (game.reduceMotion) { game.slideStart = false; } // NO KNIGHT STOP (slideStart IS WHAT STARTS IT)
 	tile.xDiff = xSquares * game.tileWidth * tile.slideProgress; // PIXELS MOVED SO FAR
 	tile.yDiff = -ySquares * game.tileHeight * tile.slideProgress; // yDiff IS SUBTRACTED, SO GOING DOWN THE SCREEN MAKES IT NEGATIVE
 }
@@ -175,10 +177,10 @@ function setSlidePiece(from, to, fade) {
  * Draws the board, then every piece part of the way home on a slow start & landing, back to front so the lower pieces
  * cover the ones above them. Knights hop like a move, their image is drawn on top while they're in the air (their reflection & shadow
  * stay in order, under the pieces in front of them). When the time is up
- * the new game takes over (its first frame turns the pieces to their start, an AI move slides in after)
+ * the new game takes over (its first frame turns the pieces to their start, an AI move slides in after). With reduce motion on the time is up on the first frame, so the pieces are just set
  */
 export function drawRestartSlide() {
-	const progress = Math.min((Date.now() - game.restartSlide.startTime) / RESTART_SLIDE_MS, 1); // 0 - 1 OF THE TIME
+	const progress = game.reduceMotion ? 1 : Math.min((Date.now() - game.restartSlide.startTime) / RESTART_SLIDE_MS, 1); // 0 - 1 OF THE TIME
 	if (progress == 1) { // HOME: THE NEW GAME TAKES OVER
 		game.restartSlide = null;
 		setRestartLoading(false);

@@ -105,6 +105,10 @@ async function startGame() {
 	main.append(canvas);
 	//
 
+	const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)"); // THE DEVICE'S REDUCE MOTION SETTING
+	game.reduceMotion = reduceMotionQuery.matches;
+	reduceMotionQuery.addEventListener("change", function (e) { game.reduceMotion = e.matches; }); // CHANGED DURING A GAME: THE NEXT FRAME USES IT
+
 	startFrames(renderLoop); // THE RENDER LOOP, FRAMES ONLY COME WHILE SOMETHING CHANGES & THE TAB IS SHOWN
 	document.addEventListener("visibilitychange", function () { if (!document.hidden) { game.refresh = true; } }); // SHOWN AGAIN: A SLIDE CATCHES UP TO THE TIME (stepSlide), REDRAWS A CANVAS THE BROWSER MAY HAVE THROWN AWAY
 
