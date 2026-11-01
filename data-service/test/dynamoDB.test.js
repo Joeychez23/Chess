@@ -105,6 +105,28 @@ describe("updateGame", () => {
 		assert.equal(stored.reason.S, "forfeit");
 	});
 
+	test("a move read before a forfeit is refused and the finished game stays as it closed", async () => {
+		const read = await mateFriendGame();
+		const moved = (await validateMove({ player_id: "alice", move: ["a1", "a2"] }, structuredClone(read))).game_data;
+		await db.closeGame(read, "b", "forfeit");
+		const closed = fakeDynamo.peek("chess_db", "game1");
+
+		assert.equal((await db.updateGame(moved, MATE_IN_ONE)).status, 500);
+		assert.equal((await db.updateGame(moved)).status, 500); // NO BOARD PASSED
+		assert.deepEqual(fakeDynamo.peek("chess_db", "game1"), closed);
+		assert.equal(closed.expireAt, undefined);
+	});
+
+	test("a game from before state can still be moved on", async () => {
+		const read = await mateFriendGame();
+		const { DynamoDB } = require("@aws-sdk/client-dynamodb");
+		await DynamoDB.prototype.updateItem({ TableName: "chess_db", Key: { game_id: { S: "game1" } }, UpdateExpression: "REMOVE #state", ExpressionAttributeNames: { "#state": "state" } });
+		const moved = (await validateMove({ player_id: "alice", move: ["a1", "a2"] }, read)).game_data;
+
+		assert.equal((await db.updateGame(moved, MATE_IN_ONE)).status, 200);
+		assert.equal(fakeDynamo.peek("chess_db", "game1").state, undefined);
+	});
+
 	test("a closing move in an AI game keeps expireAt", async () => {
 		const created = await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w", fen: MATE_IN_ONE } });
 		const moved = await playMate(created.game_data);

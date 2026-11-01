@@ -183,11 +183,11 @@ function gameItem(item) {
 // Update game (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Saves a validated move. A move that ends the game saves its result in the same write, so the board & the result land together or
+ * @description Saves a validated move, only on a game that's still open (a forfeit can land after the move's read). A move that ends the game saves its result in the same write, so the board & the result land together or
  * not at all (run finishClosedGame after it). Finished friend games are kept forever (expireAt is removed)
  * @param  {[object]} gameData [Validated server data, modified by a successful client request]
  * @param  {[string]} prevBoard [board the move was made on, the save fails if the board changed since (two requests at once)]
- * @param  {[object]} result [gameResult's { winner, reason } when the move ends the game, the save also fails if the game already closed]
+ * @param  {[object]} result [gameResult's { winner, reason } when the move ends the game]
  * @return {[object]} response [{ status, game_data (the game as saved), message }]
  */
 async function updateGame(gameData, prevBoard, result) {
@@ -198,7 +198,10 @@ async function updateGame(gameData, prevBoard, result) {
 			game_id: { S: gameData.game_id.S }
 		},
 		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""}${keepForever ? " REMOVE expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		ConditionExpression: '(attribute_not_exists(#state) OR #state = :open)', // GAMES FROM BEFORE state ARE OPEN
+		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
+			":open": { S: "OPEN" },
 			":moves": { S: JSON.stringify(gameData.moves.S) }, // UPDATED MOVE ARRAY
 			":prev_move": { S: JSON.stringify(gameData.prev_move.S) },
 			":game_board": { S: gameData.game_board.S }, // UPDATED GAME FEN
@@ -210,13 +213,12 @@ async function updateGame(gameData, prevBoard, result) {
 		ReturnValues: "ALL_NEW" // THE GAME AS SAVED, NO READ BACK (AN EVENTUALLY CONSISTENT READ CAN RETURN THE OLD BOARD)
 	}
 	if (prevBoard) {
-		params.ConditionExpression = 'game_board = :prev_board'; // ONLY ONE MOVE PER BOARD
+		params.ConditionExpression = `game_board = :prev_board AND ${params.ConditionExpression}`; // ONLY ONE MOVE PER BOARD
 		params.ExpressionAttributeValues[":prev_board"] = { S: prevBoard };
 	}
 	if (!keepForever) { params.ExpressionAttributeValues[":expireAt"] = { N: expireTime() }; } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
 	if (result) {
-		params.ConditionExpression = [params.ConditionExpression, '(attribute_not_exists(#state) OR #state <> :closed)'].filter(Boolean).join(" AND "); // ONLY ONE CLOSE WINS: A FORFEIT DOESN'T CHANGE THE BOARD
-		params.ExpressionAttributeNames = { "#state": "state", "#winner": "winner", "#reason": "reason" }; // "state" IS A DYNAMODB RESERVED WORD
+		Object.assign(params.ExpressionAttributeNames, { "#winner": "winner", "#reason": "reason" });
 		Object.assign(params.ExpressionAttributeValues, { ":closed": { S: "CLOSED" }, ":winner": { S: result.winner }, ":reason": { S: result.reason } });
 	}
 
