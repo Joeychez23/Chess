@@ -13,9 +13,10 @@
 const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, TV REMOTE FOR TESTING
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { handleMenuBtn, handleResume, handleRestart, handleHomepage, handleExit } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM)
+const { handleMenuBtn, handleResume, handleSound, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
+const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
@@ -112,9 +113,10 @@ export async function handleKeyPress(e) {
 		if (e.keyCode == 38) { // UP
 			if (remoteNavBox.y > 0 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y -= 1; game.refresh = true; }
 			else if (game.menuToggled) {
-				if (remoteNavBox.menuBtn == optExitBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 4 -> 3
-				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 3 -> 2
-				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optResumeBtn) } // 2 -> 1			
+				if (remoteNavBox.menuBtn == optExitBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 5 -> 4
+				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 4 -> 3
+				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 3 -> 2
+				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optResumeBtn) } // 2 -> 1
 			}
 			else { game.refresh = true; }
 			checkBoxOverPiece();
@@ -122,9 +124,10 @@ export async function handleKeyPress(e) {
 		if (e.keyCode == 40) { // DOWN
 			if (remoteNavBox.y < 7 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y += 1; game.refresh = true; }
 			else if (game.menuToggled) {
-				if (remoteNavBox.menuBtn == optResumeBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 1 -> 2
-				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 2 -> 3
-				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optExitBtn) } // 3 -> 4
+				if (remoteNavBox.menuBtn == optResumeBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 1 -> 2
+				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 2 -> 3
+				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 3 -> 4
+				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optExitBtn) } // 4 -> 5
 			}
 			else { game.refresh = true; }
 			checkBoxOverPiece();
@@ -132,6 +135,7 @@ export async function handleKeyPress(e) {
 		if (e.keyCode == 13) { // ENTER
 			if (!remoteNavBox.menuHover && !game.menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
 			else if (remoteNavBox.menuHover && !game.menuToggled) { handleMenuBtn(e); handleRemoteMenuEnter(optResumeBtn); } // OPEN THE MENU ON RESUME
+			else if (game.menuToggled && remoteNavBox.menuBtn == optSoundBtn) { handleSound(e); } // THE MENU STAYS OPEN & SOUND STAYS SELECTED
 			else if (game.menuToggled && remoteNavBox.menuBtn) { // PRESS THE SELECTED MENU BUTTON, THEN THE SELECT BOX GOES BACK TO THE TOP RIGHT
 				remoteNavBox.menuBtn.style.backgroundColor = "#CD853F"
 				if (remoteNavBox.menuBtn == optResumeBtn) { handleResume(e); }
@@ -170,6 +174,11 @@ function getCanvasPoint(e) {
 export async function handleCanvasClick(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	if (game.menuToggled) { // THE CLICK ONLY CLOSES THE MENU (IF IT CAN), THE HOVER IS SET SO THE NEXT CLICK PLAYS WITHOUT MOVING THE MOUSE
+		closeMenu();
+		handleMouseMove(e);
+		return;
+	}
 	const point = getCanvasPoint(e);
 	game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth); // SCREEN COLUMN CLICKED
 	game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // SCREEN ROW CLICKED
@@ -250,6 +259,7 @@ export async function handleCanvasClick(e) {
 					tile.ySlideTo = game.tileY;
 					tile.xDiff = 0;
 					tile.yDiff = 0;
+					tile.slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
 					for (let j = 0; j < game.tiles.length; j++) { game.tiles[j].isClicked = false; game.tiles[j].isMousedown = false }
 					game.clickedTile = false;
 					game.mousedownTile = false;
@@ -325,7 +335,7 @@ export async function handleMouseDown(e) {
 		if ((tile.isHovering && tile.type && tile.color == game.playerColor)) { // GRAB THE HOVERED PIECE
 			tile.isMousedown = true;
 			game.mousedownTile = tile;
-			game.mouseDownCount = 0;
+			game.mouseDownTime = null;
 			for (let j = 0; j < game.tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
 				if (game.tiles[j].isClicked && (game.tiles[j].x != game.tileX || game.tiles[j].y != game.tileY) && game.tiles[j].color == game.playerColor) {
 					game.tiles[j].isClicked = false
@@ -426,6 +436,8 @@ export function handleTouchEnd(e) { // FINGER UP = MOUSE UP + CLICK
 	handleMouseUp(point);
 	handleCanvasClick(point);
 }
+
+export function clearTouch() { touchState = null; } // THE MENU OPENED: THIS FINGER'S RELEASE ISN'T A CLICK
 
 export function handleTouchCancel() { // THE BROWSER TOOK THE TOUCH (A SYSTEM GESTURE): LET GO WITHOUT A CLICK
 	if (!touchState) { return; }

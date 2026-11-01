@@ -54,3 +54,31 @@ button {
 	user-select: none;
 	-webkit-touch-callout: none;
 }
+
+/* ---------------------------------------------------------------- */
+/* Message Area (gameplay/status/index.js) */
+/* ---------------------------------------------------------------- */
+
+#gameStatus { /* TOP LEFT, CLEAR OF THE MENU BUTTON. CLICKS GO THROUGH TO THE BOARD */
+	position: fixed;
+	z-index: 21;
+	top: calc(env(safe-area-inset-top, 0px) + 14px);
+	left: calc(env(safe-area-inset-left, 0px) + 16px);
+	max-width: calc(100vw - 96px);
+	padding: 10px 14px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 14px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 14px;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+	pointer-events: none;
+}
+
+#gameStatus:empty { /* NOT display: none, SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
+	padding: 0;
+	border: 0;
+	box-shadow: none;
+	background: none;
+}

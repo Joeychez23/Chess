@@ -19,6 +19,9 @@
 		html.loadingPage::view-transition-old(*),
 		html.loadingPage::view-transition-new(*) { animation-play-state: paused; } /* THE LAST PAGE STAYS ON SCREEN UNTIL THIS PAGE IS DRAWN */
 		::view-transition-group(*) { animation-duration: 400ms; }
+		@media (prefers-reduced-motion: reduce) { /* NO FADE: THE LAST PAGE STILL STAYS ON SCREEN WHILE loadingPage IS ON, THEN THIS PAGE IS JUST THERE (0s WHILE PAUSED WOULD SHOW THE UNFINISHED PAGE) */
+			html:not(.loadingPage)::view-transition-group(*) { animation-duration: 0s; }
+		}
 		html { background-color: #0c2a1f; } /* THE PAGE'S GREEN FROM THE FIRST PAINT, NOT WHITE */
 	</style>
 </head>
