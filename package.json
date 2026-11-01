@@ -13,7 +13,7 @@
 		"@babel/preset-env": "^7.15.0",
 		"@eslint/js": "^9.39.5",
 		"babel-loader": "^8.2.2",
-		"css-loader": "^6.2.0",
+		"css-loader": "^7.1.5",
 		"dotenv-webpack": "^8.0.1",
 		"eslint": "^9.39.5",
 		"globals": "^17.13.0",
