@@ -56,6 +56,7 @@ request is for comes from a token only the data service can sign
 | Route | What it checks before saving |
 | --- | --- |
 | `GET /health` | Nothing: answers without a player or the tables |
+| `GET /health/tables` | Signed, no player: reads a key that's never saved from each table, `503` with the error's name when DynamoDB can't answer. The chess server's `GET /api/health` calls it |
 | `GET /games/:gameId` | The requester is in the game (`?consistent=true` for a strongly consistent read) |
 | `POST /games/:gameId/move` `{ from, to, promotion }` | In the game, open, their turn, a legal move on the stored board. Checkmate or a draw closes the game and rates a friend game |
 | `POST /games/:gameId/ai-move` `{ from, to, promotion }` | AI games: the requester is in it, it's the AI's turn, and the move is legal |
@@ -220,7 +221,7 @@ The data service has its own tests, the same way as the [server's](../server/REA
 
 ```text
 data-service/                The only code that reads and writes DynamoDB (#245), the chess server calls it; on a private instance on AWS
-  index.js                   Express: /health, JSON bodies (16kb), the signature, the player, the routes. Listens on DATA_SERVICE_HOST
+  index.js                   Express: /health, JSON bodies (16kb), the signature, /health/tables, the player, the routes. Listens on DATA_SERVICE_HOST
   config.js                  Reads data-service/.env
   dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js, then server/dynamoDB.js)
   routes/gameRoutes.js       /games/ai, guest, invite & /games/:gameId, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes

@@ -32,7 +32,8 @@ Only the latest `main` and the live site are supported. Older commits don't get 
   - it holds the only session key, and signs a session only for an Auth0 login it checked itself (Auth0's signature, our tenant and app, recent and used once), and a guest token only for the game it just made;
   - it acts only for the player whose session token or guest token the request carries;
   - it re-checks every action against the stored data (the player is in the game, it's their turn, the move is legal), and takes only the fields that action allows.
-- **Someone who takes over the public instance** gets no AWS keys and can't scan, delete or rewrite the tables, and can't sign a session or guest token. What it still doesn't stop: they would see the cookies of players using the site during that time, and could reuse those sessions until they expire (15 minutes for an access token, 7 days for a refresh token) or the player logs out, which ends their session on every device: the data service checks every access token's session id against the player's row, so tokens already out stop working at once too.
+- **The chess server's logs go to CloudWatch Logs** (`/chess/server`, kept 30 days). They hold IP addresses and email addresses (failed logins, the login limit). Its role can only write to that log group (#194).
+- **Someone who takes over the public instance** gets no AWS keys for the tables and can't scan, delete or rewrite the tables, and can't sign a session or guest token. What it still doesn't stop: they would see the cookies of players using the site during that time, and could reuse those sessions until they expire (15 minutes for an access token, 7 days for a refresh token) or the player logs out, which ends their session on every device: the data service checks every access token's session id against the player's row, so tokens already out stop working at once too.
 
 ## Session keys
 
@@ -83,7 +84,7 @@ The data service signs every session and guest token with its private key (ES256
    sudo systemctl restart data-service && journalctl -u data-service -n 5   # "Data service on http://172.31.64.10:8090"
    ```
 
-4. **On Chess-Stockfish, deploy the new server code** ([SETUP.md → Deploy a new version](SETUP.md#deploy-a-new-version), the chess server part, without the restart), **add the public half** (from step 1) and restart the chess server:
+4. **On Chess-Stockfish, deploy the new server code** ([SETUP.md → Deploy by hand](SETUP.md#deploy-by-hand), the chess server part, without the restart), **add the public half** (from step 1) and restart the chess server:
 
    ```bash
    sed -i '/^JWT_\(SECRET\|EXPIRES_IN\|REFRESH_EXPIRES_IN\)=/d' /opt/chess/server/.env

@@ -7,6 +7,7 @@ images
 !client/src/js/gameplay/images/
 audio
 *.tfstate
+*.tfvars
 *.terraform
 *.hcl
 *.backup

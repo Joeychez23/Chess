@@ -7,7 +7,7 @@
 	},
 	"name": "chess",
 	"description": "<a href=\"https://aws-prac-route53.com/\" target=\"_blank\"> https://aws-prac-route53.com/ </a>",
-	"version": "1.1.1",
+	"version": "1.2.0",
 	"devDependencies": {
 		"@babel/core": "^7.15.0",
 		"@babel/preset-env": "^7.15.0",

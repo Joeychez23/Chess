@@ -63,6 +63,7 @@ engine are answered from test data.
 | `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
 | `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
 | `settings.test.js` | The settings page's Default start settings and Delete my data |
+| `monitoring.test.js` | `GET /api/health` (a slow engine counts as down in time, the answer is kept, it never says why), the log lines the alarms match, and browser error reports from `reportErrors.js` to the log line: limited, cut short, and unable to set off an alarm |
 | `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
@@ -262,6 +263,22 @@ Insomnia, or curl. Signed out, this only works for a guest game, so
 With an existing `game_id`, that game is overwritten with a new board. If you
 leave out `game_id`, the backend creates a new game and generates its id.
 
+## Monitoring
+
+Neither route needs a session. [SETUP.md → Alerts](../SETUP.md#alerts) says what to do about each alert.
+
+- **`GET /api/health`** answers `200` when both work, otherwise `503`, with
+  `{ status, checks: { dynamodb, engine } }`, each `"ok"` or `"down"`. The reason only goes in the log
+  (`HEALTH engine down: ...`). DynamoDB is checked through the data service's `GET /health/tables`.
+  The engine has to finish a real search, so a running API with a broken Stockfish
+  fails. Each check gets 1.5 seconds, because Route 53 only waits 2. The answer is kept for 15 seconds.
+- **`POST /api/client-errors`** takes `{ kind: "error" | "rejection" | "request", message, page, source, line, column, status }`
+  from `client/src/js/pages/utils/reportErrors.js` and logs one `CLIENT ERROR {...}` line. Answers `204`, `400`
+  for a bad report, `429` past 10 at once per IP then 1 every 30 seconds (60 at once then 1 every 2 seconds for the whole site).
+- **Log lines the alarms match:** `STOCKFISH FAILED...` (`utils/ai.js`) and `HTTP 5xx METHOD /path`
+  (`middleware/logServerErrors.js`, every 5xx except `/api/health`'s). The alarms only match the start of a line, so
+  changing how these lines start breaks them. `monitoring.test.js` pins both.
+
 ## Layout
 
 ```text
@@ -271,22 +288,25 @@ server/
   config.js                  Reads server/.env
   dataClient.js              Every read and write through the data service: signed calls for the request's player, 503 when it's down (a write that timed out is read back first)
   routes/pageRoutes.js       /, /play, /play/:gameId, /settings
-  routes/api/                /api/auth/*, /api/user, /api/chess/*
+  routes/api/                /api/auth/*, /api/user, /api/chess/*, /api/health, /api/client-errors
   controllers/
     pageController.js        Picks the page (home, guest, play, settings) from the session cookie, PENDING invites go Home, no username yet goes to settings
     authController.js        login, callback, logout, refresh, resume
     userController.js        getUser (with the username), saveSettings, saveUsername, deleteUserData (Delete my data)
     chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
+    monitorController.js     The health route & browser error reports
   middleware/auth.js         Session cookies (checked with the public key), requireAuth, optionalAuth, the guest_game cookie
   middleware/rateLimit.js    New game limits per session, IP and site (429)
+  middleware/logServerErrors.js  A log line for each 5xx answer, an alarm counts them
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
+  utils/health.js            Checks DynamoDB & the engine for GET /api/health, keeps the answer for 15 seconds
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
   utils/rating.js            Elo ratings: the math & which games are rated
   utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
   utils/signature.js         Signs each call to the data service (the same file as data-service/utils/signature.js)
   utils/sessionKeys.js       Reads the session keys & checks a token's ES256 signature (the same file as data-service/utils/sessionKeys.js)
-  test/                      Server tests (npm test): validate, ai, undo, games, dataClient, auth, rateLimit, rating, startPosition, settings, username, plus helpers/ (test settings, the test server with the data service next to it)
+  test/                      Server tests (npm test): validate, ai, undo, games, dataClient, auth, rateLimit, rating, startPosition, settings, username, monitoring, plus helpers/ (test settings, the test server with the data service next to it)
 ```
 
 ---

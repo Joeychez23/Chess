@@ -43,6 +43,19 @@ function expireTime() {
 }
 
 /* ---------------------------------------------------------------- */
+// Check Tables
+/* ---------------------------------------------------------------- */
+/**
+ * @description Reads a key that's never saved from each table (GET /health/tables), the cheapest call this role is allowed. Throws when DynamoDB can't answer (#194)
+ */
+async function checkTables() {
+	await Promise.all([
+		connection.getItem({ TableName: CHESS_TABLE, Key: { game_id: { S: "health-check" } } }),
+		connection.getItem({ TableName: USER_TABLE, Key: { user_id: { S: "health-check" } } })
+	]);
+}
+
+/* ---------------------------------------------------------------- */
 // Initalize game (POST)
 /* ---------------------------------------------------------------- */
 /**
@@ -1054,4 +1067,4 @@ async function batchReadGames(gameIds, listName) {
 }
 
 
-module.exports = { initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

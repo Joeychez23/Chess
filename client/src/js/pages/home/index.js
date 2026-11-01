@@ -14,6 +14,7 @@
 
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
+require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");

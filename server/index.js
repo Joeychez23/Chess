@@ -15,12 +15,14 @@ const routes = require("./routes")
 const { initSocket } = require("./socket.js");
 const { playerContext, dataServiceDown } = require("./dataClient.js");
 const { securityHeaders } = require("./middleware/securityHeaders.js");
+const { logServerErrors } = require("./middleware/logServerErrors.js");
 
 const app = express();
 app.disable("x-powered-by"); // NO "X-Powered-By: Express" (#191)
 app.set("trust proxy", "loopback"); // nginx ON THE SAME MACHINE SENDS X-Forwarded-For, SO req.ip IS THE PLAYER'S ADDRESS (THE NEW GAME LIMITS)
 const buildDir = path.join(`${__dirname}/../client/dist/`);
 const serveBuild = express.static(buildDir, { index: false }); // BUNDLES, MANIFEST & LOCAL ASSETS
+app.use(logServerErrors); // A LOG LINE FOR EACH 5xx ANSWER, AN ALARM COUNTS THEM (#194)
 app.use(securityHeaders); // CSP, NO FRAMING, nosniff, Referrer-Policy & HSTS IN PRODUCTION (middleware/securityHeaders.js)
 app.use(cookieParser()); // SESSION TOKENS ARE READ FROM COOKIES (req.cookies)
 app.use(express.json()); // CHESS ROUTES SEND JSON BODIES (req.body)

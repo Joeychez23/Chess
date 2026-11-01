@@ -310,19 +310,78 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
    aws dynamodb put-item --region us-west-2 --table-name user_db --item '{"user_id":{"S":"iam-check"}}' --condition-expression "attribute_exists(user_id)"
    ```
 
+## 12. Monitoring
+
+An uptime check, the chess server's logs in CloudWatch, and email alarms (#194). The alarms are in
+[Terraform](../terraform/README.md#monitoring). [SETUP.md → Alerts](../SETUP.md#alerts) says what to do about each one.
+
+1. **Make the alarms.** Set `alert_email` and run `terraform apply`
+   ([Monitoring](../terraform/README.md#monitoring)), then **click the link in both emails from AWS**.
+   Nothing is delivered until both are confirmed.
+
+2. **Deploy the code** (`deploy/deploy.sh`), so `/api/health` exists:
+
+   ```bash
+   curl -s https://chess.aws-prac-route53.com/api/health; echo     # {"status":200,"checks":{"dynamodb":"ok","engine":"ok"}}
+   ```
+
+3. **Send the logs**, on Chess-Stockfish:
+
+   ```bash
+   # COPIES THE JOURNAL TO A FILE, THE AGENT ONLY READS FILES. journalctl -u chess KEEPS WORKING
+   sudo install -d -m 750 /var/log/chess
+   sudo cp /opt/chess/deploy/chess-logs.logrotate /etc/logrotate.d/chess-logs
+   sudo cp /opt/chess/deploy/chess-logs.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now chess-logs
+
+   # THE CLOUDWATCH AGENT
+   curl -fsSLo /tmp/cloudwatch-agent.deb https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+   sudo dpkg -i /tmp/cloudwatch-agent.deb && rm /tmp/cloudwatch-agent.deb
+   sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/chess/deploy/cloudwatch-agent.json
+   ```
+
+4. **Check the logs arrive:** load the site, then on your Mac:
+
+   ```bash
+   aws logs tail /chess/server --region us-west-2 --since 10m
+   ```
+
+   Lines only appear when the server logs something. To make one, open the site and run
+   `Promise.reject(new Error("log test"))` in the browser's console: a `CLIENT ERROR` line should appear within a minute.
+
+5. **Check you get alerted.** This takes the AI down for a few minutes, so pick a quiet time:
+
+   ```bash
+   sudo systemctl stop chess-engine-api     # "ALARM: chess-site-down" arrives in about 3 minutes
+   sudo systemctl start chess-engine-api    # "OK: chess-site-down" follows
+
+   sudo systemctl stop chess                # the same alarm, with the whole site down
+   sudo systemctl start chess
+   ```
+
+The data service's logs stay in its journal: its subnet has no way to CloudWatch without a paid VPC endpoint.
+Its failures still show up here, through `/api/health` and the chess server's 503s.
+
 ## Updating, logs and fixes
 
-[SETUP.md](../SETUP.md) has the update commands (one paste on Chess-Stockfish), the
-logs, and a fix for each error, with the machine each command runs on.
+To update the live site, run `deploy/deploy.sh` from the repo root: it deploys `main`,
+checks each service and the public site, and reports whether it came back up.
+`deploy/deploy.sh --rollback` goes back to the version before the last deploy.
+[SETUP.md](../SETUP.md#deploy-a-new-version) has the details, the logs, and a fix for
+each error, with the machine each command runs on.
 
 - **Refused requests** are one `REFUSED` line each in the data service's journal
   (route and reason, never a body or token). Many 401s mean a secret or version
   mismatch; 400s or 403s mean a bug, or requests that aren't the chess server's.
 - **Changed `deploy/chess.service` or `deploy/data-service.service`?** Copy it to
   `/etc/systemd/system/` and run `sudo systemctl daemon-reload` before the restart.
+- **Changed `deploy/chess-logs.service`?** Copy it the same way, then `sudo systemctl restart chess-logs`.
+  Not installed yet? `deploy.sh` warns about it until [12. Monitoring](#12-monitoring) is done.
+- **Changed `deploy/cloudwatch-agent.json`?** Run the `amazon-cloudwatch-agent-ctl` line in [12. Monitoring](#12-monitoring) again.
 - **Changed `deploy/nginx.conf`?** Copy it, then `sudo nginx -t && sudo systemctl reload nginx`.
   The copy replaces certbot's HTTPS block, so run the certbot line again.
-- **Rollback:** deploy the previous commit. Code from before #252 (`112b1c0`) needs
+- **Rolling back further:** `--rollback` only keeps one version. To go further, deploy
+  an older commit by hand. Code from before #252 (`112b1c0`) needs
   the same `JWT_SECRET` back in both `.env` files; code from before #249 (`8414ecc`)
   talks to DynamoDB itself and needs #250's role policy back.
 
@@ -330,8 +389,13 @@ logs, and a fix for each error, with the machine each command runs on.
 
 ```text
 deploy/
+  deploy.sh                  one command deploy and rollback of the live site
+  upload-assets.sh           uploads the images and audio to S3 under a new version
   chess.service              systemd unit for the server (its own user, read-only system)
   data-service.service       systemd unit for the data service (its own user, read-only system, on the private instance)
+  chess-logs.service         systemd unit that copies the chess server's journal to /var/log/chess/server.log
+  chess-logs.logrotate       keeps that file small
+  cloudwatch-agent.json      sends that file to CloudWatch Logs
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)
 ```
 

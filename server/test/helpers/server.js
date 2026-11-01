@@ -21,6 +21,7 @@ const { io: connect } = require("socket.io-client");
 const { playerContext, dataServiceDown } = require("../../dataClient.js");
 const { initSocket } = require("../../socket.js");
 const { resetLimits } = require("../../middleware/rateLimit.js");
+const { resetHealth } = require("../../utils/health.js");
 
 const realFetch = globalThis.fetch;
 const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
@@ -53,6 +54,7 @@ async function start() {
 
 	const app = express();
 	app.disable("x-powered-by"); // SAME AS index.js
+	app.use(require("../../middleware/logServerErrors.js").logServerErrors); // SAME AS index.js
 	app.use(require("../../middleware/securityHeaders.js").securityHeaders); // SAME AS index.js
 	app.set("trust proxy", "loopback"); // SAME AS index.js, A TEST'S X-Forwarded-For IS THE PLAYER'S ADDRESS
 	app.use(cookieParser());
@@ -88,6 +90,7 @@ function reset() {
 	dataServiceStalls.length = 0;
 	sockets.splice(0).forEach((socket) => socket.disconnect());
 	resetLimits();
+	resetHealth();
 }
 
 /* ---------------------------------------------------------------- */
