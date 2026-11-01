@@ -134,13 +134,13 @@ client/
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
   src/js/socket/index.js     joinGame() / leaveGame(): friend game socket, watchGames(): Home's socket
   src/js/gameplay/
-    index.js                 renderCanvas() (sets up the canvas, starts once the sprites are in), startGame() (loads the game, joins a friend game, listeners), renderLoop()
+    index.js                 renderCanvas() (sets up the canvas, starts once the sprites are in), startGame() (loads the game, joins a friend game, listeners), renderLoop() (runs on requestAnimationFrame, only while something changes)
     state/index.js           game: the state every gameplay file shares, plus the canvas, ctx & the chess.js boards
     images/index.js          preloadImages() / imageProgress(): loads the sprites into images[] (home, guest + play call it)
     sprites/index.js         Every sprite url in image number order + the image numbers (wFrontKingImg = 5, ...)
     layout/index.js          renderBoard(): sizes the canvas & board to the window, draws the table & board; resize
     draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays, which way pieces face
-    animate/index.js         Knight hop height, the pieces sliding home after Restart & Rematch
+    animate/index.js         stepSlide(): where a sliding piece is from the time, knight hop height, the pieces sliding home after Restart & Rematch
     input/index.js           Mouse, touch & TV remote handlers
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
     menu/index.js            Menu buttons, Restart / Forfeit / Rematch (loads the new board in place), game over, socketHandlers

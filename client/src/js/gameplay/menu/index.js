@@ -10,7 +10,7 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game } = require("../state/index.js"); // THE GAME'S SHARED STATE
+const { game, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
 const { restartGame, forfeitGame, rematchGame } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
@@ -224,7 +224,7 @@ export function handleHomepage(e) {
 	e.preventDefault();
 	e.stopPropagation();
 
-	window.clearInterval(game.drawInterval); // STOP THE RENDER LOOP
+	stopFrames(); // STOP THE RENDER LOOP
 	leaveGame();
 	optHomepageBtn.innerText = "Loading";
 	optHomepageBtn.classList.add("loading"); // THE FILL (.loading IN nav.css), ONE PRESS

@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Animate
- *	How high a hopping knight is (handleKnightHop, draw uses it every frame of a knight's move) & the pieces sliding home
+ *	Where a sliding piece is from the time (stepSlide), how high a hopping knight is (handleKnightHop, draw uses it every frame of a knight's move) & the pieces sliding home
  *	after Restart & Rematch: where every piece is, pairing them with the new game's pieces & drawing each frame of the slide
  *
  */
@@ -20,6 +20,31 @@ const { setRestartLoading } = require("../menu/index.js"); // RESTART / REMATCH 
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), SHOWN AGAIN WHEN THE PIECES ARE HOME
 
 const RESTART_SLIDE_MS = 800; // HOW LONG THE PIECES TAKE TO SLIDE HOME
+const SLIDE_MS_PER_SQUARE = 263; // HOW LONG A MOVE TAKES PER SQUARE
+export const KNIGHT_PAUSE_MS = 100; // A KNIGHT STOPS THIS LONG BEFORE ITS HOP
+
+/* ---------------------------------------------------------------- */
+// Step Slide
+/* ---------------------------------------------------------------- */
+/**
+ * @description Puts a sliding piece where the time says it is (progress = elapsed / duration), so it moves at the same speed
+ * at any frame rate, lands on time after a hidden tab comes back & stays lined up after a resize. The clock starts on the
+ * slide's first frame (a slide that starts in a hidden tab plays when the tab is shown). A knight takes the time of one square
+ * (its long side goes twice as fast, so both sides finish together) & stays put for KNIGHT_PAUSE_MS first
+ * @param  {[object]} tile [the sliding tile]
+ * @param  {[number]} square [its index in tiles (row * 8 + column), its start square]
+ */
+export function stepSlide(tile, square) {
+	const xSquares = tile.xSlideTo - square % 8; // SQUARES TO GO ACROSS, RIGHT IS POSITIVE
+	const ySquares = tile.ySlideTo - Math.floor(square / 8); // SQUARES TO GO UP OR DOWN, DOWN THE SCREEN IS POSITIVE
+	const knight = tile.type == 'n';
+	const now = performance.now();
+	if (tile.slideStartTime === null || tile.slideStartTime === undefined) { tile.slideStartTime = now + (knight ? KNIGHT_PAUSE_MS : 0); }
+	const duration = (knight ? 1 : Math.max(Math.abs(xSquares), Math.abs(ySquares))) * SLIDE_MS_PER_SQUARE;
+	tile.slideProgress = duration ? Math.min(Math.max((now - tile.slideStartTime) / duration, 0), 1) : 1; // 0 - 1 OF THE TIME
+	tile.xDiff = xSquares * game.tileWidth * tile.slideProgress; // PIXELS MOVED SO FAR
+	tile.yDiff = -ySquares * game.tileHeight * tile.slideProgress; // yDiff IS SUBTRACTED, SO GOING DOWN THE SCREEN MAKES IT NEGATIVE
+}
 
 /* ---------------------------------------------------------------- */
 // Handle Knight Hop

@@ -250,6 +250,7 @@ export async function handleCanvasClick(e) {
 					tile.ySlideTo = game.tileY;
 					tile.xDiff = 0;
 					tile.yDiff = 0;
+					tile.slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
 					for (let j = 0; j < game.tiles.length; j++) { game.tiles[j].isClicked = false; game.tiles[j].isMousedown = false }
 					game.clickedTile = false;
 					game.mousedownTile = false;
@@ -325,7 +326,7 @@ export async function handleMouseDown(e) {
 		if ((tile.isHovering && tile.type && tile.color == game.playerColor)) { // GRAB THE HOVERED PIECE
 			tile.isMousedown = true;
 			game.mousedownTile = tile;
-			game.mouseDownCount = 0;
+			game.mouseDownTime = null;
 			for (let j = 0; j < game.tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
 				if (game.tiles[j].isClicked && (game.tiles[j].x != game.tileX || game.tiles[j].y != game.tileY) && game.tiles[j].color == game.playerColor) {
 					game.tiles[j].isClicked = false

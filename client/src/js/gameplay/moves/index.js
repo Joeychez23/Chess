@@ -115,6 +115,7 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 					}
 					game.tiles[i].xDiff = 0;
 					game.tiles[i].yDiff = 0;
+					game.tiles[i].slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
 				}
 			}
 			game.currSlide = true;

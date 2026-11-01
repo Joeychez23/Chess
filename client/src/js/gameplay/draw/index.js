@@ -10,7 +10,7 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, ctx, chessInst, frameRate } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE BOARD THAT'S DRAWN, MS BETWEEN FRAMES
+const { game, ctx, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE BOARD THAT'S DRAWN
 const { countStartPieces } = require("../utils/index.js"); // HOW MANY PIECES EACH SIDE STARTED WITH
 const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
 const { renderBoard } = require("../layout/index.js"); // SIZES THE CANVAS & BOARD TO THE WINDOW & DRAWS THE TABLE & BOARD
@@ -24,8 +24,10 @@ const {
 	bFrontKingRefl, bBackKingRefl, bFrontQueenRefl, bBackQueenRefl, bFrontBishopRefl, bBackBishopRefl, bRightKnightRefl, bLeftKnightRefl, bFrontRookRefl, bBackRookRefl, bFrontPawnRefl, bBackPawnRefl, // BLACK REFLECT
 	moveHighlight, takeableHighlight, checkHighlight // UI
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
-const { handleKnightHop } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS
+const { handleKnightHop, stepSlide, KNIGHT_PAUSE_MS } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS, WHERE A SLIDING PIECE IS FROM THE TIME, HOW LONG A KNIGHT STOPS BEFORE ITS HOP
 const { updateUserStateSlide, updateOpponentStateSlide } = require("../moves/index.js"); // A SLIDE LANDED: SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S
+
+const DRAG_HOLD_MS = 120; // MOVING A HELD PIECE FOR LONGER THAN THIS MAKES IT A DRAG
 
 let clickX; // PIXEL X OF tileX, A HELD PIECE IS DRAWN THERE
 let clickY; // PIXEL Y OF tileY
@@ -117,6 +119,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 	let x, y; // WHERE THIS SQUARE'S PIECE IS DRAWN (PIXELS)
 	let index = 0; // TILE BEING DRAWN, COUNTS UP WITH THE LOOP (THE FUNCTIONS BELOW READ IT)
 
+	// MOVE THE SLIDING PIECE TO WHERE THE TIME SAYS IT IS, ONCE A FRAME BEFORE ANYTHING IS DRAWN
+	for (let q = 0; q < game.tiles.length; q++) {
+		if (game.tiles[q].isSliding) { stepSlide(game.tiles[q], q); }
+	}
+
 	// A HOPPING KNIGHT IS DRAWN IN THE TURN OF THE SQUARE IT'S OVER, NOT ITS START SQUARE, SO ITS REFLECTION & SHADOW GO UNDER THE PIECES
 	// IN FRONT OF IT & OVER THE ONES BEHIND IT, LIKE A PIECE STANDING THERE (ITS IMAGE IS DRAWN AGAIN ON TOP AT THE END OF THE FRAME, drawSlideBox)
 	// !NOTE: IN ITS START SQUARE'S TURN IT PAINTED ITS SHADOW OVER THE PAWNS IT JUMPED (DRAWN BEFORE IT) UNTIL IT LANDED, SO THEY FLASHED
@@ -139,10 +146,8 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 		if (tile.isSliding && tile.type && tile.type.match(/[kqbrp]/)) {
 			tile.x = q % 8; // ITS START SQUARE, AS ITS OWN TURN SETS IT BELOW (THE CLICK THAT STARTED THE SLIDE LEFT x, y ON THE NEW SQUARE),
 			tile.y = Math.floor(q / 8); // SO IT'S RIGHT IF IT'S DRAWN BEFORE ITS OWN TURN (SLIDING UP OR LEFT)
-			// drawActivePiece STEPS THE SLIDE BEFORE IT DRAWS IT, SO ORDER IT BY WHERE IT WILL BE AFTER THIS FRAME'S STEP (SAME STEP & SNAP AS drawActivePiece)
-			const step = 3.48513659 / frameRate; // SQUARES MOVED PER FRAME
-			const sx = tile.x + Math.sign(tile.xSlideTo - tile.x) * Math.min(Math.abs(tile.xDiff || 0) / game.tileWidth + step, Math.abs(tile.xSlideTo - tile.x));
-			const sy = tile.y + Math.sign(tile.ySlideTo - tile.y) * Math.min(Math.abs(tile.yDiff || 0) / game.tileHeight + step, Math.abs(tile.ySlideTo - tile.y));
+			const sx = tile.x + tile.xDiff / game.tileWidth; // WHERE IT IS THIS FRAME (stepSlide ABOVE), yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
+			const sy = tile.y - tile.yDiff / game.tileHeight;
 			slideTurn = { index: q, sx, sy, drawn: false };
 			break;
 		}
@@ -153,7 +158,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			game.tiles[index] = { ...inst[i][j], ...game.tiles[index], x: j, y: i }; // TILE[INDEX] = DECONSTRUCTED ARRAY OF CHESS BOARD ROW/COLUMN, TILE[INDEX] INIT VALUES, X, Y
 			if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
 				if (game.tiles[index].isMousedown) { // IF MOUSEDOWN SET PIECE TO MOUSE POSITION
-					if (game.mouseDownCount > 3) { game.tiles[index].isClicked = true; } else { game.mouseDownCount += 1; } // HELD FOR MORE THAN 3 FRAMES = A DRAG, THE CLICK HANDLER DROPS IT
+					if (game.mouseDownTime === null) { game.mouseDownTime = performance.now(); } else if (performance.now() - game.mouseDownTime > DRAG_HOLD_MS) { game.tiles[index].isClicked = true; } // FRAMES ONLY COME WHILE IT MOVES: MOVED FOR LONG ENOUGH = A DRAG, THE CLICK HANDLER DROPS IT
 					game.tiles[index].x = game.tileX;
 					game.tiles[index].y = game.tileY;
 					x = clickX + game.xBoardOff;
@@ -367,7 +372,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 
 			/**
 			 * @description Draws active piece to canvas: the reflection (30%), shadow (75%) & piece, in that order. Held, clicked
-			 * & hovered pieces are a little see through. A sliding piece moves a step toward its new square each frame & when it
+			 * & hovered pieces are a little see through. A sliding piece is drawn where the time says it is (stepSlide) & when it
 			 * arrives the move is sent (the player's) or finished (the opponent's). Knights hop over the board while they slide.
 			 * !NOTE: IT'S ASYNC & READS tiles[index], SO AFTER AN AWAIT index HAS MOVED ON & tiles MAY BE A NEW ARRAY (refreshData)
 			 * @param  {[array]} imgArr [image numbers: reflection, shadow, piece]
@@ -447,54 +452,6 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 
 						trackSlidePosition();
 
-						let xChange = (game.tileWidth / frameRate) * 3.48513659; // PIXELS MOVED PER FRAME, ABOUT 9 FRAMES PER SQUARE
-						let yChange = (game.tileHeight / frameRate) * 3.48513659;
-
-						let endTileX = Math.abs(game.tiles[index].xSlideTo - game.tiles[index].x); // SQUARES TO GO ACROSS
-						let endTileY = Math.abs(game.tiles[index].ySlideTo - game.tiles[index].y); // SQUARES TO GO UP OR DOWN
-						if (game.tiles[index].type.match(/[n]/) && endTileX > endTileY) { xChange = xChange * 2; } // KNIGHTS MOVE TWICE AS FAST ALONG THEIR LONG SIDE SO BOTH SIDES FINISH TOGETHER
-						else if (game.tiles[index].type.match(/[n]/) && endTileY > endTileX) { yChange = yChange * 2; } // (SET BEFORE THE CHECKS BELOW SO THEY SNAP ON THE REAL STEP)
-						let xBool = false; // ARRIVED ACROSS
-						let yBool = false; // ARRIVED UP OR DOWN
-						// THE SLIDE MOVES ON THE REFLECTION LAYER (w == 0), THE SHADOW & PIECE ARE DRAWN AT THE SAME SPOT
-						// X
-
-						if (game.tiles[index].xSlideTo > game.tiles[index].x && w == 0) { // X: Greater
-							endTileX = game.tiles[index].xSlideTo - game.tiles[index].x;
-							if (Math.floor((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) == Math.floor((game.tiles[index].x * game.tileWidth) + (game.tileWidth * endTileX))) { // ARRIVED
-								xBool = true
-							} else if (((game.tiles[index].x * game.tileWidth) + (game.tiles[index].xDiff + xChange)) >= ((game.tiles[index].x * game.tileWidth) + (game.tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
-								const remainder = (game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff - ((game.tiles[index].x * game.tileWidth) + (game.tileWidth * endTileX));
-								game.tiles[index].xDiff = game.tiles[index].xDiff - remainder;
-							} else { game.tiles[index].xDiff = game.tiles[index].xDiff + xChange } // (A KNIGHT'S LONG SIDE IS ALREADY DOUBLED ABOVE)
-						} else if (game.tiles[index].xSlideTo < game.tiles[index].x && w == 0) { // X: Less
-							endTileX = game.tiles[index].x - game.tiles[index].xSlideTo;
-							if (Math.floor((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) == Math.floor((game.tiles[index].x * game.tileWidth) - (game.tileWidth * endTileX))) { // ARRIVED
-								xBool = true
-							} else if (((game.tiles[index].x * game.tileWidth) + (game.tiles[index].xDiff - xChange)) <= ((game.tiles[index].x * game.tileWidth) - (game.tileWidth * endTileX))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
-								const remainder = (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) - ((game.tiles[index].x * game.tileWidth) - (game.tileWidth * endTileX)));
-								game.tiles[index].xDiff = game.tiles[index].xDiff - remainder;
-							} else { game.tiles[index].xDiff = game.tiles[index].xDiff - xChange; }
-						} else if (w == 0) { xBool = true } // X: Zero
-						// Y (yDiff IS SUBTRACTED, SO GOING DOWN THE SCREEN MAKES IT NEGATIVE)
-						if (game.tiles[index].ySlideTo > game.tiles[index].y && w == 0) { // Y: Greater
-							endTileY = game.tiles[index].ySlideTo - game.tiles[index].y;
-							if (Math.floor((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) == Math.floor((game.tiles[index].y * game.tileHeight) + (game.tileHeight * endTileY))) { // ARRIVED
-								yBool = true;
-							} else if (((game.tiles[index].y * game.tileHeight) - (game.tiles[index].yDiff - yChange)) >= ((game.tiles[index].y * game.tileHeight) + (game.tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
-								const remainder = (((game.tiles[index].y * game.tileHeight) + (game.tileHeight * endTileY)) - ((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff));
-								game.tiles[index].yDiff = game.tiles[index].yDiff - remainder;
-							} else { game.tiles[index].yDiff = game.tiles[index].yDiff - yChange; }
-						} else if (game.tiles[index].ySlideTo < game.tiles[index].y && w == 0) { // Y: Less
-							endTileY = game.tiles[index].y - game.tiles[index].ySlideTo;
-							if (Math.floor((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) == Math.floor((game.tiles[index].y * game.tileHeight) - (game.tileHeight * endTileY))) { // ARRIVED
-								yBool = true
-							} else if (((game.tiles[index].y * game.tileHeight) - (game.tiles[index].yDiff + yChange)) <= ((game.tiles[index].y * game.tileHeight) - (game.tileHeight * endTileY))) { // NEXT STEP GOES PAST: SNAP TO THE SQUARE
-								const remainder = (((game.tiles[index].y * game.tileHeight) - (game.tileHeight * endTileY)) - ((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff));
-								game.tiles[index].yDiff = game.tiles[index].yDiff - remainder;
-							} else { game.tiles[index].yDiff = game.tiles[index].yDiff + yChange; }
-						} else if (w == 0) { yBool = true } // Y: Zero
-
 
 						try {
 							// GET BOTH PIECES IN THE TILES ARRAY
@@ -557,7 +514,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 								}
 							}
 
-							if (xBool && yBool) { completeSlide = true; } // ARRIVED BOTH WAYS
+							if (game.tiles[index].slideProgress == 1) { completeSlide = true; } // ARRIVED (stepSlide)
 
 							if (game.tiles[index].type.match(/[n]/)) { // KNIGHT SLIDE
 								handleKnightHop(game.tiles[index]); // HOW HIGH IT IS THIS FRAME (knightHop)
@@ -570,7 +527,8 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 										game.currSlide = false; // SO THE TIMEOUT STOPS THE ANIMATION
 										knightPause = true; // THE END OF THE FRAME STILL DRAWS IT ON TOP (currSlide IS OFF NOW, IT WAS HELD UNDER THE PIECES IN FRONT FOR 100MS)
 										game.slideStart = false;
-										setTimeout(function () { game.currSlide = true; knightPause = false; }, 100) // SO THE TIMEOUT RESTARTS THE ANIMATION
+										const knightIndex = index; // index MOVES ON WITH THE FRAME
+										setTimeout(function () { knightPause = false; if (game.tiles[knightIndex].isSliding) { game.currSlide = true; } }, KNIGHT_PAUSE_MS) // SO THE TIMEOUT RESTARTS THE ANIMATION (UNLESS IT ALREADY LANDED: A HIDDEN TAB'S TIMERS RUN LATE)
 									} else {
 										if (completeSlide) { // LANDED: DRAW IT ON THE SQUARE & FINISH THE MOVE
 											game.tiles[index].isSliding = null;
