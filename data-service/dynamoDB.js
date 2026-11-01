@@ -71,6 +71,7 @@ async function checkTables() {
  * inviter_id: friend games, the player who sent the invite (their pick is start_params.color),
  * reset_player: a guest's reset, their player id: the stored game is replaced only while it's still theirs (or it expired) }]
  * @return {[object]} response [{ status, game_data, message } | { status: 409, message: "Game id already in use" }]
+ * @throws when a player's game list couldn't be saved, so a game is only reported as created once it's on both lists (the route answers 500, the chess server 503)
  */
 async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, options) {
 	const { names, pending, start_params, inviter_id, reset_player } = options || {};
@@ -118,15 +119,21 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 
 	async function handleUser(userId) { // ADDS THE GAME TO A PLAYER'S GAME LIST (OPEN, OR REQUESTED FOR AN INVITE)
 		if (userId != "CHESS_AI" && userId != "GUEST_USER" && userId != gameId) { // GUESTS HAVE NO GAME LIST, SKIP THEM LIKE THE AI (A GUEST'S PLAYER ID IS THEIR GAME ID)
-			await changeUserGames(userId, (gameLists) => {
+			const response = await changeUserGames(userId, (gameLists) => {
 				let gameList = pending ? gameLists.requested_games : gameLists.open_games; // INVITES WAIT IN requested_games UNTIL THEY'RE ACCEPTED
 				if (!gameList.includes(gameId)) { gameList[gameList.length] = gameId; } // ADD ONCE, RESTARTS KEEP THE SAME game_id
 			});
+			if (response.status != 200) { throw new Error(response.message); }
 		}
 	}
 
-	await handleUser(playerId1);
-	await handleUser(playerId2);
+	const results = await Promise.allSettled([handleUser(playerId1), handleUser(playerId2)]); // BOTH ARE TRIED, ONE PLAYER'S FAILED SAVE DOESN'T LEAVE THE OTHER'S STALE TOO
+	const failed = results.find((result) => result.status == "rejected");
+	if (failed) {
+		// A RETRY MAKES A NEW INVITE: ONE LEFT ONLY ON THE INVITED PLAYER'S LIST WOULD SHOW THEM TWO. pruneGameList DROPS ANY ENTRY THIS CAN'T REMOVE
+		if (pending) { await deleteInvite(params.Item).catch((err) => console.log(`Failed invite not deleted: ${gameId}: ${err.message}`)); }
+		throw failed.reason;
+	}
 
 	return { // putItem THROWS IF IT FAILED, SO THE GAME IS SAVED AS WRITTEN (A READ BACK CAN STILL MISS IT)
 		status: 200,

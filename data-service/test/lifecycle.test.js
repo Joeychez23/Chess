@@ -12,6 +12,7 @@ const assert = require("node:assert/strict");
 const service = require("./helpers/service.js");
 const { call, player, peek } = service;
 const db = require("../dynamoDB.js");
+const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 
 let server;
 before(async () => { server = await service.start(); });
@@ -206,6 +207,31 @@ describe("invite", () => {
 /* ---------------------------------------------------------------- */
 
 describe("accept and decline", () => {
+	for (const failing of ["alice", "bob"]) {
+		test(`${failing}'s list save fails: the invite answers an error, and trying again makes one invite both players see`, async () => {
+			const body = { opponent_id: "bob", color: "w" };
+			const updateItem = DynamoDB.prototype.updateItem;
+			DynamoDB.prototype.updateItem = async (params) => {
+				if (params.Key.user_id?.S == failing) { throw Object.assign(new Error("The conditional request failed"), { name: "ConditionalCheckFailedException" }); }
+				return updateItem(params);
+			};
+			let response;
+			try {
+				response = await call("POST", "/games/invite", { as: alice, body });
+			} finally {
+				DynamoDB.prototype.updateItem = updateItem;
+			}
+			assert.equal(response.http, 500);
+			assert.equal(response.game_data, undefined);
+
+			const retry = await call("POST", "/games/invite", { as: alice, body });
+			assert.equal(retry.status, 200);
+			const invites = async (id) => db.pruneInvites((await db.retrieveUser(id, true)).user_data);
+			assert.equal((await invites("alice")).sent_invite.game_id, retry.game_data.game_id.S);
+			assert.deepEqual((await invites("bob")).received_invites.map((invite) => invite.game_id), [retry.game_data.game_id.S]);
+		});
+	}
+
 	test("the invited player accepts: the game opens for both", async () => {
 		await friendGame("game1", "alice", "bob", true);
 		const accepted = await call("POST", "/games/game1/accept", { as: bob });
@@ -312,7 +338,6 @@ describe("accept with an open friend game", () => {
 		await friendGame("invite1", "alice", "bob", true);
 		await friendGame("game1", "bob", "carol");
 		await friendGame("invite2", "bob", "dave", true); // BOB'S SENT INVITE
-		const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 		const update = DynamoDB.prototype.updateItem;
 		DynamoDB.prototype.updateItem = async (params) => { // ALICE CANCELS JUST BEFORE BOB'S ACCEPT LANDS
 			if (params.Key.game_id?.S == "invite1" && params.ExpressionAttributeValues?.[":open"]) {
