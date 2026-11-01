@@ -24,7 +24,7 @@ module "cloudfront_module" {
 
 module "dynamodb_module" {
   source           = "../modules/dynamodb"
-  aws_region       = "us-west-2" # NEXT TO Chess-Stockfish (NEW TABLES, THE us-east-1 ONES WERE LEFT BEHIND, README -> Moving the tables)
+  aws_region       = "us-west-2" # NEXT TO Chess-Stockfish (NEW TABLES, THE us-east-1 ONES WERE LEFT BEHIND, terraform/README.md -> Moving the tables to us-west-2)
   chess_table_name = local.chess_table_name
   user_table_name  = local.user_table_name
 }
@@ -49,7 +49,7 @@ module "data_service_module" {
 }
 
 # terraform apply -var maintenance=true: THE DATA SERVICE CAN REACH THE INTERNET (THROUGH A NAT GATEWAY) TO INSTALL OR UPDATE.
-# A PLAIN terraform apply TURNS IT OFF AGAIN (README -> Data service instance)
+# A PLAIN terraform apply TURNS IT OFF AGAIN (terraform/README.md -> Data service instance)
 variable "maintenance" {
   type    = bool
   default = false
