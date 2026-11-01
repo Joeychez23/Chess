@@ -130,7 +130,9 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 	let hopTurn = null; // { index: THE KNIGHT'S TILE, square: TILE OF THE SQUARE IT'S OVER (row * 8 + column) }, null WHEN IT'S OVER ITS OWN
 	for (let q = 0; q < game.tiles.length; q++) {
 		if (game.tiles[q].isSliding && game.tiles[q].type == 'n' && (game.tiles[q].xDiff || game.tiles[q].yDiff)) {
-			const row = Math.min(Math.max(Math.round(game.tiles[q].y - game.tiles[q].yDiff / game.tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
+			game.tiles[q].x = q % 8; // ITS START SQUARE, AS ITS OWN TURN SETS IT BELOW (THE CLICK THAT STARTED THE SLIDE LEFT x, y ON THE NEW SQUARE),
+			game.tiles[q].y = Math.floor(q / 8); // SO IT'S RIGHT IF IT'S DRAWN BEFORE ITS OWN TURN (WITH REDUCE MOTION ITS FIRST FRAME ALREADY HOPS, #354)
+			const row =Math.min(Math.max(Math.round(game.tiles[q].y - game.tiles[q].yDiff / game.tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
 			const column = Math.min(Math.max(Math.round(game.tiles[q].x + game.tiles[q].xDiff / game.tileWidth), 0), 7);
 			if (row * 8 + column != q) { hopTurn = { index: q, square: row * 8 + column }; }
 			break;
