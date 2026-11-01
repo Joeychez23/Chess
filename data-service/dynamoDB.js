@@ -301,7 +301,7 @@ async function finishClosedGame(gameData, winner) {
 		try {
 			gameData.ratings = { S: JSON.stringify(await rateGame(gameData, winner)) };
 		} catch (err) {
-			console.log(`Rating failed: ${gameId}: ${err.message}`); // THE GAME STILL CLOSES
+			console.log(`RATING FAILED ${gameId}: ${err.message}`); // THE GAME STILL CLOSES, BUT THE RATING IS LOST & NEEDS A LOOK. KEEP THE START: rating.test.js PINS IT TO ALARM ON
 		}
 	}
 
@@ -313,72 +313,69 @@ async function finishClosedGame(gameData, winner) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Changes both players' ratings after a finished game (utils/rating.js) & saves what changed on the game, where it stays:
- * rated friend games are never deleted, so a player's closed_games are their rating history (profiles, #81)
+ * rated friend games are never deleted, so a player's closed_games are their rating history (profiles, #81). All three writes land together or none do.
+ * Two of a player's games can end at once, so each save needs rated_games to still be what was read, otherwise the rows are read again & the ratings worked out again
  * @param  {[object]} gameData [the closed game item]
  * @param  {[string]} winner ["w", "b" or "draw"]
- * @return {[object]} ratings [{ w: { before, after }, b: { before, after }, at (epoch ms) }, null for a player without a row]
+ * @return {[object]} ratings [{ w: { before, after }, b: { before, after }, at (epoch ms) }, null for a player without a row. A game already rated keeps & returns its ratings]
+ * @throws when the save still fails after LIST_SAVE_TRIES: neither rating changed
  */
 async function rateGame(gameData, winner) {
+	const gameId = gameData.game_id.S;
 	const players = { w: gameData.white_player_id.S, b: gameData.black_player_id.S };
-	let before = {};
-	for (const color of ["w", "b"]) { before[color] = readRating((await retrieveUser(players[color], true)).user_data); } // EACH SIDE IS RATED AGAINST THE OTHER'S RATING FROM BEFORE THE GAME
+	let preGame; // EACH SIDE IS RATED AGAINST THE OTHER'S RATING FROM BEFORE THE GAME, SO A RETRY ONLY UPDATES THEIR OWN
 
-	let ratings = { at: Date.now() };
-	for (const color of ["w", "b"]) {
-		const opponent = before[color == "w" ? "b" : "w"];
-		ratings[color] = await saveRating(players[color], (rating) => newRating(rating, opponent, scoreFor(winner, color)));
-	}
-
-	const params = {
-		TableName: CHESS_TABLE,
-		Key: {
-			game_id: { S: gameData.game_id.S }
-		},
-		UpdateExpression: 'SET ratings = :ratings',
-		ExpressionAttributeValues: {
-			":ratings": { S: JSON.stringify(ratings) }
-		}
-	}
-	await connection.updateItem(params); // PUT REQUEST TO DYANMODB
-	return ratings;
-}
-
-/**
- * @description Saves a player's new rating. Two of their games can end at once, so it only saves if rated_games is still what was read,
- * otherwise it reads the row again & works the rating out again
- * @param  {[string]} userId [auth0 user id without "auth0|"]
- * @param  {[function]} compute [({ rating, rated_games }) => the new rating]
- * @return {[object]} change [{ before, after }, null when the player has no row (they deleted their data)]
- */
-async function saveRating(userId, compute) {
 	for (let i = 0; i < LIST_SAVE_TRIES; i++) {
-		const user = await retrieveUser(userId, true);
-		if (!user.user_data) { return null; }
-		const rating = readRating(user.user_data);
-		const after = compute(rating);
+		const users = {};
+		for (const color of ["w", "b"]) { users[color] = (await retrieveUser(players[color], true)).user_data; }
+		preGame ||= { w: readRating(users.w), b: readRating(users.b) };
 
-		const params = {
-			TableName: USER_TABLE,
-			Key: {
-				user_id: { S: userId }
-			},
-			UpdateExpression: 'SET rating = :rating, rated_games = :rated_games',
-			ConditionExpression: user.user_data.rated_games ? 'rated_games = :old_rated_games' : 'attribute_exists(user_id) AND attribute_not_exists(rated_games)', // THEIR FIRST RATED GAME, OR NO OTHER GAME WAS RATED SINCE THE READ
-			ExpressionAttributeValues: {
-				":rating": { N: `${after}` },
-				":rated_games": { N: `${rating.rated_games + 1}` }
+		const ratings = { at: Date.now() };
+		const transactItems = [];
+		for (const color of ["w", "b"]) {
+			if (!users[color]) { ratings[color] = null; continue; } // THEY DELETED THEIR DATA, AN UPDATE WOULD MAKE THE ROW AGAIN
+			const rating = readRating(users[color]);
+			const after = newRating(rating, preGame[color == "w" ? "b" : "w"], scoreFor(winner, color));
+			ratings[color] = { before: rating.rating, after };
+
+			const update = {
+				TableName: USER_TABLE,
+				Key: {
+					user_id: { S: players[color] }
+				},
+				UpdateExpression: 'SET rating = :rating, rated_games = :rated_games',
+				ConditionExpression: users[color].rated_games ? 'rated_games = :old_rated_games' : 'attribute_exists(user_id) AND attribute_not_exists(rated_games)', // THEIR FIRST RATED GAME, OR NO OTHER GAME WAS RATED SINCE THE READ
+				ExpressionAttributeValues: {
+					":rating": { N: `${after}` },
+					":rated_games": { N: `${rating.rated_games + 1}` }
+				}
 			}
+			if (users[color].rated_games) { update.ExpressionAttributeValues[":old_rated_games"] = { N: users[color].rated_games.N }; }
+			transactItems.push({ Update: update });
 		}
-		if (user.user_data.rated_games) { params.ExpressionAttributeValues[":old_rated_games"] = { N: user.user_data.rated_games.N }; }
+		transactItems.push({
+			Update: {
+				TableName: CHESS_TABLE,
+				Key: {
+					game_id: { S: gameId }
+				},
+				UpdateExpression: 'SET ratings = :ratings',
+				ConditionExpression: 'attribute_not_exists(ratings)', // A GAME IS NEVER RATED TWICE
+				ExpressionAttributeValues: {
+					":ratings": { S: JSON.stringify(ratings) }
+				}
+			}
+		});
 
 		try {
-			await connection.updateItem(params); // PUT REQUEST TO DYANMODB
-			return { before: rating.rating, after };
+			await connection.transactWriteItems({ TransactItems: transactItems }); // UPDATE REQUESTS TO DYNAMODB, ALL OR NONE
+			return ratings;
 		} catch (err) {
-			if (err.name != "ConditionalCheckFailedException") { throw err; }
+			if (err.name != "TransactionCanceledException") { throw err; }
+			if (err.CancellationReasons?.at(-1)?.Code == "ConditionalCheckFailed") { return JSON.parse((await retrieveGame(gameId, true)).game_data.ratings.S); } // ALREADY RATED, RETRYING CAN'T HELP
 		}
 	}
-	throw new Error(`Rating save failed after ${LIST_SAVE_TRIES} tries: ${userId}`);
+	throw new Error(`Rating save failed after ${LIST_SAVE_TRIES} tries: ${gameId}`);
 }
 
 /* ---------------------------------------------------------------- */
@@ -685,7 +682,7 @@ async function updateUser(userData, gameLists) {
 	try {
 		response = await connection.updateItem(params); // PUT REQUEST TO DYANMODB
 	} catch (err) {
-		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Game lists changed before the save: ${userId}` }; }
+		if (err.name == "ConditionalCheckFailedException" || err.name == "TransactionConflictException") { return { status: 500, message: `Game lists changed before the save: ${userId}` }; } // A CONFLICT: A RATING OR USERNAME TRANSACTION IS ON THIS ROW RIGHT NOW, THE SDK DOESN'T RETRY IT
 		throw err;
 	}
 

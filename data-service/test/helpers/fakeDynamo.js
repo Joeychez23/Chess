@@ -19,6 +19,7 @@ const previous = new Map(); // TABLE NAME -> Map(KEY -> THE ITEM BEFORE ITS LAST
 let lagging = false; // staleReads()
 let throttledReads = 0; // throttleBatchReads()
 let failingReads = false; // failBatchReads()
+const failingWrites = new Set(); // failTransactionWrite()
 const KEYS = { chess_db: "game_id", user_db: "user_id" }; // HASH KEYS, MATCH terraform/modules/dynamodb
 
 /* ---------------------------------------------------------------- */
@@ -46,6 +47,7 @@ function reset() {
 	lagging = false;
 	throttledReads = 0;
 	failingReads = false;
+	failingWrites.clear();
 }
 
 /**
@@ -72,6 +74,14 @@ function throttleBatchReads(calls) {
  */
 function failBatchReads(on) {
 	failingReads = on;
+}
+
+/**
+ * @description Makes every transaction that writes this item cancel, like DynamoDB when another request holds it, until reset()
+ * @param  {[string]} key [game_id or user_id]
+ */
+function failTransactionWrite(key) {
+	failingWrites.add(key);
 }
 
 /**
@@ -187,7 +197,7 @@ async function batchGetItem({ RequestItems }) {
 
 /**
  * @description All or nothing, like DynamoDB: every condition is checked first, & if any is false nothing is written & it throws
- * TransactionCanceledException with a CancellationReasons code for each item, in order ("None" or "ConditionalCheckFailed")
+ * TransactionCanceledException with a CancellationReasons code for each item, in order ("None", "ConditionalCheckFailed" or "TransactionConflict")
  */
 async function transactWriteItems({ TransactItems }) {
 	const writes = TransactItems.map((transactItem) => {
@@ -202,6 +212,7 @@ async function transactWriteItems({ TransactItems }) {
 	}
 
 	const reasons = writes.map(({ params, key }) => {
+		if (failingWrites.has(key)) { return { Code: "TransactionConflict", Message: "Transaction is ongoing for the item" }; }
 		try {
 			check(table(params.TableName).get(key), params.ConditionExpression, params.ExpressionAttributeNames, params.ExpressionAttributeValues);
 			return { Code: "None" };
@@ -300,4 +311,4 @@ function attributeName(name, names) {
 }
 
 
-module.exports = { install, reset, staleReads, throttleBatchReads, failBatchReads, peek, signIn };
+module.exports = { install, reset, staleReads, throttleBatchReads, failBatchReads, failTransactionWrite, peek, signIn };

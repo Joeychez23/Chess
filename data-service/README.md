@@ -196,7 +196,10 @@ signed out, and guests start a new game.
 - **Ratings** (`utils/rating.js`): Elo from 1500, `K × (score − expected)`, K = 40
   for the first 10 rated games (shown with `?`), then 20, never below 100. Only
   friend games from the standard position where both sides moved are rated.
-  Saves are conditional on `rated_games`, so two games ending at once both count.
+  Both ratings and the game's `ratings` save in one transaction: conditional on
+  `rated_games`, so two games ending at once both count, and on the game having no
+  `ratings`, so it is never rated twice. A rating that still fails doesn't stop the
+  game closing, and logs a line starting `RATING FAILED`.
   Each rated game keeps `ratings` (`{ w, b: { before, after }, at }`), the rating
   history for a future profile chart (#81).
 - **Threefold repetition:** the server replays the saved moves, but only once 8
@@ -214,7 +217,7 @@ The data service has its own tests, the same way as the [server's](../server/REA
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
 | `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
-| `rating.test.js` | The Elo math, which games are rated, and two of a player's games ending at once |
+| `rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
 | `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
 | `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are the same files as the server's, and both pin the same `chess.js` |
 
