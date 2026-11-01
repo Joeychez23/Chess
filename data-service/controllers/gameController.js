@@ -10,7 +10,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, closeGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
@@ -91,7 +91,7 @@ async function aiMoveGame(req, res) {
 
 /**
  * @description Plays a move on the stored board (validateMove) & saves it only if the board hasn't changed since it was read (updateGame).
- * When the move ends the game it's closed (closeGame, which also rates a friend game)
+ * A move that ends the game saves its result in the same write, then finishClosedGame moves the game lists & rates a friend game
  * @param  {[object]} gameData [the stored game]
  * @param  {[string]} playerId [whose move: the requester, or "CHESS_AI"]
  * @param  {[object]} move [{ from, to, promotion } from readMove]
@@ -101,13 +101,16 @@ async function saveMove(req, res, gameData, playerId, move) {
 	const validated = await validateMove({ game_id: gameData.game_id.S, player_id: playerId, move: [move.from, move.to], promotion: move.promotion }, gameData);
 	if (validated.status != 200) { return refuse(req, res, 400, validated.message); } // NOT THEIR PIECE, OR NOT LEGAL
 
-	const saved = await updateGame(validated.game_data, prevBoard);
+	const result = gameResult(validated.game_data); // CHECKMATE OR A DRAW (THREEFOLD REPETITION TOO) ENDS THE GAME
+	const saved = await updateGame(validated.game_data, prevBoard, result);
 	if (saved.status != 200) { return refuse(req, res, 409, "Board changed before the move saved"); } // ANOTHER MOVE SAVED FIRST
 
-	const result = gameResult(saved.game_data); // CHECKMATE OR A DRAW (THREEFOLD REPETITION TOO) ENDS THE GAME
 	if (result) {
-		const closed = await closeGame(saved.game_data, result.winner, result.reason);
-		if (closed.status == 200) { saved.game_data = closed.game_data; }
+		try {
+			await finishClosedGame(saved.game_data, result.winner);
+		} catch (err) {
+			console.log(`Finishing closed game failed: ${saved.game_data.game_id.S}: ${err.message}`); // THE MOVE & RESULT ARE SAVED, A RETRY WOULD ONLY GET "Game is over"
+		}
 	}
 	return res.json(saved);
 }

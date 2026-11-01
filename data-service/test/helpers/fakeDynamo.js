@@ -149,11 +149,15 @@ async function updateItem({ TableName, Key, UpdateExpression, ConditionExpressio
 
 	const item = existing ? structuredClone(existing) : structuredClone(Key); // LIKE DYNAMODB, AN UPDATE MAKES THE ITEM IF IT ISN'T THERE
 	const [, setPart = "", removePart = ""] = UpdateExpression.match(/^\s*(?:SET\s+(.*?))?\s*(?:REMOVE\s+(.*))?\s*$/s);
+	const removed = removePart.split(",").map((part) => part.trim()).filter(Boolean);
+	const usedValues = `${UpdateExpression} ${ConditionExpression || ""}`.match(/:\w+/g) || [];
+	if (Object.keys(ExpressionAttributeValues || {}).some((value) => !usedValues.includes(value))) { throw Object.assign(new Error("Value provided in ExpressionAttributeValues unused in expressions"), { name: "ValidationException" }); }
 	for (const assignment of setPart.split(",").map((part) => part.trim()).filter(Boolean)) {
 		const [name, value] = assignment.split("=").map((part) => part.trim());
+		if (removed.includes(name)) { throw Object.assign(new Error("Two document paths overlap with each other"), { name: "ValidationException" }); } // LIKE DYNAMODB
 		item[attributeName(name, ExpressionAttributeNames)] = structuredClone(ExpressionAttributeValues[value]);
 	}
-	for (const name of removePart.split(",").map((part) => part.trim()).filter(Boolean)) {
+	for (const name of removed) {
 		delete item[attributeName(name, ExpressionAttributeNames)];
 	}
 	writeItem(TableName, key, item);

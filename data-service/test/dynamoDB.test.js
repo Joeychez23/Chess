@@ -11,12 +11,15 @@ const assert = require("node:assert/strict");
 const fakeDynamo = require("./helpers/fakeDynamo.js");
 fakeDynamo.install();
 const db = require("../dynamoDB.js");
-const { validateMove, undoMoves } = require("../utils/validate.js");
+const { validateMove, undoMoves, gameResult } = require("../utils/validate.js");
 const { Chess } = require("chess.js");
 
 beforeEach(() => fakeDynamo.reset());
 
 const list = (item, name) => JSON.parse(item[name].S);
+const MATE_IN_ONE = "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1"; // Ra8#
+const mateFriendGame = async () => (await db.initalizeGame("game1", "alice", "bob", false, { start_params: { color: "w", fen: MATE_IN_ONE }, inviter_id: "alice" })).game_data;
+const playMate = async (gameData) => (await validateMove({ player_id: "alice", move: ["a1", "a8"] }, gameData)).game_data;
 
 async function newGame() {
 	const created = await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
@@ -72,6 +75,43 @@ describe("updateGame", () => {
 		assert.deepEqual(saved.game_data.moves.S, ["e4"]); // THE GAME AS SAVED
 		assert.notEqual(saved.game_data.game_board.S, board);
 		assert.deepEqual(list(fakeDynamo.peek("chess_db", "game1"), "moves"), ["e4"]);
+	});
+
+	test("a closing move saves its result in the same write, and a late forfeit can't close it again", async () => {
+		const stale = await mateFriendGame();
+		const moved = await playMate(structuredClone(stale));
+		const saved = await db.updateGame(moved, MATE_IN_ONE, gameResult(moved));
+		assert.equal(saved.status, 200);
+		assert.equal(saved.game_data.state.S, "CLOSED");
+		assert.equal(saved.game_data.winner.S, "w");
+		assert.equal(saved.game_data.reason.S, "checkmate");
+
+		const stored = fakeDynamo.peek("chess_db", "game1");
+		assert.equal(stored.state.S, "CLOSED");
+		assert.equal(stored.game_board.S, moved.game_board.S);
+		assert.equal(stored.expireAt, undefined); // FINISHED FRIEND GAMES ARE KEPT
+		assert.equal((await db.closeGame(stale, "w", "forfeit")).status, 500);
+	});
+
+	test("a closing move loses to a forfeit that closed the game after the board was read", async () => {
+		const read = await mateFriendGame();
+		const moved = await playMate(structuredClone(read));
+		await db.closeGame(read, "b", "forfeit");
+
+		const late = await db.updateGame(moved, MATE_IN_ONE, gameResult(moved));
+		assert.equal(late.status, 500);
+		const stored = fakeDynamo.peek("chess_db", "game1");
+		assert.equal(stored.game_board.S, MATE_IN_ONE);
+		assert.equal(stored.reason.S, "forfeit");
+	});
+
+	test("a closing move in an AI game keeps expireAt", async () => {
+		const created = await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w", fen: MATE_IN_ONE } });
+		const moved = await playMate(created.game_data);
+		assert.equal((await db.updateGame(moved, MATE_IN_ONE, gameResult(moved))).status, 200);
+		const stored = fakeDynamo.peek("chess_db", "game1");
+		assert.equal(stored.state.S, "CLOSED");
+		assert.ok(stored.expireAt);
 	});
 });
 
