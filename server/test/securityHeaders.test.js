@@ -21,7 +21,8 @@ const headersOf = async (path) => (await testServer.send("GET", path, {})).heade
 
 describe("security headers", () => {
 	test("a response has every header & no X-Powered-By", async () => {
-		const res = await testServer.send("GET", "/play", {});
+		const res = await testServer.send("GET", "/api/chess/levels", {}); // A 200 THAT DOESN'T NEED client/dist (CI DOESN'T BUILD THE CLIENT)
+		assert.equal(res.http, 200);
 		const h = res.headers;
 		assert.ok(h, "send() returns the response headers");
 		assert.equal(h.get("x-powered-by"), null);
