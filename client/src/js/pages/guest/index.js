@@ -12,7 +12,6 @@
 
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
-const { ObjectId } = require("bson");
 const { InternalAuth } = require("../../auth/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame } = require("../../gameplay/validate/index.js");
@@ -93,14 +92,14 @@ async function loadGuestGame() {
 /* ---------------------------------------------------------------- */
 /**
  * @description New game vs the AI at the picked level & color, then opens /play. A guest only has one game: it's reset to the new one
- * (the same saved id, the server overwrites it), so there's no forfeit warning. No saved id -> a new one is saved
+ * (the same saved id, the server overwrites it), so there's no forfeit warning. No saved id -> the server makes one & it's saved
  */
 async function handleNewGuestGame(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	startLoading(optNewSoloBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
 	soloNote.innerText = "";
-	const gameId = savedGameId() || `${new ObjectId()}`;
+	const gameId = savedGameId() || undefined; // LEFT OUT: THE SERVER MAKES A NEW ID
 	const response = await newAiGame(CHESS_URL, gameId, aiColorSelect.value, aiLevelSelect.value, false, aiFenInput.value); // CREATE OR RESET THE GUEST'S GAME
 	if (response?.status == 400 || response?.status == 429) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, OR TOO MANY NEW GAMES: THEIR GAME WASN'T RESET
 	if (response?.status != 200) { stopLoading(); return console.log(response); }

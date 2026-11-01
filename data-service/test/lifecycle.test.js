@@ -74,41 +74,39 @@ describe("new AI game", () => {
 		assert.equal(made.ai_level.N, "3");
 	});
 
-	test("only for a signed in player, with a real level, a playable position and a new id", async () => {
+	test("only for a signed in player, with a real level and a playable position", async () => {
 		await db.initalizeGame("game1", "bob", "CHESS_AI", 3, { start_params: { color: "w" } });
-		const made = [["chess_db", "game2"], ["user_db", "alice"]];
-		await refused(made, "POST", "/games/ai", { body: { game_id: "game2" } }, 401);
-		await refused(made, "POST", "/games/ai", { guest: "game2", body: { game_id: "game2" } }, 403);
-		await refused(made, "POST", "/games/ai", { as: alice, body: { game_id: "game2", level: 9 } }, 400);
-		await refused(made, "POST", "/games/ai", { as: alice, body: { game_id: "game2", level: "3" } }, 400);
-		await refused(made, "POST", "/games/ai", { as: alice, body: { game_id: "game2", start_fen: "P3k3/8/8/8/8/8/8/4K3 w - - 0 1" } }, 400);
-		await refused(made, "POST", "/games/ai", { as: alice, body: { game_id: "game2", start_fen: 7 } }, 400);
-		await refused(made, "POST", "/games/ai", { as: alice, body: { game_id: "game2", white_player_id: "bob" } }, 400);
-		await refused([["chess_db", "CHESS_AI"]], "POST", "/games/ai", { as: alice, body: { game_id: "CHESS_AI" } }, 400);
-		await refused([["chess_db", "game1"]], "POST", "/games/ai", { as: alice, body: { game_id: "game1" } }, 409); // BOB'S GAME ISN'T RESET
+		const made = [["user_db", "alice"]];
+		await refused(made, "POST", "/games/ai", { body: {} }, 401);
+		await refused(made, "POST", "/games/ai", { guest: "game2", body: {} }, 403);
+		await refused(made, "POST", "/games/ai", { as: alice, body: { level: 9 } }, 400);
+		await refused(made, "POST", "/games/ai", { as: alice, body: { level: "3" } }, 400);
+		await refused(made, "POST", "/games/ai", { as: alice, body: { start_fen: "P3k3/8/8/8/8/8/8/4K3 w - - 0 1" } }, 400);
+		await refused(made, "POST", "/games/ai", { as: alice, body: { start_fen: 7 } }, 400);
+		await refused(made, "POST", "/games/ai", { as: alice, body: { white_player_id: "bob" } }, 400);
 	});
 });
 
-describe("one create per game id", () => {
-	test("two new AI games with one id at once: one is made, the other is refused", async () => {
-		const results = await Promise.all([
-			call("POST", "/games/ai", { as: alice, body: { game_id: "game1", color: "w", level: 3 } }),
-			call("POST", "/games/ai", { as: bob, body: { game_id: "game1", color: "w", level: 5 } }),
-		]);
-		assert.deepEqual(results.map((result) => result.http).sort(), [200, 409]);
-		const winner = results.find((result) => result.http == 200).game_data;
-		assert.deepEqual(peek("chess_db", "game1").white_player_id, winner.white_player_id);
-		const loser = winner.white_player_id.S == "alice" ? "bob" : "alice";
-		assert.deepEqual(list(loser, "open_games"), []);
+describe("game ids are made here", () => {
+	const ID = /^[A-Za-z0-9_-]{22}$/; // 16 RANDOM BYTES, BASE64URL
+
+	test("a body can't name the id of a new AI game or invite (#304)", async () => {
+		await db.initalizeGame("game1", "bob", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await refused([["chess_db", "game1"], ["chess_db", "game2"], ["user_db", "alice"]], "POST", "/games/ai", { as: alice, body: { game_id: "game2" } }, 400);
+		await refused([["chess_db", "game1"], ["user_db", "alice"]], "POST", "/games/ai", { as: alice, body: { game_id: "game1" } }, 400); // BOB'S GAME ISN'T RESET
+		await refused([["chess_db", "game2"], ["user_db", "bob"]], "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", game_id: "game2" } }, 400);
 	});
 
-	test("two invites with one id at once: one is made, the other is refused", async () => {
-		const results = await Promise.all([
-			call("POST", "/games/invite", { as: alice, body: { opponent_id: "bob", color: "w", game_id: "game1" } }),
-			call("POST", "/games/invite", { as: carol, body: { opponent_id: "bob", color: "w", game_id: "game1" } }),
+	test("each new AI game & invite gets its own random id, in the response", async () => {
+		const games = await Promise.all([
+			call("POST", "/games/ai", { as: alice, body: { color: "w" } }),
+			call("POST", "/games/ai", { as: bob, body: { color: "w" } }),
+			call("POST", "/games/invite", { as: carol, body: { opponent_id: "bob", color: "w" } }),
 		]);
-		assert.deepEqual(results.map((result) => result.http).sort(), [200, 409]);
-		assert.deepEqual(list("bob", "requested_games"), ["game1"]);
+		const ids = games.map((made) => made.game_data.game_id.S);
+		for (const id of ids) { assert.match(id, ID); assert.ok(peek("chess_db", id)); }
+		assert.equal(new Set(ids).size, ids.length);
+		assert.deepEqual(list("bob", "requested_games"), [ids[2]]);
 	});
 
 	test("two new guests with one id at once each get a game, neither is overwritten", async () => {
@@ -192,16 +190,14 @@ describe("invite", () => {
 	});
 
 	test("not by a guest, not to yourself or the AI, and only with the fields it names", async () => {
-		await friendGame("game1", "carol", "dave");
-		const made = [["chess_db", "game2"], ["user_db", "bob"]];
-		await refused(made, "POST", "/games/invite", { guest: "game2", body: { opponent_id: "bob", game_id: "game2" } }, 403);
-		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "alice", game_id: "game2" } }, 400);
-		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "CHESS_AI", game_id: "game2" } }, 400);
-		await refused(made, "POST", "/games/invite", { as: alice, body: { game_id: "game2" } }, 400);
-		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", opponent_screenname: "x".repeat(51), game_id: "game2" } }, 400);
-		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", inviter_id: "mallory", game_id: "game2" } }, 400);
-		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", start_fen: "not a fen", game_id: "game2" } }, 400);
-		await refused([["chess_db", "game1"]], "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", game_id: "game1" } }, 409);
+		const made = [["user_db", "bob"]];
+		await refused(made, "POST", "/games/invite", { guest: "game2", body: { opponent_id: "bob" } }, 403);
+		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "alice" } }, 400);
+		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "CHESS_AI" } }, 400);
+		await refused(made, "POST", "/games/invite", { as: alice, body: {} }, 400);
+		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", opponent_screenname: "x".repeat(51) } }, 400);
+		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", inviter_id: "mallory" } }, 400);
+		await refused(made, "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", start_fen: "not a fen" } }, 400);
 	});
 });
 

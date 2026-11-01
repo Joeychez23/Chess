@@ -12,11 +12,11 @@
 
 const crypto = require("crypto");
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
-const { ObjectId } = require("bson");
 const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
 const { usernameKey } = require("./utils/username.js");
+const { newGameId } = require("./utils/games.js");
 const config = require("./config");
 
 const connection = new DynamoDB({ region: config.dynamoRegion }); // DYNAMODB_REGION, us-west-2 BY DEFAULT. CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE DATA SERVICE'S IAM ROLE ON AWS
@@ -66,7 +66,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 
 	let gameId;
 	if (existingGameId) { gameId = existingGameId; }
-	else { gameId = `${new ObjectId()}`; } // CREATES UNIQUE GAME IDENTIFIER
+	else { gameId = newGameId(); } // CREATES UNIQUE GAME IDENTIFIER (RANDOM, NOT GUESSABLE)
 	let params = {
 		TableName: CHESS_TABLE,
 		Item: {

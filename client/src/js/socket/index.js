@@ -30,7 +30,7 @@ export function joinGame(gameId, playerId, handlers) {
 	socket = gameSocket;
 
 	gameSocket.on("connect", () => {
-		gameSocket.emit("join-game", `${gameId}`, (response) => { // GAME_ID CAN BE AN ObjectId, SEND IT AS A STRING
+		gameSocket.emit("join-game", `${gameId}`, (response) => { // SEND GAME_ID AS A STRING
 			if (response?.status == 401 && !refreshed) { return refreshAndReconnect(); } // THE HANDSHAKE'S ACCESS TOKEN RAN OUT (#278)
 			if (response?.status != 200) { return console.log(`[SOCKET] ${response?.message}`); }
 			refreshed = false;
