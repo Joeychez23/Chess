@@ -289,6 +289,98 @@ describe("rematch", () => {
 		assert.equal((await call("POST", "/games/game1/rematch", { as: alice })).new_game_id, second.new_game_id); // PRESSED AGAIN: THE SAME GAME
 	});
 
+	for (const failing of ["alice", "bob"]) {
+		test(`${failing}'s list save fails: the press answers an error, pressing again puts the game on both lists and cancels both sent invites`, async () => {
+			await closedFriendGame("game1", "alice", "bob");
+			await friendGame("invite1", "alice", "carol", true);
+			await friendGame("invite2", "bob", "carol", true);
+			await call("POST", "/games/game1/rematch", { as: alice });
+			const updateItem = DynamoDB.prototype.updateItem;
+			DynamoDB.prototype.updateItem = async (params) => {
+				if (params.Key.user_id?.S == failing) { throw new Error("Save failed"); }
+				return updateItem(params);
+			};
+			try {
+				assert.equal((await call("POST", "/games/game1/rematch", { as: bob })).http, 500);
+			} finally {
+				DynamoDB.prototype.updateItem = updateItem;
+			}
+			const rematchId = peek("chess_db", "game1").rematch_game_id.S;
+			assert.equal(list(failing, "open_games").includes(rematchId), false);
+
+			const again = await call("POST", "/games/game1/rematch", { as: alice });
+			assert.equal(again.new_game_id, rematchId);
+			assert.equal(again.game_data.game_id.S, rematchId);
+			assert.ok(list("alice", "open_games").includes(rematchId));
+			assert.ok(list("bob", "open_games").includes(rematchId));
+			assert.equal(peek("chess_db", "invite1"), undefined);
+			assert.equal(peek("chess_db", "invite2"), undefined);
+			assert.deepEqual(again.dropped_invites.map((invite) => invite.game_id.S).sort(), ["invite1", "invite2"]);
+		});
+	}
+
+	async function pressWithGameSaveFailing() { // THE CLAIM SAVES, THE NEW GAME DOESN'T
+		await closedFriendGame("game1", "alice", "bob");
+		await call("POST", "/games/game1/rematch", { as: alice });
+		const putItem = DynamoDB.prototype.putItem;
+		DynamoDB.prototype.putItem = async (params) => {
+			if (params.Item.game_id) { throw new Error("Save failed"); }
+			return putItem(params);
+		};
+		try {
+			assert.equal((await call("POST", "/games/game1/rematch", { as: bob })).http, 500);
+		} finally {
+			DynamoDB.prototype.putItem = putItem;
+		}
+		const rematchId = peek("chess_db", "game1").rematch_game_id.S;
+		assert.equal(peek("chess_db", rematchId), undefined);
+		return rematchId;
+	}
+
+	test("the game save fails: pressing again makes it under the saved id", async () => {
+		const rematchId = await pressWithGameSaveFailing();
+		const again = await call("POST", "/games/game1/rematch", { as: alice });
+		assert.equal(again.new_game_id, rematchId);
+		assert.equal(peek("chess_db", rematchId).state.S, "OPEN");
+		assert.equal(peek("chess_db", rematchId).white_player_id.S, "alice");
+		assert.ok(list("alice", "open_games").includes(rematchId));
+		assert.ok(list("bob", "open_games").includes(rematchId));
+	});
+
+	test("the game save fails and a player starts another friend game: pressing again makes nothing", async () => {
+		const rematchId = await pressWithGameSaveFailing();
+		await friendGame("game2", "bob", "carol");
+		assert.equal((await call("POST", "/games/game1/rematch", { as: alice })).http, 409);
+		assert.equal(peek("chess_db", rematchId), undefined);
+	});
+
+	test("the other press saves the game first: this press uses it", async () => {
+		await closedFriendGame("game1", "alice", "bob");
+		await call("POST", "/games/game1/rematch", { as: alice });
+		const putItem = DynamoDB.prototype.putItem;
+		DynamoDB.prototype.putItem = async (params) => {
+			DynamoDB.prototype.putItem = putItem;
+			await friendGame(params.Item.game_id.S, "alice", "bob");
+			return putItem(params);
+		};
+		const second = await call("POST", "/games/game1/rematch", { as: bob });
+		assert.equal(second.status, 200);
+		assert.equal(second.game_data.game_id.S, second.new_game_id);
+	});
+
+	test("a rematch that has ended: pressing again changes nothing", async () => {
+		await closedFriendGame("game1", "alice", "bob");
+		await call("POST", "/games/game1/rematch", { as: alice });
+		const { new_game_id } = await call("POST", "/games/game1/rematch", { as: bob });
+		await db.closeGame((await db.retrieveGame(new_game_id, true)).game_data, "w", "forfeit");
+		await friendGame("invite1", "alice", "carol", true); // SENT SINCE IT ENDED
+		const again = await call("POST", "/games/game1/rematch", { as: alice });
+		assert.equal(again.new_game_id, new_game_id);
+		assert.equal(again.game_data, undefined);
+		assert.ok(peek("chess_db", "invite1"));
+		assert.equal(list("alice", "open_games").includes(new_game_id), false);
+	});
+
 	test("a press after the other player's minute ran out waits again", async () => {
 		await closedFriendGame("game1", "alice", "bob");
 		await db.requestRematch("game1", "alice", Date.now() - 1000);

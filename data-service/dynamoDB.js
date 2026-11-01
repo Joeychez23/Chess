@@ -1093,4 +1093,4 @@ async function batchReadGames(gameIds, listName) {
 }
 
 
-module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

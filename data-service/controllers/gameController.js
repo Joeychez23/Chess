@@ -10,7 +10,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
@@ -337,7 +337,7 @@ async function declineGame(req, res) {
  * same start settings (the inviter's color, random draws again) & both players' sent invites are cancelled (they're both in a game now).
  * Neither player can be in another friend game
  * @param  {[string]} req.params.gameId [closed friend game id]
- * @return {[object]} response [{ status, waiting, expires_in } while waiting | { status, new_game_id, game_data (the new game), dropped_invites (the cancelled invites, for both Homes) } once it starts]
+ * @return {[object]} response [{ status, waiting, expires_in } while waiting | finishRematch's answer once it starts]
  */
 async function rematchGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, true);
@@ -348,9 +348,7 @@ async function rematchGame(req, res) {
 	if (!playerId) { return refuse(req, res, 403, "Player is not in this game"); }
 	if (isAiGame(gameData)) { return refuse(req, res, 409, "AI games restart instead"); }
 	if (gameOpen(gameData) || gamePending(gameData)) { return refuse(req, res, 409, "Game isn't over yet"); }
-	// THE ANSWER ONCE THE REMATCH GAME EXISTS (BOTH PLAYERS GET THE SAME ONE)
-	const started = (game) => ({ status: 200, new_game_id: game.rematch_game_id.S, message: "Rematch started" });
-	if (gameData.rematch_game_id) { return res.json(started(gameData)); }
+	if (gameData.rematch_game_id) { return finishRematch(req, res, gameData, gameData.rematch_game_id.S); }
 
 	const players = [gameData.white_player_id.S, gameData.black_player_id.S];
 	if ((await currentGame(players[0], false)) || (await currentGame(players[1], false))) { return refuse(req, res, 409, "A player is in another friend game"); } // ONE FRIEND GAME AT A TIME
@@ -361,24 +359,51 @@ async function rematchGame(req, res) {
 	const rematchId = newGameId();
 	if (!(await acceptRematch(gameId, playerId, rematchId))) { // THE OTHER MINUTE JUST RAN OUT, OR THE OTHER PRESS STARTED IT
 		const latest = await retrieveGame(gameId, true);
-		if (latest.game_data?.rematch_game_id) { return res.json(started(latest.game_data)); }
+		if (latest.game_data?.rematch_game_id) { return finishRematch(req, res, latest.game_data, latest.game_data.rematch_game_id.S); }
 		if (await requestRematch(gameId, playerId, Date.now() + REMATCH_TIME)) { return res.json(waiting); }
 		return res.json({ status: 500, message: "Rematch failed" });
 	}
 
-	const params = startParams(gameData); // SIDES FOLLOW THE INVITER'S PICK
-	const inviter = inviterId(gameData);
-	const sides = pickSides(params, inviter, inviter == players[0] ? players[1] : players[0]);
-	const names = { [players[0]]: (await username(players[0])) || playerName(gameData, "w"), [players[1]]: (await username(players[1])) || playerName(gameData, "b") }; // A NEW USERNAME SHOWS FROM THE REMATCH ON
-	const made = await initalizeGame(rematchId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter });
-	if (!made.game_data) { return made.status == 409 ? refuse(req, res, 409, made.message) : res.json(made); }
+	return finishRematch(req, res, gameData, rematchId);
+}
+
+/**
+ * @description Everything after a rematch is claimed, safe to repeat: a press that failed part way is finished by the next one. Makes the game under
+ * the claimed id if it isn't there (neither player can be in another friend game), then puts it on both lists & cancels both players' sent invites.
+ * A rematch that has ended is only answered with: its lists are settled, & an invite sent since it ended stays
+ * @param  {[object]} gameData [the finished game]
+ * @param  {[string]} rematchId [the id claimed on it]
+ * @return {[object]} response [{ status, new_game_id, message } plus, while the rematch is open, game_data & dropped_invites]
+ * @throws when a save fails: the press answers an error & pressing again finishes the work
+ */
+async function finishRematch(req, res, gameData, rematchId) {
+	let game = (await retrieveGame(rematchId, true)).game_data;
+	if (game && !gameOpen(game)) { return res.json({ status: 200, new_game_id: rematchId, message: "Rematch started" }); }
+
+	const players = [gameData.white_player_id.S, gameData.black_player_id.S];
+	if (!game) {
+		for (let i = 0; i < players.length; i++) {
+			const current = await currentGame(players[i], false);
+			if (current && current.game_id.S != rematchId) { return refuse(req, res, 409, "A player is in another friend game"); } // ONE FRIEND GAME AT A TIME
+		}
+		const params = startParams(gameData); // SIDES FOLLOW THE INVITER'S PICK
+		const inviter = inviterId(gameData);
+		const sides = pickSides(params, inviter, inviter == players[0] ? players[1] : players[0]);
+		const names = { [players[0]]: (await username(players[0])) || playerName(gameData, "w"), [players[1]]: (await username(players[1])) || playerName(gameData, "b") }; // A NEW USERNAME SHOWS FROM THE REMATCH ON
+		const made = await initalizeGame(rematchId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter });
+		game = made.game_data || (await retrieveGame(rematchId, true)).game_data; // A 409: THE OTHER PRESS SAVED IT FIRST, ITS SIDES STAND
+		if (!game) { return res.json({ status: 500, message: "Rematch failed" }); }
+	}
+
+	const listError = await movePlayersGame(game, rematchId, "requested_games", "open_games"); // ADDS IT ONCE
+	if (listError) { throw listError; }
 
 	let dropped = [];
 	for (let i = 0; i < players.length; i++) {
 		const invite = await dropSentInvite(players[i]);
 		if (invite) { dropped.push(invite); }
 	}
-	return res.json({ status: 200, new_game_id: rematchId, game_data: made.game_data, dropped_invites: dropped, message: "Rematch started" });
+	return res.json({ status: 200, new_game_id: rematchId, game_data: game, dropped_invites: dropped, message: "Rematch started" });
 }
 
 /* ---------------------------------------------------------------- */
