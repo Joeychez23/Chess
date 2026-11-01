@@ -312,8 +312,11 @@ through it too. Put the key in your agent first: `ssh-add ~/path/to/key.pem`.
 
 ## Updating, logs and fixes
 
-[SETUP.md](../SETUP.md) has the update commands (one paste on Chess-Stockfish), the
-logs, and a fix for each error, with the machine each command runs on.
+To update the live site, run `deploy/deploy.sh` from the repo root: it deploys `main`,
+checks each service and the public site, and reports whether it came back up.
+`deploy/deploy.sh --rollback` goes back to the version before the last deploy.
+[SETUP.md](../SETUP.md#deploy-a-new-version) has the details, the logs, and a fix for
+each error, with the machine each command runs on.
 
 - **Refused requests** are one `REFUSED` line each in the data service's journal
   (route and reason, never a body or token). Many 401s mean a secret or version
@@ -322,7 +325,8 @@ logs, and a fix for each error, with the machine each command runs on.
   `/etc/systemd/system/` and run `sudo systemctl daemon-reload` before the restart.
 - **Changed `deploy/nginx.conf`?** Copy it, then `sudo nginx -t && sudo systemctl reload nginx`.
   The copy replaces certbot's HTTPS block, so run the certbot line again.
-- **Rollback:** deploy the previous commit. Code from before #252 (`112b1c0`) needs
+- **Rolling back further:** `--rollback` only keeps one version. To go further, deploy
+  an older commit by hand. Code from before #252 (`112b1c0`) needs
   the same `JWT_SECRET` back in both `.env` files; code from before #249 (`8414ecc`)
   talks to DynamoDB itself and needs #250's role policy back.
 
@@ -330,6 +334,8 @@ logs, and a fix for each error, with the machine each command runs on.
 
 ```text
 deploy/
+  deploy.sh                  one command deploy and rollback of the live site
+  upload-assets.sh           uploads the images and audio to S3 under a new version
   chess.service              systemd unit for the server (its own user, read-only system)
   data-service.service       systemd unit for the data service (its own user, read-only system, on the private instance)
   nginx.conf                 nginx site (proxy, Socket.IO WebSockets, rate limit)

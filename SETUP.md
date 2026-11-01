@@ -33,7 +33,42 @@ ssh -J ubuntu@52.11.177.148 ubuntu@172.31.64.10
 
 ## Deploy a new version
 
-Data service first, then the chess server.
+**On your Mac** (or any machine with the key loaded with `ssh-add`), from the repo root
+```bash
+deploy/deploy.sh
+```
+
+It logs in to Chess-Stockfish with your key forwarded and deploys `main` from GitHub: the data service first, then the chess server's copy, `npm ci`, client build and restart. Each instance keeps its `.env` files, `auth0-jwks.json`, images and audio. It checks the data service's `/health`, the chess server's `/api/chess/levels`, then `https://chess.aws-prac-route53.com/api/chess/levels`.
+
+It worked when the last line is `OK: deploy finished and the site is up.` and the exit code is 0. Any other ending names the step that failed and whether anything changed. A `WARNING` about a `.service` file means the unit changed and needs installing: see [deploy/README.md → Updating, logs and fixes](deploy/README.md#updating-logs-and-fixes).
+
+**Go back to the version before the last deploy**
+```bash
+deploy/deploy.sh --rollback
+```
+
+It restores the saved copy (`~/chess-previous` on Chess-Stockfish, `~/data-service-previous` on the data service), including `client/dist` and `node_modules`, so nothing is installed or built. It doesn't undo `.env` or unit changes, and only one version is kept: rolling back twice changes nothing. A deploy that fails keeps the last good copy, even if you run the deploy again.
+
+**The data service's packages changed** (`data-service/package-lock.json`). The deploy stops before changing anything, because the data service has no internet. Open an upkeep window around the install.
+
+**On your Mac** (in `terraform/aws-enviroment`)
+```bash
+terraform apply -var maintenance=true
+```
+
+**On your Mac** (from the repo root)
+```bash
+deploy/deploy.sh --data-service-packages
+```
+
+**On your Mac** (in `terraform/aws-enviroment`): close the window, about 4.5¢ an hour while it's open
+```bash
+terraform apply
+```
+
+### Deploy by hand
+
+For when a step has to happen between the copy and the restart, like the key change in [SECURITY.md](SECURITY.md#session-keys). `deploy/deploy.sh` does the same steps. Data service first, then the chess server.
 
 **On Chess-Stockfish** (logged in with `ssh -A`)
 ```bash
@@ -57,23 +92,6 @@ It worked when:
 - the data service's journal says `Data service on http://172.31.64.10:8090`;
 - `/health` prints `{"status":200,"message":"OK"}`;
 - the chess journal has no `Missing required environment variable`.
-
-**The data service's packages changed** (`data-service/package-lock.json`). It has no internet, so open an upkeep window around the install.
-
-**On your Mac** (in `terraform/aws-enviroment`)
-```bash
-terraform apply -var maintenance=true
-```
-
-**On the data service**
-```bash
-cd /opt/data-service && . /opt/nvm/nvm.sh && npm ci --omit=dev && sudo systemctl restart data-service
-```
-
-**On your Mac** (in `terraform/aws-enviroment`): close the window, about 4.5¢ an hour while it's open
-```bash
-terraform apply
-```
 
 ## Check a `.env` without showing it
 
@@ -386,7 +404,9 @@ sudo cp /opt/chess/deploy/nginx.conf /etc/nginx/sites-available/chess && sudo ng
 
 ## Roll back
 
-Deploy the previous commit the same way, but clone the whole history (no `--depth 1`) and check out the commit before the `rsync`s:
+To the version before the last deploy: `deploy/deploy.sh --rollback` on your Mac ([Deploy a new version](#deploy-a-new-version)).
+
+Further back: follow [Deploy by hand](#deploy-by-hand), but clone the whole history (no `--depth 1`) and check out the commit before the `rsync`s:
 
 **On Chess-Stockfish**
 ```bash
