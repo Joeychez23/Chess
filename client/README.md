@@ -94,7 +94,8 @@ The client side is `client/src/js/socket/index.js`. `renderCanvas()` calls
 `joinGame()` for friend games (also when a rematch loads), and the Home button calls `leaveGame()`. Home opens its own socket
 with `watchGames()`. If
 the server turns the socket away because the access token expired, the client
-re-ups the session once and reconnects.
+re-ups the session once and reconnects. While a friend game's socket is down, the play page's message area says so
+(`handlers.connectionLost`, `reconnected`, `connectionFailed`).
 
 A friend game's board listens like this. The handshake uses the session
 cookie, so the page must be on the server's origin and signed in:
@@ -144,6 +145,7 @@ client/
     input/index.js           Mouse, touch & TV remote handlers
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
     menu/index.js            Menu buttons, Restart / Forfeit / Rematch (loads the new board in place), game over, socketHandlers
+    status/index.js          The play page's message area (#gameStatus): refused moves, lost connection, server or AI not answering
     validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move

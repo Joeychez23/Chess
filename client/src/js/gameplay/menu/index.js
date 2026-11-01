@@ -18,6 +18,7 @@ const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SE
 const { setInitialData, checkOpponentMove, refreshData } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD
 const { InternalAuth } = require("../../auth/index.js"); // LOGOUT IS A POST TO THE SERVER (#297)
 const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
+const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -27,7 +28,14 @@ const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("
 
 let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
-export const socketHandlers = { move: checkOpponentMove, gameOver: showGameOver, rematch: loadRematch }; // SOCKET EVENT -> HANDLER
+export const socketHandlers = { // SOCKET EVENT -> HANDLER
+	move: checkOpponentMove,
+	gameOver: showGameOver,
+	rematch: loadRematch,
+	connectionLost: function () { showStatus("connection", "Connection lost. Reconnecting…"); },
+	reconnected: function () { showStatus("connection", "Reconnected", 3000); },
+	connectionFailed: function () { showStatus("connection", "Connection lost. Reload the page to reconnect."); },
+};
 
 /* ---------------------------------------------------------------- */
 // Options (Menu) Button
@@ -84,6 +92,8 @@ export async function handleRestart(e) {
 		setRestartLoading(false);
 		optBtn.style.display = "flex";
 		game.refresh = true;
+		console.log(restartResponse?.message || "Restart failed: no answer from the server");
+		showStatus("action", "A new game couldn't be started. Try again.", MESSAGE_TIME);
 		return;
 	}
 	setRestartLoading(0.5);
@@ -99,6 +109,9 @@ export async function handleRestart(e) {
  * @param  {[array]} fromPieces [where the old game's pieces were, getRestartPieces(true)]
  */
 async function loadNewBoard(fromPieces) {
+	clearStatus("move"); // ABOUT THE OLD GAME
+	clearStatus("server");
+	clearStatus("ai");
 	game.gameOver = false;
 	game.drawScreen = function () { return }; // DRAW NOTHING UNTIL THE NEW BOARD IS IN (THE OLD ONE STAYS ON THE CANVAS)
 	await setInitialData(); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
@@ -155,6 +168,8 @@ async function handleFriendBtn() {
 		const forfeitResponse = await forfeitGame(game.GAME_URL, game.GAME_ID);
 		if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
 		optRestartBtn.innerHTML = "Forfeit"; // FORFEIT FAILED, KEEP PLAYING
+		console.log(forfeitResponse?.message || "Forfeit failed: no answer from the server");
+		showStatus("action", "The forfeit didn't go through. Try again.", MESSAGE_TIME);
 		return;
 	}
 	if (rematchWaiting) { return; } // ALREADY ASKED, STILL WAITING
@@ -164,7 +179,10 @@ async function handleFriendBtn() {
 	if (rematchResponse?.waiting) { // WAIT 1 MINUTE FOR THE OPPONENT
 		optRestartBtn.innerHTML = "Waiting...";
 		rematchWaiting = setTimeout(function () { rematchWaiting = false; optRestartBtn.innerHTML = "Rematch"; }, rematchResponse.expires_in);
+		return;
 	}
+	console.log(rematchResponse?.message || "Rematch failed: no answer from the server");
+	showStatus("action", "The rematch request didn't go through. Try again.", MESSAGE_TIME);
 }
 
 /* ---------------------------------------------------------------- */
@@ -208,6 +226,7 @@ async function loadRematch(newGameId) {
 	game.refresh = false;
 	optBtn.style.display = "none"
 	setRestartLoading(0.5); // "Loading" & THE FILL (THE MENU IS OPEN AFTER A GAME ENDS), "Forfeit" WHEN THE SLIDE IS DONE
+	clearStatus("connection"); // THE NEW SOCKET REPORTS ITS OWN
 	joinGame(game.GAME_ID, game.PLAYER_ID, socketHandlers); // NEW GAME'S ROOM
 	await loadNewBoard(fromPieces);
 }

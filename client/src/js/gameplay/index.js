@@ -5,7 +5,8 @@
  *	loads it, joins a friend game's socket room, starts the render loop & adds the listeners & renderLoop() draws a frame when
  *	something changed (or asks the server for the AI's move). The rest of the game is in the files next to this one:
  *	state (the shared game object), images & sprites (loading & image numbers), layout (board size), draw (each frame),
- *	animate (knight hop, slide home), input (mouse, touch, TV remote), moves (server moves & the socket's), menu (menu & game over).
+ *	animate (knight hop, slide home), input (mouse, touch, TV remote), moves (server moves & the socket's), menu (menu & game over),
+ *	status (the message area for refused moves & connection problems).
  *	Moves are checked locally with chess.js, then saved by the chess server (validate/index.js)
  *
  */
@@ -23,6 +24,7 @@ const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, han
 const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
 const { handleMenuBtn, handleResume, handleRestart, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
+const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -30,6 +32,7 @@ const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (A
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
 let aiThinking = false; // TRUE WHILE THE SERVER PICKS THE AI'S MOVE
+const AI_RETRY_TIME = 5000; // ASKS FOR THE AI'S MOVE AGAIN AFTER THIS WHEN IT DIDN'T ANSWER (ms)
 
 /* ---------------------------------------------------------------- */
 // Render Canvas
@@ -149,6 +152,7 @@ async function startAiSlide() {
 
 		validateState.load(game.response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
 		validateState.move(game.moveObj);
+		clearStatus("ai");
 		for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
 			if (game.tiles[i].square == game.moveObj.from) {
 				game.slideStart = true;
@@ -173,7 +177,11 @@ async function startAiSlide() {
 		game.currSlide = true;
 	} catch (err) {
 		console.log(err);
-		game.aiTurn = false; // STOPS HERE (playAi ALREADY TRIED AGAIN), NOT A NEW REQUEST EVERY FRAME
+		game.aiTurn = false; // playAi ALREADY TRIED AGAIN: WAITS BEFORE ASKING AGAIN, NOT A NEW REQUEST EVERY FRAME
+		showStatus("ai", "The AI isn't answering. Trying again…");
+		setTimeout(function () {
+			if (game.ai && !game.gameOver && chessInst.turn() != game.playerColor) { game.aiTurn = true; game.refresh = true; } // STILL ITS TURN (NOT RESTARTED SINCE)
+		}, AI_RETRY_TIME);
 	} finally { aiThinking = false; }
 }
 

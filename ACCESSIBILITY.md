@@ -13,7 +13,7 @@ Chess should be playable by as many people as possible, including people who use
 - The page language is set (`lang="en"`), so screen readers use the right voice.
 - Every form field and dropdown has a label: the AI level, your color and your friend's email.
 - The picture of the board on the homepage has a text description, and each board preview ("The board of your current AI game") is labelled.
-- Messages about invites and errors are announced by screen readers as they appear.
+- Messages about invites and errors are announced by screen readers as they appear. On the play page that includes a refused move, a lost connection and the server or AI not answering.
 - The menu button is labelled "Menu", says whether the menu is open or closed, and Escape closes the menu.
 - Buttons and links show a gold outline when you move to them with the keyboard.
 - You can zoom the page; zoom isn't blocked on phones.

@@ -312,5 +312,7 @@ async function request(url, options) {
 		const refresh = await fetch("/api/auth/refresh", { method: "POST" });
 		if (refresh.ok) { res = await fetch(url, options); }
 	}
-	return res.json();
+	const body = await res.json();
+	if (res.status >= 500) { body.serverError = true; } // THE SERVER BROKE. A REFUSED MOVE IS AN HTTP 200 WITH status: 500 IN THE BODY (chessController.js)
+	return body;
 }

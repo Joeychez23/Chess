@@ -20,20 +20,31 @@ let homeSocket = null; // HOME'S SOCKET (watchGames)
  * @description Opens the socket & joins a friend game's room. After a reconnect it joins again & catches up on anything missed
  * @param  {[string]} gameId [game id]
  * @param  {[string]} playerId [this player, their own moves & forfeits already came back from the request so they're skipped]
- * @param  {[object]} handlers [{ move() opponent moved, gameOver(result) opponent forfeited, rematch(newGameId) both asked for a rematch }]
+ * @param  {[object]} handlers [{ move() opponent moved, gameOver(result) opponent forfeited, rematch(newGameId) both asked for a rematch,
+ * connectionLost() trying to reconnect, reconnected() back in the room, connectionFailed() it won't come back without a reload }]
  */
 export function joinGame(gameId, playerId, handlers) {
 	leaveGame();
 	const gameSocket = io({ withCredentials: true }); // SAME ORIGIN, THE SESSION COOKIE SIGNS IN THE SOCKET
 	let joined = false;
 	let refreshed = false;
+	let lost = false; // THE PLAYER WAS TOLD THE CONNECTION IS LOST
 	socket = gameSocket;
+
+	function connectionLost() {
+		lost = true;
+		handlers.connectionLost();
+	}
 
 	gameSocket.on("connect", () => {
 		gameSocket.emit("join-game", `${gameId}`, (response) => { // SEND GAME_ID AS A STRING
 			if (response?.status == 401 && !refreshed) { return refreshAndReconnect(); } // THE HANDSHAKE'S ACCESS TOKEN RAN OUT (#278)
-			if (response?.status != 200) { return console.log(`[SOCKET] ${response?.message}`); }
+			if (response?.status != 200) { // STILL NOT IN THE ROOM, NO MOVES WILL ARRIVE
+				console.log(`[SOCKET] ${response?.message}`);
+				return handlers.connectionFailed();
+			}
 			refreshed = false;
+			if (lost) { lost = false; handlers.reconnected(); }
 			if (joined) { // RECONNECTED, THE OPPONENT MAY HAVE MOVED OR FORFEITED WHILE OFFLINE
 				handlers.move();
 				if (response.state == "CLOSED" && response.reason == "forfeit") { handlers.gameOver(response); }
@@ -60,18 +71,25 @@ export function joinGame(gameId, playerId, handlers) {
 	async function refreshAndReconnect() {
 		refreshed = true;
 		const res = await fetch("/api/auth/refresh", { method: "POST" }).catch(() => null);
-		if (!res?.ok || socket != gameSocket) { return; }
+		if (socket != gameSocket) { return; }
+		if (!res?.ok) { return handlers.connectionFailed(); } // THE SESSION ENDED
 		if (gameSocket.connected) { gameSocket.disconnect(); }
 		gameSocket.connect();
 	}
 
 	gameSocket.on("connect_error", () => {
-		if (gameSocket.active || refreshed) { return; } // SOCKET.IO RETRIES NETWORK ERRORS BY ITSELF
+		connectionLost();
+		if (gameSocket.active) { return; } // SOCKET.IO RETRIES NETWORK ERRORS BY ITSELF
+		if (refreshed) { return handlers.connectionFailed(); } // TURNED AWAY AGAIN WITH THE NEW COOKIE
 		refreshAndReconnect(); // THE SERVER TURNED THE SOCKET AWAY: ACCESS TOKEN EXPIRED -> RE-UP ONCE & TRY AGAIN
 	});
 
 	gameSocket.on("disconnect", (reason) => { // THE SERVER CLOSED IT: ITS ACCESS TOKEN RAN OUT, OR THE SESSION ENDED (THE RE-UP FAILS & IT STAYS CLOSED, #298)
-		if (reason == "io server disconnect" && !refreshed && socket == gameSocket) { refreshAndReconnect(); }
+		if (reason == "io client disconnect") { return; } // THIS PAGE CLOSED IT (leaveGame, refreshAndReconnect)
+		connectionLost();
+		if (reason != "io server disconnect" || socket != gameSocket) { return; } // SOCKET.IO RECONNECTS BY ITSELF
+		if (refreshed) { return handlers.connectionFailed(); } // CLOSED AGAIN WITH THE NEW COOKIE
+		refreshAndReconnect();
 	});
 }
 

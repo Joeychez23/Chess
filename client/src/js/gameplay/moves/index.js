@@ -16,10 +16,13 @@ const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MO
 const { setTiles, countStartPieces } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH
 const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
 const { showGameOver } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT)
+const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
+const OPPONENT_RETRY_TIME = 5000; // ASKS FOR A FRIEND'S MOVE AGAIN AFTER THIS WHEN THE SERVER DIDN'T ANSWER (ms)
+let opponentRetry = null; // THE TIMER FOR THAT
 
 /* ---------------------------------------------------------------- */
 // Set Initial Board Data
@@ -36,7 +39,7 @@ export async function setInitialData() {
 	}
 	game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
 	game.playerColor = game.response?.player_color || null;
-	if (game.response.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
+	if (game.response?.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
 		game.opponentColor = game.response?.opponent_color || false;
 		chessInst.load(game.response.game_board); // THE BOARD TO DRAW
 		game.startPieceCount = countStartPieces(game.response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
@@ -53,7 +56,12 @@ export async function setInitialData() {
 		if (game.response.ai) {
 			game.ai = true;
 			if (game.opponentColor == chessInst.turn()) { //PLAY AI MOVE
-				game.moveObj = await playAi(game.GAME_URL, game.GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE (renderLoop ASKS AGAIN, GETS THE SAME MOVE & SLIDES IT IN)
+				try {
+					game.moveObj = await playAi(game.GAME_URL, game.GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE (renderLoop ASKS AGAIN, GETS THE SAME MOVE & SLIDES IT IN)
+				} catch (err) { // renderLoop KEEPS ASKING, THE GAME STILL OPENS
+					console.log(err);
+					showStatus("ai", "The AI isn't answering. Trying again…");
+				}
 				game.tiles = await setTiles();
 				game.aiTurn = true;
 				game.refresh = true;
@@ -63,6 +71,8 @@ export async function setInitialData() {
 
 		}
 	} else {
+		console.log(game.response?.message || "The game didn't load");
+		showStatus("server", "The game couldn't be loaded. Reload the page to try again.");
 		return false;
 	}
 }
@@ -79,6 +89,8 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 	try {
 		game.revert = game.response
 		const updatedResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
+		if (updatedResponse?.status != 200) { return opponentMoveFailed(updatedResponse); }
+		clearStatus("server");
 		if (updatedResponse.game_board != game.revert.game_board && game.opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
 			if (chessInst.isGameOver()) { // THIS BOARD WAS ALREADY OVER
 				game.menuToggled = true;
@@ -124,6 +136,19 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 	} catch (err) { console.log(err); }
 }
 
+/**
+ * @description A friend's move couldn't be fetched, the board stays locked on their turn. No answer: says so & asks again
+ * until there's one (checkOpponentMove clears the message). Any other answer won't change by asking again
+ * @param  {[object]} response [from validate/index.js]
+ */
+function opponentMoveFailed(response) {
+	console.log(response?.message || "Opponent move failed: no answer from the server");
+	if (!noAnswer(response)) { return showStatus("server", "Your opponent's move couldn't be loaded. Reload the page to try again."); }
+	showStatus("server", "The server isn't answering. Trying again…");
+	clearTimeout(opponentRetry);
+	opponentRetry = setTimeout(checkOpponentMove, OPPONENT_RETRY_TIME);
+}
+
 /* ---------------------------------------------------------------- */
 // On User Slide Complete
 /* ---------------------------------------------------------------- */
@@ -149,7 +174,7 @@ export async function updateUserStateSlide(index) {
 /**
  * @description Validates user move post slide or drag/drop then starts ai slide. Plays the move sound, moves the piece on
  * the local board, knight list & piece list, sends the move (PUT) & loads the server's board. AI games give the AI its turn
- * half a second later, friend games wait for the socket. A move the server turns down goes back to revert
+ * half a second later, friend games wait for the socket. A move the server turns down goes back to revert & the player is told (moveFailed)
  */
 export async function validateMove() {
 	try {
@@ -225,24 +250,41 @@ export async function validateMove() {
 		}
 
 
-		game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, [game.moveObj.from, game.moveObj.to], game.moveObj.promotion, false); // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
+		const moveResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, [game.moveObj.from, game.moveObj.to], game.moveObj.promotion, false); // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
+		if (moveResponse?.status != 200) { return moveFailed(moveResponse); } // TURNED DOWN OR NO ANSWER: BACK TO THE OLD BOARD
 
-		chessInst.load(game.response.game_board); // THE SERVER'S BOARD
+		chessInst.load(moveResponse.game_board); // THE SERVER'S BOARD
+		game.response = moveResponse;
+		clearStatus("move");
+		clearStatus("server");
 
-		if (game.response.status == 200) {
-			game.currSlide = false;
-			if (game.response.state == "CLOSED") { showGameOver(game.response); return; } // CHECKMATE OR DRAW
+		game.currSlide = false;
+		if (game.response.state == "CLOSED") { showGameOver(game.response); return; } // CHECKMATE OR DRAW
 
-			if (game.ai) {
-				game.tiles = await setTiles();
-				game.refresh = true;
-				setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
-				return;
-			}
-			else { return refreshData(game.response); } // FRIEND GAME: THE SOCKET SAYS WHEN THEY MOVE
-
-		} else { game.opposingMove = false; return refreshData(game.revert); } // TURNED DOWN: BACK TO THE OLD BOARD
+		if (game.ai) {
+			game.tiles = await setTiles();
+			game.refresh = true;
+			setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
+			return;
+		}
+		else { return refreshData(game.response); } // FRIEND GAME: THE SOCKET SAYS WHEN THEY MOVE
 	} catch (err) { console.log(err); game.opposingMove = false; game.mousedownTile = false; game.clickedTile = false; return refreshData(game.revert); }
+}
+
+/**
+ * @description The server turned a move down or didn't answer: says so & goes back to the board from before the move, ready for the next try
+ * @param  {[object]} response [from validate/index.js]
+ * @return {[object]} the old game
+ */
+function moveFailed(response) {
+	console.log(response?.message || "Move failed: no answer from the server");
+	if (noAnswer(response)) { showStatus("server", "The server isn't answering. The board was reset, try your move again."); } // STAYS UNTIL A REQUEST WORKS
+	else { showStatus("move", "That move wasn't accepted. The board was reset.", MESSAGE_TIME); }
+	game.response = game.revert; // THE FAILED ANSWER HAS NO BOARD
+	game.opposingMove = false;
+	game.mousedownTile = false;
+	game.clickedTile = false;
+	return refreshData(game.revert);
 }
 
 /* ---------------------------------------------------------------- */
@@ -327,23 +369,34 @@ export async function updateOpponentStateSlide(index) {
 		}
 
 		game.revert = game.response;
-		if (game.ai) { game.response = await new Promise((resolve) => setTimeout(() => resolve(game.moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS A TICK LIKE A PUT WOULD SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
-		else { game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); }
-		chessInst.load(game.response.game_board); // UPDATE BOARD
-		if (game.response.status == 200) { // IF VALIDATED UPDATE BOARD STATE
-			game.currSlide = false;
+		let savedGame;
+		if (game.ai) { savedGame = await new Promise((resolve) => setTimeout(() => resolve(game.moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS A TICK LIKE A PUT WOULD SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
+		else { savedGame = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); }
+		if (savedGame?.status != 200) { // BACK TO THE PREVIOUS BOARD, STILL THEIR TURN
+			game.opposingMove = true;
+			opponentMoveFailed(savedGame);
+			return refreshData(game.revert);
+		}
+		chessInst.load(savedGame.game_board); // UPDATE BOARD
+		game.response = savedGame;
+		clearStatus("server");
+		game.currSlide = false;
 
-			game.tiles[index].isSliding = null;
-			game.tiles[index].xDiff = 0;
-			game.tiles[index].yDiff = 0;
-			game.tiles[index].x = game.tiles[index].xSlideTo;
-			game.tiles[index].y = game.tiles[index].ySlideTo;
+		game.tiles[index].isSliding = null;
+		game.tiles[index].xDiff = 0;
+		game.tiles[index].yDiff = 0;
+		game.tiles[index].x = game.tiles[index].xSlideTo;
+		game.tiles[index].y = game.tiles[index].ySlideTo;
 
-			game.opposingMove = false;
-			refreshData(game.response);
-			if (game.response.state == "CLOSED") { showGameOver(game.response); } // CHECKMATE OR DRAW
-		} else { game.opposingMove = true; return refreshData(game.revert); } // IF VALIDATION FAILS REVERT BACK TO PREVIOUS BOARD
-	} catch (err) { game.currSlide = false; console.log(err); return refreshData(game.response); }
+		game.opposingMove = false;
+		refreshData(game.response);
+		if (game.response.state == "CLOSED") { showGameOver(game.response); } // CHECKMATE OR DRAW
+	} catch (err) {
+		game.currSlide = false;
+		console.log(err);
+		showStatus("move", "Something went wrong. The board was reset.", MESSAGE_TIME);
+		return refreshData(game.response);
+	}
 }
 
 /* ---------------------------------------------------------------- */
