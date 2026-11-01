@@ -23,6 +23,10 @@
 		body > * { transition: opacity 400ms ease-out; }
 		html.loadingPage body > * { opacity: 0; } /* NO FADE FROM HOME (A RELOAD, FROM LOGIN, FIREFOX): THE TABLE, THEN THE GAME FADES IN */
 		:active-view-transition body > * { transition: none; } /* FROM HOME THE PAGE FADE DOES IT ALONE (A BROWSER WITHOUT THIS ONLY DROPS THIS LINE) */
+		@media (prefers-reduced-motion: reduce) { /* NO FADE: THE LAST PAGE STILL STAYS ON SCREEN WHILE loadingPage IS ON, THEN THIS PAGE IS JUST THERE (0s WHILE PAUSED WOULD SHOW THE UNFINISHED PAGE) */
+			html:not(.loadingPage)::view-transition-group(*) { animation-duration: 0s; }
+			body > * { transition: none; }
+		}
 	</style>
 </head>
 
@@ -33,11 +37,14 @@
 		<p id="ratingDisplay" hidden></p>
 		<ul id="menuButtonList">
 			<li><button class="menuButton" id="optResume">Resume</button></li>
+			<li><button class="menuButton" id="optSound">Turn Sound: Off</button></li>
 			<li><button class="menuButton" id="optRestart">Restart</button></li>
 			<li><button class="menuButton" id="optSettings">Home</button></li>
 			<li><button class="menuButton" id="optExit">Exit</button></li>
 		</ul>
 	</nav>
+
+	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
 
 	<main id="main"></main>
 </body>

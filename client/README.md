@@ -94,7 +94,8 @@ The client side is `client/src/js/socket/index.js`. `renderCanvas()` calls
 `joinGame()` for friend games (also when a rematch loads), and the Home button calls `leaveGame()`. Home opens its own socket
 with `watchGames()`. If
 the server turns the socket away because the access token expired, the client
-re-ups the session once and reconnects.
+re-ups the session once and reconnects. While a friend game's socket is down, the play page's message area says so
+(`handlers.connectionLost`, `reconnected`, `connectionFailed`).
 
 A friend game's board listens like this. The handshake uses the session
 cookie, so the page must be on the server's origin and signed in:
@@ -119,7 +120,7 @@ client/
   home.html                  Home markup: Play the AI (level), Play a friend (email), Invites, Your games, menu (Home, Invites, Your games, Settings, Logout)
   settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Sign in)
-  play.html                  Game menu markup (Resume, Restart / Forfeit / Rematch, Home, Exit)
+  play.html                  Game menu markup (Resume, Sound, Restart / Forfeit / Rematch, Home, Exit)
   webpack.config.js          One entry + HTML page each (home, guest, play, settings), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles
@@ -134,16 +135,17 @@ client/
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
   src/js/socket/index.js     joinGame() / leaveGame(): friend game socket, watchGames(): Home's socket
   src/js/gameplay/
-    index.js                 renderCanvas() (sets up the canvas, starts once the sprites are in), startGame() (loads the game, joins a friend game, listeners), renderLoop()
+    index.js                 renderCanvas() (sets up the canvas, starts once the sprites are in), startGame() (loads the game, joins a friend game, listeners), renderLoop() (runs on requestAnimationFrame, only while something changes)
     state/index.js           game: the state every gameplay file shares, plus the canvas, ctx & the chess.js boards
     images/index.js          preloadImages() / imageProgress(): loads the sprites into images[] (home, guest + play call it)
     sprites/index.js         Every sprite url in image number order + the image numbers (wFrontKingImg = 5, ...)
     layout/index.js          renderBoard(): sizes the canvas & board to the window, draws the table & board; resize
     draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays, which way pieces face
-    animate/index.js         Knight hop height, the pieces sliding home after Restart & Rematch
+    animate/index.js         stepSlide(): where a sliding piece is from the time, knight hop height, the pieces sliding home after Restart & Rematch
     input/index.js           Mouse, touch & TV remote handlers
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
     menu/index.js            Menu buttons, Restart / Forfeit / Rematch (loads the new board in place), game over, socketHandlers
+    status/index.js          The play page's message area (#gameStatus): refused moves, lost connection, server or AI not answering
     validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move

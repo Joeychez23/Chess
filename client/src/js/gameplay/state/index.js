@@ -17,8 +17,46 @@ export const canvas = document.createElement("canvas"); // THE WHOLE GAME IS DRA
 export const ctx = canvas.getContext("2d"); // EVERYTHING IS DRAWN WITH THIS
 export const chessInst = new Chess(); // THE BOARD THAT'S DRAWN, LOADED FROM THE SERVER'S FEN
 export const validateState = new Chess(); // SCRATCH BOARD, TESTS A MOVE WITHOUT CHANGING chessInst
-export const frameRate = 1000 / 33; // MS BETWEEN FRAMES (ABOUT 33 A SECOND)
 export const OVERRIDE_TV = false; // TRUE TURNS ON THE TV REMOTE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
+
+/* ---------------------------------------------------------------- */
+// Frames
+/* ---------------------------------------------------------------- */
+let drawFrame = null; // THE RENDER LOOP, null UNTIL THE GAME STARTS & AFTER IT'S LEFT
+let frameRequest = null; // THE FRAME ALREADY ASKED FOR, SO THERE'S ONLY EVER ONE
+
+/**
+ * @description Asks the browser for one frame, when it's ready to show it (not at all while the tab is hidden: the frame
+ * comes when the tab is shown again). Nothing is asked for when nothing changed, so an idle board does no work
+ */
+export function requestFrame() {
+	if (frameRequest !== null || !drawFrame) { return; }
+	frameRequest = requestAnimationFrame(function () {
+		frameRequest = null;
+		if (drawFrame) { drawFrame(); }
+	});
+}
+
+/**
+ * @description Starts the render loop, it's called for each frame requestFrame() asks for
+ * @param  {[function]} renderLoop [draws one frame]
+ */
+export function startFrames(renderLoop) {
+	drawFrame = renderLoop;
+	requestFrame();
+}
+
+/**
+ * @description Stops the render loop, leaving the game
+ */
+export function stopFrames() {
+	drawFrame = null;
+	if (frameRequest !== null) { cancelAnimationFrame(frameRequest); frameRequest = null; }
+}
+
+let refresh = true; // game.refresh
+let currSlide = false; // game.currSlide
+let restartSlide = null; // game.restartSlide
 
 /* ---------------------------------------------------------------- */
 // Game
@@ -34,6 +72,7 @@ export const game = {
 	TV_BOOL: undefined, // TV REMOTE CONTROLS INSTEAD OF THE MOUSE
 	SIGNED_IN: undefined, // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
 	moveAudio: undefined, // MOVE SOUND (MADE IN renderCanvas)
+	soundOn: true, // THE PLAYER'S SOUND BUTTON, SAVED IN localStorage (SET BY loadSound, CHANGED BY handleSound IN gameplay/menu/index.js)
 	response: undefined, // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
 	revert: undefined, // GAME TO GO BACK TO IF A MOVE FAILS
 	playerColor: undefined, // 'w' OR 'b', BLACK FLIPS THE BOARD SO THE PLAYER IS ALWAYS AT THE BOTTOM
@@ -45,10 +84,11 @@ export const game = {
 	startPieceCount: countStartPieces(), // { w, b } PIECES EACH SIDE STARTED WITH (THE STANDARD SET, OR A SET POSITION'S, setInitialData())
 	gameOver: false, // THE SERVER CLOSED THE GAME (CHECKMATE, DRAW OR FORFEIT)
 	boardReset: false, // TRUE WHILE A NEW BOARD LOADS & ITS PIECES SLIDE HOME (RESTART & REMATCH), STOPS THE NORMAL FRAMES (THE OLD BOARD STAYS ON SCREEN)
-	restartSlide: null, // PIECES SLIDING HOME AFTER RESTART & REMATCH: { pieces, startTime } (startRestartSlide)
-	drawInterval: undefined, // THE RENDER LOOP'S setInterval
+	get restartSlide() { return restartSlide; }, // PIECES SLIDING HOME AFTER RESTART & REMATCH: { pieces, startTime } (startRestartSlide)
+	set restartSlide(value) { restartSlide = value; if (value) { requestFrame(); } },
 	drawScreen: undefined, // DRAWS ONE FRAME, SET BY handleInitialData() FOR THE PLAYER'S COLOR
-	refresh: true, // TRUE DRAWS A FRAME ON THE NEXT TICK OF THE RENDER LOOP
+	get refresh() { return refresh; }, // TRUE DRAWS A FRAME: SETTING IT ASKS THE BROWSER FOR ONE
+	set refresh(value) { refresh = value; if (value) { requestFrame(); } },
 
 	// BOARD SIZE (SET BY renderBoard() EVERY FRAME)
 	cw: undefined, // CANVAS WIDTH (CSS PIXELS)
@@ -67,16 +107,18 @@ export const game = {
 	tileY: undefined, // SCREEN ROW UNDER THE MOUSE (0 - 7 ON THE BOARD)
 	clickedTile: false, // TILE PICKED UP BY A CLICK (OR A FINISHED DRAG)
 	mousedownTile: false, // TILE BEING DRAGGED
-	mouseDownCount: 0, // FRAMES THE MOUSE HAS BEEN HELD ON A PIECE, MORE THAN 3 MAKES IT A DRAG
+	mouseDownTime: null, // WHEN THE FIRST FRAME OF A HELD PIECE WAS DRAWN, null UNTIL THEN (DRAG_HOLD_MS IN gameplay/draw)
 	menuToggled: false, // MENU IS OPEN
 	opposingMove: false, // TRUE WHILE IT'S NOT THE PLAYER'S TURN, LOCKS THE BOARD
 	currPromotion: false, // TRUE WHILE THE PLAYER PICKS THEIR PROMOTION PIECE
 	availableMovesData: { piece: null, square: null }, // PIECE & SQUARE availableMoves IS FOR, SO THE MOVES ARE ONLY FOUND ONCE
 
 	// SLIDES
-	currSlide: false, // TRUE WHILE A PIECE SLIDES TO ITS NEW SQUARE
+	get currSlide() { return currSlide; }, // TRUE WHILE A PIECE SLIDES TO ITS NEW SQUARE, THE RENDER LOOP KEEPS ASKING FOR FRAMES
+	set currSlide(value) { currSlide = value; if (value) { requestFrame(); } },
 	slideStart: false, // FIRST FRAME OF A SLIDE, A KNIGHT STOPS FOR 100MS BEFORE ITS HOP
 	knightHop: 0, // HOW HIGH A HOPPING KNIGHT IS: 0 ON THE BOARD, 1 AT THE TOP (HALF A SQUARE UP), SET BY handleKnightHop()
+	reduceMotion: false, // THE DEVICE ASKS FOR LESS MOTION: PIECES ARE SET WITHOUT SLIDING OR HOPPING (SET & KEPT UP TO DATE BY renderCanvas)
 
 	// TAKEN PIECES
 	wPieceCount: { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }, // WHITE PIECES DRAWN THIS FRAME, TAKEN PIECES = START COUNT - THIS
@@ -125,4 +167,11 @@ export const game = {
 	bKnightRefl: undefined, // SET WITH bKnightImg
 	bRookRefl: undefined, // SET WITH bKingImg
 	bPawnRefl: undefined, // SET WITH bPawnImg
+}
+
+/**
+ * @description Draws a frame when the tiles are blank, so a slide can find its piece. A hidden tab draws no frames (requestFrame) & only drawing fills them
+ */
+export function fillTiles() {
+	if (!game.tiles.some(function (tile) { return tile.square; })) { game.drawScreen(); }
 }

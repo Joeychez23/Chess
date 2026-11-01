@@ -13,8 +13,8 @@ Chess should be playable by as many people as possible, including people who use
 - The page language is set (`lang="en"`), so screen readers use the right voice.
 - Every form field and dropdown has a label: the AI level, your color and your friend's email.
 - The picture of the board on the homepage has a text description, and each board preview ("The board of your current AI game") is labelled.
-- Messages about invites and errors are announced by screen readers as they appear.
-- The menu button is labelled "Menu", says whether the menu is open or closed, and Escape closes the menu.
+- Messages about invites and errors are announced by screen readers as they appear. On the play page that includes a refused move, a lost connection and the server or AI not answering.
+- The menu button is labelled "Menu", says whether the menu is open or closed, and Escape closes the menu. In a game, clicking or tapping away from the menu closes it too, and Resume does the same for keyboard players.
 - Buttons and links show a gold outline when you move to them with the keyboard.
 - You can zoom the page; zoom isn't blocked on phones.
 
@@ -24,14 +24,14 @@ Chess should be playable by as many people as possible, including people who use
 - Legal moves are highlighted when you pick up a piece, and a king in check is highlighted.
 - The board fits phones in portrait and landscape, and tablets and desktops.
 - Friend games are saved after every move, so there's no time limit on making one.
+- The site follows your device's "reduce motion" setting: pieces appear on their new squares without sliding or hopping, Restart and Rematch set the pieces straight away, and pages change without fading.
+- The move sound can be turned off with the Sound button in the game menu. The choice is saved in your browser, for guests too.
 
 ## Known limitations
 
 - **The game board can't be read by a screen reader.** It's drawn as a picture (an HTML canvas) with no text version, so a screen reader can't tell you where the pieces are, which moves are legal or what your opponent played.
 - **You can't play with only a keyboard.** The menus work with a keyboard, but moving pieces needs a mouse or touch. Arrow keys and Enter work only in a TV remote mode that's switched off on the live site.
 - **Moves are shown only by animation and sound.** Nothing announces your opponent's move in words, and there's no move list to look back at.
-- **Motion can't be reduced.** Pieces slide and knights hop on every move, the pieces slide home on Restart and Rematch, and pages fade between each other. The site doesn't yet follow your device's "reduce motion" setting.
-- **The move sound can't be turned off** without muting your device.
 - **There are no board coordinates** (a–h, 1–8).
 - **The result doesn't always say why the game ended.** The menu shows "White Wins!", "Black Wins!" or "Draw", but only forfeits are named, not checkmate, stalemate and so on.
 - **Rematch has a 1-minute limit** that can't be extended.
@@ -45,13 +45,11 @@ These are tracked as issues:
 - [Move list panel](https://github.com/Joeychez23/Chess/issues/66): a readable list of every move in the game
 - [Board coordinates (a–h, 1–8)](https://github.com/Joeychez23/Chess/issues/62)
 - [Last-move highlight](https://github.com/Joeychez23/Chess/issues/59): marks the squares of the last move
-- [Sound on/off](https://github.com/Joeychez23/Chess/issues/58)
 
 Not tracked yet, but needed:
 
 - Announcing each move to screen readers ("Black: knight to f6")
 - Moving pieces with the keyboard on the live site
-- Following the device's "reduce motion" setting
 
 ## Report a problem
 
