@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Sound, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
  *	for Restart & Rematch (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
  *	socket's handlers (socketHandlers: a move, a forfeit or a rematch), startGame & loadRematch join with them
  *
@@ -22,10 +22,12 @@ const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js");
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
+const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 
+const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
 let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
 export const socketHandlers = { // SOCKET EVENT -> HANDLER
@@ -66,6 +68,29 @@ export function handleResume(e) {
 	game.refresh = false;
 	if (game.menuToggled) { menu.style.display = "flex" }
 	else { menu.style.display = "none" }
+}
+
+/* ---------------------------------------------------------------- */
+// Sound Button (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Reads the saved sound setting when the game starts & sets the button's words
+ */
+export function loadSound() {
+	try { game.soundOn = localStorage.getItem(SOUND_KEY) != "off"; } catch { game.soundOn = true; } // STORAGE BLOCKED (PRIVATE MODE)
+	optSoundBtn.innerText = game.soundOn ? "Turn Sound: Off" : "Turn Sound: On"; // THE WORDS SAY WHAT A PRESS WILL DO
+}
+
+/**
+ * @description Turns the move sound on or off & saves it, the menu stays open. unlockAudio() (input/index.js) still runs
+ * with sound off, so turning it back on works on iOS
+ */
+export function handleSound(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	game.soundOn = !game.soundOn;
+	optSoundBtn.innerText = game.soundOn ? "Turn Sound: Off" : "Turn Sound: On"; // THE WORDS SAY WHAT A PRESS WILL DO
+	try { localStorage.setItem(SOUND_KEY, game.soundOn ? "on" : "off"); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
 }
 
 /* ---------------------------------------------------------------- */

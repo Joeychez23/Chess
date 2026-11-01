@@ -25,13 +25,13 @@ Chess should be playable by as many people as possible, including people who use
 - The board fits phones in portrait and landscape, and tablets and desktops.
 - Friend games are saved after every move, so there's no time limit on making one.
 - The site follows your device's "reduce motion" setting: pieces appear on their new squares without sliding or hopping, Restart and Rematch set the pieces straight away, and pages change without fading.
+- The move sound can be turned off with the Sound button in the game menu. The choice is saved in your browser, for guests too.
 
 ## Known limitations
 
 - **The game board can't be read by a screen reader.** It's drawn as a picture (an HTML canvas) with no text version, so a screen reader can't tell you where the pieces are, which moves are legal or what your opponent played.
 - **You can't play with only a keyboard.** The menus work with a keyboard, but moving pieces needs a mouse or touch. Arrow keys and Enter work only in a TV remote mode that's switched off on the live site.
 - **Moves are shown only by animation and sound.** Nothing announces your opponent's move in words, and there's no move list to look back at.
-- **The move sound can't be turned off** without muting your device.
 - **There are no board coordinates** (a–h, 1–8).
 - **The result doesn't always say why the game ended.** The menu shows "White Wins!", "Black Wins!" or "Draw", but only forfeits are named, not checkmate, stalemate and so on.
 - **Rematch has a 1-minute limit** that can't be extended.
@@ -45,7 +45,6 @@ These are tracked as issues:
 - [Move list panel](https://github.com/Joeychez23/Chess/issues/66): a readable list of every move in the game
 - [Board coordinates (a–h, 1–8)](https://github.com/Joeychez23/Chess/issues/62)
 - [Last-move highlight](https://github.com/Joeychez23/Chess/issues/59): marks the squares of the last move
-- [Sound on/off](https://github.com/Joeychez23/Chess/issues/58)
 
 Not tracked yet, but needed:
 

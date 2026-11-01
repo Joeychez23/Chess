@@ -169,6 +169,18 @@ export async function updateUserStateSlide(index) {
 }
 
 /* ---------------------------------------------------------------- */
+// Move Sound
+/* ---------------------------------------------------------------- */
+/**
+ * @description Plays the move sound, unless the player turned sound off in the menu
+ */
+function playMoveSound() {
+	if (!game.soundOn) { return; }
+	game.moveAudio.load();
+	game.moveAudio.play().catch((err) => { console.log(err) });
+}
+
+/* ---------------------------------------------------------------- */
 // Validates User Move
 /* ---------------------------------------------------------------- */
 /**
@@ -178,8 +190,7 @@ export async function updateUserStateSlide(index) {
  */
 export async function validateMove() {
 	try {
-		game.moveAudio.load();
-		game.moveAudio.play().catch((err) => { console.log(err) });
+		playMoveSound();
 		game.revert = { ...game.response }; // GO BACK TO THIS IF THE SERVER SAYS NO (A COPY, THE LISTS BELOW CHANGE response)
 		game.opposingMove = true; // LOCK THE BOARD
 		chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
@@ -300,8 +311,7 @@ function moveFailed(response) {
  */
 export async function updateOpponentStateSlide(index) {
 	try {
-		game.moveAudio.load();
-		game.moveAudio.play().catch((err) => { console.log(err) });
+		playMoveSound();
 		game.tiles[index].xSlideTo = 0;
 		game.tiles[index].ySlideTo = 0;
 		chessInst.move(game.moveObj); // LOCAL BOARD
