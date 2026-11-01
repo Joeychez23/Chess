@@ -168,3 +168,10 @@ export const game = {
 	bRookRefl: undefined, // SET WITH bKingImg
 	bPawnRefl: undefined, // SET WITH bPawnImg
 }
+
+/**
+ * @description Draws a frame when the tiles are blank, so a slide can find its piece. A hidden tab draws no frames (requestFrame) & only drawing fills them
+ */
+export function fillTiles() {
+	if (!game.tiles.some(function (tile) { return tile.square; })) { game.drawScreen(); }
+}

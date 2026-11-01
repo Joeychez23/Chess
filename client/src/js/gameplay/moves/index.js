@@ -10,7 +10,7 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, chessInst, validateState } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
+const { game, chessInst, validateState, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
 const { validate } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
 const { setTiles, countStartPieces } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH
@@ -112,6 +112,7 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 			}
 
 			validateState.move(game.moveObj); // CHECK IT ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
+			fillTiles();
 			for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE (SAME AS THE AI'S IN renderLoop)
 				if (game.tiles[i].square == game.moveObj.from) {
 					game.slideStart = true;

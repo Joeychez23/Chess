@@ -14,7 +14,7 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, canvas, chessInst, validateState, startFrames, requestFrame, OVERRIDE_TV } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
+const { game, canvas, chessInst, validateState, startFrames, requestFrame, fillTiles, OVERRIDE_TV } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
 const { imageProgress } = require("./images/index.js"); // HOW MANY OF THE GAME'S IMAGES HAVE LOADED (0 - 1)
 const { handleWindowResize } = require("./layout/index.js"); // REDRAWS THE GAME WHEN THE WINDOW IS RESIZED
@@ -161,6 +161,7 @@ async function startAiSlide() {
 		validateState.load(game.response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
 		validateState.move(game.moveObj);
 		clearStatus("ai");
+		fillTiles();
 		for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
 			if (game.tiles[i].square == game.moveObj.from) {
 				game.slideStart = true;
