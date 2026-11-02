@@ -177,8 +177,8 @@ export async function updateUserStateSlide(index) {
 	try {
 		game.tiles[index].xSlideTo = 0;
 		game.tiles[index].ySlideTo = 0;
-		if (game.moveObj.promotion) { game.currPromotion = true; game.refresh = true; return; } // OPEN THE PROMOTION 
-		
+		if (game.moveObj.promotion && !game.moveObj.typed) { game.currPromotion = true; game.refresh = true; return; } // OPEN THE PROMOTION (A TYPED MOVE ALREADY CHOSE ITS PIECE)
+
 		await validateMove(); // SEND THE MOVE
 		game.tiles[index].isSliding = null;
 	} catch (err) { console.log(err); game.currSlide = false; return refreshData(game.response); }
@@ -466,7 +466,7 @@ export function refreshData(response) {
  */
 export function revertUnfinishedMove() {
 	const heldPiece = !game.opposingMove && (game.clickedTile || game.mousedownTile); // THE TURN CHECK: A DROPPED PROMOTION KEEPS clickedTile AFTER IT'S SENT
-	const promotionSlide = game.currSlide && game.moveObj.promotion && game.tiles.some(function (tile) { return tile.isSliding && tile.color == game.playerColor; });
+	const promotionSlide = game.currSlide && game.moveObj.promotion && !game.moveObj.typed && game.tiles.some(function (tile) { return tile.isSliding && tile.color == game.playerColor; });
 	if (!heldPiece && !game.currPromotion && !promotionSlide) { return; }
 	game.opposingMove = false; // STILL THE PLAYER'S TURN
 	refreshData(game.response);

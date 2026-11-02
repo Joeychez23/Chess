@@ -188,3 +188,77 @@ button {
 #moveListRows span:first-child {
 	color: var(--muted);
 }
+
+/* ---------------------------------------------------------------- */
+/* Move Box (gameplay/movebox/index.js) */
+/* ---------------------------------------------------------------- */
+
+#moveBox { /* TOP MIDDLE, A PHONE'S KEYBOARD COMES UP FROM THE BOTTOM. UNDER THE MENU */
+	position: fixed;
+	z-index: 18;
+	top: calc(env(safe-area-inset-top, 0px) + 64px);
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	width: min(260px, calc(100vw - 32px));
+	padding: 8px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 14px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+#moveBox[hidden] {
+	display: none;
+}
+
+#moveBoxInput {
+	flex: 1 1 0;
+	min-width: 0;
+	min-height: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	box-sizing: border-box;
+	padding: 0 10px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 8px;
+	background-color: var(--walnut-2);
+	color: inherit;
+	font-family: var(--font-mono);
+	font-size: 16px; /* IOS ZOOMS THE PAGE INTO ANYTHING SMALLER */
+}
+
+#moveBoxInput::placeholder {
+	color: var(--muted);
+}
+
+#moveBoxClose {
+	flex: none;
+	width: 44px;
+	height: 44px;
+	border: none;
+	border-radius: 8px;
+	background: none;
+	color: inherit;
+	font-size: 22px;
+	cursor: pointer;
+}
+
+#moveBoxInput:focus-visible,
+#moveBoxClose:focus-visible {
+	outline: 2px solid var(--gold);
+	outline-offset: -2px;
+}
+
+#moveBoxRefusal {
+	flex: 1 0 100%;
+	font-family: var(--font-label);
+	font-size: 14px;
+}
+
+#moveBoxRefusal:empty { /* NOT display: none, SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
+	margin-top: -6px; /* TAKES BACK THE FORM'S GAP */
+}

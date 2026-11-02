@@ -151,6 +151,7 @@ client/
     menu/index.js            Menu buttons, Restart / Forfeit / Rematch (loads the new board in place), game over, socketHandlers
     status/index.js          The play page's message area (#gameStatus): refused moves, lost connection, server or AI not answering
     movelist/index.js        The move list panel (#moveList): numbered moves, where it fits next to the board, collapsing it
+    movebox/index.js         The typed move box (#moveBox): the / key & the menu open it, chess.js reads the move, it slides like a clicked move
     validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, player search, friends, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move

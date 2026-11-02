@@ -6,7 +6,7 @@
  *	something changed (or asks the server for the AI's move). The rest of the game is in the files next to this one:
  *	state (the shared game object), images & sprites (loading & image numbers), layout (board size), draw (each frame),
  *	animate (knight hop, slide home), input (mouse, touch, TV remote), moves (server moves & the socket's), menu (menu & game over),
- *	status (the message area for refused moves & connection problems), movelist (the panel of the game's moves).
+ *	status (the message area for refused moves & connection problems), movelist (the panel of the game's moves), movebox (typed moves).
  *	Moves are checked locally with chess.js, then saved by the chess server (validate/index.js)
  *
  */
@@ -26,6 +26,7 @@ const { handleMenuBtn, handleResume, handleClickAway, handleSound, loadSound, ha
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { loadMoveList, handleMoveListToggle } = require("./movelist/index.js"); // THE MOVE LIST PANEL
+const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -147,6 +148,7 @@ async function startGame() {
 	if (!game.TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("moveListToggle").addEventListener("click", handleMoveListToggle); }
+	addMoveBoxListeners(); // ON IN TV MODE TOO, A KEYBOARD CAN STILL TYPE. THE TV REMOTE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE
 }
 
 /* ################################################################ */

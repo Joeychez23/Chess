@@ -39,6 +39,7 @@
 			<li><button class="menuButton" id="optResume">Resume</button></li>
 			<li><button class="menuButton" id="optSound">Turn Sound: Off</button></li>
 			<li><button class="menuButton" id="optFlip">Flip Board</button></li>
+			<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
 			<li><button class="menuButton" id="optRestart">Restart</button></li>
 			<li><button class="menuButton" id="optSettings">Home</button></li>
 			<li><button class="menuButton" id="optExit">Exit</button></li>
@@ -53,6 +54,12 @@
 		<button id="moveListToggle" type="button" aria-controls="moveListRows" aria-expanded="true">Moves</button>
 		<ol id="moveListRows"></ol>
 	</section>
+
+	<form id="moveBox" aria-label="Type a move" hidden> <!-- TYPED MOVES, OPENED WITH / OR THE MENU (gameplay/movebox/index.js) -->
+		<input id="moveBoxInput" type="text" aria-label="Move" aria-describedby="moveBoxRefusal" placeholder="e4, Nf3, exd5" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" />
+		<button id="moveBoxClose" type="button" aria-label="Close">×</button>
+		<p id="moveBoxRefusal" role="status"></p>
+	</form>
 
 	<main id="main"></main>
 </body>
