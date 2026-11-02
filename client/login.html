@@ -64,11 +64,20 @@
 				<button class="btn btnCream" id="loginBtn" type="submit">Sign in</button>
 				<p class="spec note" id="loginNote" role="status" aria-live="polite"></p>
 				<div class="field">
-					<a class="btn btnLine keepReturnTo" href="/api/auth/login">Forgot password?</a>
-				</div>
-				<div class="field">
 					<a class="btn btnLine keepReturnTo" href="/signup">Create account</a>
 				</div>
+			</form>
+			<form class="box boxWalnut" id="forgotForm">
+				<div class="boxHead"><h2 class="label">Forgot password?</h2><span class="spec">No. 02</span></div>
+				<p class="boxText">Enter your email and we'll send a link to set a new password.</p>
+				<div class="loginField boxBottom">
+					<label class="spec" for="forgotEmail">Email</label>
+					<div class="field">
+						<input type="email" name="email" id="forgotEmail" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+					</div>
+				</div>
+				<button class="btn btnLine" id="forgotBtn" type="submit">Send reset link</button>
+				<p class="spec note" id="forgotNote" role="status" aria-live="polite"></p>
 			</form>
 		</section>
 	</main>

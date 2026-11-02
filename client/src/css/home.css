@@ -312,7 +312,6 @@ body {
 	width: 100%;
 }
 
-#loginForm,
 #signupForm {
 	grid-column: 1 / -1; /* THE ONLY BOX ON ITS PAGE */
 }

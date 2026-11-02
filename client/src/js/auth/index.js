@@ -38,6 +38,13 @@ export class InternalAuth {
 	 */
 	async signup(account) { return await request("/api/auth/signup", "POST", account); }
 
+	/**
+	 * @description The login page's Forgot password?, the server asks Auth0 to email the reset link
+	 * @param  {[string]} email
+	 * @return {[object]} response [{ status, message }, null when the server can't be reached]
+	 */
+	async forgotPassword(email) { return await request("/api/auth/forgot", "POST", { email }); }
+
 	/* ---------------------------------------------------------------- */
 	// Logout
 	/* ---------------------------------------------------------------- */

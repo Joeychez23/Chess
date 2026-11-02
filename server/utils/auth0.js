@@ -177,6 +177,23 @@ async function signup(email, password, userMetadata) {
 }
 
 /* ---------------------------------------------------------------- */
+// Password Reset
+/* ---------------------------------------------------------------- */
+/**
+ * @description Asks Auth0 to email a reset link to a player on our connection. Auth0 answers the same for an email with no account
+ * @param  {[string]} email [player email]
+ * @return {[undefined]} throws when Auth0 refuses (its answer is plain text, so only the status is used)
+ */
+async function requestPasswordReset(email) {
+	const resetResponse = await auth0Fetch("password reset", "/dbconnections/change_password", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ client_id: config.auth0ClientId, email, connection: config.auth0Connection })
+	});
+	if (!resetResponse.ok) { throw new Error(`Auth0 password reset failed: ${resetResponse.status}`); }
+}
+
+/* ---------------------------------------------------------------- */
 // Management API Token
 /* ---------------------------------------------------------------- */
 /**
@@ -233,4 +250,4 @@ async function getAuth0User(email) {
 }
 
 
-module.exports = { timeouts, buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin, signup, getAuth0User };
+module.exports = { timeouts, buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin, signup, requestPasswordReset, getAuth0User };

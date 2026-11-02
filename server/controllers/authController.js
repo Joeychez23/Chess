@@ -15,7 +15,7 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
-const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin: auth0PasswordLogin, signup: auth0Signup, getAuth0User } = require("../utils/auth0.js");
+const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin: auth0PasswordLogin, signup: auth0Signup, requestPasswordReset, getAuth0User } = require("../utils/auth0.js");
 const { setSessionCookies, clearSessionCookies, readRefreshCookie, readRefreshUser, readSessionUser } = require("../middleware/auth.js");
 const { startSession, refreshSession, endSession, claimUsername, withRequest, down } = require("../dataClient.js");
 const { checkUsername } = require("../utils/username.js");
@@ -25,6 +25,7 @@ const STATE_COOKIE = "auth_state";
 const RETURN_COOKIE = "auth_return"; // THE PAGE TO GO BACK TO AFTER LOGIN (A GAME LINK, /play/:gameId)
 const STATE_PATH = "/api/auth";
 const METADATA_LENGTH = 500; // AUTH0: user_metadata VALUES ARE UNDER 500 CHARACTERS
+const FORGOT_ANSWER = "If there's an account for that email, we've sent a reset link";
 
 /* ---------------------------------------------------------------- */
 // Login
@@ -226,6 +227,33 @@ async function startPlayerSession(idToken) {
 }
 
 /* ---------------------------------------------------------------- */
+// Forgot Password
+/* ---------------------------------------------------------------- */
+/**
+ * @description POST /api/auth/forgot's checks: only JSON from our own page like a login (403), with an email (400)
+ */
+function checkForgot(req, res, next) {
+	if (!req.is("application/json") || !fromOurPage(req)) {
+		return res.status(403).json({ status: 403, message: "Forbidden" });
+	}
+	if (typeof req.body?.email != "string" || !/^[^\s@]+@[^\s@]+$/.test(req.body.email.trim())) {
+		return res.status(400).json({ status: 400, message: "Email is required" });
+	}
+	return next();
+}
+
+/**
+ * @description The login page's Forgot password?: Auth0 emails the link, which opens Auth0's reset page. An email with no account gets the same answer (#192).
+ * Auth0 not taking the request is the only other answer: it says nothing about the email, and the player shouldn't wait for a link that isn't coming
+ */
+async function forgot(req, res, next) {
+	try {
+		await requestPasswordReset(req.body.email.trim());
+		return res.json({ status: 200, message: FORGOT_ANSWER });
+	} catch (err) { return next(err); }
+}
+
+/* ---------------------------------------------------------------- */
 // Logout
 /* ---------------------------------------------------------------- */
 /**
@@ -326,4 +354,4 @@ function returnPath(value) {
 }
 
 
-module.exports = { login, callback, checkLogin, passwordLogin, checkSignup, signup, logout, refresh, resume, returnPath };
+module.exports = { login, callback, checkLogin, passwordLogin, checkSignup, signup, checkForgot, forgot, logout, refresh, resume, returnPath };

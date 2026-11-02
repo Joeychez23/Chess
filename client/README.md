@@ -76,7 +76,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
 | `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my data boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
-| `/login` | Signed out: `login.html`, email and password through `POST /api/auth/login`, with Forgot password? opening Universal Login and a link to `/signup`. Signed in, it goes to `?returnTo=` or `/` |
+| `/login` | Signed out: `login.html`, email and password through `POST /api/auth/login`, with a Forgot password? form through `POST /api/auth/forgot` and a link to `/signup`. Signed in, it goes to `?returnTo=` or `/` |
 | `/signup` | Signed out: `signup.html`, Create account through `POST /api/auth/signup`, with a link to `/login`. Signed in, it goes to `?returnTo=` or `/` |
 
 Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.

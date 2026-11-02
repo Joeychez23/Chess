@@ -26,6 +26,10 @@ const SIGNUP_LIMITS = { // NEW ACCOUNTS, CHECKED BEFORE AUTH0 IS ASKED
 	signupIp: { burst: 5, refillMs: 5 * 60 * 1000 }, // AN IP (IPv6: ITS /64): 5 AT ONCE, THEN 1 EVERY 5 MINUTES
 	signupEmail: { burst: 5, refillMs: 60 * 1000 }, // AN EMAIL (LOWERCASED), FROM ANY ADDRESS: 5 AT ONCE, THEN 1 A MINUTE
 };
+const FORGOT_LIMITS = { // PASSWORD RESET EMAILS, CHECKED BEFORE AUTH0 IS ASKED, SO THE FORM CAN'T FILL SOMEONE'S INBOX
+	forgotIp: { burst: 5, refillMs: 5 * 60 * 1000 }, // AN IP (IPv6: ITS /64): 5 AT ONCE, THEN 1 EVERY 5 MINUTES
+	forgotEmail: { burst: 3, refillMs: 5 * 60 * 1000 }, // AN EMAIL (LOWERCASED), FROM ANY ADDRESS: 3 AT ONCE, THEN 1 EVERY 5 MINUTES
+};
 const AI_MOVE_LIMITS = { // /ai-move ASKS THE ENGINE, A PLAYER NEEDS ONE PER MOVE (PLUS RELOADS)
 	aiMoveSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER OR A GUEST: 20 AT ONCE, THEN 1 A SECOND
 	aiMoveIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
@@ -96,6 +100,23 @@ function limitSignups(req, res, next) {
 }
 
 /* ---------------------------------------------------------------- */
+// Limit Password Resets
+/* ---------------------------------------------------------------- */
+/**
+ * @description Middleware for POST /api/auth/forgot. Runs after checkForgot (so the email is a string) & before Auth0 is asked,
+ * with its own buckets so resets never use up logins. Answers 429 with Retry-After when a limit is hit, for any email, so it doesn't say whether one has an account
+ */
+function limitForgot(req, res, next) {
+	const keys = { forgotIp: ipKey(req.ip), forgotEmail: req.body.email.trim().toLowerCase() };
+	const result = takeTokens(keys, Date.now(), FORGOT_LIMITS);
+	if (result.ok) { return next(); }
+	const seconds = Math.ceil(result.retryMs / 1000);
+	if (result.log) { console.log(`Password reset limit (${result.limit}: ${JSON.stringify(keys[result.limit])}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
+	res.set("Retry-After", String(seconds));
+	return res.status(429).json({ status: 429, message: `Too many reset requests, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
+}
+
+/* ---------------------------------------------------------------- */
 // Limit AI Moves
 /* ---------------------------------------------------------------- */
 /**
@@ -137,9 +158,9 @@ function limitClientErrors(req, res, next) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Takes one token from each key's bucket, or none if any of them is empty (so a refused request costs nothing)
- * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail } or { aiMoveSession (optional), aiMoveIp }]
+ * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail }, { forgotIp, forgotEmail } or { aiMoveSession (optional), aiMoveIp }]
  * @param  {[number]} now [epoch ms]
- * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, AI_MOVE_LIMITS or CLIENT_ERROR_LIMITS]
+ * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS or CLIENT_ERROR_LIMITS]
  * @return {[object]} result [{ ok: true } | { ok: false, limit (the empty one), retryMs (until it has a token), log (first refusal this minute) }]
  */
 function takeTokens(keys, now, limits = LIMITS) {
@@ -179,7 +200,7 @@ function refill(limit, key, now, limits) {
  * @description Drops the buckets that have filled up again (the same as a new one), then the oldest if a limit still has too many
  */
 function sweep(now) {
-	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS]) {
+	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS]) {
 		for (const limit of Object.keys(limits)) {
 			const map = buckets[limit];
 			if (!map) { continue; }
@@ -223,4 +244,4 @@ function resetLimits() {
 }
 
 
-module.exports = { limitNewGames, limitLogins, limitSignups, limitAiMoves, limitClientErrors, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS };
+module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitClientErrors, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS };

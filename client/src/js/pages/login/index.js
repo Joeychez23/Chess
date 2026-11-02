@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Login & Signup Pages (/login & /signup, signed out)
- *	Email & password through POST /api/auth/login, or a new account through POST /api/auth/signup, then on to the returnTo the server answers. Forgot password? opens Universal Login until it's on the login page
+ *	Email & password through POST /api/auth/login, or a new account through POST /api/auth/signup, then on to the returnTo the server answers. Forgot password? posts an email to POST /api/auth/forgot & Auth0 emails the link
  *
  */
 
@@ -24,12 +24,18 @@ const signupForm = document.getElementById("signupForm");
 const signupBtn = document.getElementById("signupBtn");
 const signupNote = document.getElementById("signupNote"); // WHY THE ACCOUNT WASN'T MADE
 
+const forgotForm = document.getElementById("forgotForm");
+const forgotEmail = document.getElementById("forgotEmail");
+const forgotBtn = document.getElementById("forgotBtn");
+const forgotNote = document.getElementById("forgotNote"); // THE SAME ANSWER WITH OR WITHOUT AN ACCOUNT, OR WHY IT DIDN'T GO THROUGH
+
 const auth = new InternalAuth;
 
 startNav();
 showPageWhenDrawn([checkSession()]);
 loginForm?.addEventListener("submit", handleLogin); // SIGN IN & ENTER IN A FIELD (EACH PAGE HAS ONE OF THE TWO FORMS)
 signupForm?.addEventListener("submit", handleSignup);
+forgotForm?.addEventListener("submit", handleForgot);
 document.querySelectorAll(".showPassword").forEach(function (button) { button.addEventListener("click", handleShowPassword); });
 document.querySelectorAll(".keepReturnTo").forEach(function (link) { link.search = window.location.search; }); // THE SAME returnTo, THE SERVER CHECKS IT
 window.addEventListener("pageshow", function (e) { if (e.persisted) { window.location.reload(); } }); // BACK SHOWS THE PAGE AS IT WAS LEFT: THE BUTTON OFF & THE PASSWORD IN IT
@@ -73,6 +79,22 @@ async function handleLogin(e) {
 	if (response?.status == 200) { return window.location.replace(response.returnTo); }
 	loginBtn.disabled = false;
 	loginNote.innerText = [400, 401, 429].includes(response?.status) ? response.message : "Sign in isn't working right now, try again in a moment.";
+}
+
+/* ---------------------------------------------------------------- */
+// Forgot Password
+/* ---------------------------------------------------------------- */
+/**
+ * @description Asks for a reset link. The server's answer (200) doesn't say whether the email has an account, a refused email or a limit says why (400, 429), anything else is on our side
+ */
+async function handleForgot(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	forgotBtn.disabled = true; // ONE EMAIL PER PRESS
+	forgotNote.innerText = "";
+	const response = await auth.forgotPassword(forgotEmail.value);
+	forgotBtn.disabled = false;
+	forgotNote.innerText = [200, 400, 429].includes(response?.status) ? response.message : "Password reset isn't working right now, try again in a moment.";
 }
 
 /* ---------------------------------------------------------------- */

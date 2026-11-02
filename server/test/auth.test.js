@@ -1,6 +1,6 @@
 /*
  *  auth.test.js  --  chess server tests
- *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, signup #225, #252, only a 401 signs out #283, a failed login says why #282)
+ *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, signup #225, forgot password #226, #252, only a 401 signs out #283, a failed login says why #282)
  *  The server can't make a session: the login callback passes Auth0's id_token to the data service, which checks it & signs the tokens.
  *  The server only checks tokens with the public key, so a token signed any other way is refused. Logout ends the session on every device
  *
@@ -10,11 +10,11 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, send, page, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, dataServiceWillAnswer } = testServer;
+const { call, send, page, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer } = testServer;
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 const { readSessionUser } = require("../middleware/auth.js");
-const { LOGIN_LIMITS, SIGNUP_LIMITS } = require("../middleware/rateLimit.js");
+const { LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS } = require("../middleware/rateLimit.js");
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -297,6 +297,57 @@ describe("signup", () => {
 /* ---------------------------------------------------------------- */
 // Refresh, Resume & Logout
 /* ---------------------------------------------------------------- */
+
+describe("forgot password", () => {
+	const forgot = (email, options = {}) => send("POST", "/api/auth/forgot", {}, { headers: { ...loginHeaders(options.ip, options.origin), ...options.headers }, body: options.rawBody ?? JSON.stringify({ email }) });
+	const answer = "If there's an account for that email, we've sent a reset link";
+
+	test("asks Auth0 to email the link", async () => {
+		const response = await forgot(`  ${alice.email} `);
+		assert.equal(response.http, 200);
+		assert.equal(response.body.message, answer);
+		assert.deepEqual(auth0Resets(), [{ client_id: process.env.AUTH0_CLIENT_ID, email: alice.email, connection: process.env.AUTH0_CONNECTION }]);
+	});
+
+	test("an unknown email gets the same answer", async () => {
+		const known = await forgot(alice.email);
+		const unknown = await forgot("unknown@test");
+		assert.equal(unknown.http, known.http);
+		assert.deepEqual(unknown.body, known.body);
+	});
+
+	test("limits each address and each email, before Auth0 is asked", async () => {
+		for (let i = 0; i < FORGOT_LIMITS.forgotIp.burst; i++) { await forgot(`user${i}@test`, { ip: "198.51.100.10" }); }
+		const beforeIp = auth0Resets().length;
+		const ipLimited = await forgot("other@test", { ip: "198.51.100.10" });
+		assert.equal(ipLimited.http, 429);
+		assert.ok(Number(ipLimited.retry_after) > 0);
+		assert.equal(auth0Resets().length, beforeIp);
+
+		for (let i = 0; i < FORGOT_LIMITS.forgotEmail.burst; i++) { await forgot("Same@Test", { ip: `198.51.101.${i + 1}` }); }
+		const beforeEmail = auth0Resets().length;
+		assert.equal((await forgot("same@test", { ip: "203.0.113.10" })).http, 429);
+		assert.equal(auth0Resets().length, beforeEmail);
+	});
+
+	test("only takes JSON with an email from our own page", async () => {
+		assert.equal((await forgot(alice.email, { origin: "https://wrong.test" })).http, 403);
+		assert.equal((await forgot(alice.email, { headers: { "Sec-Fetch-Site": "cross-site" } })).http, 403);
+		assert.equal((await forgot(alice.email, { headers: { "Content-Type": "application/x-www-form-urlencoded" }, rawBody: `email=${alice.email}` })).http, 403);
+		for (const email of [undefined, 5, "", "not-an-email"]) { assert.equal((await forgot(email)).http, 400, String(email)); }
+		assert.equal(auth0Resets().length, 0);
+	});
+
+	test("doesn't say a link was sent when Auth0 didn't take the request", async () => {
+		const refused = await forgot("refused@test");
+		assert.equal(refused.http, 500);
+		assert.notEqual(refused.body?.message, answer);
+		auth0WillStall("/dbconnections/change_password");
+		const stalled = await forgot(alice.email);
+		assert.equal(stalled.http, 503);
+		assert.notEqual(stalled.body?.message, answer);
+	});
+});
 
 describe("login page", () => {
 	test("sends a signed in player to returnTo or Home, only on this site", async () => {

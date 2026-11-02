@@ -28,6 +28,7 @@ const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
 const auth0Passwords = new Map(); // EMAIL -> PASSWORD, ONLY THE PASSWORD GRANT USES THIS
 const auth0LoginRequests = []; // PASSWORD-REALM REQUESTS (HEADERS + BODY)
 const auth0SignupRequests = []; // /dbconnections/signup BODIES
+const auth0ResetRequests = []; // /dbconnections/change_password BODIES
 const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
 const auth0Stalls = []; // AUTH0 CALLS WHOSE NEXT ANSWER NEVER ARRIVES: { path, grant } (auth0WillStall)
 let engineRequests = 0; // ENGINE API REQUESTS SINCE THE LAST reset()
@@ -84,6 +85,7 @@ function reset() {
 	auth0Passwords.clear();
 	auth0LoginRequests.length = 0;
 	auth0SignupRequests.length = 0;
+	auth0ResetRequests.length = 0;
 	auth0Blocks.length = 0;
 	auth0Stalls.length = 0;
 	engineMoves.length = 0;
@@ -253,6 +255,12 @@ async function standInFetch(url, options) {
 		const result = auth0Signup(JSON.parse(options.body));
 		return json(result.body, result.status);
 	}
+	if (hostname == "auth0.test" && pathname == "/dbconnections/change_password") {
+		const body = JSON.parse(options.body);
+		auth0ResetRequests.push(body);
+		if (body.email == "refused@test") { return new Response("Too many requests", { status: 429 }); }
+		return new Response("We've just sent you an email to reset your password.", { status: 200 }); // PLAIN TEXT, FOR ANY EMAIL, LIKE AUTH0'S
+	}
 	if (hostname == "auth0.test" && pathname == "/api/v2/users-by-email") {
 		const user = auth0Users.get(searchParams.get("email"));
 		return json(user ? [user] : []);
@@ -350,6 +358,13 @@ function auth0Signups() {
 }
 
 /**
+ * @description The password resets Auth0 was asked for: [body]
+ */
+function auth0Resets() {
+	return auth0ResetRequests;
+}
+
+/**
  * @description The next login's id_token is made by this instead (a forged one)
  * @param  {[function]} make [(claims) => id_token]
  */
@@ -376,4 +391,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };
