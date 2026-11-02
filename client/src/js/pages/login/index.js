@@ -13,7 +13,8 @@ import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // THE SAME BOXES AS HOME & SETTINGS
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
-const { startNav, showPageWhenDrawn } = require("../utils/index.js");
+const { preloadImages } = require("../../gameplay/images/index.js");
+const { startNav, showPageWhenDrawn, startLoading, goToPage, stopLoading, startGameLinks } = require("../utils/index.js");
 
 const loginForm = document.getElementById("loginForm");
 const emailInput = document.getElementById("loginEmail");
@@ -32,6 +33,8 @@ const forgotNote = document.getElementById("forgotNote"); // THE SAME ANSWER WIT
 const auth = new InternalAuth;
 
 startNav();
+preloadImages(); // THE LOADING FILL & goToPage() WAIT ON THESE (THEY'RE ALSO HOME'S & THE GAME'S, SO THE NEXT PAGE OPENS FROM THE BROWSER CACHE)
+startGameLinks(); // CREATE ACCOUNT & SIGN IN LINKS SAY LOADING TOO
 showPageWhenDrawn([checkSession()]);
 loginForm?.addEventListener("submit", handleLogin); // SIGN IN & ENTER IN A FIELD (EACH PAGE HAS ONE OF THE TWO FORMS)
 signupForm?.addEventListener("submit", handleSignup);
@@ -72,12 +75,12 @@ function handleShowPassword(e) {
 async function handleLogin(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	loginBtn.disabled = true; // ONE LOGIN PER PRESS
+	startLoading(loginBtn); // "Loading" & THE FILL, ONE LOGIN PER PRESS
 	loginNote.innerText = "";
 	const returnTo = new URLSearchParams(window.location.search).get("returnTo");
 	const response = await auth.passwordLogin(emailInput.value, passwordInput.value, returnTo);
-	if (response?.status == 200) { return window.location.replace(response.returnTo); }
-	loginBtn.disabled = false;
+	if (response?.status == 200) { return goToPage(response.returnTo, true); }
+	stopLoading();
 	loginNote.innerText = [400, 401, 429].includes(response?.status) ? response.message : "Sign in isn't working right now, try again in a moment.";
 }
 
@@ -90,10 +93,10 @@ async function handleLogin(e) {
 async function handleForgot(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	forgotBtn.disabled = true; // ONE EMAIL PER PRESS
+	startLoading(forgotBtn); // "Loading" & THE FILL, ONE EMAIL PER PRESS
 	forgotNote.innerText = "";
 	const response = await auth.forgotPassword(forgotEmail.value);
-	forgotBtn.disabled = false;
+	stopLoading();
 	forgotNote.innerText = [200, 400, 429].includes(response?.status) ? response.message : "Password reset isn't working right now, try again in a moment.";
 }
 
@@ -107,11 +110,11 @@ async function handleForgot(e) {
 async function handleSignup(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	signupBtn.disabled = true; // ONE ACCOUNT PER PRESS
+	startLoading(signupBtn); // "Loading" & THE FILL, ONE ACCOUNT PER PRESS
 	signupNote.innerText = "";
 	const returnTo = new URLSearchParams(window.location.search).get("returnTo");
 	const response = await auth.signup({ ...Object.fromEntries(new FormData(signupForm)), returnTo });
-	if (response?.status == 200) { return window.location.replace(response.returnTo); }
-	signupBtn.disabled = false;
+	if (response?.status == 200) { return goToPage(response.returnTo, true); }
+	stopLoading();
 	signupNote.innerText = [202, 400, 429].includes(response?.status) ? response.message : "Creating an account isn't working right now, try again in a moment.";
 }
