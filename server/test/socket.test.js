@@ -22,10 +22,10 @@ beforeEach(() => testServer.reset());
 const ourOrigin = () => new URL(config.clientUrl).origin;
 
 /**
- * @description Logs a player in like the browser does after Auth0's login page (auth.test.js), the cookies has the refresh_token
+ * @description Logs a player in like the login page does (auth.test.js), the cookies has the refresh_token
  */
 function logIn(someone) {
-	return send("GET", `/api/auth/callback?code=${encodeURIComponent(someone.email)}&state=state1`, { auth_state: "state1" });
+	return send("POST", "/api/auth/login", {}, { headers: { "Content-Type": "application/json", Origin: ourOrigin() }, body: JSON.stringify({ email: someone.email, password: someone.password }) });
 }
 
 /**

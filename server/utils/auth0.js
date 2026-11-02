@@ -24,8 +24,8 @@ let managementTokenExpires = 0;
 /* ---------------------------------------------------------------- */
 /**
  * @description One call to Auth0, with a timeout that also covers reading the answer. Never retried: a password login tried twice counts twice against
- * Auth0's brute-force limits. A timeout is a DataServiceDown like the data service's: 503 "Try again in a moment", or ?login=unavailable in the callback
- * @param  {[string]} name [which call, for the log. Not the path: three calls share /oauth/token & the user search's has the email in it]
+ * Auth0's brute-force limits. A timeout is a DataServiceDown like the data service's: 503 "Try again in a moment"
+ * @param  {[string]} name [which call, for the log. Not the path: two calls share /oauth/token & the user search's has the email in it]
  * @param  {[string]} path [e.g. "/oauth/token"]
  * @param  {[object]} options [fetch options]
  * @return {[object]} answer [{ ok, status, body: the JSON answer, null when it isn't JSON }]
@@ -52,66 +52,6 @@ function auth0Down(name) {
 	const err = new Error(`Auth0: ${name}: no answer in ${timeouts.request / 1000} seconds`);
 	err.name = "DataServiceDown";
 	return err;
-}
-
-/* ---------------------------------------------------------------- */
-// Login URL
-/* ---------------------------------------------------------------- */
-/**
- * @description Builds the Auth0 Universal Login url the browser is sent to
- * @param  {[string]} state [random value checked again in the callback]
- * @return {[string]} url [Auth0 /authorize url]
- */
-function buildAuthorizeUrl(state) {
-	const params = new URLSearchParams({
-		response_type: "code",
-		client_id: config.auth0ClientId,
-		redirect_uri: config.auth0CallbackUrl,
-		scope: "openid profile email",
-		state: state
-	});
-	return `${AUTH0_URL}/authorize?${params}`;
-}
-
-/* ---------------------------------------------------------------- */
-// Logout URL
-/* ---------------------------------------------------------------- */
-/**
- * @description Builds the Auth0 logout url, which ends the Auth0 session & sends the browser back to the game
- * @return {[string]} url [Auth0 /v2/logout url]
- */
-function buildLogoutUrl() {
-	const params = new URLSearchParams({
-		client_id: config.auth0ClientId,
-		returnTo: config.clientUrl
-	});
-	return `${AUTH0_URL}/v2/logout?${params}`;
-}
-
-/* ---------------------------------------------------------------- */
-// Code Exchange
-/* ---------------------------------------------------------------- */
-/**
- * @description Trades the code from the login callback for Auth0 tokens (needs the client secret, so it must stay server side)
- * @param  {[string]} code [code from the callback query string]
- * @return {[object]} tokens [access_token, id_token, expires_in]
- */
-async function exchangeCode(code) {
-	const tokenResponse = await auth0Fetch("code exchange", "/oauth/token", {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			grant_type: "authorization_code",
-			client_id: config.auth0ClientId,
-			client_secret: config.auth0ClientSecret,
-			code: code,
-			redirect_uri: config.auth0CallbackUrl
-		})
-	});
-
-	const tokenData = tokenResponse.body;
-	if (!tokenResponse.ok) { throw new Error(`Auth0 code exchange failed: ${tokenData?.error_description || tokenData?.error || tokenResponse.status}`); }
-	return tokenData;
 }
 
 /* ---------------------------------------------------------------- */
@@ -250,4 +190,4 @@ async function getAuth0User(email) {
 }
 
 
-module.exports = { timeouts, buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin, signup, requestPasswordReset, getAuth0User };
+module.exports = { timeouts, passwordLogin, signup, requestPasswordReset, getAuth0User };

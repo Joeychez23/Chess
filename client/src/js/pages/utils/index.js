@@ -62,7 +62,7 @@ export function startLogoutButtons(auth) {
 			e.preventDefault();
 			if (btn.disabled) { return; }
 			btn.disabled = true;
-			auth.logout(); // POST /api/auth/logout, THEN AUTH0'S LOGOUT & BACK TO THE GUEST PAGE
+			auth.logout(); // POST /api/auth/logout, THEN THE GUEST PAGE
 		});
 	});
 }

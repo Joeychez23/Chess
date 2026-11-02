@@ -132,7 +132,7 @@ describe("a request can't add a line to the log (#339)", () => {
 	const FORGED = "x\nSTOCKFISH FAILED\r\nHTTP 500 GET /";
 	const LOGIN_HEADERS = { "Content-Type": "application/json", Origin: new URL(config.clientUrl).origin };
 	const failures = () => logged.filter((line) => line.startsWith("Login failed: "));
-	const logIn = (someone) => send("GET", `/api/auth/callback?code=${encodeURIComponent(someone.email)}&state=state1`, { auth_state: "state1" });
+	const logIn = (someone) => send("POST", "/api/auth/login", {}, { headers: LOGIN_HEADERS, body: JSON.stringify({ email: someone.email, password: someone.password }) });
 
 	/**
 	 * @description No line in the log has a line break, or starts like a line an alarm counts
@@ -143,24 +143,6 @@ describe("a request can't add a line to the log (#339)", () => {
 			assert.ok(!STOCKFISH_ALARM.test(line) && !SERVER_ERROR_ALARM.test(line), `an alarm matches: ${line}`);
 		}
 	}
-
-	test("the callback's error, with no cookies, is one escaped line", async () => {
-		const res = await send("GET", `/api/auth/callback?error=${encodeURIComponent(FORGED)}`);
-		assert.equal(res.http, 302);
-		assert.deepEqual(failures(), [`Login failed: ${JSON.stringify(FORGED)}`]);
-		assertOneLineEach();
-	});
-
-	test("the callback's error sent more than once is one line too", async () => {
-		await send("GET", `/api/auth/callback?error=a&error=${encodeURIComponent(FORGED)}`);
-		assert.deepEqual(failures(), [`Login failed: ${JSON.stringify(["a", FORGED])}`]);
-		assertOneLineEach();
-	});
-
-	test("a callback with no error still says why", async () => {
-		await send("GET", "/api/auth/callback?code=x&state=other", { auth_state: "state1" });
-		assert.deepEqual(failures(), ['Login failed: "invalid state"']);
-	});
 
 	test("the email in an id_token is one escaped line", async () => {
 		const someone = testServer.player("alice");

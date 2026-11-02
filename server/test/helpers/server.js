@@ -291,9 +291,8 @@ async function standInFetch(url, options) {
 }
 
 /**
- * @description Auth0's /oauth/token: a Management API token, a login's code (here, the player's email) traded for their id_token,
- * or a password login (password-realm) checked against the player's password
- * @param  {[object]} body [{ grant_type, code | realm, username, password }]
+ * @description Auth0's /oauth/token: a Management API token, or a password login (password-realm) checked against the player's password
+ * @param  {[object]} body [{ grant_type, realm, username, password }]
  * @param  {[object]} options [the fetch options, a password login's headers are kept for auth0Logins()]
  * @return {[object]} response [{ body, status }]
  */
@@ -306,10 +305,7 @@ function auth0Token(body, options) {
 		const user = auth0Users.get(body.username);
 		return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email, email_verified: user.email_verified }), expires_in: 86400 }, status: 200 };
 	}
-	if (body.grant_type != "authorization_code") { return { body: { access_token: "management-token", expires_in: 86400 }, status: 200 }; }
-	const user = auth0Users.get(body.code);
-	if (!user) { throw new Error("invalid_grant"); }
-	return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email }), expires_in: 86400 }, status: 200 };
+	return { body: { access_token: "management-token", expires_in: 86400 }, status: 200 };
 }
 
 /**

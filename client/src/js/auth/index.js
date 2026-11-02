@@ -49,12 +49,12 @@ export class InternalAuth {
 	// Logout
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description Server ends the session (a POST, so another site can't, #297), then the browser goes to Auth0's logout & back to the game.
-	 * If the server can't be reached, Home (still signed in, so they can try again)
+	 * @description Server ends the session (a POST, so another site can't, #297), then the browser goes Home.
+	 * If the server can't be reached they're still signed in there, so they can try again
 	 */
 	async logout() {
-		const response = await request("/api/auth/logout", "POST");
-		window.location.href = response?.logoutUrl || "/";
+		await request("/api/auth/logout", "POST");
+		window.location.href = "/";
 	}
 
 	/* ---------------------------------------------------------------- */

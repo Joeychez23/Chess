@@ -1,7 +1,7 @@
 /*
  *  auth.test.js  --  chess server tests
- *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, signup #225, forgot password #226, #252, only a 401 signs out #283, a failed login says why #282)
- *  The server can't make a session: the login callback passes Auth0's id_token to the data service, which checks it & signs the tokens.
+ *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, signup #225, forgot password #226, every sign-in on our page #227, #252, only a 401 signs out #283)
+ *  The server can't make a session: a login passes Auth0's id_token to the data service, which checks it & signs the tokens.
  *  The server only checks tokens with the public key, so a token signed any other way is refused. Logout ends the session on every device
  *
  */
@@ -27,32 +27,36 @@ const alice = player("alice");
 // Helpers
 /* ---------------------------------------------------------------- */
 
-/**
- * @description Logs a player in like the browser does after Auth0's login page: the callback with the code & the state cookie
- * @return {[object]} response [send()'s, cookies has access_token & refresh_token when it worked]
- */
-function logIn(someone, returnTo) {
-	const cookies = { auth_state: "state1", ...(returnTo ? { auth_return: returnTo } : {}) };
-	return send("GET", `/api/auth/callback?code=${encodeURIComponent(someone.email)}&state=state1`, cookies);
-}
-
-const loginFailed = (reason) => new URL(`/?login=${reason}`, config.clientUrl).href; // WHERE A FAILED CALLBACK GOES (#282)
 const me = (accessToken) => send("GET", "/api/user", { access_token: accessToken });
 const refresh = (refreshToken) => send("POST", "/api/auth/refresh", { refresh_token: refreshToken });
 const loginHeaders = (ip = "203.0.113.5", origin = new URL(config.clientUrl).origin) => ({ "Content-Type": "application/json", Origin: origin, "X-Forwarded-For": ip });
 const logOut = (refreshToken, headers = { Origin: new URL(config.clientUrl).origin, "Sec-Fetch-Site": "same-origin" }) => send("POST", "/api/auth/logout", { refresh_token: refreshToken }, { headers });
 const passwordLogin = (body, options = {}) => send("POST", "/api/auth/login", {}, { headers: loginHeaders(options.ip, options.origin), body: options.rawBody ?? JSON.stringify(body) });
+const logIn = (someone) => passwordLogin({ email: someone.email, password: someone.password }); // response.cookies HAS access_token & refresh_token WHEN IT WORKED
 
 /* ---------------------------------------------------------------- */
 // Login
 /* ---------------------------------------------------------------- */
 
 describe("login", () => {
-	test("the callback sets the session the data service signed & goes back to the page", async () => {
+	test("GET /api/auth/login goes to the login page, keeping a returnTo on this site", async () => {
+		const withPage = await send("GET", "/api/auth/login?returnTo=%2Fplay%2Fgame1%3Fa%3D1");
+		assert.equal(withPage.http, 302);
+		assert.equal(withPage.location, "/login?returnTo=%2Fplay%2Fgame1%3Fa%3D1");
+		assert.deepEqual(withPage.cookies, {}); // NO auth_state OR auth_return
+		assert.equal((await send("GET", "/api/auth/login")).location, "/login");
+		assert.equal((await send("GET", "/api/auth/login?returnTo=%2F%2Fother.site")).location, "/login");
+	});
+
+	test("the Auth0 callback is gone", async () => {
+		assert.equal((await send("GET", "/api/auth/callback?code=alice%40test&state=state1", { auth_state: "state1" })).http, 404);
+	});
+
+	test("a login sets the session the data service signed & answers the page", async () => {
 		player("alice");
-		const login = await logIn(alice, "/play/game1");
-		assert.equal(login.http, 302);
-		assert.equal(login.location, new URL("/play/game1", config.clientUrl).href);
+		const login = await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/play/game1" });
+		assert.equal(login.http, 200);
+		assert.equal(login.body.returnTo, "/play/game1");
 		assert.ok(login.cookies.access_token && login.cookies.refresh_token);
 		assert.ok(peek("user_db", "alice").sid.S); // THE SESSION ID ON THEIR ROW
 
@@ -68,35 +72,29 @@ describe("login", () => {
 		auth0WillSign((claims) => keys.idToken({ ...claims, iss: "https://another.auth0.test/" }));
 		for (let i = 0; i < 3; i++) {
 			const login = await logIn(alice);
-			assert.equal(login.location, loginFailed("failed"));
-			assert.deepEqual(login.cookies, { auth_state: "", auth_return: "" }); // ONLY THE LOGIN COOKIES ARE CLEARED
+			assert.equal(login.http, 401);
+			assert.deepEqual(login.cookies, {});
 		}
 		assert.equal(peek("user_db", "alice"), undefined);
 	});
 
-	test("a login the state doesn't match never reaches the data service", async () => {
-		player("alice");
-		const login = await send("GET", `/api/auth/callback?code=alice%40test&state=other`, { auth_state: "state1" });
-		assert.equal(login.location, loginFailed("failed"));
-		assert.equal(login.cookies.access_token, undefined);
-	});
-
-	test("a login with the data service down lands Home with the unavailable reason & logs an error", async (t) => {
+	test("a login with the data service down says try again & logs an error", async (t) => {
 		player("alice");
 		const errors = t.mock.method(console, "error", () => {});
 		dataServiceWillAnswer("/session/login", 503, "Down");
 		const login = await logIn(alice);
-		assert.equal(login.location, loginFailed("unavailable"));
+		assert.equal(login.http, 503);
+		assert.equal(login.body.message, "Try again in a moment");
 		assert.equal(login.cookies.access_token, undefined);
 		assert.match(String(errors.mock.calls[0].arguments[0]), /POST \/session\/login: 503/);
 	});
 
-	test("an id_token with a key the data service doesn't know lands with the failed reason & logs an error", async (t) => {
+	test("an id_token with a key the data service doesn't know is refused & logs an error", async (t) => {
 		player("alice");
 		const errors = t.mock.method(console, "error", () => {});
 		auth0WillSign((claims) => keys.idToken(claims, { kid: "another-key" }));
 		const login = await logIn(alice);
-		assert.equal(login.location, loginFailed("failed"));
+		assert.equal(login.http, 401);
 		assert.match(String(errors.mock.calls[0].arguments[0]), /unknown key/);
 	});
 });
@@ -109,19 +107,16 @@ test("with Auth0 not answering, a login & an invite say try again within about 5
 	const alice = player("alice");
 	const bob = player("bob");
 	const errors = t.mock.method(console, "error", () => {});
-	auth0WillStall("/oauth/token", "authorization_code");
 	auth0WillStall("/oauth/token", "http://auth0.com/oauth/grant-type/password-realm");
 	auth0WillStall("/api/v2/users-by-email");
 
 	const started = Date.now();
-	const [callback, password, invite] = await Promise.all([
-		logIn(alice),
+	const [password, invite] = await Promise.all([
 		passwordLogin({ email: alice.email, password: alice.password }),
 		call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } })
 	]);
 	const took = Date.now() - started;
 
-	assert.equal(callback.location, loginFailed("unavailable"));
 	assert.equal(password.http, 503);
 	assert.equal(password.body.message, "Try again in a moment");
 	assert.equal(invite.http, 503);
@@ -130,7 +125,6 @@ test("with Auth0 not answering, a login & an invite say try again within about 5
 	assert.equal(auth0Logins().length, 0); // THE STALLED LOGIN WASN'T TRIED AGAIN
 
 	const logged = errors.mock.calls.map((call) => String(call.arguments[0])).join("\n");
-	assert.match(logged, /Auth0: code exchange: no answer in 5 seconds/);
 	assert.match(logged, /Auth0: password login: no answer in 5 seconds/);
 	assert.match(logged, /Auth0: user search: no answer in 5 seconds/);
 	assert.ok(!logged.includes(alice.email) && !logged.includes(bob.email) && !logged.includes(alice.password));
@@ -400,7 +394,7 @@ describe("refresh, resume & logout", () => {
 		const laptop = await logIn(alice);
 		const logout = await logOut(phone.cookies.refresh_token);
 		assert.equal(logout.http, 200);
-		assert.match(logout.body.logoutUrl, /^https:\/\/auth0\.test\/v2\/logout/);
+		assert.deepEqual(logout.body, { status: 200, message: "SIGNED OUT" }); // NO logoutUrl: THE PAGE DOESN'T GO TO AUTH0
 		assert.deepEqual([logout.cookies.access_token, logout.cookies.refresh_token], ["", ""]);
 
 		for (const device of [phone, laptop]) {

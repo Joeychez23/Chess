@@ -53,8 +53,7 @@ const config = {
   auth0Connection: process.env.AUTH0_CONNECTION || "auth0-default-connection",
   auth0ClientId: required("AUTH0_CLIENT_ID"),
   auth0ClientSecret: required("AUTH0_CLIENT_SECRET"),
-  auth0CallbackUrl: process.env.AUTH0_CALLBACK_URL || `http://localhost:${port}/api/auth/callback`, // MUST BE IN AUTH0 "ALLOWED CALLBACK URLS"
-  clientUrl: process.env.CLIENT_URL || `http://localhost:${port}/`, // WHERE THE GAME IS SERVED, MUST BE IN AUTH0 "ALLOWED LOGOUT URLS"
+  clientUrl: process.env.CLIENT_URL || `http://localhost:${port}/`, // WHERE THE GAME IS SERVED, THE ONLY ORIGIN THE AUTH ROUTES & SOCKETS ACCEPT
 
   // SESSION KEYS (#252): THE DATA SERVICE SIGNS EVERY SESSION & GUEST TOKEN, THE SERVER ONLY CHECKS THEM, SO IT CAN'T MAKE ONE.
   // SESSION_PUBLIC_KEY_NEXT IS ALSO ACCEPTED WHILE THE KEY IS BEING CHANGED (data-service/README.md -> Changing the session key)
