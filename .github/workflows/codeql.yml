@@ -1,0 +1,39 @@
+# CodeQL static analysis for the JavaScript in the client, server and data service.
+# Results show under Security > Code scanning. Free for public repositories.
+
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1' # EVERY MONDAY 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (javascript)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: javascript-typescript
+          config: |
+            paths-ignore:
+              - '**/node_modules/**'
+              - 'client/src/images/**'
+              - 'stockfish/**'
+              - '_dep/**'
+              - 'sony/**'
+              - 'wiki/**'
+              - 'workbench/**'
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:javascript-typescript

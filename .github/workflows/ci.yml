@@ -1,0 +1,97 @@
+# Runs the server tests, the data service tests, the client build, ESLint and npm audit on every pull request and on pushes to main.
+# npm ci installs the exact versions in the committed package-lock.json files.
+# Actions are pinned to commit SHAs (the tag is in the trailing comment); Dependabot (.github/dependabot.yml) keeps them current.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            data-service/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund # THE SERVER TESTS RUN THE REAL DATA SERVICE NEXT TO THE SERVER
+        working-directory: data-service
+      - run: npm test
+
+  data-service:
+    name: Data service tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: data-service
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: data-service/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+
+  client:
+    name: Client build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint # RULES ARE WARNINGS FOR NOW (eslint.config.js), ONLY ERRORS FAIL THE JOB
+
+  audit:
+    name: npm audit (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [., server, data-service]
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+      # BLOCKING: HIGH OR CRITICAL ADVISORIES IN WHAT SHIPS TO PRODUCTION
+      - run: npm audit --omit=dev --audit-level=high
+      # NON-BLOCKING: EVERYTHING, DEV TOOLING INCLUDED, FOR VISIBILITY IN THE LOG
+      - run: npm audit
+        continue-on-error: true
