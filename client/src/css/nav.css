@@ -32,6 +32,40 @@
 }
 
 /* ---------------------------------------------------------------- */
+/* Scrollbar (Every Page & Panel) */
+/* ---------------------------------------------------------------- */
+
+@supports not selector(::-webkit-scrollbar) { /* FIREFOX. CHROME & SAFARI USE THE RULES BELOW, scrollbar-color WOULD TURN THEM OFF */
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--gold) transparent;
+	}
+}
+
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+	background-color: transparent; /* SHOWS THE PAGE OR PANEL BEHIND IT */
+}
+
+::-webkit-scrollbar-thumb {
+	border: 2px solid transparent; /* SPACE AROUND THE THUMB */
+	border-radius: 5px;
+	background-color: var(--gold);
+	background-clip: padding-box;
+}
+
+@media (hover: hover) {
+	::-webkit-scrollbar-thumb:hover {
+		background-color: var(--maple);
+	}
+}
+
+/* ---------------------------------------------------------------- */
 /* Menu Button (3 Lines) */
 /* ---------------------------------------------------------------- */
 
