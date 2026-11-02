@@ -46,6 +46,8 @@ describe("login", () => {
 		assert.deepEqual(withPage.cookies, {}); // NO auth_state OR auth_return
 		assert.equal((await send("GET", "/api/auth/login")).location, "/login");
 		assert.equal((await send("GET", "/api/auth/login?returnTo=%2F%2Fother.site")).location, "/login");
+		assert.equal((await send("GET", "/api/auth/login?returnTo=%2F%09%2Fother.site")).location, "/login"); // A BROWSER DROPS TABS & NEWLINES: //other.site
+		assert.equal((await send("GET", "/api/auth/login?returnTo=%2F%0A%2Fother.site")).location, "/login");
 	});
 
 	test("the Auth0 callback is gone", async () => {
@@ -195,6 +197,8 @@ describe("password login", () => {
 		const alice = player("alice");
 		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/play/game1" })).body.returnTo, "/play/game1");
 		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "//other.site" })).body.returnTo, "/");
+		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/\t/other.site" })).body.returnTo, "/"); // A BROWSER DROPS TABS & NEWLINES: //other.site
+		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/\n/other.site" })).body.returnTo, "/");
 		testServer.reset();
 		const forgedAlice = player("alice");
 		auth0WillSign((claims) => keys.idToken(claims, { forged: true }));
@@ -212,6 +216,11 @@ describe("password login", () => {
 describe("signup", () => {
 	const newPlayer = (changes = {}) => ({ email: "newbie@test", password: "a-long-password", screenname: "Newbie", first_name: "New", last_name: "Player", ...changes });
 	const signup = (body, options = {}) => send("POST", "/api/auth/signup", {}, { headers: { ...loginHeaders(options.ip, options.origin), ...options.headers }, body: JSON.stringify(body) });
+
+	test("a returnTo that a browser would read as another site goes Home", async () => {
+		assert.equal((await signup({ ...newPlayer(), email: "tab@test", returnTo: "/\t/other.site" })).body.returnTo, "/");
+		assert.equal((await signup({ ...newPlayer(), email: "newline@test", returnTo: "/\n/other.site" })).body.returnTo, "/");
+	});
 
 	test("a new account is signed in with its screenname, unverified, & its username is claimed", async () => {
 		const response = await signup({ ...newPlayer(), returnTo: "/play/game1" });
@@ -349,6 +358,8 @@ describe("login page", () => {
 		assert.equal((await page("/login?returnTo=%2Fplay%2Fgame1", signedIn)).location, "/play/game1");
 		assert.equal((await page("/login", signedIn)).location, "/");
 		assert.equal((await page("/login?returnTo=%2F%2Fother.site", signedIn)).location, "/");
+		assert.equal((await page("/login?returnTo=%2F%09%2Fother.site", signedIn)).location, "/");
+		assert.equal((await page("/login?returnTo=%2F%0A%2Fother.site", signedIn)).location, "/");
 	});
 
 	test("stays on the page for a signed out player", async () => {
@@ -362,6 +373,8 @@ describe("signup page", () => {
 		assert.equal((await page("/signup?returnTo=%2Fplay%2Fgame1", signedIn)).location, "/play/game1");
 		assert.equal((await page("/signup", signedIn)).location, "/");
 		assert.equal((await page("/signup?returnTo=%2F%2Fother.site", signedIn)).location, "/");
+		assert.equal((await page("/signup?returnTo=%2F%09%2Fother.site", signedIn)).location, "/");
+		assert.equal((await page("/signup?returnTo=%2F%0A%2Fother.site", signedIn)).location, "/");
 	});
 
 	test("stays on the page for a signed out player", async () => {

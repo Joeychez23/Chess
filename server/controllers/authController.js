@@ -21,6 +21,7 @@ const { disconnectPlayer } = require("../socket.js");
 
 const METADATA_LENGTH = 500; // AUTH0: user_metadata VALUES ARE UNDER 500 CHARACTERS
 const FORGOT_ANSWER = "If there's an account for that email, we've sent a reset link";
+const RETURN_BASE = "https://return.invalid"; // returnPath RESOLVES AGAINST THIS, A PATH ON THIS SITE STAYS ON IT
 
 /* ---------------------------------------------------------------- */
 // Login
@@ -272,14 +273,19 @@ function sessionUser(auth0User) {
 
 
 /**
- * @description Only a path on this site can be returned to ("//other.site" & "/\other.site" are other sites to a browser),
- * so login & resume can't be used to send someone somewhere else
+ * @description Only a path on this site can be returned to ("//other.site", "/\other.site" & "/<tab>/other.site" are other sites to a browser),
+ * so login & resume can't be used to send someone somewhere else. It's resolved the way a browser does (which drops tabs & newlines),
+ * & the value itself is returned: its resolved path could start with "//" ("/..//other.site")
  * @param  {[string]} value [returnTo from the query or the body]
  * @return {[string]} path [the path, or null when it's missing or not ours]
  */
 function returnPath(value) {
-	if (typeof value != "string" || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) { return null; }
-	return value;
+	if (typeof value != "string" || !value.startsWith("/") || value.includes("\\")) { return null; }
+	try {
+		return new URL(value, RETURN_BASE).origin === RETURN_BASE ? value : null;
+	} catch {
+		return null; // NOT A URL A BROWSER COULD GO TO ("//[")
+	}
 }
 
 
