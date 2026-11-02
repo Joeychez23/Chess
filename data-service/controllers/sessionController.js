@@ -27,7 +27,7 @@ const usedIdTokens = new Map(); // SHA-256 OF AN id_token -> WHEN IT CAN BE FORG
 // Login (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Signs a player in from the id_token Auth0 gave the chess server (exchangeCode). The id_token is checked against Auth0's keys
+ * @description Signs a player in from the id_token Auth0 gave the chess server (its password login). The id_token is checked against Auth0's keys
  * (RS256, our tenant, our client, not expired, at most 5 minutes old & used once), and the user the chess server found (getAuth0User)
  * must be the one it names. Only then are the session tokens signed
  * @param  {[object]} req.body [{ id_token, user: { user_id, email, user_metadata: { screenname, first_name, last_name } } }]

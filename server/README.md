@@ -20,14 +20,10 @@
 | `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`) |
 | `SESSION_PUBLIC_KEY` | The public half of the data service's session key, multi-line in double quotes ([Session keys](../data-service/README.md#session-keys-252)). The server checks session and guest tokens with it but can't make one |
 | `SESSION_PUBLIC_KEY_NEXT` | Optional. Only while the key is being changed: tokens signed with the new key are accepted too |
-| `AUTH0_CALLBACK_URL` | Optional. Defaults to `http://localhost:API_PORT/api/auth/callback` |
-| `CLIENT_URL` | Optional. Where the browser goes after login/logout. Defaults to `http://localhost:API_PORT/` |
+| `CLIENT_URL` | Optional. Where the game is served, the only origin API writes and sockets accept. Defaults to `http://localhost:API_PORT/` |
 | `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
 | `DATA_SERVICE_URL` | Optional. Where the data service answers. Defaults to `http://127.0.0.1:8090` (`npm run dev` in `data-service`). On AWS it's the data service's private IP |
 | `DATA_SERVICE_SECRET` | Signs every call to the data service. The same value as `DATA_SERVICE_SECRET` in `data-service/.env`, at least 32 characters (the command is in `.env.example`) |
-
-In the Auth0 app's settings, add `AUTH0_CALLBACK_URL` to **Allowed Callback
-URLs** and `CLIENT_URL` to **Allowed Logout URLs**.
 
 The server doesn't touch DynamoDB. Every read and write of the games and players
 goes through the data service ([Data service](../data-service/README.md)), which uses the AWS
@@ -57,7 +53,7 @@ engine are answered from test data.
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
 | `dataClient.test.js` | The data service down, too slow (3 seconds for a read, 10 for a write) or refusing the signature: 503 "Try again in a moment". A move, forfeit, accept or rematch that saved but answered too late is read back: the player gets what was saved and the other player is told. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
-| `auth.test.js` | Signing in through the data service: the callback's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
+| `auth.test.js` | Signing in through the data service: `GET /api/auth/login` going to the login page, the login's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
 | `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
 | `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
 | `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
@@ -73,16 +69,18 @@ service tests and the client build on every pull request and every push to `main
 ## Auth
 
 Auth0 only runs on the server. The browser never sees an Auth0 token or the
-client secret.
+client secret. Players sign in on our `/login` page with Auth0's password grant,
+which doesn't start an Auth0 session, so there's no Auth0 login page or logout.
 
 | Route | What it does |
 | --- | --- |
-| `GET /api/auth/login` | Redirects to the Auth0 login page. `?returnTo=/play/:gameId` is saved in a cookie for the callback (only paths on this site) |
-| `POST /api/auth/login` | JSON `{ email, password, returnTo? }` password login. Returns `200`, `400`, `401`, `403`, `429` or `503`; limited to 20 per IP per 30 seconds and 10 per email per minute. Requires the client `Origin` and `application/json` |
-| `GET /api/auth/callback` | Auth0 redirects back here. Trades the code for Auth0's tokens, looks the player up through the Management API (`getAuth0User`, which replaced the `user` lambda), then the data service checks Auth0's `id_token` and signs the session (`POST /session/login`). Goes to `returnTo` or Home |
+| `GET /api/auth/login` | Redirects to `/login` for old links and the game menu's Exit, keeping `?returnTo=/play/:gameId` (only paths on this site) |
+| `POST /api/auth/login` | JSON `{ email, password, returnTo? }` password login: looks the player up through the Management API (`getAuth0User`, which replaced the `user` lambda), then the data service checks Auth0's `id_token` and signs the session (`POST /session/login`). Returns `200`, `400`, `401`, `403`, `429` or `503`; limited to 20 per IP per 30 seconds and 10 per email per minute. Requires the client `Origin` and `application/json` |
+| `POST /api/auth/signup` | JSON `{ email, password, screenname, first_name, last_name, returnTo? }` from the signup page. Makes the Auth0 account (Auth0 sends the verification email), signs in like a password login and claims `screenname` as the username; a username someone has is left for the settings page. Returns `200`, `202` (account made, sign in to play), `400`, `403`, `429` or `503`; limited to 5 per IP (then 1 every 5 minutes) and 5 per email per minute. Same `Origin` and `application/json` checks as login |
+| `POST /api/auth/forgot` | JSON `{ email }` from the login page. Asks Auth0's `/dbconnections/change_password` to email a reset link, which opens Auth0's reset page. Answers `200` "If there's an account for that email, we've sent a reset link" with or without an account, or `400`, `403`, `429`, `500` or `503`; limited to 5 at once per IP and 3 at once per email, then 1 every 5 minutes for each. Requires the client `Origin` and `application/json`. In Auth0, style the reset page under Branding and set the Change Password email template's Redirect To to `/login` |
 | `POST /api/auth/refresh` | Re-ups the session: the data service checks the refresh token and signs a new access + refresh token |
-| `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it logs in first |
-| `POST /api/auth/logout` | Ends the session on every device (the data service clears the session id on the player's row), clears the cookies and answers `{ logoutUrl }`, Auth0's logout, which the page goes to. Only from our own page (`Origin` / `Sec-Fetch-Site`, #297); a `GET` is `404` |
+| `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it goes to `/login?returnTo=` |
+| `POST /api/auth/logout` | Ends the session on every device (the data service clears the session id on the player's row), clears the cookies and answers `200`, and the page goes Home. Only from our own page (`Origin` / `Sec-Fetch-Site`, #297); a `GET` is `404` |
 | `GET /api/user` | The signed-in user, and `username` from their `user_db` row (`null` until they pick one), or `401` |
 | `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w` or `b` is `random`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
 | `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
@@ -166,6 +164,12 @@ curl -s -c jar -b jar $API/game/$GAME
 
 A refused move still answers HTTP 200: check `status` and `message` in the
 body.
+
+## CSRF
+
+`middleware/csrf.js` refuses every `POST`, `PUT`, `PATCH` and `DELETE` under `/api`
+(`403`) unless its `Origin` is `CLIENT_URL`'s and its `Sec-Fetch-Site`, when sent, is
+`same-origin`. `SameSite=Lax` cookies alone would still let a same-site subdomain through.
 
 ## Socket.IO
 

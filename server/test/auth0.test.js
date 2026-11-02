@@ -1,7 +1,7 @@
 /*
  *  auth0.test.js  --  chess server tests
  *	Auth0 Calls (utils/auth0.js, a timeout on every call #365)
- *  Calls the module directly with a stand-in fetch, so each of the four calls can be stalled. Its Management API token is cached, so each test loads a fresh copy
+ *  Calls the module directly with a stand-in fetch, so each call can be stalled. Its Management API token is cached, so each test loads a fresh copy
  *
  */
 
@@ -43,7 +43,6 @@ function load(t, answer) {
 const managementToken = (url, options, answer) => (url.endsWith("/oauth/token") ? json({ access_token: "management-token", expires_in: 86400 }) : answer(url, options));
 
 const CALLS = [
-	{ name: "code exchange", run: (auth0) => auth0.exchangeCode("the-code"), answer: neverAnswers, count: 1 },
 	{ name: "password login", run: (auth0) => auth0.passwordLogin("alice@test", "alice-password", "203.0.113.5"), answer: neverAnswers, count: 1 },
 	{ name: "management token", run: (auth0) => auth0.getAuth0User("alice@test"), answer: neverAnswers, count: 1 },
 	{ name: "user search", run: (auth0) => auth0.getAuth0User("alice@test"), answer: (url, options) => managementToken(url, options, neverAnswers), count: 2 }
@@ -61,7 +60,7 @@ describe("a call Auth0 doesn't answer", () => {
 			const err = await run(auth0).then(() => assert.fail("should time out"), (failed) => failed);
 			assert.equal(err.name, "DataServiceDown");
 			assert.ok(err.message.startsWith(`Auth0: ${name}: no answer`), err.message);
-			for (const secret of ["alice@test", "alice%40test", "alice-password", "the-code", config.auth0ClientSecret]) {
+			for (const secret of ["alice@test", "alice%40test", "alice-password", config.auth0ClientSecret]) {
 				assert.ok(!err.message.includes(secret));
 			}
 			assert.equal(calls.length, count);
@@ -78,7 +77,7 @@ describe("a call Auth0 doesn't answer", () => {
 describe("other answers keep working", () => {
 	test("a network failure isn't called a timeout", async (t) => {
 		const { auth0 } = load(t, () => { throw new TypeError("fetch failed"); });
-		await assert.rejects(auth0.exchangeCode("the-code"), { name: "TypeError" });
+		await assert.rejects(auth0.passwordLogin("alice@test", "alice-password", "203.0.113.5"), { name: "TypeError" });
 	});
 
 	test("a refused password keeps Auth0's error", async (t) => {

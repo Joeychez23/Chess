@@ -1,10 +1,9 @@
 /*
  *  authController.js  --  chess server
  *	Auth Routes
- *  login -> Auth0 Universal Login or password login -> our JWT session cookies -> back to the page (returnTo) or Home
- *  refresh & resume re-up the session, logout ends it everywhere & on Auth0. Only a 401 from the data service signs a player out (#283)
+ *  password login or signup on our pages -> our JWT session cookies -> back to the page (returnTo) or Home
+ *  refresh & resume re-up the session, logout ends it everywhere. Only a 401 from the data service signs a player out (#283)
  *  The session tokens are signed by the data service (#252), this server passes Auth0's id_token on & sets the cookies it gets back
- *  A failed login goes Home with ?login=failed or ?login=unavailable, so the guest page tells the player (#282)
  *
  */
 
@@ -12,103 +11,38 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
-const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin: auth0PasswordLogin, getAuth0User } = require("../utils/auth0.js");
+const { passwordLogin: auth0PasswordLogin, signup: auth0Signup, requestPasswordReset, getAuth0User } = require("../utils/auth0.js");
 const { setSessionCookies, clearSessionCookies, readRefreshCookie, readRefreshUser, readSessionUser } = require("../middleware/auth.js");
-const { startSession, refreshSession, endSession, down } = require("../dataClient.js");
+const { startSession, refreshSession, endSession, claimUsername, withRequest, down } = require("../dataClient.js");
+const { checkUsername } = require("../utils/username.js");
 const { disconnectPlayer } = require("../socket.js");
 
-const STATE_COOKIE = "auth_state";
-const RETURN_COOKIE = "auth_return"; // THE PAGE TO GO BACK TO AFTER LOGIN (A GAME LINK, /play/:gameId)
-const STATE_PATH = "/api/auth";
+const METADATA_LENGTH = 500; // AUTH0: user_metadata VALUES ARE UNDER 500 CHARACTERS
+const FORGOT_ANSWER = "If there's an account for that email, we've sent a reset link";
+const RETURN_BASE = "https://return.invalid"; // returnPath RESOLVES AGAINST THIS, A PATH ON THIS SITE STAYS ON IT
 
 /* ---------------------------------------------------------------- */
 // Login
 /* ---------------------------------------------------------------- */
 /**
- * @description Sends the browser to the Auth0 login page. ?returnTo=/play/:gameId comes back to that page after the callback
+ * @description GET /api/auth/login: old links & the game menu's Exit for guests go to the login page, keeping ?returnTo=/play/:gameId
  */
 function login(req, res) {
-	const state = crypto.randomBytes(16).toString("hex"); // CHECKED IN THE CALLBACK SO ONLY OUR LOGINS ARE ACCEPTED
-	const cookieOptions = {
-		httpOnly: true,
-		secure: config.isProduction,
-		sameSite: "lax",
-		path: STATE_PATH,
-		maxAge: 10 * 60 * 1000 // 10 MINUTES TO FINISH LOGGING IN
-	};
-	res.cookie(STATE_COOKIE, state, cookieOptions);
-
 	const returnTo = returnPath(req.query.returnTo);
-	if (returnTo) { res.cookie(RETURN_COOKIE, returnTo, cookieOptions); }
-	else { res.clearCookie(RETURN_COOKIE, { path: STATE_PATH }); } // AN OLD LOGIN'S PAGE DOESN'T CARRY OVER
-	return res.redirect(buildAuthorizeUrl(state));
-}
-
-/* ---------------------------------------------------------------- */
-// Callback
-/* ---------------------------------------------------------------- */
-/**
- * @description Auth0 sends the browser here after login. Trades the code for the user, then the data service checks Auth0's id_token & signs our session
- */
-async function callback(req, res) {
-	const { code, state, error } = req.query;
-	const savedState = req.cookies?.[STATE_COOKIE];
-	const returnTo = returnPath(req.cookies?.[RETURN_COOKIE]);
-	res.clearCookie(STATE_COOKIE, { path: STATE_PATH });
-	res.clearCookie(RETURN_COOKIE, { path: STATE_PATH });
-
-	if (error || !code || !state || state != savedState) { // LOGIN CANCELED OR NOT STARTED BY US
-		console.log(`Login failed: ${JSON.stringify(error || "invalid state")}`); // JSON.stringify ESCAPES LINE BREAKS: ANYONE CAN SEND error, AND A LINE OF ITS OWN COULD SET OFF AN ALARM (terraform/modules/monitoring)
-		return res.redirect(loginFailed("failed"));
-	}
-
-	try {
-		const tokens = await exchangeCode(code); // CODE -> AUTH0 TOKENS
-		const session = await startPlayerSession(tokens.id_token);
-		if (!session) { return res.redirect(loginFailed("failed")); }
-
-		setSessionCookies(res, session);
-		return res.redirect(new URL(returnTo || "/", config.clientUrl).href); // BACK TO THE PAGE THEY CAME FROM, OR HOME
-	} catch (err) {
-		if (err.name == "DataServiceDown") { // THE DATA SERVICE OR AUTH0 IS DOWN, OR THE DATA SERVICE SIGNED WITH A KEY THIS SERVER CAN'T READ
-			console.error(err.message);
-			return res.redirect(loginFailed("unavailable"));
-		}
-		console.error(err);
-		return res.redirect(loginFailed("failed"));
-	}
-}
-
-/**
- * @description Where a failed callback goes: Home with the reason, so the guest page says sign in didn't work (#282)
- * @param  {[string]} reason ["failed" (try again) or "unavailable" (the data service or Auth0 is down)]
- * @return {[string]} url
- */
-function loginFailed(reason) {
-	return new URL(`/?login=${reason}`, config.clientUrl).href;
+	return res.redirect(returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : "/login");
 }
 
 /* ---------------------------------------------------------------- */
 // Password Login
 /* ---------------------------------------------------------------- */
 /**
- * @description A request our own page sent: its Origin is the game's, & Sec-Fetch-Site (when the browser sends it) is same-origin.
- * Another site's link, redirect or form gets false (login & logout CSRF, #297)
- */
-function fromOurPage(req) {
-	const site = req.get("Sec-Fetch-Site");
-	return req.get("Origin") === new URL(config.clientUrl).origin && (!site || site === "same-origin");
-}
-
-/**
- * @description POST /api/auth/login's checks: only JSON from our own page (login CSRF: a form post or another site gets 403),
+ * @description POST /api/auth/login's checks: only JSON (login CSRF: a form post gets 403, middleware/csrf.js refuses another site),
  * with an email & password that are strings (400)
  */
 function checkLogin(req, res, next) {
-	if (!req.is("application/json") || !fromOurPage(req)) {
+	if (!req.is("application/json")) {
 		return res.status(403).json({ status: 403, message: "Forbidden" });
 	}
 	if (typeof req.body?.email != "string" || !req.body.email.trim() || typeof req.body?.password != "string" || !req.body.password) {
@@ -118,7 +52,7 @@ function checkLogin(req, res, next) {
 }
 
 /**
- * @description The login page's sign in: Auth0 checks the password, then the same steps as the callback. Answers { returnTo }
+ * @description The login page's sign in: Auth0 checks the password, then the data service signs the session. Answers { returnTo }
  * & the page goes there itself. An unknown email & a wrong password get the same 401 (#192). Never logs the password or the body
  */
 async function passwordLogin(req, res, next) {
@@ -135,8 +69,75 @@ async function passwordLogin(req, res, next) {
 	}
 }
 
+/* ---------------------------------------------------------------- */
+// Signup
+/* ---------------------------------------------------------------- */
 /**
- * @description What the callback & a password login both do with Auth0's id_token: find the player, then the data service checks it & signs the session
+ * @description POST /api/auth/signup's checks: only JSON like a login (403), then the fields the Auth0 signup screen asks for (400).
+ * The screenname is also the player's username (#118), so it has the same rules
+ */
+function checkSignup(req, res, next) {
+	if (!req.is("application/json")) {
+		return res.status(403).json({ status: 403, message: "Forbidden" });
+	}
+	const { email, password, first_name, last_name } = req.body || {};
+	if (typeof email != "string" || !/^[^\s@]+@[^\s@]+$/.test(email.trim()) || typeof password != "string" || !password) {
+		return res.status(400).json({ status: 400, message: "Email and password are required" });
+	}
+	for (const name of [first_name, last_name]) {
+		if (typeof name != "string" || !name.trim() || name.trim().length >= METADATA_LENGTH) {
+			return res.status(400).json({ status: 400, message: `First and last name are required, under ${METADATA_LENGTH} characters` });
+		}
+	}
+	const checked = checkUsername(req.body.screenname);
+	if (checked.message) { return res.status(400).json({ status: 400, message: checked.message }); }
+	return next();
+}
+
+/**
+ * @description The login page's Create account: Auth0 makes the account, then it signs in like a password login & claims the username.
+ * Once Auth0 has made it, trying again can only say the email is taken, so a failed sign in answers 202 (sign in to play) & a failed claim still signs them in:
+ * Home sends a player with no username to the settings page. Never logs the password or the body
+ */
+async function signup(req, res, next) {
+	const email = req.body.email.trim();
+	const screenname = checkUsername(req.body.screenname).username;
+	try {
+		await auth0Signup(email, req.body.password, { screenname, first_name: req.body.first_name.trim(), last_name: req.body.last_name.trim() });
+	} catch (err) {
+		if (err.auth0Error == "invalid_password") { return res.status(400).json({ status: 400, message: err.auth0Message || "Password is too weak" }); }
+		if (err.auth0Error == "invalid_signup" || err.auth0Error == "user_exists") { return res.status(400).json({ status: 400, message: "Couldn't create that account. If it's yours, sign in or reset the password." }); }
+		return next(err);
+	}
+
+	let session;
+	try {
+		const tokens = await auth0PasswordLogin(email, req.body.password, req.ip);
+		session = await startPlayerSession(tokens.id_token);
+	} catch (err) {
+		console.error(err.message);
+	}
+	if (!session) { return res.status(202).json({ status: 202, message: "Your account was created. Sign in to play." }); }
+
+	await claimNewUsername(session, screenname);
+	setSessionCookies(res, session);
+	return res.json({ status: 200, returnTo: returnPath(req.body.returnTo) || "/" });
+}
+
+/**
+ * @description Claims a new player's username as them (the request came signed out, so its context can't). A name someone has already is left for the settings page
+ */
+async function claimNewUsername(session, username) {
+	try {
+		const claimed = await withRequest({ cookies: { access_token: session.access_token } }, () => claimUsername(username));
+		if (claimed.status != 200) { console.log(`Signup: username not claimed: ${claimed.status}`); }
+	} catch (err) {
+		console.error(err.message);
+	}
+}
+
+/**
+ * @description What a password login & a signup both do with Auth0's id_token: find the player, then the data service checks it & signs the session
  * @param  {[string]} idToken [Auth0's id_token]
  * @return {[object]} session [{ access_token, refresh_token } | null when it's refused (logged why)]
  */
@@ -157,15 +158,41 @@ async function startPlayerSession(idToken) {
 }
 
 /* ---------------------------------------------------------------- */
+// Forgot Password
+/* ---------------------------------------------------------------- */
+/**
+ * @description POST /api/auth/forgot's checks: only JSON like a login (403), with an email (400)
+ */
+function checkForgot(req, res, next) {
+	if (!req.is("application/json")) {
+		return res.status(403).json({ status: 403, message: "Forbidden" });
+	}
+	if (typeof req.body?.email != "string" || !/^[^\s@]+@[^\s@]+$/.test(req.body.email.trim())) {
+		return res.status(400).json({ status: 400, message: "Email is required" });
+	}
+	return next();
+}
+
+/**
+ * @description The login page's Forgot password?: Auth0 emails the link, which opens Auth0's reset page. An email with no account gets the same answer (#192).
+ * Auth0 not taking the request is the only other answer: it says nothing about the email, and the player shouldn't wait for a link that isn't coming
+ */
+async function forgot(req, res, next) {
+	try {
+		await requestPasswordReset(req.body.email.trim());
+		return res.json({ status: 200, message: FORGOT_ANSWER });
+	} catch (err) { return next(err); }
+}
+
+/* ---------------------------------------------------------------- */
 // Logout
 /* ---------------------------------------------------------------- */
 /**
  * @description Ends our session on every device (the data service clears the session id their refresh tokens carry),
- * then answers { logoutUrl } & the page goes there, which ends the Auth0 session so the next login asks for a password again.
+ * & clears the cookies. The password grant doesn't start an Auth0 session, so there's none to end.
  * A POST from our own page only, so another site can't sign a player out everywhere (#297). Their open sockets on every device are closed too (#298)
  */
 async function logout(req, res) {
-	if (!fromOurPage(req)) { return res.status(403).json({ status: 403, message: "Forbidden" }); }
 	const refreshToken = readRefreshCookie(req);
 	const user = readRefreshUser(req) || readSessionUser(req);
 	clearSessionCookies(res);
@@ -177,7 +204,7 @@ async function logout(req, res) {
 			console.error(err.message); // THE DATA SERVICE IS DOWN: THIS BROWSER IS STILL SIGNED OUT, THE OTHERS STAY IN UNTIL THEIR REFRESH TOKEN RUNS OUT
 		}
 	}
-	return res.json({ status: 200, logoutUrl: buildLogoutUrl(), message: "SIGNED OUT" });
+	return res.json({ status: 200, message: "SIGNED OUT" });
 }
 
 /* ---------------------------------------------------------------- */
@@ -190,7 +217,7 @@ async function logout(req, res) {
 async function resume(req, res) {
 	const returnTo = returnPath(req.query.returnTo) || "/";
 	const session = await reup(req);
-	if (!session) { return res.redirect(`/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`); }
+	if (!session) { return res.redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`); }
 	setSessionCookies(res, session);
 	return res.redirect(returnTo);
 }
@@ -246,15 +273,20 @@ function sessionUser(auth0User) {
 
 
 /**
- * @description Only a path on this site can be returned to ("//other.site" & "/\other.site" are other sites to a browser),
- * so login & resume can't be used to send someone somewhere else
- * @param  {[string]} value [returnTo from the query or the cookie]
+ * @description Only a path on this site can be returned to ("//other.site", "/\other.site" & "/<tab>/other.site" are other sites to a browser),
+ * so login & resume can't be used to send someone somewhere else. It's resolved the way a browser does (which drops tabs & newlines),
+ * & the value itself is returned: its resolved path could start with "//" ("/..//other.site")
+ * @param  {[string]} value [returnTo from the query or the body]
  * @return {[string]} path [the path, or null when it's missing or not ours]
  */
 function returnPath(value) {
-	if (typeof value != "string" || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) { return null; }
-	return value;
+	if (typeof value != "string" || !value.startsWith("/") || value.includes("\\")) { return null; }
+	try {
+		return new URL(value, RETURN_BASE).origin === RETURN_BASE ? value : null;
+	} catch {
+		return null; // NOT A URL A BROWSER COULD GO TO ("//[")
+	}
 }
 
 
-module.exports = { login, callback, checkLogin, passwordLogin, logout, refresh, resume };
+module.exports = { login, checkLogin, passwordLogin, checkSignup, signup, checkForgot, forgot, logout, refresh, resume, returnPath };

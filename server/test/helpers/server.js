@@ -27,6 +27,8 @@ const realFetch = globalThis.fetch;
 const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
 const auth0Passwords = new Map(); // EMAIL -> PASSWORD, ONLY THE PASSWORD GRANT USES THIS
 const auth0LoginRequests = []; // PASSWORD-REALM REQUESTS (HEADERS + BODY)
+const auth0SignupRequests = []; // /dbconnections/signup BODIES
+const auth0ResetRequests = []; // /dbconnections/change_password BODIES
 const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
 const auth0Stalls = []; // AUTH0 CALLS WHOSE NEXT ANSWER NEVER ARRIVES: { path, grant } (auth0WillStall)
 let engineRequests = 0; // ENGINE API REQUESTS SINCE THE LAST reset()
@@ -58,6 +60,7 @@ async function start() {
 	app.use(require("../../middleware/logServerErrors.js").logServerErrors); // SAME AS index.js
 	app.use(require("../../middleware/securityHeaders.js").securityHeaders); // SAME AS index.js
 	app.set("trust proxy", "loopback"); // SAME AS index.js, A TEST'S X-Forwarded-For IS THE PLAYER'S ADDRESS
+	app.use("/api", require("../../middleware/csrf.js").requireOurPage); // SAME AS index.js
 	app.use(cookieParser());
 	app.use(express.json());
 	app.use(playerContext); // SAME AS index.js
@@ -82,6 +85,8 @@ function reset() {
 	auth0Users.clear();
 	auth0Passwords.clear();
 	auth0LoginRequests.length = 0;
+	auth0SignupRequests.length = 0;
+	auth0ResetRequests.length = 0;
 	auth0Blocks.length = 0;
 	auth0Stalls.length = 0;
 	engineMoves.length = 0;
@@ -131,7 +136,7 @@ function sessionCookie(user) {
  * @return {[object]} response [{ http: the HTTP status, retry_after: the Retry-After header, ...the JSON body }]
  */
 async function call(method, path, options = {}) {
-	const headers = { "Content-Type": "application/json" };
+	const headers = { "Content-Type": "application/json", Origin: new URL(config.clientUrl).origin }; // A BROWSER SENDS ITS PAGE'S ORIGIN (middleware/csrf.js)
 	const guest = options.as || options.cookie ? null : options.guest || "guest";
 	if (options.as) { headers.Cookie = sessionCookie(options.as.user); }
 	if (options.cookie) { headers.Cookie = options.cookie; }
@@ -148,12 +153,12 @@ async function call(method, path, options = {}) {
  * @param  {[string]} method ["GET" or "POST"]
  * @param  {[string]} path [e.g. "/api/auth/refresh"]
  * @param  {[object]} cookies [{ name: value }, sent as the Cookie header]
- * @param  {[object]} options [{ headers, body: a raw body string }]
+ * @param  {[object]} options [{ headers: instead of our own page's Origin, body: a raw body string }]
  * @return {[object]} response [{ http, headers, location, retry_after, cookies: { name: value } set by the response ("" = cleared), body: the JSON body or null }]
  */
 async function send(method, path, cookies = {}, options = {}) {
 	const Cookie = Object.entries(cookies).map(([name, value]) => `${name}=${value}`).join("; ");
-	const headers = { ...(Cookie ? { Cookie } : {}), ...(options.headers || {}) };
+	const headers = { ...(Cookie ? { Cookie } : {}), ...(options.headers || { Origin: new URL(config.clientUrl).origin }) };
 	const res = await realFetch(`${baseUrl}${path}`, { method, headers, body: options.body, redirect: "manual" });
 	const set = {};
 	for (const cookie of res.headers.getSetCookie()) {
@@ -247,6 +252,16 @@ async function standInFetch(url, options) {
 		const result = await auth0Token(JSON.parse(options.body), options);
 		return json(result.body, result.status);
 	}
+	if (hostname == "auth0.test" && pathname == "/dbconnections/signup") {
+		const result = auth0Signup(JSON.parse(options.body));
+		return json(result.body, result.status);
+	}
+	if (hostname == "auth0.test" && pathname == "/dbconnections/change_password") {
+		const body = JSON.parse(options.body);
+		auth0ResetRequests.push(body);
+		if (body.email == "refused@test") { return new Response("Too many requests", { status: 429 }); }
+		return new Response("We've just sent you an email to reset your password.", { status: 200 }); // PLAIN TEXT, FOR ANY EMAIL, LIKE AUTH0'S
+	}
 	if (hostname == "auth0.test" && pathname == "/api/v2/users-by-email") {
 		const user = auth0Users.get(searchParams.get("email"));
 		return json(user ? [user] : []);
@@ -277,9 +292,8 @@ async function standInFetch(url, options) {
 }
 
 /**
- * @description Auth0's /oauth/token: a Management API token, a login's code (here, the player's email) traded for their id_token,
- * or a password login (password-realm) checked against the player's password
- * @param  {[object]} body [{ grant_type, code | realm, username, password }]
+ * @description Auth0's /oauth/token: a Management API token, or a password login (password-realm) checked against the player's password
+ * @param  {[object]} body [{ grant_type, realm, username, password }]
  * @param  {[object]} options [the fetch options, a password login's headers are kept for auth0Logins()]
  * @return {[object]} response [{ body, status }]
  */
@@ -290,12 +304,24 @@ function auth0Token(body, options) {
 		if (auth0Blocks.shift()) { return { body: { error: "too_many_attempts" }, status: 429 }; }
 		if (!auth0Users.has(body.username) || auth0Passwords.get(body.username) != body.password) { return { body: { error: "invalid_grant", error_description: "Wrong email or password." }, status: 403 }; }
 		const user = auth0Users.get(body.username);
-		return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email }), expires_in: 86400 }, status: 200 };
+		return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email, email_verified: user.email_verified }), expires_in: 86400 }, status: 200 };
 	}
-	if (body.grant_type != "authorization_code") { return { body: { access_token: "management-token", expires_in: 86400 }, status: 200 }; }
-	const user = auth0Users.get(body.code);
-	if (!user) { throw new Error("invalid_grant"); }
-	return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email }), expires_in: 86400 }, status: 200 };
+	return { body: { access_token: "management-token", expires_in: 86400 }, status: 200 };
+}
+
+/**
+ * @description Auth0's /dbconnections/signup: makes an unverified user, unless the email is taken or the password is "weak"
+ * @param  {[object]} body [{ client_id, connection, email, password, user_metadata }]
+ * @return {[object]} response [{ body, status }]
+ */
+function auth0Signup(body) {
+	auth0SignupRequests.push(body);
+	if (auth0Users.has(body.email)) { return { body: { code: "invalid_signup", description: "Invalid sign up" }, status: 400 }; }
+	if (body.password == "weak") { return { body: { name: "PasswordStrengthError", code: "invalid_password", message: "Password is too weak", description: { rules: [] } }, status: 400 }; }
+	const user = { user_id: `auth0|${body.email.split("@")[0]}`, email: body.email, email_verified: false, user_metadata: body.user_metadata, identities: [{ connection: body.connection }] };
+	auth0Users.set(body.email, user);
+	auth0Passwords.set(body.email, body.password);
+	return { body: { _id: body.email, email: body.email, email_verified: false }, status: 200 };
 }
 
 /**
@@ -319,6 +345,20 @@ function auth0WillStall(path, grant) {
  */
 function auth0Logins() {
 	return auth0LoginRequests;
+}
+
+/**
+ * @description The signups Auth0 was asked for: [body]
+ */
+function auth0Signups() {
+	return auth0SignupRequests;
+}
+
+/**
+ * @description The password resets Auth0 was asked for: [body]
+ */
+function auth0Resets() {
+	return auth0ResetRequests;
 }
 
 /**
@@ -348,4 +388,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };

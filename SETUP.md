@@ -111,7 +111,7 @@ sudo grep -oE '^[A-Z0-9_]+=' /opt/data-service/.env; ls -l /opt/data-service/aut
 |---|---|
 | `API_PORT` (`8080`) | `DATA_SERVICE_HOST` (`172.31.64.10`) |
 | `AUTH0_ISSUER_BASE_URL_ORIGIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` | `DATA_SERVICE_PORT` (`8090`) |
-| `AUTH0_CALLBACK_URL`, `CLIENT_URL` | `DATA_SERVICE_SECRET` (the same as the server's) |
+| `CLIENT_URL` | `DATA_SERVICE_SECRET` (the same as the server's) |
 | `ENGINE_URL` (`http://127.0.0.1:3001/v1`) | `SESSION_PRIVATE_KEY` |
 | `DATA_SERVICE_URL` (`http://172.31.64.10:8090`) | `AUTH0_ISSUER_BASE_URL_ORIGIN`, `AUTH0_CLIENT_ID` (the same as the server's) |
 | `DATA_SERVICE_SECRET` | `DYNAMODB_REGION` (optional, `us-west-2`) |

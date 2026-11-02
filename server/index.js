@@ -16,6 +16,7 @@ const { initSocket } = require("./socket.js");
 const { playerContext, dataServiceDown } = require("./dataClient.js");
 const { securityHeaders } = require("./middleware/securityHeaders.js");
 const { logServerErrors } = require("./middleware/logServerErrors.js");
+const { requireOurPage } = require("./middleware/csrf.js");
 
 const app = express();
 app.disable("x-powered-by"); // NO "X-Powered-By: Express" (#191)
@@ -24,6 +25,7 @@ const buildDir = path.join(`${__dirname}/../client/dist/`);
 const serveBuild = express.static(buildDir, { index: false }); // BUNDLES, MANIFEST & LOCAL ASSETS
 app.use(logServerErrors); // A LOG LINE FOR EACH 5xx ANSWER, AN ALARM COUNTS THEM (#194)
 app.use(securityHeaders); // CSP, NO FRAMING, nosniff, Referrer-Policy & HSTS IN PRODUCTION (middleware/securityHeaders.js)
+app.use("/api", requireOurPage); // A WRITE TO THE API FROM ANYWHERE BUT OUR OWN PAGE GETS 403 (middleware/csrf.js)
 app.use(cookieParser()); // SESSION TOKENS ARE READ FROM COOKIES (req.cookies)
 app.use(express.json()); // CHESS ROUTES SEND JSON BODIES (req.body)
 app.use(playerContext); // EACH DATA SERVICE CALL KNOWS WHOSE REQUEST IT'S FOR (dataClient.js)
