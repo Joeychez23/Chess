@@ -87,6 +87,43 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	}
 }
 
+#drawPrompt { /* THE OPPONENT'S DRAW OFFER, UNDER THE MESSAGE AREA THAT SAYS WHO */
+	position: fixed;
+	z-index: 21;
+	top: calc(env(safe-area-inset-top, 0px) + 64px);
+	left: calc(env(safe-area-inset-left, 0px) + 16px);
+	display: flex;
+	gap: 8px;
+}
+
+#drawPrompt[hidden] {
+	display: none;
+}
+
+#drawPrompt button {
+	min-height: 44px;
+	padding: 8px 14px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 14px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 14px;
+	cursor: pointer;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+#drawPrompt button:focus-visible {
+	outline: 2px solid var(--maple);
+	outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+	body:has(#moveBox:not([hidden])) #drawPrompt { /* THE MESSAGE AREA MOVED UNDER THE OPEN MOVE BOX, THIS STAYS UNDER IT */
+		top: calc(env(safe-area-inset-top, 0px) + 126px);
+	}
+}
+
 #gameInfo { /* THE OPENING & FRIEND GAMES' "vs Bob", BOTTOM LEFT, UNDER THE MENU. CLICKS GO THROUGH TO THE BOARD */
 	position: fixed;
 	z-index: 18;

@@ -4,7 +4,7 @@
  *  Friend games get the opponent's move pushed to them instead of asking the server every 2 seconds.
  *  Each game is a room ("game:<game_id>"). moveGame() emits "move" to the room after a move is saved,
  *  then the client loads the new board with GET /api/chess/game/:gameId.
- *  forfeitGame() emits "game-over" and rematchGame() emits "rematch" (the new game id) to the same room.
+ *  forfeitGame() & an accepted draw emit "game-over", drawGame() & declineDrawGame() emit "draw-offer" and rematchGame() emits "rematch" (the new game id) to the same room.
  *  The room also hears "player-left" when a player's last tab leaves the game & "player-back" when they return (a rematch request's "left the game" note)
  *  Every socket is also in its player's room ("player:<player_id>"): Home gets "games" when an invite or friend game changes & "friends" when a friend request or friend changes
  *  The access token is only read in the handshake, so a socket is closed when that token runs out, & every socket of a player

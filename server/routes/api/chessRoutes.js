@@ -1,14 +1,14 @@
 /*
  *  chessRoutes.js  --  chess server
  *	Chess Routes
- *	New games, moves, the AI's moves, invites, rematches & ratings (controllers/chessController.js)
+ *	New games, moves, the AI's moves, draw offers, invites, rematches & ratings (controllers/chessController.js)
  *
  */
 
 const router = require('express').Router()
 const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
 const { limitNewGames, limitAiMoves } = require('../../middleware/rateLimit.js')
-const { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
+const { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
 
 // THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME (THE ONE IN THEIR guest_game COOKIE)
 // limitNewGames: THE ROUTES THAT MAKE A GAME ANSWER 429 WHEN A SESSION, AN IP OR THE SITE MAKES TOO MANY
@@ -26,6 +26,10 @@ router.route('/game/:gameId/restart').post(optionalAuth, limitNewGames, restartG
 router.route('/game/:gameId/ai-move').post(optionalAuth, limitAiMoves, aiMoveGame);   // /api/chess/game/:gameId/ai-move  -> AI GAMES: THE SERVER PICKS & SAVES THE AI'S MOVE AT THE GAME'S LEVEL. ONE ENGINE REQUEST AT A TIME PER GAME, 429 PAST THE AI MOVE LIMITS
 
 router.route('/game/:gameId/forfeit').post(requireAuth, forfeitGame);   // /api/chess/game/:gameId/forfeit  -> FRIEND GAMES: CLOSES THE GAME, THE OTHER SIDE WINS
+
+router.route('/game/:gameId/draw').post(optionalAuth, limitAiMoves, drawGame);   // /api/chess/game/:gameId/draw  -> OFFERS A DRAW (ONE PER PLAYER PER MOVE) OR ACCEPTS THE OPPONENT'S. AI GAMES: THE ENGINE ANSWERS, SO IT'S UNDER THE AI MOVE LIMITS
+
+router.route('/game/:gameId/draw/decline').post(requireAuth, declineDrawGame);   // /api/chess/game/:gameId/draw/decline  -> FRIEND GAMES: TURNS DOWN THE OPPONENT'S DRAW OFFER
 
 router.route('/game/:gameId/rematch').post(requireAuth, rematchGame);   // /api/chess/game/:gameId/rematch  -> FRIEND GAMES: NEW GAME (SAME COLOR PICK) WHEN BOTH PLAYERS PRESS WITHIN 1 MINUTE, 409 IF EITHER IS IN ANOTHER FRIEND GAME
 

@@ -42,6 +42,7 @@
 			<li><button class="menuButton" id="optFlip">Flip Board</button></li>
 			<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
 			<li><button class="menuButton" id="optPgn">Download PGN</button></li>
+			<li hidden><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
 			<li><button class="menuButton" id="optRestart">Restart</button></li>
 			<li hidden><button class="menuButton" id="optCancelRematch">Cancel</button></li>
 			<li><button class="menuButton" id="optSettings">Home</button></li>
@@ -50,6 +51,11 @@
 	</nav>
 
 	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
+
+	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
+		<button id="drawAccept" type="button">Accept Draw</button>
+		<button id="drawDecline" type="button">Decline Draw</button>
+	</div>
 
 	<div id="gameInfo"> <!-- BOTTOM LEFT, THE MOVE LIST STAYS CLEAR OF IT -->
 		<p id="openingDisplay" hidden></p> <!-- "B90 Sicilian Defense: Najdorf Variation" (gameplay/movelist/index.js) -->

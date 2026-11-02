@@ -51,6 +51,7 @@ engine are answered from test data.
 | --- | --- |
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
+| `draw.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
 | `openings.test.js` | Opening names (`utils/openings.js`, the data in `data/openings/`): the lookup, other move orders, the name getting more specific and staying once the game leaves the book, player and AI moves, a move that ends the game, a failed save, a new game, and Home's rows |
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
 | `dataClient.test.js` | The data service down, too slow (3 seconds for a read, 10 for a write) or refusing the signature: 503 "Try again in a moment". A move, forfeit, accept or rematch that saved but answered too late is read back: the player gets what was saved and the other player is told. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
@@ -138,6 +139,8 @@ move or missing game is HTTP 200 with `status: 500`.
 | `POST /api/chess/game/:gameId/restart` | | AI games. Forfeits the game if it's still going, then starts a new game with a new id and the same start settings: the level, your color (Random draws again) and the set position, if any. Guests' one game is overwritten instead |
 | `GET /api/chess/levels` | | The AI levels for Home's dropdown: `{ levels: [{ level, elo }], default_level }` |
 | `POST /api/chess/game/:gameId/forfeit` | | Signed in, friend games. Closes the game, and the other side wins. Emits `game-over` |
+| `POST /api/chess/game/:gameId/draw` | | A player in an open game (guests too). The first press saves the offer and emits `draw-offer` (`{ offered, opponent_name }`), one per player per move (`409` after that); the next move ends it. The opponent's press accepts: `state: "CLOSED"`, `winner: "draw"`, `reason: "agreement"`, and emits `game-over`. AI games answer right away: always accepted until both sides have made their first move (fewer than two moves played, the engine isn't asked). After that the engine answers at full strength: accepted when the AI's win chance is 50% or less, otherwise (or with the engine down) `{ declined: true }`. `429` past the AI move limits. Game responses include `draw_offer`, the color with a standing offer or `null` |
+| `POST /api/chess/game/:gameId/draw/decline` | | Signed in, friend games. Turns down the opponent's offer (`{ declined: true }`) and emits `draw-offer`. `409` when it already ended |
 | `POST /api/chess/game/:gameId/rematch` | | Signed in, finished friend games. The first press waits 5 minutes (`{ waiting, expires_in, opponent_name, opponent_here }`, `opponent_here`: they have the game page open). If the other player presses in time, a new game starts with the same start settings (`{ new_game_id }`, the inviter keeps their color pick, Random draws again), both players' sent invites are cancelled, and `rematch` is emitted. `{ status: 409 }` if either player is in another friend game, or the rematch game expired |
 | `POST /api/chess/game/:gameId/rematch/cancel` | | Signed in. Takes back the player's rematch request (`{ cancelled: true }`). `{ cancelled: false }` when the other player's press already started it, `rematch` is on its way |
 | `POST /api/chess/invite` | `{ opponent_username or opponent_email, start_color, start_fen, replace_current }` | Signed in only. Invites a friend: finds them by username (data service, any capitals) or their Auth0 account by email (`getAuth0User`) and creates a `PENDING` game with both names (`white_name`, `black_name`: each player's username, or their Auth0 screenname until they pick one), `inviter_id` and `start_params`. `start_color` is your color (`random`, `w` or `b`), and the sides are drawn now so the invite shows them. `start_fen` (optional) starts the game and its rematches from a set position, with the same `400` as `/game` when it can't be played. Your last sent invite is deleted. The data service makes the game id. Refused for your own email, and for a friend who already invited you. While you have a friend game open this returns `{ status: 409, game_id }`, unless `replace_current: true` forfeits it first |
@@ -196,7 +199,8 @@ connects again; after a logout the re-up fails and the socket stays closed.
 | --- | --- | --- |
 | `join-game` | client → server | `gameId`, answered with `{ status, message, state, winner, reason }`. Joins the game's room if you're a player in it. One game per socket. `401` when the socket's access token ran out, `429` when it joins too often |
 | `move` | server → client | `{ game_id, player_id }`. Sent to the room after a move is saved. The client skips its own moves |
-| `game-over` | server → client | `{ game_id, player_id, winner, reason }`. Sent when a player forfeits. The opponent's board opens the menu with Rematch |
+| `game-over` | server → client | `{ game_id, player_id, winner, reason }`. Sent when a player forfeits or accepts a draw. The opponent's board opens the menu with Rematch |
+| `draw-offer` | server → client | `{ game_id, player_id, state }`. `state: "offered"` when a player offers a draw (the opponent sees Accept / Decline), `"declined"` when one is turned down |
 | `rematch` | server → client | `{ game_id, new_game_id }`. Both players asked for a rematch. Both boards load the new game |
 | `player-left` | server → client | `{ game_id, player_id }`. A player's last tab left the game page. A player waiting on a rematch is told |
 | `player-back` | server → client | `{ game_id, player_id }`. A player came back to the game page |
@@ -211,7 +215,7 @@ Every game response has the result fields:
 | --- | --- |
 | `state` | `PENDING` (a friend invite nobody has answered yet), `OPEN` or `CLOSED` |
 | `winner` | `w`, `b`, `draw`, or `null` while open |
-| `reason` | `checkmate`, `stalemate`, `insufficient material`, `fifty-move rule`, `threefold repetition`, `forfeit`, or `null` |
+| `reason` | `checkmate`, `stalemate`, `insufficient material`, `fifty-move rule`, `threefold repetition`, `forfeit`, `agreement`, or `null` |
 
 The client, server, data service and engine all pin `chess.js` `1.4.0`, so they
 agree on what's legal; a test fails if they differ.

@@ -219,6 +219,36 @@ export async function forfeitGame(gameUrl, gameId) {
 }
 
 /**
+ * @description Offers a draw, or accepts the opponent's offer (POST /game/:gameId/draw). The AI answers right away
+ * @return {[object]} response [{ status, state: "CLOSED", winner: "draw", reason: "agreement", ... } | { status, offered: true } | { status, declined: true } | { status: 409, message }]
+ */
+export async function offerDraw(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Turns down the opponent's draw offer (POST /game/:gameId/draw/decline)
+ * @return {[object]} response [{ status, declined: true } | { status: 409, message } when it already ended]
+ */
+export async function declineDraw(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw/decline`, options)
+	} catch {
+		return
+	}
+}
+
+/**
  * @description Friend games that are over: asks for a rematch, it starts when both players ask within 5 minutes (POST /game/:gameId/rematch)
  * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in, opponent_name, opponent_here } until then]
  */

@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, offerDraw, endDrawOffer, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
@@ -172,6 +172,88 @@ async function forfeitGame(req, res) {
 
 	const winner = playerColor(playerId, gameData) == "w" ? "b" : "w"; // THE OTHER SIDE WINS
 	return res.json(await closeGame(gameData, winner, "forfeit"));
+}
+
+/* ---------------------------------------------------------------- */
+// Draw Offers (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The open game a draw route acts on, for a player in it. Answers the request itself when it's refused
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} found [{ gameData, playerId }, null when it answered]
+ */
+async function openDrawGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE LATEST OFFER & BOARD
+	if (!response.game_data) { res.json(response); return null; } // GAME NOT FOUND
+	const gameData = response.game_data;
+	const playerId = playerInGame(req.player, gameData);
+	if (!playerId) { refuse(req, res, 403, "Player is not in this game"); return null; }
+	if (gamePending(gameData)) { refuse(req, res, 409, "Invite not accepted yet"); return null; }
+	if (!gameOpen(gameData)) { refuse(req, res, 409, "Game is over"); return null; }
+	return { gameData, playerId };
+}
+
+/**
+ * @description A press of Offer Draw. With the opponent's offer standing it accepts it & the game is drawn. Otherwise it's the player's offer,
+ * one per player per move. Pressing while their own offer stands changes nothing, so a press that timed out can be repeated
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [closeGame's { status, game_data, message } when accepted | { status, offered: true, message }]
+ */
+async function drawGame(req, res) {
+	const found = await openDrawGame(req, res);
+	if (!found) { return; }
+	const { gameData, playerId } = found;
+	const offeredBy = gameData.draw_offer_player_id?.S;
+
+	if (offeredBy && offeredBy != playerId) {
+		const closed = await closeGame(gameData, "draw", "agreement", offeredBy);
+		if (closed.status != 200) { return refuse(req, res, 409, "That draw offer ended"); } // A MOVE LANDED FIRST
+		return res.json(closed);
+	}
+	if (offeredBy == playerId) { return res.json({ status: 200, offered: true, message: "Draw offered" }); }
+
+	const color = playerColor(playerId, gameData);
+	if (gameData[`draw_offered_${color}`]) { return refuse(req, res, 409, "You already offered a draw this move"); }
+	if (!await offerDraw(gameData, playerId, color)) { return refuse(req, res, 409, "The draw offer didn't save, try again"); } // A MOVE OR THE OPPONENT'S OFFER LANDED FIRST
+	return res.json({ status: 200, offered: true, message: "Draw offered" });
+}
+
+/**
+ * @description The offered player turns the draw down, friend games only (the AI answers through aiDrawGame). The game goes on
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, declined: true, message }]
+ */
+async function declineDrawGame(req, res) {
+	const found = await openDrawGame(req, res);
+	if (!found) { return; }
+	const { gameData, playerId } = found;
+	const offeredBy = gameData.draw_offer_player_id?.S;
+	if (!offeredBy || offeredBy == playerId) { return refuse(req, res, 409, "No draw offer to decline"); }
+	if (!await endDrawOffer(gameData.game_id.S, offeredBy)) { return refuse(req, res, 409, "That draw offer ended"); }
+	return res.json({ status: 200, declined: true, message: "Draw declined" });
+}
+
+/**
+ * @description The AI's answer to the requester's standing offer (the chess server gets it from the engine, like the AI's moves)
+ * @param  {[string]} req.params.gameId [game id]
+ * @param  {[object]} req.body [{ accept: true | false }]
+ * @return {[object]} response [closeGame's { status, game_data, message } when accepted | { status, declined: true, message }, 409 when a move ended the offer first]
+ */
+async function aiDrawGame(req, res) {
+	if (typeof req.body?.accept != "boolean") { return refuse(req, res, 400, "Invalid draw answer"); }
+	const found = await openDrawGame(req, res);
+	if (!found) { return; }
+	const { gameData, playerId } = found;
+	if (!isAiGame(gameData)) { return refuse(req, res, 409, "Friend games have no AI"); }
+	if (gameData.draw_offer_player_id?.S != playerId) { return refuse(req, res, 409, "That draw offer ended"); }
+
+	if (req.body.accept) {
+		const closed = await closeGame(gameData, "draw", "agreement", playerId);
+		if (closed.status != 200) { return refuse(req, res, 409, "That draw offer ended"); }
+		return res.json(closed);
+	}
+	if (!await endDrawOffer(gameData.game_id.S, playerId)) { return refuse(req, res, 409, "That draw offer ended"); }
+	return res.json({ status: 200, declined: true, message: "The AI declined the draw" });
 }
 
 /* ---------------------------------------------------------------- */
@@ -499,4 +581,4 @@ async function username(playerId) {
 }
 
 
-module.exports = { getGame, moveGame, aiMoveGame, openingGame, forfeitGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };
+module.exports = { getGame, moveGame, aiMoveGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };

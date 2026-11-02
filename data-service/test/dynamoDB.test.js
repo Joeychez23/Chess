@@ -214,6 +214,70 @@ describe("closeGame", () => {
 	});
 });
 
+describe("draw offers", () => {
+	const friendGame = async () => (await db.initalizeGame("game4", "alice", "bob", false, {})).game_data;
+
+	test("one offer per player per move, and only one standing", async () => {
+		const gameData = await friendGame();
+		assert.equal(await db.offerDraw(gameData, "alice", "w"), true);
+		assert.equal(await db.offerDraw(gameData, "bob", "b"), false); // ALICE'S STANDS
+		assert.equal(await db.endDrawOffer("game4", "alice"), true);
+		assert.equal(await db.endDrawOffer("game4", "alice"), false); // ALREADY ENDED
+		assert.equal(await db.offerDraw(gameData, "alice", "w"), false); // USED THIS MOVE
+		assert.equal(await db.offerDraw(gameData, "bob", "b"), true);
+	});
+
+	test("a move ends the offer & gives both players theirs back", async () => {
+		const gameData = await friendGame();
+		await db.offerDraw(gameData, "alice", "w");
+		const moved = (await validateMove({ player_id: "alice", move: ["e2", "e4"] }, structuredClone(gameData))).game_data;
+		assert.equal((await db.updateGame(moved, gameData.game_board.S)).status, 200);
+
+		const stored = fakeDynamo.peek("chess_db", "game4");
+		assert.equal(stored.draw_offer_player_id, undefined);
+		assert.equal(stored.draw_offered_w, undefined);
+		assert.equal(await db.offerDraw((await db.retrieveGame("game4", true)).game_data, "alice", "w"), true);
+	});
+
+	test("an offer read before a move isn't saved", async () => {
+		const gameData = await friendGame();
+		const moved = (await validateMove({ player_id: "alice", move: ["e2", "e4"] }, structuredClone(gameData))).game_data;
+		await db.updateGame(moved, gameData.game_board.S);
+		assert.equal(await db.offerDraw(gameData, "bob", "b"), false);
+		assert.equal(fakeDynamo.peek("chess_db", "game4").draw_offer_player_id, undefined);
+	});
+
+	test("an accept loses to a move that ended the offer", async () => {
+		const gameData = await friendGame();
+		await db.offerDraw(gameData, "alice", "w");
+		const read = (await db.retrieveGame("game4", true)).game_data;
+		const moved = (await validateMove({ player_id: "alice", move: ["e2", "e4"] }, structuredClone(read))).game_data;
+		await db.updateGame(moved, read.game_board.S);
+
+		assert.equal((await db.closeGame(read, "draw", "agreement", "alice")).status, 500);
+		assert.notEqual(fakeDynamo.peek("chess_db", "game4").state?.S, "CLOSED");
+	});
+
+	test("an accept closes the game & clears the offer", async () => {
+		const gameData = await friendGame();
+		await db.offerDraw(gameData, "alice", "w");
+		const closed = await db.closeGame((await db.retrieveGame("game4", true)).game_data, "draw", "agreement", "alice");
+		assert.equal(closed.status, 200);
+		assert.equal(closed.game_data.draw_offer_player_id, undefined);
+
+		const stored = fakeDynamo.peek("chess_db", "game4");
+		assert.equal(stored.reason.S, "agreement");
+		assert.equal(stored.winner.S, "draw");
+		assert.equal(stored.draw_offer_player_id, undefined);
+	});
+
+	test("a closed game takes no offer", async () => {
+		const gameData = await friendGame();
+		await db.closeGame(structuredClone(gameData), "b", "forfeit");
+		assert.equal(await db.offerDraw(gameData, "alice", "w"), false);
+	});
+});
+
 describe("invites", () => {
 	test("an invite can be accepted or declined once, not both", async () => {
 		const invite = (await db.initalizeGame("game3", "alice", "bob", false, { pending: true, inviter_id: "alice" })).game_data;

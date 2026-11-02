@@ -182,6 +182,25 @@ const saveOpening = (gameId, board, opening) => call("POST", `/games/${id(gameId
 const forfeit = (gameId) => call("POST", `/games/${id(gameId)}/forfeit`);
 
 /**
+ * @description A press of Offer Draw: the requester's offer, or accepts the opponent's
+ * @return {[object]} response [{ status, game_data, message } when it closed the game | { status, offered: true, message }]
+ */
+const offerDraw = (gameId) => call("POST", `/games/${id(gameId)}/draw`);
+
+/**
+ * @description The offered player turns the draw down (friend games)
+ * @return {[object]} response [{ status, declined: true, message }]
+ */
+const declineDraw = (gameId) => call("POST", `/games/${id(gameId)}/draw/decline`);
+
+/**
+ * @description The AI's answer to the requester's offer
+ * @param  {[boolean]} accept [true draws the game]
+ * @return {[object]} response [{ status, game_data, message } when accepted | { status, declined: true, message }]
+ */
+const answerAiDraw = (gameId, accept) => call("POST", `/games/${id(gameId)}/draw/ai-answer`, { accept });
+
+/**
  * @description Both players' ratings, for the game menu
  * @return {[object]} response [{ status, ratings: { player id: { rating, rated_games } } }]
  */
@@ -314,4 +333,4 @@ const changeFriend = (action, username) => call("POST", `/users/me/friends/${act
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, saveOpening, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

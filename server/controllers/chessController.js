@@ -13,7 +13,7 @@
 
 const { Chess } = require("chess.js");
 const { checkStartFen } = require("../utils/validate.js");
-const { levelList, readLevel, aiMove } = require("../utils/ai.js");
+const { levelList, readLevel, aiMove, aiAcceptsDraw } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
 const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams } = require("../utils/games.js");
@@ -22,9 +22,10 @@ const { findOpening } = require("../utils/openings.js");
 const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, saveOpening, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
 const { emitToGame, emitToPlayer, isInGameRoom } = require("../socket.js");
 
+const AI_DRAW_FREE_MOVES = 2; // UNTIL BOTH SIDES HAVE MADE THEIR FIRST MOVE THE AI TAKES ANY DRAW, WITHOUT ASKING THE ENGINE
 const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PROMISE), SO PARALLEL /ai-move REQUESTS ASK THE ENGINE ONCE
 
 /* ---------------------------------------------------------------- */
@@ -33,7 +34,7 @@ const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PRO
 /**
  * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, draw_offer, message }]
  */
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -307,14 +308,104 @@ async function forfeitFriendGame(gameData, playerId) {
 }
 
 /**
- * @description A friend game was forfeited: the opponent's board opens the menu & both Homes redraw
+ * @description A friend game was forfeited or drawn by agreement: the opponent's board opens the menu & both Homes redraw
  * @param  {[object]} gameData [the friend game]
- * @param  {[string]} playerId [the player who forfeited]
- * @param  {[string]} winner ["w" or "b"]
+ * @param  {[string]} playerId [the player who forfeited, or accepted the draw]
+ * @param  {[string]} winner ["w", "b" or "draw"]
+ * @param  {[string]} reason ["forfeit" or "agreement"]
  */
-function tellGameOver(gameData, playerId, winner) {
-	emitToGame(gameData.game_id.S, "game-over", { game_id: gameData.game_id.S, player_id: playerId, winner, reason: "forfeit" }); // OPPONENT'S BOARD OPENS THE MENU
+function tellGameOver(gameData, playerId, winner, reason = "forfeit") {
+	emitToGame(gameData.game_id.S, "game-over", { game_id: gameData.game_id.S, player_id: playerId, winner, reason }); // OPPONENT'S BOARD OPENS THE MENU
 	notifyHome(gameData);
+}
+
+
+/* ---------------------------------------------------------------- */
+// Draw Offers (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A press of Offer Draw. The first press saves the offer, which lasts until the next move, one per player per move. The opponent's press accepts it & both boards show the draw.
+ * In an AI game the answer comes right away: the AI always accepts until both sides have made their first move, then the engine decides & it accepts when it isn't ahead
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [gameResponse's closed game when it's a draw | { status, offered: true, opponent_name, message } friend games, waiting | { status, declined: true, message } the AI said no
+ * | { status: 409, message } an offer already used this move or ended by a move]
+ */
+async function drawGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE AI JUDGES THE LATEST BOARD
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	const gameId = gameData.game_id.S;
+	const playerId = playerInGame(req, gameData);
+	if (!playerId) { return notInGame(req, res); }
+	if (gamePending(gameData)) { return res.json({ status: 500, message: "Invite not accepted yet" }); }
+	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is already over" }); }
+
+	const pressed = await ifSaved(() => offerDraw(gameId), () => savedDraw(gameId, playerId));
+	if (pressed.status != 200) { return res.json({ status: pressed.status, message: pressed.message }); }
+	if (pressed.game_data) { // THE OPPONENT'S OFFER WAS STANDING
+		tellGameOver(pressed.game_data, playerId, "draw", "agreement");
+		return res.json(gameResponse(pressed));
+	}
+	if (isAiGame(gameData)) { return res.json(await aiDrawAnswer(gameData)); }
+
+	emitToGame(gameId, "draw-offer", { game_id: gameId, player_id: playerId, state: "offered" });
+	return res.json({ status: 200, offered: true, opponent_name: playerName(gameData, playerId == gameData.white_player_id.S ? "b" : "w"), message: pressed.message });
+}
+
+/**
+ * @description The AI answers the offer that was just saved. A move landing during the engine's search ends the offer & the answer is refused
+ * @param  {[object]} gameData [the AI game]
+ * @return {[object]} response [gameResponse's closed game | { status, declined: true, message } | { status: 409, message }]
+ */
+async function aiDrawAnswer(gameData) {
+	const gameId = gameData.game_id.S;
+	const accept = gameData.moves.S.length < AI_DRAW_FREE_MOVES || await aiAcceptsDraw(gameData.game_board.S, gameData.white_player_id.S == "CHESS_AI" ? "w" : "b");
+	const answer = await ifSaved(() => answerAiDraw(gameId, accept), async () => { // TOO SLOW: SAVED IF THE GAME CLOSED, OR THE OFFER IS GONE
+		const latest = await retrieveGame(gameId, true);
+		if (!latest.game_data) { return null; }
+		const saved = accept ? !gameOpen(latest.game_data) : !latest.game_data.draw_offer_player_id;
+		return saved ? { ...latest, declined: !accept } : null;
+	});
+	if (answer.status != 200) { return { status: answer.status, message: answer.message }; }
+	return accept ? gameResponse(answer) : { status: 200, declined: true, message: "The AI declined the draw" };
+}
+
+/**
+ * @description The offered player turns the draw down (friend games), the game goes on & the player who offered is told
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, declined: true, message } | { status: 409, message } when the offer already ended]
+ */
+async function declineDrawGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true);
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameId = response.game_data.game_id.S;
+	const playerId = playerInGame(req, response.game_data);
+	if (!playerId) { return notInGame(req, res); }
+
+	const declined = await ifSaved(() => declineDraw(gameId), async () => { // TOO SLOW: SAVED IF THE OFFER IS GONE
+		const latest = await retrieveGame(gameId, true);
+		return latest.game_data && !latest.game_data.draw_offer_player_id ? { status: 200, declined: true, message: "Draw declined" } : null;
+	});
+	if (declined.status != 200) { return res.json({ status: declined.status, message: declined.message }); }
+	emitToGame(gameId, "draw-offer", { game_id: gameId, player_id: playerId, state: "declined" });
+	return res.json({ status: 200, declined: true, message: declined.message });
+}
+
+/**
+ * @description A draw press that timed out, read back: the game drawn or this player's offer standing
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} playerId [player who pressed]
+ * @return {[object]} pressed [the data service's answer as it would have been, null when nothing saved]
+ */
+async function savedDraw(gameId, playerId) {
+	const latest = await retrieveGame(gameId, true);
+	if (latest.game_data?.reason?.S == "agreement") { return latest; }
+	if (latest.game_data?.draw_offer_player_id?.S == playerId) { return { status: 200, offered: true, message: "Draw offered" }; }
+	return null;
 }
 
 
@@ -790,13 +881,15 @@ function gameSummary(gameData, playerId) {
 /**
  * @description The game's result fields, sent with every game response
  * @param  {[object]} gameData [game item]
- * @return {[object]} result [{ state: "PENDING" | "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason }]
+ * @return {[object]} result [{ state: "PENDING" | "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason, draw_offer: the color with a standing draw offer | null }]
  */
 function gameState(gameData) {
+	const drawOffer = gameData.draw_offer_player_id?.S;
 	return {
 		state: gameData.state?.S || "OPEN",
 		winner: gameData.winner?.S || null,
 		reason: gameData.reason?.S || null,
+		draw_offer: drawOffer ? (drawOffer == gameData.white_player_id.S ? "w" : "b") : null,
 	};
 }
 
@@ -845,4 +938,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };

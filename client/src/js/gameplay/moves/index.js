@@ -15,7 +15,7 @@ const { validate } = require("../validate/index.js"); // REQUESTS TO THE CHESS S
 const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
 const { setTiles, countStartPieces, lastMoveBy } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH, A SIDE'S LAST MOVE
 const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
-const { showGameOver, openMenu } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), OPENS THE MENU
+const { showGameOver, openMenu, syncDrawOffer } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), OPENS THE MENU, THE DRAW OFFER'S BUTTONS
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { setMoves, addMove, showOpening } = require("../movelist/index.js"); // THE MOVE LIST PANEL & THE OPENING UNDER IT
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -48,6 +48,7 @@ export async function setInitialData() {
 		chessInst.load(game.response.game_board); // THE BOARD TO DRAW
 		game.startPieceCount = countStartPieces(game.response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
 		setLastOpponentMove();
+		syncDrawOffer(game.response);
 		game.annotations = []; // A NEW GAME (RESTART & REMATCH) STARTS WITHOUT THE OLD ONE'S MARKS & ARROWS
 		if (game.response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 			game.ai = game.response.ai;
@@ -108,6 +109,7 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 		const updatedResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
 		if (updatedResponse?.status != 200) { return opponentMoveFailed(updatedResponse); }
 		clearStatus("server");
+		syncDrawOffer(updatedResponse); // THEIR MOVE ENDS ANY OFFER, A RECONNECT CATCHES UP ON ONE
 		if (updatedResponse.game_board != game.revert.game_board && game.opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
 			if (chessInst.isGameOver()) { // THIS BOARD WAS ALREADY OVER
 				openMenu();
@@ -284,6 +286,7 @@ export async function validateMove() {
 
 		chessInst.load(moveResponse.game_board); // THE SERVER'S BOARD
 		game.response = moveResponse;
+		syncDrawOffer(moveResponse); // THIS MOVE ENDED ANY OFFER
 		addMove(playedMove.san); // ONLY NOW, THE SERVER COULD TURN IT DOWN
 		showOpening(game.response.opening);
 		clearStatus("move");
@@ -410,6 +413,7 @@ export async function updateOpponentStateSlide(index) {
 		}
 		chessInst.load(savedGame.game_board); // UPDATE BOARD
 		game.response = savedGame;
+		syncDrawOffer(savedGame);
 		game.lastOpponentMove = [game.moveObj.from, game.moveObj.to];
 		addMove(playedMove.san);
 		showOpening(game.response.opening);

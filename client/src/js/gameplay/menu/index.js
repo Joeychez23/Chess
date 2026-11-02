@@ -1,9 +1,9 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
  *	for Restart & Rematch (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
- *	socket's handlers (socketHandlers: a move, a forfeit or a rematch), startGame & loadRematch join with them
+ *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer or a rematch), startGame & loadRematch join with them
  *
  */
 
@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
-const { restartGame, forfeitGame, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { restartGame, forfeitGame, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
@@ -28,6 +28,8 @@ const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
 const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
+const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHILE THE GAME IS GOING
+const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
 
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
 const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A FORFEIT IS ALREADY IN THE TITLE
@@ -36,14 +38,21 @@ const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A 
 	"insufficient material": "by insufficient material",
 	"fifty-move rule": "by the fifty-move rule",
 	"threefold repetition": "by threefold repetition",
+	"agreement": "by agreement",
 };
 let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 let pgnLoading = false; // A SECOND PRESS WHILE THE PGN LOADS WOULD SAVE TWO FILES
 let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
 let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
+let drawBoard = null; // THE BOARD drawSent & drawIncoming ARE ABOUT, A MOVE ENDS THEM
+let drawSent = false; // THIS PLAYER USED THEIR OFFER FOR THIS MOVE
+let drawIncoming = false; // THE OPPONENT'S OFFER IS STANDING
+let drawLoading = false; // THE AI CAN TAKE A FEW SECONDS TO ANSWER
+let drawOpponent = "Your opponent"; // THE NAME THE MESSAGES USE
 export const socketHandlers = { // SOCKET EVENT -> HANDLER
 	move: checkOpponentMove,
 	gameOver: showGameOver,
+	drawOffer: handleDrawEvent,
 	rematch: loadRematch,
 	opponentLeft: showOpponentLeft,
 	opponentBack: function () { clearStatus("rematch"); },
@@ -196,6 +205,104 @@ export async function handleDownloadPgn(e) {
 	link.download = response.filename;
 	link.click();
 	setTimeout(function () { URL.revokeObjectURL(url); }, 1000); // THE DOWNLOAD HAS ITS OWN COPY BY THEN
+}
+
+/* ---------------------------------------------------------------- */
+// Draw Offers (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Sets the words on Offer Draw & shows Accept / Decline while the opponent's offer stands
+ */
+function showDrawButtons() {
+	drawPrompt.hidden = !drawIncoming;
+	if (drawLoading) { optDrawBtn.innerText = "Offering"; }
+	else if (drawIncoming) { optDrawBtn.innerText = "Accept Draw"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
+	else { optDrawBtn.innerText = drawSent ? "Draw Offered" : "Offer Draw"; }
+}
+
+/**
+ * @description Brings the draw offer up to date with a game from the server. A new board means a move was made, which ends any offer & gives both players theirs back.
+ * On the same board this only adds what it finds, a read can be from before the offer the socket just told about
+ * @param  {[object]} response [game from the server]
+ */
+export function syncDrawOffer(response) {
+	if (!response?.game_board) { return; }
+	optDrawBtn.parentElement.hidden = response.state != "OPEN";
+	if (response.opponent_name) { drawOpponent = response.opponent_name; }
+	if (response.game_board != drawBoard) {
+		drawBoard = response.game_board;
+		drawSent = false;
+		drawIncoming = false;
+		clearStatus("draw");
+	}
+	if (response.draw_offer == game.playerColor) { drawSent = true; }
+	else if (response.draw_offer) { showIncomingDraw(); }
+	showDrawButtons();
+}
+
+/**
+ * @description The opponent's offer is standing, the message area reads it out
+ */
+function showIncomingDraw() {
+	drawIncoming = true;
+	showStatus("draw", `${drawOpponent} offers a draw`);
+}
+
+/**
+ * @description The socket's "draw-offer", another tab of this player's counts too
+ * @param  {[object]} event [{ state: "offered" | "declined", mine: this player did it }]
+ */
+function handleDrawEvent({ state, mine }) {
+	if (state == "offered" && mine) { drawSent = true; }
+	else if (state == "offered") { showIncomingDraw(); }
+	else if (mine) { drawIncoming = false; clearStatus("draw"); }
+	else {
+		drawSent = true;
+		showStatus("draw", `${drawOpponent} declined the draw.`, MESSAGE_TIME);
+	}
+	showDrawButtons();
+}
+
+/**
+ * @description Offer Draw, or Accept while the opponent's offer stands (the server tells them apart). The menu stays open
+ */
+export async function handleOfferDraw(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (drawLoading || game.gameOver || (drawSent && !drawIncoming)) { return; }
+	drawLoading = true;
+	showDrawButtons();
+	const response = await offerDraw(game.GAME_URL, game.GAME_ID);
+	drawLoading = false;
+	if (response?.state == "CLOSED") { return showGameOver(response); }
+	if (response?.offered || response?.declined) {
+		drawSent = true;
+		showDrawButtons();
+		const name = response.opponent_name || drawOpponent;
+		showStatus("draw", response.declined ? "The AI declined the draw." : `Draw offered to ${name}.`, MESSAGE_TIME);
+		return;
+	}
+	showDrawButtons();
+	console.log(response?.message || "Draw offer failed: no answer from the server");
+	showStatus("action", response?.status == 409 ? response.message : "The draw offer didn't go through. Try again.", MESSAGE_TIME);
+}
+
+/**
+ * @description Decline: the game goes on & the opponent is told. When it fails the offer stands, a move turns it down too
+ */
+export async function handleDeclineDraw(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (!drawIncoming) { return; }
+	const response = await declineDraw(game.GAME_URL, game.GAME_ID);
+	if (response?.status == 200 || response?.status == 409) { // 409: IT ALREADY ENDED
+		drawIncoming = false;
+		clearStatus("draw");
+		showDrawButtons();
+		return;
+	}
+	console.log(response?.message || "Draw decline failed: no answer from the server");
+	showStatus("action", "The draw couldn't be declined. Try again.", MESSAGE_TIME);
 }
 
 /* ---------------------------------------------------------------- */
@@ -375,6 +482,11 @@ export function showGameOver(result) {
 	openMenu();
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
 	optResumeBtn.parentElement.style.display = 'none';
+	optDrawBtn.parentElement.hidden = true;
+	drawSent = false;
+	drawIncoming = false;
+	clearStatus("draw");
+	showDrawButtons();
 	if (result?.reason == "forfeit") { resultDisplay.innerText = result.winner == 'w' ? "Black Forfeits" : "White Forfeits" } // THE TITLE ONLY FITS ONE LINE
 	else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
 	else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }

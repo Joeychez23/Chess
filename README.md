@@ -48,7 +48,8 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Play the AI** | 8 levels with approximate Elo ([AI levels](server/README.md#ai-levels)) and a color (Random, White, Black). The server picks and saves the AI's moves. Restart reuses the level and color; restarting an unfinished game is a forfeit. One open AI game per player. |
 | **Play a friend** | Invite by username or email with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
 | **Set positions** | An optional FEN in **Start position**. The server refuses broken or finished positions with the reason, and Restart and Rematch keep it. |
-| **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition or a forfeit. Both boards show the result. |
+| **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition, a forfeit or a draw by agreement. Both boards show the result. |
+| **Draw offers** | Offer Draw in the game menu, once per player per move. Your opponent can accept or decline, and the offer ends with the next move. The AI always accepts until both sides have made their first move, then only when it isn't ahead. |
 | **Rematch** | Both players press within 5 minutes and a new game loads on both boards. The first sees "Waiting for <name>" with Cancel, and hears if the other player leaves. "Can't rematch" when either is in another friend game, or that rematch expired. |
 | **Ratings** | Elo from 1500. Only finished friend games (both sides moved, not from a set position) count. Shown on Home and in a friend game's menu. |
 | **Usernames** | 3 to 20 letters, numbers, `_` or `-`, unique in any capitals, some reserved. Picked on Settings after the first sign-in. |

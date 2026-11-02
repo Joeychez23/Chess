@@ -223,6 +223,14 @@ function engineWillPlay(from, to, promotion, wait) {
 }
 
 /**
+ * @description Queues the engine's next answer to a draw offer
+ * @param  {[number]} winChance [0 - 100, from White's side]
+ */
+function engineWillScore(winChance) {
+	engineMoves.push({ from: "e2", to: "e4", winChance });
+}
+
+/**
  * @description How many times the server asked the engine API since the last reset()
  */
 function engineCalls() {
@@ -388,4 +396,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, throttleBatchReads: fakeDynamo.throttleBatchReads };
+module.exports = { start, reset, player, call, send, page, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, throttleBatchReads: fakeDynamo.throttleBatchReads };

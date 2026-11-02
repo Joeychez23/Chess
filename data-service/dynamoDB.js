@@ -38,6 +38,8 @@ const BATCH_READ_DELAY = 50; // MS BEFORE THE FIRST RETRY, DOUBLED EACH TRY
 /* ---------------------------------------------------------------- */
 // Expire Time
 /* ---------------------------------------------------------------- */
+const DRAW_ATTRIBUTES = ["draw_offer_player_id", "draw_offered_w", "draw_offered_b"]; // A DRAW OFFER: WHO OFFERED, WHICH COLORS USED THEIR OFFER THIS MOVE. A MOVE OR THE GAME CLOSING REMOVES THEM
+
 /**
  * @description Builds the expireAt value DynamoDB TTL reads on chess_db
  * @return {[string]} expireAt [epoch SECONDS as a string, the SDK only takes strings for N]
@@ -202,14 +204,14 @@ function gameItem(item) {
  * @param  {[object]} result [gameResult's { winner, reason } when the move ends the game]
  * @return {[object]} response [{ status, game_data (the game as saved), message }]
  */
-async function updateGame(gameData, prevBoard, result) {
+async function updateGame(gameData, prevBoard, result) { // ANY MOVE ENDS A DRAW OFFER & GIVES BOTH PLAYERS THEIR OFFER BACK (DRAW_ATTRIBUTES)
 	const keepForever = result && gameData.white_player_id.S != "CHESS_AI" && gameData.black_player_id.S != "CHESS_AI"; // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameData.game_id.S }
 		},
-		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""}${keepForever ? " REMOVE expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""} REMOVE ${DRAW_ATTRIBUTES.join(", ")}${keepForever ? ", expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
 		ConditionExpression: '(attribute_not_exists(#state) OR #state = :open)', // GAMES FROM BEFORE state ARE OPEN
 		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
@@ -284,10 +286,11 @@ async function saveOpening(gameId, board, opening) {
  * Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
  * @param  {[object]} gameData [game item from retrieveGame]
  * @param  {[string]} winner ["w", "b" or "draw"]
- * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition" or "forfeit"]
+ * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition", "forfeit" or "agreement"]
+ * @param  {[string]} offeredBy [a draw by agreement: the player whose offer was accepted, the close only saves while that offer stands (a move ends it)]
  * @return {[object]} response [{ status, game_data, message }]
  */
-async function closeGame(gameData, winner, reason) {
+async function closeGame(gameData, winner, reason, offeredBy) {
 	const gameId = gameData.game_id.S;
 	const aiGame = gameData.white_player_id.S == "CHESS_AI" || gameData.black_player_id.S == "CHESS_AI";
 	const params = {
@@ -295,7 +298,7 @@ async function closeGame(gameData, winner, reason) {
 		Key: {
 			game_id: { S: gameId }
 		},
-		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason${aiGame ? "" : " REMOVE expireAt"}`, // NO expireAt = TTL NEVER DELETES IT
+		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason REMOVE ${DRAW_ATTRIBUTES.join(", ")}${aiGame ? "" : ", expireAt"}`, // NO expireAt = TTL NEVER DELETES IT
 		ConditionExpression: 'attribute_not_exists(#state) OR #state <> :closed', // ONLY ONE CLOSE WINS (FORFEIT & CHECKMATE AT THE SAME TIME)
 		ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: {
@@ -303,6 +306,11 @@ async function closeGame(gameData, winner, reason) {
 			":winner": { S: winner },
 			":reason": { S: reason }
 		}
+	}
+
+	if (offeredBy) {
+		params.ConditionExpression = `draw_offer_player_id = :offered_by AND (${params.ConditionExpression})`;
+		params.ExpressionAttributeValues[":offered_by"] = { S: offeredBy };
 	}
 
 	try {
@@ -317,6 +325,7 @@ async function closeGame(gameData, winner, reason) {
 	gameData.state = { S: "CLOSED" };
 	gameData.winner = { S: winner };
 	gameData.reason = { S: reason };
+	for (const attribute of DRAW_ATTRIBUTES) { delete gameData[attribute]; }
 	if (!aiGame) { delete gameData.expireAt; }
 	return {
 		status: 200,
@@ -527,6 +536,70 @@ async function moveUserGame(userId, gameId, fromList, toList) {
 async function movePlayersGame(gameData, gameId, fromList, toList) {
 	const results = await Promise.allSettled([gameData.white_player_id.S, gameData.black_player_id.S].map((userId) => moveUserGame(userId, gameId, fromList, toList)));
 	return results.find((result) => result.status == "rejected")?.reason || null;
+}
+
+/* ---------------------------------------------------------------- */
+// Draw offers (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A player's draw offer: saves who offered & that their color used its offer for this move. Only on the board the offer was checked on
+ * @param  {[object]} gameData [the open game, as read]
+ * @param  {[string]} playerId [player offering]
+ * @param  {[string]} color [their color from the stored game, "w" or "b"]
+ * @return {[boolean]} saved [false when the game moved or closed, an offer is standing or this color already offered this move]
+ */
+async function offerDraw(gameData, playerId, color) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameData.game_id.S }
+		},
+		UpdateExpression: `SET draw_offer_player_id = :player_id, draw_offered_${color} = :used`,
+		ConditionExpression: `game_board = :board AND (attribute_not_exists(#state) OR #state = :open) AND attribute_not_exists(draw_offer_player_id) AND attribute_not_exists(draw_offered_${color})`,
+		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
+		ExpressionAttributeValues: {
+			":player_id": { S: playerId },
+			":used": { BOOL: true },
+			":board": { S: gameData.game_board.S },
+			":open": { S: "OPEN" }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/**
+ * @description Takes a declined offer off the game. draw_offered_w / b stay, the player can't offer again until the next move
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} offeredBy [the player whose offer was declined]
+ * @return {[boolean]} saved [false when that offer already ended]
+ */
+async function endDrawOffer(gameId, offeredBy) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: 'REMOVE draw_offer_player_id',
+		ConditionExpression: 'draw_offer_player_id = :offered_by',
+		ExpressionAttributeValues: {
+			":offered_by": { S: offeredBy }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
 }
 
 /* ---------------------------------------------------------------- */
@@ -1307,4 +1380,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
