@@ -6,7 +6,7 @@
  *	something changed (or asks the server for the AI's move). The rest of the game is in the files next to this one:
  *	state (the shared game object), images & sprites (loading & image numbers), layout (board size), draw (each frame),
  *	animate (knight hop, slide home), input (mouse, touch, TV remote), moves (server moves & the socket's), menu (menu & game over),
- *	status (the message area for refused moves & connection problems).
+ *	status (the message area for refused moves & connection problems), movelist (the panel of the game's moves).
  *	Moves are checked locally with chess.js, then saved by the chess server (validate/index.js)
  *
  */
@@ -25,6 +25,7 @@ const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM T
 const { handleMenuBtn, handleResume, handleClickAway, handleSound, loadSound, handleFlip, flipWhenDone, handleRestart, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { loadMoveList, handleMoveListToggle } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -59,6 +60,7 @@ export async function renderCanvas(playerData) {
 	game.ch = (canvas.height = window.innerHeight); // CANVAS HEIGHT (CSS PIXELS)
 	game.moveAudio = new Audio(`${process.env.CHESS_ASSETS_URL}/audio/piece-jump.mp4`); // MOVE SOUND
 	loadSound(); // THE PLAYER'S SAVED SOUND ON / OFF
+	loadMoveList(); // THE PLAYER'S SAVED MOVE LIST OPEN / COLLAPSED
 
 	canvas.style.backgroundRepeat = "repeat-y"; // THE TABLE BEHIND THE BOARD
 	canvas.style.backgroundImage = `url("${process.env.CHESS_ASSETS_URL}/images/board/table.webp")`;
@@ -144,6 +146,7 @@ async function startGame() {
 	if (!game.TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("moveListToggle").addEventListener("click", handleMoveListToggle); }
 }
 
 /* ################################################################ */

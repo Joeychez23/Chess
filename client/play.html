@@ -49,6 +49,11 @@
 
 	<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
 
+	<section id="moveList" aria-label="Moves" hidden> <!-- THE GAME'S MOVES, PLACED NEXT TO THE BOARD (gameplay/movelist/index.js) -->
+		<button id="moveListToggle" type="button" aria-controls="moveListRows" aria-expanded="true">Moves</button>
+		<ol id="moveListRows"></ol>
+	</section>
+
 	<main id="main"></main>
 </body>
 

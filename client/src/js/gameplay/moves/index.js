@@ -17,6 +17,7 @@ const { setTiles, countStartPieces, lastMoveBy } = require("../utils/index.js");
 const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
 const { showGameOver, openMenu } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), OPENS THE MENU
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { setMoves, addMove } = require("../movelist/index.js"); // THE MOVE LIST PANEL
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
@@ -40,6 +41,7 @@ export async function setInitialData() {
 	game.playerColor = game.response?.player_color || null;
 	game.viewColor = game.playerColor; // A NEW GAME STARTS FROM THE PLAYER'S SIDE
 	game.flipPending = false;
+	setMoves(game.response?.moves, game.response?.start_params?.fen); // A NEW GAME (RESTART & REMATCH) STARTS THE LIST OVER
 	if (game.response?.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
 		game.opponentColor = game.response?.opponent_color || false;
 		chessInst.load(game.response.game_board); // THE BOARD TO DRAW
@@ -207,7 +209,7 @@ export async function validateMove() {
 		playMoveSound();
 		game.revert = { ...game.response }; // GO BACK TO THIS IF THE SERVER SAYS NO (A COPY, THE LISTS BELOW CHANGE response)
 		game.opposingMove = true; // LOCK THE BOARD
-		chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
+		const playedMove = chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
 		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
 		if (game.playerColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP UNTIL THE SERVER'S COMES BACK
 			for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
@@ -281,6 +283,7 @@ export async function validateMove() {
 
 		chessInst.load(moveResponse.game_board); // THE SERVER'S BOARD
 		game.response = moveResponse;
+		addMove(playedMove.san); // ONLY NOW, THE SERVER COULD TURN IT DOWN
 		clearStatus("move");
 		clearStatus("server");
 
@@ -329,7 +332,7 @@ export async function updateOpponentStateSlide(index) {
 		playMoveSound();
 		game.tiles[index].xSlideTo = 0;
 		game.tiles[index].ySlideTo = 0;
-		chessInst.move(game.moveObj); // LOCAL BOARD
+		const playedMove = chessInst.move(game.moveObj); // LOCAL BOARD
 		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
 
 		if (game.opponentColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
@@ -406,6 +409,7 @@ export async function updateOpponentStateSlide(index) {
 		chessInst.load(savedGame.game_board); // UPDATE BOARD
 		game.response = savedGame;
 		game.lastOpponentMove = [game.moveObj.from, game.moveObj.to];
+		addMove(playedMove.san);
 		clearStatus("server");
 		game.currSlide = false;
 
