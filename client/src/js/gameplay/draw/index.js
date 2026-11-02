@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, ctx, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE BOARD THAT'S DRAWN
-const { countStartPieces } = require("../utils/index.js"); // HOW MANY PIECES EACH SIDE STARTED WITH
+const { countStartPieces, materialDiff } = require("../utils/index.js"); // HOW MANY PIECES EACH SIDE STARTED WITH, WHO'S AHEAD IN MATERIAL
 const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
 const { renderBoard } = require("../layout/index.js"); // SIZES THE CANVAS & BOARD TO THE WINDOW & DRAWS THE TABLE & BOARD
 const {
@@ -1353,6 +1353,14 @@ function renderTakenPieces(takenPieces, paramColor) {
 		}
 	}
 
+	const lead = (paramColor == 'w' ? 1 : -1) * materialDiff(currInst);
+	if (lead > 0 && !game.currPromotion) { // +N IN THE TRAY'S NEXT FREE SQUARE, THE PROMOTION PICKER HAS NO COUNT
+		ctx.font = `600 ${game.tileHeight * 0.45}px Archivo, "Helvetica Neue", Arial, sans-serif`;
+		ctx.fillStyle = "#d9b27a"; // SAME GOLD AS THE BOARD COORDINATES
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+		ctx.fillText(`+${lead}`, (xPos + 0.5) * game.tileWidth + game.xBoardOff, (yPos + trayNudge(yPos) + 0.5) * game.tileHeight + game.yBoardOff);
+	}
 }
 
 /* ---------------------------------------------------------------- */
