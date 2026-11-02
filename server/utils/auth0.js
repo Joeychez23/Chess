@@ -150,6 +150,33 @@ async function passwordLogin(email, password, ip) {
 }
 
 /* ---------------------------------------------------------------- */
+// Signup
+/* ---------------------------------------------------------------- */
+/**
+ * @description Creates a player on our connection. Auth0 sends its verification email itself
+ * @param  {[string]} email [player email]
+ * @param  {[string]} password [player password, never logged]
+ * @param  {[object]} userMetadata [{ screenname, first_name, last_name }, strings under 500 characters]
+ * @return {[object]} user [Auth0's new user], throws with err.auth0Error (invalid_signup, invalid_password...) & err.auth0Message when refused
+ */
+async function signup(email, password, userMetadata) {
+	const signupResponse = await auth0Fetch("signup", "/dbconnections/signup", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ client_id: config.auth0ClientId, connection: config.auth0Connection, email, password, user_metadata: userMetadata })
+	});
+
+	const signupData = signupResponse.body;
+	if (!signupResponse.ok) {
+		const err = new Error(`Auth0 signup failed: ${signupData?.code || signupResponse.status}`);
+		err.auth0Error = signupData?.code;
+		err.auth0Message = signupData?.message; // description IS AN OBJECT ON A WEAK PASSWORD, message IS ALWAYS THE TEXT
+		throw err;
+	}
+	return signupData;
+}
+
+/* ---------------------------------------------------------------- */
 // Management API Token
 /* ---------------------------------------------------------------- */
 /**
@@ -206,4 +233,4 @@ async function getAuth0User(email) {
 }
 
 
-module.exports = { timeouts, buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin, getAuth0User };
+module.exports = { timeouts, buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin, signup, getAuth0User };

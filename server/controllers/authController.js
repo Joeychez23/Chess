@@ -1,7 +1,7 @@
 /*
  *  authController.js  --  chess server
  *	Auth Routes
- *  login -> Auth0 Universal Login or password login -> our JWT session cookies -> back to the page (returnTo) or Home
+ *  login -> Auth0 Universal Login, password login or signup -> our JWT session cookies -> back to the page (returnTo) or Home
  *  refresh & resume re-up the session, logout ends it everywhere & on Auth0. Only a 401 from the data service signs a player out (#283)
  *  The session tokens are signed by the data service (#252), this server passes Auth0's id_token on & sets the cookies it gets back
  *  A failed login goes Home with ?login=failed or ?login=unavailable, so the guest page tells the player (#282)
@@ -15,14 +15,16 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
-const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin: auth0PasswordLogin, getAuth0User } = require("../utils/auth0.js");
+const { buildAuthorizeUrl, buildLogoutUrl, exchangeCode, passwordLogin: auth0PasswordLogin, signup: auth0Signup, getAuth0User } = require("../utils/auth0.js");
 const { setSessionCookies, clearSessionCookies, readRefreshCookie, readRefreshUser, readSessionUser } = require("../middleware/auth.js");
-const { startSession, refreshSession, endSession, down } = require("../dataClient.js");
+const { startSession, refreshSession, endSession, claimUsername, withRequest, down } = require("../dataClient.js");
+const { checkUsername } = require("../utils/username.js");
 const { disconnectPlayer } = require("../socket.js");
 
 const STATE_COOKIE = "auth_state";
 const RETURN_COOKIE = "auth_return"; // THE PAGE TO GO BACK TO AFTER LOGIN (A GAME LINK, /play/:gameId)
 const STATE_PATH = "/api/auth";
+const METADATA_LENGTH = 500; // AUTH0: user_metadata VALUES ARE UNDER 500 CHARACTERS
 
 /* ---------------------------------------------------------------- */
 // Login
@@ -132,6 +134,73 @@ async function passwordLogin(req, res, next) {
 		if (err.auth0Error == "invalid_grant") { return res.status(401).json({ status: 401, message: "Wrong email or password" }); }
 		if (err.auth0Error == "too_many_attempts") { return res.status(429).json({ status: 429, message: "Too many login attempts. Check the email Auth0 sent to unblock your account." }); }
 		return next(err);
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Signup
+/* ---------------------------------------------------------------- */
+/**
+ * @description POST /api/auth/signup's checks: only JSON from our own page like a login (403), then the fields the Auth0 signup screen asks for (400).
+ * The screenname is also the player's username (#118), so it has the same rules
+ */
+function checkSignup(req, res, next) {
+	if (!req.is("application/json") || !fromOurPage(req)) {
+		return res.status(403).json({ status: 403, message: "Forbidden" });
+	}
+	const { email, password, first_name, last_name } = req.body || {};
+	if (typeof email != "string" || !/^[^\s@]+@[^\s@]+$/.test(email.trim()) || typeof password != "string" || !password) {
+		return res.status(400).json({ status: 400, message: "Email and password are required" });
+	}
+	for (const name of [first_name, last_name]) {
+		if (typeof name != "string" || !name.trim() || name.trim().length >= METADATA_LENGTH) {
+			return res.status(400).json({ status: 400, message: `First and last name are required, under ${METADATA_LENGTH} characters` });
+		}
+	}
+	const checked = checkUsername(req.body.screenname);
+	if (checked.message) { return res.status(400).json({ status: 400, message: checked.message }); }
+	return next();
+}
+
+/**
+ * @description The login page's Create account: Auth0 makes the account, then it signs in like a password login & claims the username.
+ * Once Auth0 has made it, trying again can only say the email is taken, so a failed sign in answers 202 (sign in to play) & a failed claim still signs them in:
+ * Home sends a player with no username to the settings page. Never logs the password or the body
+ */
+async function signup(req, res, next) {
+	const email = req.body.email.trim();
+	const screenname = checkUsername(req.body.screenname).username;
+	try {
+		await auth0Signup(email, req.body.password, { screenname, first_name: req.body.first_name.trim(), last_name: req.body.last_name.trim() });
+	} catch (err) {
+		if (err.auth0Error == "invalid_password") { return res.status(400).json({ status: 400, message: err.auth0Message || "Password is too weak" }); }
+		if (err.auth0Error == "invalid_signup" || err.auth0Error == "user_exists") { return res.status(400).json({ status: 400, message: "Couldn't create that account. If it's yours, sign in or reset the password." }); }
+		return next(err);
+	}
+
+	let session;
+	try {
+		const tokens = await auth0PasswordLogin(email, req.body.password, req.ip);
+		session = await startPlayerSession(tokens.id_token);
+	} catch (err) {
+		console.error(err.message);
+	}
+	if (!session) { return res.status(202).json({ status: 202, message: "Your account was created. Sign in to play." }); }
+
+	await claimNewUsername(session, screenname);
+	setSessionCookies(res, session);
+	return res.json({ status: 200, returnTo: returnPath(req.body.returnTo) || "/" });
+}
+
+/**
+ * @description Claims a new player's username as them (the request came signed out, so its context can't). A name someone has already is left for the settings page
+ */
+async function claimNewUsername(session, username) {
+	try {
+		const claimed = await withRequest({ cookies: { access_token: session.access_token } }, () => claimUsername(username));
+		if (claimed.status != 200) { console.log(`Signup: username not claimed: ${claimed.status}`); }
+	} catch (err) {
+		console.error(err.message);
 	}
 }
 
@@ -257,4 +326,4 @@ function returnPath(value) {
 }
 
 
-module.exports = { login, callback, checkLogin, passwordLogin, logout, refresh, resume, returnPath };
+module.exports = { login, callback, checkLogin, passwordLogin, checkSignup, signup, logout, refresh, resume, returnPath };

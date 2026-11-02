@@ -27,6 +27,7 @@ const realFetch = globalThis.fetch;
 const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
 const auth0Passwords = new Map(); // EMAIL -> PASSWORD, ONLY THE PASSWORD GRANT USES THIS
 const auth0LoginRequests = []; // PASSWORD-REALM REQUESTS (HEADERS + BODY)
+const auth0SignupRequests = []; // /dbconnections/signup BODIES
 const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
 const auth0Stalls = []; // AUTH0 CALLS WHOSE NEXT ANSWER NEVER ARRIVES: { path, grant } (auth0WillStall)
 let engineRequests = 0; // ENGINE API REQUESTS SINCE THE LAST reset()
@@ -82,6 +83,7 @@ function reset() {
 	auth0Users.clear();
 	auth0Passwords.clear();
 	auth0LoginRequests.length = 0;
+	auth0SignupRequests.length = 0;
 	auth0Blocks.length = 0;
 	auth0Stalls.length = 0;
 	engineMoves.length = 0;
@@ -247,6 +249,10 @@ async function standInFetch(url, options) {
 		const result = await auth0Token(JSON.parse(options.body), options);
 		return json(result.body, result.status);
 	}
+	if (hostname == "auth0.test" && pathname == "/dbconnections/signup") {
+		const result = auth0Signup(JSON.parse(options.body));
+		return json(result.body, result.status);
+	}
 	if (hostname == "auth0.test" && pathname == "/api/v2/users-by-email") {
 		const user = auth0Users.get(searchParams.get("email"));
 		return json(user ? [user] : []);
@@ -290,12 +296,27 @@ function auth0Token(body, options) {
 		if (auth0Blocks.shift()) { return { body: { error: "too_many_attempts" }, status: 429 }; }
 		if (!auth0Users.has(body.username) || auth0Passwords.get(body.username) != body.password) { return { body: { error: "invalid_grant", error_description: "Wrong email or password." }, status: 403 }; }
 		const user = auth0Users.get(body.username);
-		return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email }), expires_in: 86400 }, status: 200 };
+		return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email, email_verified: user.email_verified }), expires_in: 86400 }, status: 200 };
 	}
 	if (body.grant_type != "authorization_code") { return { body: { access_token: "management-token", expires_in: 86400 }, status: 200 }; }
 	const user = auth0Users.get(body.code);
 	if (!user) { throw new Error("invalid_grant"); }
 	return { body: { access_token: "auth0-access-token", id_token: (auth0IdTokens.shift() || keys.idToken)({ sub: user.user_id, email: user.email }), expires_in: 86400 }, status: 200 };
+}
+
+/**
+ * @description Auth0's /dbconnections/signup: makes an unverified user, unless the email is taken or the password is "weak"
+ * @param  {[object]} body [{ client_id, connection, email, password, user_metadata }]
+ * @return {[object]} response [{ body, status }]
+ */
+function auth0Signup(body) {
+	auth0SignupRequests.push(body);
+	if (auth0Users.has(body.email)) { return { body: { code: "invalid_signup", description: "Invalid sign up" }, status: 400 }; }
+	if (body.password == "weak") { return { body: { name: "PasswordStrengthError", code: "invalid_password", message: "Password is too weak", description: { rules: [] } }, status: 400 }; }
+	const user = { user_id: `auth0|${body.email.split("@")[0]}`, email: body.email, email_verified: false, user_metadata: body.user_metadata, identities: [{ connection: body.connection }] };
+	auth0Users.set(body.email, user);
+	auth0Passwords.set(body.email, body.password);
+	return { body: { _id: body.email, email: body.email, email_verified: false }, status: 200 };
 }
 
 /**
@@ -319,6 +340,13 @@ function auth0WillStall(path, grant) {
  */
 function auth0Logins() {
 	return auth0LoginRequests;
+}
+
+/**
+ * @description The signups Auth0 was asked for: [body]
+ */
+function auth0Signups() {
+	return auth0SignupRequests;
 }
 
 /**
@@ -348,4 +376,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };

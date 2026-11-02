@@ -6,13 +6,15 @@
  */
 
 const router = require('express').Router()
-const { login, callback, checkLogin, passwordLogin, logout, refresh, resume } = require('../../controllers/authController.js')
-const { limitLogins } = require('../../middleware/rateLimit.js')
+const { login, callback, checkLogin, passwordLogin, checkSignup, signup, logout, refresh, resume } = require('../../controllers/authController.js')
+const { limitLogins, limitSignups } = require('../../middleware/rateLimit.js')
 
 
 router.route('/login').get(login);          // /api/auth/login    -> AUTH0 LOGIN PAGE (?returnTo= THE PAGE TO COME BACK TO), UNTIL #227
 
 router.route('/login').post(checkLogin, limitLogins, passwordLogin); // /api/auth/login -> THE LOGIN PAGE'S { email, password, returnTo }, SETS THE SESSION
+
+router.route('/signup').post(checkSignup, limitSignups, signup); // /api/auth/signup -> THE LOGIN PAGE'S { email, password, screenname, first_name, last_name, returnTo }, SETS THE SESSION
 
 router.route('/callback').get(callback);    // /api/auth/callback -> AUTH0 RETURNS HERE, STARTS SESSION
 

@@ -1,6 +1,6 @@
 /*
  *  auth.test.js  --  chess server tests
- *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, #252, only a 401 signs out #283, a failed login says why #282)
+ *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, signup #225, #252, only a 401 signs out #283, a failed login says why #282)
  *  The server can't make a session: the login callback passes Auth0's id_token to the data service, which checks it & signs the tokens.
  *  The server only checks tokens with the public key, so a token signed any other way is refused. Logout ends the session on every device
  *
@@ -10,11 +10,11 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, send, page, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, dataServiceWillAnswer } = testServer;
+const { call, send, page, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, dataServiceWillAnswer } = testServer;
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 const { readSessionUser } = require("../middleware/auth.js");
-const { LOGIN_LIMITS } = require("../middleware/rateLimit.js");
+const { LOGIN_LIMITS, SIGNUP_LIMITS } = require("../middleware/rateLimit.js");
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -212,6 +212,89 @@ describe("password login", () => {
 });
 
 /* ---------------------------------------------------------------- */
+// Signup
+/* ---------------------------------------------------------------- */
+
+describe("signup", () => {
+	const newPlayer = (changes = {}) => ({ email: "newbie@test", password: "a-long-password", screenname: "Newbie", first_name: "New", last_name: "Player", ...changes });
+	const signup = (body, options = {}) => send("POST", "/api/auth/signup", {}, { headers: { ...loginHeaders(options.ip, options.origin), ...options.headers }, body: JSON.stringify(body) });
+
+	test("a new account is signed in with its screenname, unverified, & its username is claimed", async () => {
+		const response = await signup({ ...newPlayer(), returnTo: "/play/game1" });
+		assert.equal(response.http, 200);
+		assert.equal(response.body.returnTo, "/play/game1");
+		assert.deepEqual(auth0Signups()[0], { client_id: process.env.AUTH0_CLIENT_ID, connection: process.env.AUTH0_CONNECTION, email: "newbie@test", password: "a-long-password", user_metadata: { screenname: "Newbie", first_name: "New", last_name: "Player" } });
+
+		const user = await me(response.cookies.access_token);
+		assert.equal(user.body.userData.user_metadata.screenname, "Newbie");
+		assert.equal(user.body.userData.email_verified, false);
+		assert.equal(user.body.username, "Newbie");
+	});
+
+	test("a username someone has still makes the account, the settings page asks for another", async () => {
+		const first = await signup(newPlayer({ email: "first@test" }));
+		assert.equal(first.http, 200);
+		const second = await signup(newPlayer({ email: "second@test" }));
+		assert.equal(second.http, 200);
+		assert.equal((await me(second.cookies.access_token)).body.username, null);
+	});
+
+	test("a taken email is told to sign in or reset & gets no session", async () => {
+		const alice = player("alice");
+		const response = await signup(newPlayer({ email: alice.email }));
+		assert.equal(response.http, 400);
+		assert.equal(response.body.message, "Couldn't create that account. If it's yours, sign in or reset the password.");
+		assert.equal(response.cookies.access_token, undefined);
+	});
+
+	test("a weak password passes on Auth0's message", async () => {
+		const response = await signup(newPlayer({ password: "weak" }));
+		assert.equal(response.http, 400);
+		assert.equal(response.body.message, "Password is too weak");
+		assert.equal(auth0Logins().length, 0);
+	});
+
+	test("an account made while sign in is down says to sign in, without a session", async (t) => {
+		t.mock.method(console, "error", () => {});
+		dataServiceWillAnswer("/session/login", 503, "Down");
+		const response = await signup(newPlayer());
+		assert.equal(response.http, 202);
+		assert.equal(response.cookies.access_token, undefined);
+		assert.equal((await passwordLogin({ email: "newbie@test", password: "a-long-password" })).http, 200); // THE ACCOUNT IS THERE
+	});
+
+	test("the address & email limits refuse before Auth0 is asked", async () => {
+		for (let i = 0; i < SIGNUP_LIMITS.signupIp.burst; i++) {
+			await signup(newPlayer({ email: `user${i}@test`, screenname: `user${i}` }), { ip: "198.51.100.10" });
+		}
+		const beforeIp = auth0Signups().length;
+		const ipLimited = await signup(newPlayer({ email: "other@test" }), { ip: "198.51.100.10" });
+		assert.equal(ipLimited.http, 429);
+		assert.ok(Number(ipLimited.retry_after) > 0);
+		assert.equal(auth0Signups().length, beforeIp);
+
+		testServer.reset();
+		for (let i = 0; i < SIGNUP_LIMITS.signupEmail.burst; i++) {
+			await signup(newPlayer({ email: "Same@Test", password: "weak" }), { ip: `198.51.100.${i + 1}` });
+		}
+		const beforeEmail = auth0Signups().length;
+		assert.equal((await signup(newPlayer({ email: "same@test", password: "weak" }), { ip: "203.0.113.10" })).http, 429);
+		assert.equal(auth0Signups().length, beforeEmail);
+	});
+
+	test("requires same-origin JSON & fields the screen asks for, checked before Auth0", async () => {
+		assert.equal((await signup(newPlayer(), { origin: "https://wrong.test" })).http, 403);
+		assert.equal((await signup(newPlayer(), { headers: { "Sec-Fetch-Site": "cross-site" } })).http, 403);
+		const form = await send("POST", "/api/auth/signup", {}, { headers: { ...loginHeaders(), "Content-Type": "application/x-www-form-urlencoded" }, body: "email=a@test&password=x" });
+		assert.equal(form.http, 403);
+		for (const changes of [{ email: 1 }, { email: "no-at-sign" }, { password: "" }, { first_name: "" }, { last_name: 1 }, { first_name: "x".repeat(500) }, { screenname: "ab" }, { screenname: "has space" }, { screenname: "admin" }, { screenname: 1 }]) {
+			assert.equal((await signup(newPlayer(changes))).http, 400, JSON.stringify(changes));
+		}
+		assert.equal(auth0Signups().length, 0);
+	});
+});
+
+/* ---------------------------------------------------------------- */
 // Refresh, Resume & Logout
 /* ---------------------------------------------------------------- */
 
@@ -225,6 +308,19 @@ describe("login page", () => {
 
 	test("stays on the page for a signed out player", async () => {
 		assert.equal((await page("/login?returnTo=%2Fplay%2Fgame1")).location, null);
+	});
+});
+
+describe("signup page", () => {
+	test("sends a signed in player to returnTo or Home, only on this site", async () => {
+		const signedIn = { as: player("alice") };
+		assert.equal((await page("/signup?returnTo=%2Fplay%2Fgame1", signedIn)).location, "/play/game1");
+		assert.equal((await page("/signup", signedIn)).location, "/");
+		assert.equal((await page("/signup?returnTo=%2F%2Fother.site", signedIn)).location, "/");
+	});
+
+	test("stays on the page for a signed out player", async () => {
+		assert.equal((await page("/signup?returnTo=%2Fplay%2Fgame1")).location, null);
 	});
 });
 

@@ -84,6 +84,14 @@ function loginPage(req, res) {
 }
 
 /**
+ * @description /signup -> the create account page. A player who is already signed in goes to ?returnTo= (only paths on this site) or Home
+ */
+function signupPage(req, res) {
+	if (readSessionUser(req)) { return res.redirect(returnPath(req.query.returnTo) || "/"); }
+	return sendPage(res, "signup.html");
+}
+
+/**
  * @description Sends a page from client/dist (max-age 0, so a new build shows up on the next load)
  */
 function sendPage(res, page) {
@@ -91,4 +99,4 @@ function sendPage(res, page) {
 }
 
 
-module.exports = { homePage, playPage, gamePage, settingsPage, loginPage };
+module.exports = { homePage, playPage, gamePage, settingsPage, loginPage, signupPage };

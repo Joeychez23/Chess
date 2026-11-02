@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
- *	Login Page (/login, signed out)
- *	Email & password through POST /api/auth/login, then on to the returnTo the server answers. Create account & Forgot password? open Universal Login until they're on this page
+ *	Login & Signup Pages (/login & /signup, signed out)
+ *	Email & password through POST /api/auth/login, or a new account through POST /api/auth/signup, then on to the returnTo the server answers. Forgot password? opens Universal Login until it's on the login page
  *
  */
 
@@ -18,17 +18,20 @@ const { startNav, showPageWhenDrawn } = require("../utils/index.js");
 const loginForm = document.getElementById("loginForm");
 const emailInput = document.getElementById("loginEmail");
 const passwordInput = document.getElementById("loginPassword");
-const showPasswordBtn = document.getElementById("showPassword");
 const loginBtn = document.getElementById("loginBtn");
 const loginNote = document.getElementById("loginNote"); // WHY SIGNING IN DIDN'T WORK
+const signupForm = document.getElementById("signupForm");
+const signupBtn = document.getElementById("signupBtn");
+const signupNote = document.getElementById("signupNote"); // WHY THE ACCOUNT WASN'T MADE
 
 const auth = new InternalAuth;
 
 startNav();
 showPageWhenDrawn([checkSession()]);
-loginForm.addEventListener("submit", handleLogin); // SIGN IN & ENTER IN A FIELD
-showPasswordBtn.addEventListener("click", handleShowPassword);
-document.querySelectorAll(".universalLogin").forEach(function (link) { link.search = window.location.search; }); // THE SAME returnTo, THE SERVER CHECKS IT
+loginForm?.addEventListener("submit", handleLogin); // SIGN IN & ENTER IN A FIELD (EACH PAGE HAS ONE OF THE TWO FORMS)
+signupForm?.addEventListener("submit", handleSignup);
+document.querySelectorAll(".showPassword").forEach(function (button) { button.addEventListener("click", handleShowPassword); });
+document.querySelectorAll(".keepReturnTo").forEach(function (link) { link.search = window.location.search; }); // THE SAME returnTo, THE SERVER CHECKS IT
 window.addEventListener("pageshow", function (e) { if (e.persisted) { window.location.reload(); } }); // BACK SHOWS THE PAGE AS IT WAS LEFT: THE BUTTON OFF & THE PASSWORD IN IT
 
 /* ---------------------------------------------------------------- */
@@ -45,11 +48,13 @@ async function checkSession() {
 /* ---------------------------------------------------------------- */
 // Show Password
 /* ---------------------------------------------------------------- */
-function handleShowPassword() {
-	const show = passwordInput.type == "password";
-	passwordInput.type = show ? "text" : "password";
-	showPasswordBtn.innerText = show ? "Hide" : "Show";
-	showPasswordBtn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+function handleShowPassword(e) {
+	const button = e.currentTarget;
+	const input = document.getElementById(button.getAttribute("aria-controls"));
+	const show = input.type == "password";
+	input.type = show ? "text" : "password";
+	button.innerText = show ? "Hide" : "Show";
+	button.setAttribute("aria-label", show ? "Hide password" : "Show password");
 }
 
 /* ---------------------------------------------------------------- */
@@ -68,4 +73,23 @@ async function handleLogin(e) {
 	if (response?.status == 200) { return window.location.replace(response.returnTo); }
 	loginBtn.disabled = false;
 	loginNote.innerText = [400, 401, 429].includes(response?.status) ? response.message : "Sign in isn't working right now, try again in a moment.";
+}
+
+/* ---------------------------------------------------------------- */
+// Create Account
+/* ---------------------------------------------------------------- */
+/**
+ * @description Makes the account & signs in, then goes to the returnTo the server checked. A refused field or a limit says why (400, 429), so does an account made
+ * but not signed in (202: pressing again would only say the email is taken), anything else is on our side
+ */
+async function handleSignup(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	signupBtn.disabled = true; // ONE ACCOUNT PER PRESS
+	signupNote.innerText = "";
+	const returnTo = new URLSearchParams(window.location.search).get("returnTo");
+	const response = await auth.signup({ ...Object.fromEntries(new FormData(signupForm)), returnTo });
+	if (response?.status == 200) { return window.location.replace(response.returnTo); }
+	signupBtn.disabled = false;
+	signupNote.innerText = [202, 400, 429].includes(response?.status) ? response.message : "Creating an account isn't working right now, try again in a moment.";
 }

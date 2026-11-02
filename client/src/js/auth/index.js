@@ -31,6 +31,13 @@ export class InternalAuth {
 	 */
 	async passwordLogin(email, password, returnTo) { return await request("/api/auth/login", "POST", { email, password, returnTo }); }
 
+	/**
+	 * @description The signup page's Create account, the server sets the session cookies
+	 * @param  {[object]} account [{ email, password, screenname, first_name, last_name, returnTo (optional) }]
+	 * @return {[object]} response [{ status, returnTo, message }, null when the server can't be reached]
+	 */
+	async signup(account) { return await request("/api/auth/signup", "POST", account); }
+
 	/* ---------------------------------------------------------------- */
 	// Logout
 	/* ---------------------------------------------------------------- */

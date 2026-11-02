@@ -32,17 +32,20 @@
 		<div id="resultDisplay">Chess</div>
 		<ul id="menuButtonList">
 			<li><a class="menuButton" href="/">Home</a></li>
-			<li><a class="menuButton" href="/login" aria-current="page">Sign in</a></li>
+			<li><a class="menuButton" href="/login" aria-current="page">Login/Signup</a></li>
 		</ul>
 	</nav>
 
 	<main class="page">
-		<section class="hero">
+		<section class="hero heroPlain">
 			<div class="heroText">
 				<p class="spec">Your account</p>
 				<h1 class="title">Sign in</h1>
 				<p class="lead">Play a friend and keep your games, on any device.</p>
 			</div>
+		</section>
+
+		<section class="boxes" aria-label="Sign in">
 			<form class="box boxBaize" id="loginForm">
 				<div class="boxHead"><h2 class="label">Email &amp; password</h2><span class="spec">No. 01</span></div>
 				<div class="loginField">
@@ -55,14 +58,16 @@
 					<label class="spec" for="loginPassword">Password</label>
 					<div class="field">
 						<input type="password" name="password" id="loginPassword" autocomplete="current-password" required>
-						<button class="btn btnLine" id="showPassword" type="button" aria-controls="loginPassword" aria-label="Show password">Show</button>
+						<button class="btn btnLine showPassword" type="button" aria-controls="loginPassword" aria-label="Show password">Show</button>
 					</div>
 				</div>
 				<button class="btn btnCream" id="loginBtn" type="submit">Sign in</button>
 				<p class="spec note" id="loginNote" role="status" aria-live="polite"></p>
-				<div class="field boxBottom">
-					<a class="btn btnLine universalLogin" href="/api/auth/login">Create account</a>
-					<a class="btn btnLine universalLogin" href="/api/auth/login">Forgot password?</a>
+				<div class="field">
+					<a class="btn btnLine keepReturnTo" href="/api/auth/login">Forgot password?</a>
+				</div>
+				<div class="field">
+					<a class="btn btnLine keepReturnTo" href="/signup">Create account</a>
 				</div>
 			</form>
 		</section>
