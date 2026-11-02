@@ -8,10 +8,10 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, updateUserSettings, claimUsername, searchUsernames, deleteUser } = require("../dataClient.js");
+const { retrieveUser, updateUserSettings, claimUsername, searchUsernames, retrieveFriends, changeFriend, deleteUser } = require("../dataClient.js");
 const { leaveAllGames, readSettings, userPlayerId } = require("./chessController.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
-const { disconnectPlayer } = require("../socket.js");
+const { disconnectPlayer, emitToPlayer, isOnline } = require("../socket.js");
 
 /* ---------------------------------------------------------------- */
 // Get User
@@ -71,20 +71,56 @@ async function searchPlayers(req, res) {
 }
 
 /* ---------------------------------------------------------------- */
+// Friends (#40)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Home's Friends box. Names only, never an email or Auth0 id. online is read when this is asked: a socket open on Home or in a friend game
+ * @return {[object]} response [{ status: 200, friends: [{ username, online }], sent: [{ username }], received: [{ username }] }]
+ */
+async function getFriends(req, res) {
+	const response = await retrieveFriends();
+	if (response.status != 200) { return res.status(response.status).json({ status: response.status, message: response.message }); }
+	const names = (players) => players.map(({ username }) => ({ username }));
+	return res.json({
+		status: 200,
+		friends: response.friends.map(({ player_id, username }) => ({ username, online: isOnline(player_id) })),
+		sent: names(response.sent),
+		received: names(response.received)
+	});
+}
+
+/**
+ * @description One friend action on the player holding a username, then both players' tabs redraw (socket "friends")
+ * @param  {[string]} action ["request", "accept", "decline", "cancel" or "remove"]
+ * @return {[function]} route [req.body: { username }, answers { status, message }]
+ */
+function friendAction(action) {
+	return async function (req, res) {
+		const response = await changeFriend(action, req.body?.username);
+		if (response.status == 200) {
+			emitToPlayer(userPlayerId(req.user), "friends", {});
+			emitToPlayer(response.player_id, "friends", {});
+		}
+		return res.status(response.status).json({ status: response.status, message: response.message });
+	};
+}
+
+/* ---------------------------------------------------------------- */
 // Delete User Data (DELETE)
 /* ---------------------------------------------------------------- */
 /**
- * @description Delete my data (the settings page): leaves every game (forfeits, cancels & declines), then deletes the player's user_db row
- * & frees their username. The Auth0 login isn't deleted, the client logs out after this
+ * @description Delete my data (the settings page): leaves every game (forfeits, cancels & declines), then takes the player off everyone's friend lists,
+ * deletes their user_db row & frees their username. The Auth0 login isn't deleted, the client logs out after this
  * @return {[object]} response [{ status, message }]
  */
 async function deleteUserData(req, res) {
 	const playerId = userPlayerId(req.user);
 	await leaveAllGames(playerId);
 	const response = await deleteUser(); // THE DATA SERVICE REFUSES IT WHILE A GAME OR INVITE IS LEFT
+	for (const friendId of response.friend_ids || []) { emitToPlayer(friendId, "friends", {}); }
 	if (response.status == 200) { disconnectPlayer(playerId); } // THEIR SESSION IS OVER, THEIR OPEN SOCKETS ON EVERY DEVICE ARE CLOSED (#298)
 	return res.json({ status: response.status, message: response.message });
 }
 
 
-module.exports = { getUser, saveSettings, saveUsername, deleteUserData, searchPlayers };
+module.exports = { getUser, saveSettings, saveUsername, deleteUserData, searchPlayers, getFriends, friendAction };

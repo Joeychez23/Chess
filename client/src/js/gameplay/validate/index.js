@@ -301,6 +301,39 @@ export async function searchPlayers(userUrl, prefix) {
 }
 
 /**
+ * @description The player's friends & friend requests for Home (GET /api/user/friends), names only
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @return {[object]} response [{ status: 200, friends: [{ username, online }], sent: [{ username }], received: [{ username }] }]
+ */
+export async function getFriends(userUrl) {
+	try {
+		return await request(`${userUrl}/friends`, { method: "GET" })
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description One friend action on the player holding a username (POST /api/user/friends/:action)
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @param  {[string]} action ["request", "accept", "decline", "cancel" or "remove"]
+ * @param  {[string]} username [their username]
+ * @return {[object]} response [{ status, message }, status 400, 404 or 409 says why it can't, 429 when a limit is hit]
+ */
+export async function friendAction(userUrl, action, username) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ username })
+	};
+	try {
+		return await request(`${userUrl}/friends/${action}`, options)
+	} catch {
+		return
+	}
+}
+
+/**
  * @description Delete my data (DELETE /api/user): the server forfeits the open games, cancels & declines the invites, then deletes the user_db row
  * @param  {[string]} userUrl [user api, "/api/user"]
  * @return {[object]} response [{ status, message }]

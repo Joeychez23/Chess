@@ -284,9 +284,21 @@ const findUsername = (username) => call("GET", `/users/named/${encodeURIComponen
 const searchUsernames = (prefix) => call("GET", `/users/search?prefix=${encodeURIComponent(prefix)}`);
 
 /**
- * @description Deletes the requester's row & frees their username, once they've left every game (leaveAllGames)
+ * @description The requester's friends & requests, { status: 200, friends, sent, received }, each list [{ player_id, username }]
+ */
+const retrieveFriends = () => call("GET", "/users/me/friends");
+
+/**
+ * @description One friend action on the player holding a username, saved on both rows
+ * @param  {[string]} action ["request", "accept", "decline", "cancel" or "remove"]
+ * @return {[object]} response [{ status: 200, player_id, message } | { status: 400 | 404 | 409, message }]
+ */
+const changeFriend = (action, username) => call("POST", `/users/me/friends/${action}`, { username });
+
+/**
+ * @description Deletes the requester's row & frees their username, once they've left every game (leaveAllGames). They're taken off everyone's friend lists, friend_ids says who to tell
  */
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

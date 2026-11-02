@@ -26,3 +26,5 @@ Chess.wiki
 auth0-jwks.json
 *.pem
 /commands/
+.claude
+.github

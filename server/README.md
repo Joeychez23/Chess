@@ -61,6 +61,7 @@ engine are answered from test data.
 | `settings.test.js` | The settings page's Default start settings and Delete my data |
 | `monitoring.test.js` | `GET /api/health` (a slow engine counts as down in time, the answer is kept, it never says why), the log lines the alarms match, and browser error reports from `reportErrors.js` to the log line: limited, cut short, and unable to set off an alarm |
 | `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and an open socket reconnects to the next start |
+| `friends.test.js` | Friends: requests saved on both rows and pushed to both players, every refusal, full lists, the rate limit, names only with who's online, a rename, and Delete my data leaving nothing on a friend's row |
 | `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
@@ -85,7 +86,9 @@ which doesn't start an Auth0 session, so there's no Auth0 login page or logout.
 | `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w` or `b` is `random`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
 | `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
 | `GET /api/user/search?q=` | Home's player search: up to 10 usernames starting with `q` (2 or more characters), in any capitals, as `{ usernames }`. Never an email or Auth0 id. `429` with `Retry-After` when a limit is hit (`SEARCH_LIMITS` in `middleware/rateLimit.js`) |
-| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, then deletes your `user_db` row and frees your username. Your games stay in `chess_db`, and your next sign-in starts a new row |
+| `GET /api/user/friends` | Home's Friends box: `{ friends: [{ username, online }], sent: [{ username }], received: [{ username }] }`, sorted by name. Names only, never an email or Auth0 id. `online` means a socket is open now (on Home or in a friend game), read when this is asked |
+| `POST /api/user/friends/request`, `/accept`, `/decline`, `/cancel`, `/remove` | `{ username }`, in any capitals. Saved on both players' `user_db` rows in one transaction, and both get the socket's `friends`. `400` for your own name, `404` for a name nobody holds or a request that's gone, `409` with the reason (already friends, already asked, a full list: 50 friends, 25 requests each way), `429` with `Retry-After` when a limit is hit (`FRIEND_LIMITS` in `middleware/rateLimit.js`) |
+| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, takes you off everyone's friend lists and requests, then deletes your `user_db` row and frees your username. Your games stay in `chess_db`, and your next sign-in starts a new row |
 
 The session is two JWTs in httpOnly cookies: an access token (15 minutes)
 checked on every request, and a refresh token (7 days) that's only sent to
@@ -192,6 +195,7 @@ connects again; after a logout the re-up fails and the socket stays closed.
 | `game-over` | server → client | `{ game_id, player_id, winner, reason }`. Sent when a player forfeits. The opponent's board opens the menu with Rematch |
 | `rematch` | server → client | `{ game_id, new_game_id }`. Both players asked for a rematch. Both boards load the new game |
 | `games` | server → client | `{ game_id }`. Sent to every tab of both players (each socket is also in a `player:<id>` room) when an invite is sent, accepted, declined or cancelled, and when a friend game moves, ends or rematches. Home redraws Play a friend, Invites and Your games |
+| `friends` | server → client | `{}`. Sent to every tab of both players when a friend request is sent or answered or a friend is removed, and to a leaving player's friends on Delete my data. Home redraws |
 
 ## Result fields
 

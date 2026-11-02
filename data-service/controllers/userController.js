@@ -1,7 +1,7 @@
 /*
  *  userController.js  --  data service
  *	User Routes
- *  A signed in player's own user_db row: reading it (with their games), their Default start settings, their username & Delete my data.
+ *  A signed in player's own user_db row: reading it (with their games), their Default start settings, their username, their friends & Delete my data.
  *  Every route is on the requester's row only, the player id comes from their token (middleware/player.js)
  *
  */
@@ -10,11 +10,12 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, pruneOpenGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser } = require("../dynamoDB.js");
+const { retrieveUser, pruneOpenGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser, changeFriends, retrieveFriends, leaveFriends } = require("../dynamoDB.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { readAiLevel, isColor } = require("../utils/games.js");
 const { currentGame } = require("./gameController.js");
 const { refuse } = require("../utils/refuse.js");
+const { FRIEND_ACTIONS } = require("../utils/friends.js");
 
 /* ---------------------------------------------------------------- */
 // Get User (GET)
@@ -98,12 +99,41 @@ async function searchByUsername(req, res) {
 }
 
 /* ---------------------------------------------------------------- */
+// Friends (#40)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The requester's friends & friend requests
+ * @return {[object]} response [retrieveFriends' { status: 200, friends, sent, received, message }, each list [{ player_id, username }]]
+ */
+async function getFriends(req, res) {
+	return res.json(await retrieveFriends(req.player.id));
+}
+
+/**
+ * @description One friend action on the player holding a username, saved on both rows (changeFriends)
+ * @param  {[string]} action ["request", "accept", "decline", "cancel" or "remove", utils/friends.js]
+ * @return {[function]} route [req.body: { username }, answers { status, player_id (the chess server tells them), message } | { status: 400 | 404 | 409, message }]
+ */
+function friendAction(action) {
+	return async function (req, res) {
+		const checked = checkUsername(req.body?.username);
+		const found = checked.username ? await findUsername(checked.username) : null;
+		if (!found?.player_id) { return res.json({ status: 404, message: "No player has that username" }); }
+		const me = req.player.id;
+		const them = found.player_id;
+		if (them == me) { return res.json({ status: 400, message: "That's your username" }); }
+		return res.json({ ...(await changeFriends(me, them, (mine, theirs) => FRIEND_ACTIONS[action](mine, theirs, me, them))), player_id: them });
+	};
+}
+
+/* ---------------------------------------------------------------- */
 // Delete My Data (POST)
 /* ---------------------------------------------------------------- */
 /**
  * @description Deletes the requester's row & frees their username. Only once they've left every game: the chess server forfeits their open games,
- * cancels their sent invite & declines the ones they got first (through the game routes), so no game is left waiting on a row that's gone
- * @return {[object]} response [deleteUser's { status, message }]
+ * cancels their sent invite & declines the ones they got first (through the game routes), so no game is left waiting on a row that's gone.
+ * They're taken off everyone's friend lists here
+ * @return {[object]} response [deleteUser's { status, message } & friend_ids (the players to tell)]
  */
 async function deleteMe(req, res) {
 	const playerId = req.player.id;
@@ -113,8 +143,10 @@ async function deleteMe(req, res) {
 		const invites = await pruneInvites(user.user_data);
 		if (invites.sent_invite || invites.received_invites.length) { return refuse(req, res, 409, "Answer your invites first"); }
 	}
-	return res.json(await deleteUser(playerId));
+	const left = await leaveFriends(playerId);
+	if (left.status != 200) { return res.json(left); }
+	return res.json({ ...(await deleteUser(playerId)), friend_ids: left.friend_ids });
 }
 
 
-module.exports = { getMe, saveSettings, saveUsername, findByUsername, searchByUsername, deleteMe };
+module.exports = { getMe, saveSettings, saveUsername, findByUsername, searchByUsername, getFriends, friendAction, deleteMe };

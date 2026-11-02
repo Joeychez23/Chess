@@ -73,7 +73,9 @@ request is for comes from a token only the data service can sign
 | `POST /users/me/username` `{ username }` | The username rules again (`utils/username.js`), then `claimUsername`: someone else's name, in any capitals, answers `{ status: 409 }` |
 | `GET /users/named/:username` | A signed-in player. Who holds a username, in any capitals: `{ status: 200, player_id, username }` or `{ status: 404 }`. The chess server's invite by username |
 | `GET /users/search?prefix=` | A signed-in player. Up to 10 usernames starting with `prefix` (2 or more characters), in any capitals, sorted, from the `username-search` index: `{ status: 200, usernames }`. Names only, the index doesn't hold who owns them |
-| `POST /users/me/delete` | Refused (409) while the player has an open game or an invite: the chess server forfeits, cancels and declines them first. Then the row and the username claim are deleted |
+| `GET /users/me/friends` | A signed-in player's friends and requests with each one's current username: `{ status: 200, friends, sent, received }`, each `[{ player_id, username }]`, sorted by name |
+| `POST /users/me/friends/request`, `/accept`, `/decline`, `/cancel`, `/remove` `{ username }` | A signed-in player, on the player holding that name (`utils/friends.js` has the rules and limits). `changeFriends` saves both rows in one transaction, and answers `{ status, player_id, message }` |
+| `POST /users/me/delete` | Refused (409) while the player has an open game or an invite: the chess server forfeits, cancels and declines them first. Then they're taken off everyone's friend lists (`friend_ids` says who), and the row and the username claim are deleted |
 | `POST /session/login` `{ id_token, user }` | Needs no player. Auth0's `id_token` checked against Auth0's saved keys (RS256, our tenant and client, not expired, at most 5 minutes old, used once), and `user` (the chess server's `getAuth0User`, which only looks on `AUTH0_CONNECTION`) must be the one it names, with an `auth0|` id. Then the access and refresh tokens, with the session id on the player's row (made at their first login) |
 | `POST /session/refresh` `{ refresh_token }` | A refresh token it signed, whose session id is still the one on the row. A new pair |
 | `POST /session/logout` `{ refresh_token }` | A refresh token it signed. Clears the session id, so no device can refresh and every access token already out is refused. A token from a session that already ended changes nothing |
@@ -191,7 +193,11 @@ signed out, and guests start a new game.
 - **Expiry:** finished friend games lose `expireAt` and are kept. AI games are
   deleted 25 days after the last move.
 - **`user_db` rows** are made at first login (`startSession`) and hold the game
-  lists, `settings`, `rating`, `rated_games`, `username` and `sid`.
+  lists, `settings`, `rating`, `rated_games`, `username`, `sid` and `friend_lists`.
+- **Friends:** `friend_lists` is a JSON string, `{ friends, sent, received }` of
+  player ids. Names are looked up when the list is read, so a rename shows
+  straight away. `changeFriends` saves both players' rows in one transaction,
+  and reads again when either row changed.
 - **Usernames:** the row's `username`, plus a `username#<lowercase>` item that
   holds the name. `claimUsername` saves all three changes in one transaction, and
   `deleteUser` removes the row and the item together.

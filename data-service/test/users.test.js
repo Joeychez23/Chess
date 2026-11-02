@@ -152,6 +152,15 @@ describe("GET /users/named/:username", () => {
 });
 
 describe("POST /users/me/delete", () => {
+	test("refused while a game is open: nobody's friends change", async () => {
+		await call("POST", "/users/me/username", { as: bob, body: { username: "Bobby" } });
+		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
+		await call("POST", "/users/me/friends/request", { as: alice, body: { username: "Bobby" } });
+		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		assert.equal((await call("POST", "/users/me/delete", { as: alice })).http, 409);
+		assert.deepEqual(JSON.parse(peek("user_db", "bob").friend_lists.S).received, ["alice"]);
+	});
+
 	test("refused while the player still has an open game or an invite", async () => {
 		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
 		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });

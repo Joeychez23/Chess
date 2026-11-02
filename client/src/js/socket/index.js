@@ -4,7 +4,7 @@
  *  The server pushes "move" when a friend game's board changes, "game-over" when the opponent forfeits
  *  & "rematch" when both players asked for one (server/socket.js).
  *  The socket is only open while a friend game is on screen. Guests & AI games never open one.
- *  Home opens its own (watchGames) & gets "games" when an invite or friend game changes.
+ *  Home opens its own (watchGames) & gets "games" when an invite or friend game changes, "friends" when a friend request or friend does.
  *
  */
 
@@ -108,7 +108,7 @@ export function leaveGame() {
 /* ---------------------------------------------------------------- */
 /**
  * @description Home's socket: the server sends "games" to every tab the player has open when an invite is sent, accepted, declined
- * or cancelled & when a friend game moves or ends (server/socket.js emitToPlayer). After a reconnect Home redraws too, it may have missed one
+ * or cancelled & when a friend game moves or ends, & "friends" when a friend request or friend changes (server/socket.js emitToPlayer). After a reconnect Home redraws too, it may have missed one
  * @param  {[function]} handler [redraws Home]
  */
 export function watchGames(handler) {
@@ -131,6 +131,7 @@ export function watchGames(handler) {
 	});
 
 	gamesSocket.on("games", redrawSoon);
+	gamesSocket.on("friends", redrawSoon);
 
 	async function refreshAndReconnect() { // RE-UP ONCE & TRY AGAIN
 		refreshed = true;
