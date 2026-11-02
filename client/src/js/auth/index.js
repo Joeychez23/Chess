@@ -17,10 +17,19 @@ export class InternalAuth {
 	// Login
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description Server redirects to the Auth0 login page, then back signed in: to returnTo (a page's path) or Home
+	 * @description Goes to the login page, then back signed in: to returnTo (a page's path) or Home
 	 * @param  {[string]} returnTo [optional, e.g. "/play/:gameId"]
 	 */
-	login(returnTo) { window.location.href = returnTo ? `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}` : "/api/auth/login"; }
+	login(returnTo) { window.location.href = returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : "/login"; }
+
+	/**
+	 * @description The login page's sign in, the server sets the session cookies
+	 * @param  {[string]} email
+	 * @param  {[string]} password
+	 * @param  {[string]} returnTo [optional, the page to go to after, the server checks it]
+	 * @return {[object]} response [{ status, returnTo, message }, null when the server can't be reached]
+	 */
+	async passwordLogin(email, password, returnTo) { return await request("/api/auth/login", "POST", { email, password, returnTo }); }
 
 	/* ---------------------------------------------------------------- */
 	// Logout
@@ -77,8 +86,9 @@ export class InternalAuth {
 /**
  * @description fetch() wrapper for the auth routes, returns null when the server can't be reached
  */
-async function request(url, method) {
+async function request(url, method, body) {
 	try {
-		return await fetch(url, { method, credentials: "same-origin" }).then(res => res.json());
+		const json = body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {};
+		return await fetch(url, { method, credentials: "same-origin", ...json }).then(res => res.json());
 	} catch { return null; }
 }

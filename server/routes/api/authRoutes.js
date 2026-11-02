@@ -20,7 +20,7 @@ router.route('/logout').post(logout);       // /api/auth/logout   -> ENDS SESSIO
 
 router.route('/refresh').post(refresh);     // /api/auth/refresh  -> RE-UPS THE ACCESS TOKEN
 
-router.route('/resume').get(resume);        // /api/auth/resume   -> PAGES SEND SIGNED OUT PLAYERS HERE: RE-UPS THE SESSION OR LOGS IN, THEN BACK TO ?returnTo=
+router.route('/resume').get(resume);        // /api/auth/resume   -> PAGES SEND SIGNED OUT PLAYERS HERE: RE-UPS THE SESSION OR /login, THEN BACK TO ?returnTo=
 
 
 module.exports = router

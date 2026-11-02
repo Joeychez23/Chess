@@ -317,5 +317,5 @@ export function handleExit(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	if (game.SIGNED_IN) { return new InternalAuth().logout(); }
-	window.location.href = "/api/auth/login";
+	new InternalAuth().login();
 }

@@ -312,6 +312,20 @@ body {
 	width: 100%;
 }
 
+.loginField { /* LOGIN PAGE: A LABEL OVER ITS INPUT */
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.loginField .field {
+	flex-wrap: nowrap; /* SHOW STAYS NEXT TO THE PASSWORD AT PHONE WIDTH */
+}
+
+.loginField .btn {
+	flex: none;
+}
+
 .note { /* WHY AN INVITE DIDN'T GO THROUGH, THE FORFEIT WARNINGS */
 	min-height: 1.4em;
 	color: var(--gold);

@@ -13,6 +13,7 @@
 const path = require("path");
 const { readSessionUser } = require("../middleware/auth.js");
 const { retrieveGame, retrieveUser } = require("../dataClient.js");
+const { returnPath } = require("./authController.js");
 
 const BUILD_DIR = path.join(__dirname, "../../client/dist"); // SAME FOLDER server/index.js SERVES THE BUNDLES FROM
 
@@ -71,6 +72,17 @@ function settingsPage(req, res) {
 	return sendPage(res, "settings.html");
 }
 
+/* ---------------------------------------------------------------- */
+// Login Page
+/* ---------------------------------------------------------------- */
+/**
+ * @description /login -> the email & password page. A player who is already signed in goes to ?returnTo= (only paths on this site) or Home
+ */
+function loginPage(req, res) {
+	if (readSessionUser(req)) { return res.redirect(returnPath(req.query.returnTo) || "/"); }
+	return sendPage(res, "login.html");
+}
+
 /**
  * @description Sends a page from client/dist (max-age 0, so a new build shows up on the next load)
  */
@@ -79,4 +91,4 @@ function sendPage(res, page) {
 }
 
 
-module.exports = { homePage, playPage, gamePage, settingsPage };
+module.exports = { homePage, playPage, gamePage, settingsPage, loginPage };

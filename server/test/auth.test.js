@@ -10,7 +10,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, send, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, dataServiceWillAnswer } = testServer;
+const { call, send, page, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, dataServiceWillAnswer } = testServer;
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 const { readSessionUser } = require("../middleware/auth.js");
@@ -215,6 +215,19 @@ describe("password login", () => {
 // Refresh, Resume & Logout
 /* ---------------------------------------------------------------- */
 
+describe("login page", () => {
+	test("sends a signed in player to returnTo or Home, only on this site", async () => {
+		const signedIn = { as: player("alice") };
+		assert.equal((await page("/login?returnTo=%2Fplay%2Fgame1", signedIn)).location, "/play/game1");
+		assert.equal((await page("/login", signedIn)).location, "/");
+		assert.equal((await page("/login?returnTo=%2F%2Fother.site", signedIn)).location, "/");
+	});
+
+	test("stays on the page for a signed out player", async () => {
+		assert.equal((await page("/login?returnTo=%2Fplay%2Fgame1")).location, null);
+	});
+});
+
 describe("refresh, resume & logout", () => {
 	test("refresh re-ups the session from the refresh cookie", async () => {
 		player("alice");
@@ -231,7 +244,7 @@ describe("refresh, resume & logout", () => {
 		const resumed = await send("GET", "/api/auth/resume?returnTo=%2Fplay%2Fgame1", { refresh_token: login.cookies.refresh_token });
 		assert.equal(resumed.location, "/play/game1");
 		assert.ok(resumed.cookies.access_token);
-		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2Fplay%2Fgame1")).location, "/api/auth/login?returnTo=%2Fplay%2Fgame1");
+		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2Fplay%2Fgame1")).location, "/login?returnTo=%2Fplay%2Fgame1");
 	});
 
 	test("after logout, refresh fails on every device", async () => {
@@ -248,7 +261,7 @@ describe("refresh, resume & logout", () => {
 			assert.equal(response.http, 401);
 			assert.equal(response.cookies.refresh_token, ""); // CLEARED
 		}
-		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2F", { refresh_token: laptop.cookies.refresh_token })).location, "/api/auth/login?returnTo=%2F");
+		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2F", { refresh_token: laptop.cookies.refresh_token })).location, "/login?returnTo=%2F");
 	});
 
 	test("logout from another site, or by a link, is refused & the session stays on every device (#297)", async () => {

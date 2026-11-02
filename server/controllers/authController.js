@@ -190,7 +190,7 @@ async function logout(req, res) {
 async function resume(req, res) {
 	const returnTo = returnPath(req.query.returnTo) || "/";
 	const session = await reup(req);
-	if (!session) { return res.redirect(`/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`); }
+	if (!session) { return res.redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`); }
 	setSessionCookies(res, session);
 	return res.redirect(returnTo);
 }
@@ -257,4 +257,4 @@ function returnPath(value) {
 }
 
 
-module.exports = { login, callback, checkLogin, passwordLogin, logout, refresh, resume };
+module.exports = { login, callback, checkLogin, passwordLogin, logout, refresh, resume, returnPath };

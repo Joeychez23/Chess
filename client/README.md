@@ -76,6 +76,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
 | `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my data boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
+| `/login` | Signed out: `login.html`, email and password through `POST /api/auth/login`, with Create account and Forgot password? opening Universal Login. Signed in, it goes to `?returnTo=` or `/` |
 
 Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.
 The `.html` files are only sent through these routes, never as static files.
@@ -119,9 +120,10 @@ leaveGame();
 client/
   home.html                  Home markup: Play the AI (level), Play a friend (email), Invites, Your games, menu (Home, Invites, Your games, Settings, Logout)
   settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
+  login.html                 Login markup: email, password, Create account, Forgot password?, menu (Home, Sign in)
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Sign in)
   play.html                  Game menu markup (Resume, Sound, Restart / Forfeit / Rematch, Home, Exit)
-  webpack.config.js          One entry + HTML page each (home, guest, play, settings), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
+  webpack.config.js          One entry + HTML page each (home, guest, play, settings, login), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles
   src/css/style.css          Play page layout (canvas), imported by pages/play
