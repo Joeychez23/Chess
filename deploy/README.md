@@ -370,6 +370,9 @@ checks each service and the public site, and reports whether it came back up.
 [SETUP.md](../SETUP.md#deploy-a-new-version) has the details, the logs, and a fix for
 each error, with the machine each command runs on.
 
+- **Restarts finish what's running:** on `systemctl restart`, both services stop taking
+  new requests, finish the running ones, then exit. Sockets on the chess server close and
+  clients reconnect. A request stuck past systemd's 90 second `TimeoutStopSec` is killed.
 - **Refused requests** are one `REFUSED` line each in the data service's journal
   (route and reason, never a body or token). Many 401s mean a secret or version
   mismatch; 400s or 403s mean a bug, or requests that aren't the chess server's.

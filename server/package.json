@@ -10,7 +10,7 @@
     "test": "node --test \"test/*.test.js\""
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "dependencies": {
     "chess.js": "1.4.0",

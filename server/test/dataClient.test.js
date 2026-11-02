@@ -165,6 +165,31 @@ describe("a write that saves but answers too late", () => {
 		assert.deepEqual(await alicesTab.heard("rematch"), { game_id: gameId, new_game_id: pressed.new_game_id });
 	});
 
+	test("a rematch whose list save failed: pressing again reaches the data service, which repairs it, and the other board loads it", async () => {
+		const { alice, bob, gameId } = await friendGame();
+		await call("POST", `/api/chess/game/${gameId}/forfeit`, { as: alice });
+		const bobsTab = await listen(bob, gameId);
+		await call("POST", `/api/chess/game/${gameId}/rematch`, { as: alice });
+		const { DynamoDB } = require("../../data-service/node_modules/@aws-sdk/client-dynamodb");
+		const updateItem = DynamoDB.prototype.updateItem;
+		DynamoDB.prototype.updateItem = async (params) => {
+			if (params.Key.user_id?.S == alice.id) { throw new Error("Save failed"); }
+			return updateItem(params);
+		};
+		let failed;
+		try {
+			failed = await call("POST", `/api/chess/game/${gameId}/rematch`, { as: bob });
+		} finally {
+			DynamoDB.prototype.updateItem = updateItem;
+		}
+		assert.equal(failed.new_game_id, undefined);
+
+		const again = await call("POST", `/api/chess/game/${gameId}/rematch`, { as: alice });
+		assert.equal(again.new_game_id, peek("chess_db", gameId).rematch_game_id.S);
+		assert.ok(JSON.parse(peek("user_db", alice.id).open_games.S).includes(again.new_game_id));
+		assert.deepEqual(await bobsTab.heard("rematch"), { game_id: gameId, new_game_id: again.new_game_id });
+	});
+
 	test("a first rematch press: waiting", async () => {
 		const { alice, gameId } = await friendGame();
 		await call("POST", `/api/chess/game/${gameId}/forfeit`, { as: alice });

@@ -67,7 +67,7 @@ request is for comes from a token only the data service can sign
 | `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
 | `POST /games/:gameId/accept` `{ replace_current }` | Pending, only the invited player. In this order: their own open friend game answers `{ status: 409, game_id }` unless `replace_current`; the inviter in another friend game is refused; then the invite is accepted (a conditional write: one declined or cancelled since is refused and nothing changes), and only then their friend game is forfeited (`forfeited`) and their sent invite cancelled (`dropped_invites`) |
 | `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
-| `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`) |
+| `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`). Pressing again while that game is open finishes whatever a failed save left: it makes the game under the saved id if it's missing, then repeats the list adds and the cancels. A missing game is only made again up to an hour after `rematch_expires`; after that TTL deleted it, so the press answers 409 "Rematch ended" and makes nothing |
 | `GET /users/me` | A signed-in player's own row as stored (`?consistent=true`). `?games=true` also prunes expired games and invites and adds the open AI and friend game, the open games, the sent invite and the received invites. Guests have no row (403) |
 | `POST /users/me/settings` `{ ai_level, ai_color, friend_color }` | A level from 1 to 8 and `w`, `b` or `random` for each color, all three |
 | `POST /users/me/username` `{ username }` | The username rules again (`utils/username.js`), then `claimUsername`: someone else's name, in any capitals, answers `{ status: 409 }` |
@@ -196,7 +196,10 @@ signed out, and guests start a new game.
 - **Ratings** (`utils/rating.js`): Elo from 1500, `K × (score − expected)`, K = 40
   for the first 10 rated games (shown with `?`), then 20, never below 100. Only
   friend games from the standard position where both sides moved are rated.
-  Saves are conditional on `rated_games`, so two games ending at once both count.
+  Both ratings and the game's `ratings` save in one transaction: conditional on
+  `rated_games`, so two games ending at once both count, and on the game having no
+  `ratings`, so it is never rated twice. A rating that still fails doesn't stop the
+  game closing, and logs a line starting `RATING FAILED`.
   Each rated game keeps `ratings` (`{ w, b: { before, after }, at }`), the rating
   history for a future profile chart (#81).
 - **Threefold repetition:** the server replays the saved moves, but only once 8
@@ -213,8 +216,9 @@ The data service has its own tests, the same way as the [server's](../server/REA
 | `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
-| `rating.test.js` | The Elo math, which games are rated, and two of a player's games ending at once |
+| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
+| `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
 | `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are the same files as the server's, and both pin the same `chess.js` |
 
 ## Layout

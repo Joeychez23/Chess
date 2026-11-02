@@ -28,6 +28,7 @@ const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
 const auth0Passwords = new Map(); // EMAIL -> PASSWORD, ONLY THE PASSWORD GRANT USES THIS
 const auth0LoginRequests = []; // PASSWORD-REALM REQUESTS (HEADERS + BODY)
 const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
+const auth0Stalls = []; // AUTH0 CALLS WHOSE NEXT ANSWER NEVER ARRIVES: { path, grant } (auth0WillStall)
 let engineRequests = 0; // ENGINE API REQUESTS SINCE THE LAST reset()
 const engineMoves = []; // QUEUED ENGINE ANSWERS: { from, to, promotion }, THE ENGINE IS "DOWN" WHEN IT'S EMPTY
 const guestCookies = new Map(); // GUEST BROWSER NAME -> ITS guest_game COOKIE, LIKE A BROWSER KEEPS IT
@@ -82,6 +83,7 @@ function reset() {
 	auth0Passwords.clear();
 	auth0LoginRequests.length = 0;
 	auth0Blocks.length = 0;
+	auth0Stalls.length = 0;
 	engineMoves.length = 0;
 	engineRequests = 0;
 	guestCookies.clear();
@@ -233,6 +235,14 @@ async function standInFetch(url, options) {
 	const { hostname, pathname, searchParams } = new URL(url);
 	const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+	if (hostname == "auth0.test") {
+		const grant = pathname == "/oauth/token" ? JSON.parse(options.body).grant_type : undefined;
+		const stalled = auth0Stalls.findIndex((stall) => stall.path == pathname && stall.grant == grant);
+		if (stalled != -1) {
+			auth0Stalls.splice(stalled, 1);
+			return new Promise((resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason))); // NO ANSWER COMES, THE CALLER TIMES OUT
+		}
+	}
 	if (hostname == "auth0.test" && pathname == "/oauth/token") {
 		const result = await auth0Token(JSON.parse(options.body), options);
 		return json(result.body, result.status);
@@ -296,6 +306,15 @@ function auth0WillBlock() {
 }
 
 /**
+ * @description Auth0's next answer to this call never arrives, the caller times out (#365)
+ * @param  {[string]} path [Auth0 path, "/oauth/token" or "/api/v2/users-by-email"]
+ * @param  {[string]} grant [/oauth/token's grant_type]
+ */
+function auth0WillStall(path, grant) {
+	auth0Stalls.push({ path, grant });
+}
+
+/**
  * @description The password logins Auth0 was asked for: [{ headers, body }]
  */
 function auth0Logins() {
@@ -329,4 +348,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0Logins, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };
+module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek };

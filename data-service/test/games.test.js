@@ -12,6 +12,7 @@ const assert = require("node:assert/strict");
 const service = require("./helpers/service.js");
 const { call, player, sessionToken, guestCookie, peek } = service;
 const db = require("../dynamoDB.js");
+const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { tamper } = require("./helpers/keys.js");
 
 let server;
@@ -189,6 +190,47 @@ describe("move", () => {
 		assert.equal(peek("chess_db", "game1").state.S, "CLOSED");
 		assert.equal(Number(peek("user_db", "bob").rating.N), 1520);
 		assert.equal(Number(peek("user_db", "alice").rating.N), 1480);
+		assert.equal(peek("chess_db", "game1").expireAt, undefined); // FINISHED FRIEND GAMES ARE KEPT
+	});
+
+	/**
+	 * @description Plays fool's mate up to the mating move, then plays it with one table's writes failing
+	 * @return {[object]} { response (the mating move's), before (the stored game before it) }
+	 */
+	async function mateWhileFailing(tableName) {
+		await friendGame("game1", "alice", "bob");
+		for (const [who, from, to] of [[alice, "f2", "f3"], [bob, "e7", "e5"], [alice, "g2", "g4"]]) { await call("POST", "/games/game1/move", { as: who, body: { from, to } }); }
+		const before = peek("chess_db", "game1");
+		const updateItem = DynamoDB.prototype.updateItem;
+		DynamoDB.prototype.updateItem = async (params) => {
+			if (params.TableName == tableName) { throw Object.assign(new Error("Throughput exceeds the current capacity"), { name: "ProvisionedThroughputExceededException" }); }
+			return updateItem(params);
+		};
+		try {
+			return { response: await call("POST", "/games/game1/move", { as: bob, body: { from: "d8", to: "h4" } }), before };
+		} finally {
+			DynamoDB.prototype.updateItem = updateItem;
+		}
+	}
+
+	test("a closing move whose write fails saves nothing, and the retry closes the game", async () => {
+		const { response, before } = await mateWhileFailing("chess_db");
+		assert.equal(response.http, 500); // THE CHESS SERVER TELLS THE PLAYER TO TRY AGAIN
+		assert.deepEqual(peek("chess_db", "game1"), before);
+
+		const retry = await call("POST", "/games/game1/move", { as: bob, body: { from: "d8", to: "h4" } });
+		assert.equal(retry.game_data.state.S, "CLOSED");
+		assert.equal(Number(peek("user_db", "bob").rating.N), 1520);
+	});
+
+	test("a closing move stays closed when the work after it fails", async () => {
+		const { response } = await mateWhileFailing("user_db");
+		assert.equal(response.http, 200);
+		assert.equal(response.game_data.state.S, "CLOSED");
+		const stored = peek("chess_db", "game1");
+		assert.equal(stored.state.S, "CLOSED");
+		assert.equal(stored.game_board.S, response.game_data.game_board.S);
+		assert.equal((await db.pruneOpenGames((await db.retrieveUser("alice")).user_data)).friend_game_id, null); // THE STALE LIST ENTRY ISN'T AN OPEN GAME
 	});
 
 	test("a promotion is saved as the piece picked", async () => {

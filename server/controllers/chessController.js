@@ -305,14 +305,13 @@ async function rematchGame(req, res) {
 	if (!playerId) { return notInGame(req, res); }
 	if (isAiGame(gameData)) { return res.json({ status: 500, message: "AI games restart instead" }); }
 	if (gameOpen(gameData) || gamePending(gameData)) { return res.json({ status: 500, message: "Game isn't over yet" }); }
-	if (gameData.rematch_game_id) { return res.json({ status: 200, new_game_id: gameData.rematch_game_id.S, message: "Rematch started" }); }
 
 	const pressed = await ifSaved(() => rematch(gameId), () => savedRematch(gameId, playerId)); // THE DATA SERVICE: BOTH PRESSES WITHIN 1 MINUTE, NEITHER PLAYER IN ANOTHER FRIEND GAME, THE NEW GAME WITH THE INVITER'S PICK
 	if (pressed.status == 409) { return res.json({ status: 409, message: pressed.message }); } // ONE FRIEND GAME AT A TIME
 	if (pressed.waiting) { return res.json({ status: 200, waiting: true, expires_in: pressed.expires_in, message: pressed.message }); } // FIRST PRESS
 	if (!pressed.new_game_id) { return res.json({ status: 500, message: pressed.message || "Rematch failed" }); }
 
-	if (pressed.game_data) { // THIS PRESS STARTED IT
+	if (pressed.game_data) { // THE REMATCH IS OPEN: A PRESS AFTER A FAILED ONE IS THE FIRST THE OTHER BOARD HEARS OF IT
 		emitToGame(gameId, "rematch", { game_id: gameId, new_game_id: pressed.new_game_id }); // BOTH BOARDS LOAD THE NEW GAME
 		notifyHome(pressed.game_data);
 		for (let i = 0; i < pressed.dropped_invites.length; i++) { notifyHome(pressed.dropped_invites[i]); } // THEY'RE BOTH IN A FRIEND GAME NOW, THEIR SENT INVITES ARE CANCELLED

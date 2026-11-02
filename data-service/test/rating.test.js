@@ -6,8 +6,9 @@
  */
 
 require("./helpers/env.js");
-const { test, describe, beforeEach } = require("node:test");
+const { test, describe, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
+const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const fakeDynamo = require("./helpers/fakeDynamo.js");
 fakeDynamo.install();
 const db = require("../dynamoDB.js");
@@ -102,5 +103,47 @@ describe("rateGame", () => {
 		assert.deepEqual(rating("alice"), { rating: 1480, rated_games: 1 });
 		assert.equal(ratings.b, null);
 		assert.deepEqual(JSON.parse(fakeDynamo.peek("chess_db", "game1").ratings.S).w, { before: 1500, after: 1480 });
+	});
+
+	for (const key of ["alice", "bob", "game1"]) {
+		test(`a failed write on ${key} changes neither rating, nor the game`, async () => {
+			const game = await closedFriendGame("game1", "alice", "bob");
+			fakeDynamo.failTransactionWrite(key);
+			await assert.rejects(db.rateGame(game, "w"), /Rating save failed/);
+			assert.equal(rating("alice"), null);
+			assert.equal(rating("bob"), null);
+			assert.equal(fakeDynamo.peek("chess_db", "game1").ratings, undefined);
+		});
+	}
+
+	test("a failed rating still closes the game & logs a line to alarm on", async () => {
+		const game = await closedFriendGame("game1", "alice", "bob");
+		fakeDynamo.failTransactionWrite("bob");
+		const logged = mock.method(console, "log", () => {});
+		const closed = await db.closeGame(game, "w", "forfeit");
+		const lines = logged.mock.calls.map((call) => call.arguments[0]);
+		logged.mock.restore();
+		assert.equal(closed.status, 200);
+		assert.equal(fakeDynamo.peek("chess_db", "game1").state.S, "CLOSED");
+		assert.equal(rating("alice"), null);
+		assert.ok(lines.some((line) => /^RATING FAILED game1: /.test(line)));
+	});
+
+	test("a second rateGame on the same game changes nothing & returns the saved ratings", async () => {
+		const game = await closedFriendGame("game1", "alice", "bob");
+		const first = await db.rateGame(game, "w");
+		const second = await db.rateGame(game, "b");
+		assert.deepEqual(second, first);
+		assert.deepEqual(rating("alice"), { rating: 1520, rated_games: 1 });
+		assert.deepEqual(rating("bob"), { rating: 1480, rated_games: 1 });
+	});
+
+	test("a game list save that meets a rating transaction on the row reads it again, it doesn't throw", async () => {
+		fakeDynamo.signIn("alice");
+		const row = fakeDynamo.peek("user_db", "alice");
+		const conflict = mock.method(DynamoDB.prototype, "updateItem", async () => { throw Object.assign(new Error("Transaction is ongoing for the item"), { name: "TransactionConflictException" }); });
+		const saved = await db.updateUser(row, { requested_games: [], open_games: ["game1"], closed_games: [] });
+		conflict.mock.restore();
+		assert.equal(saved.status, 500);
 	});
 });
