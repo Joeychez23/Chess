@@ -38,6 +38,11 @@ const CLIENT_ERROR_LIMITS = { // BROWSER ERROR REPORTS BECOME LOG LINES, SO A LO
 	clientErrorIp: { burst: 10, refillMs: 30 * 1000 }, // AN IP (IPv6: ITS /64): 10 AT ONCE, THEN 1 EVERY 30 SECONDS
 	clientErrorSite: { burst: 60, refillMs: 2 * 1000 }, // EVERYONE: 60 AT ONCE, THEN 1 EVERY 2 SECONDS
 };
+const SEARCH_LIMITS = { // PLAYER SEARCH AS YOU TYPE, username-search HAS 5 READ UNITS (ABOUT 10 SEARCHES A SECOND)
+	searchSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER: 20 AT ONCE, THEN 1 A SECOND
+	searchIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
+	searchSite: { burst: 50, refillMs: 200 }, // EVERYONE: 50 AT ONCE, THEN 5 A SECOND
+};
 const MAX_KEYS = 100000; // BUCKETS KEPT PER LIMIT, FULL ONES ARE DROPPED FIRST
 const LOG_EVERY = 60 * 1000; // A KEY THAT KEEPS HITTING ITS LIMIT IS LOGGED ONCE A MINUTE
 
@@ -154,13 +159,30 @@ function limitClientErrors(req, res, next) {
 }
 
 /* ---------------------------------------------------------------- */
+// Limit Player Search
+/* ---------------------------------------------------------------- */
+/**
+ * @description Middleware for GET /api/user/search. Runs after requireAuth, with its own buckets so searches never use up new games.
+ * Answers 429 with Retry-After when a limit is hit
+ */
+function limitPlayerSearch(req, res, next) {
+	const keys = { searchSession: `user:${req.user.user_id}`, searchIp: ipKey(req.ip), searchSite: "all" };
+	const result = takeTokens(keys, Date.now(), SEARCH_LIMITS);
+	if (result.ok) { return next(); }
+	const seconds = Math.ceil(result.retryMs / 1000);
+	if (result.log) { console.log(`Player search limit (${result.limit}: ${keys[result.limit]}), retry in ${seconds}s`); }
+	res.set("Retry-After", String(seconds));
+	return res.status(429).json({ status: 429, message: `Too many searches, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
+}
+
+/* ---------------------------------------------------------------- */
 // Take Tokens
 /* ---------------------------------------------------------------- */
 /**
  * @description Takes one token from each key's bucket, or none if any of them is empty (so a refused request costs nothing)
- * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail }, { forgotIp, forgotEmail } or { aiMoveSession (optional), aiMoveIp }]
+ * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail }, { forgotIp, forgotEmail }, { aiMoveSession (optional), aiMoveIp } or { searchSession, searchIp, searchSite }]
  * @param  {[number]} now [epoch ms]
- * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS or CLIENT_ERROR_LIMITS]
+ * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS or SEARCH_LIMITS]
  * @return {[object]} result [{ ok: true } | { ok: false, limit (the empty one), retryMs (until it has a token), log (first refusal this minute) }]
  */
 function takeTokens(keys, now, limits = LIMITS) {
@@ -200,7 +222,7 @@ function refill(limit, key, now, limits) {
  * @description Drops the buckets that have filled up again (the same as a new one), then the oldest if a limit still has too many
  */
 function sweep(now) {
-	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS]) {
+	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS]) {
 		for (const limit of Object.keys(limits)) {
 			const map = buckets[limit];
 			if (!map) { continue; }
@@ -244,4 +266,4 @@ function resetLimits() {
 }
 
 
-module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitClientErrors, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS };
+module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitClientErrors, limitPlayerSearch, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS };

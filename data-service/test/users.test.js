@@ -199,3 +199,81 @@ describe("POST /users/me/delete", () => {
 		await refused(["alice"], "POST", "/users/me/delete", { as: alice, body: { user_id: "bob" } }, 400);
 	});
 });
+
+/* ---------------------------------------------------------------- */
+// Search Usernames
+/* ---------------------------------------------------------------- */
+
+describe("GET /users/search", () => {
+	const claim = (who, username) => call("POST", "/users/me/username", { as: who, body: { username } });
+
+	test("finds names by their start in any capitals, sorted, names only", async () => {
+		await claim(bob, "Bobby");
+		await claim(player("carol"), "bo_Peep");
+		await claim(player("dan"), "Alice");
+		const found = await call("GET", "/users/search?prefix=BO", { as: alice });
+		assert.equal(found.status, 200);
+		assert.deepEqual(found.usernames, ["bo_Peep", "Bobby"]);
+		assert.deepEqual(Object.keys(found).sort().filter((key) => key != "http"), ["message", "status", "usernames"]);
+	});
+
+	test("the index holds the name but never who owns it", async () => {
+		await claim(bob, "Bobby");
+		const claimed = peek("user_db", "username#bobby");
+		assert.equal(claimed.search_group.S, "all");
+		assert.equal(claimed.search_name.S, "bobby");
+		assert.deepEqual(await new DynamoDB({}).query({
+			TableName: "user_db", IndexName: "username-search", KeyConditionExpression: "search_group = :all AND begins_with(search_name, :prefix)",
+			ProjectionExpression: "username", ExpressionAttributeValues: { ":all": { S: "all" }, ":prefix": { S: "bob" } }, Limit: 10
+		}), { Items: [{ username: { S: "Bobby" } }], Count: 1 });
+	});
+
+	test("shows at most 10 names", async () => {
+		for (let i = 0; i < 12; i++) { await claim(player(`p${i}`), `same${String(i).padStart(2, "0")}`); }
+		const found = await call("GET", "/users/search?prefix=same", { as: alice });
+		assert.equal(found.usernames.length, 10);
+		assert.equal(found.usernames[0], "same00");
+	});
+
+	test("a rename and Delete my data leave the search, new capitals show", async () => {
+		await claim(bob, "Bobby");
+		await claim(bob, "BOBBY");
+		assert.deepEqual((await call("GET", "/users/search?prefix=bo", { as: alice })).usernames, ["BOBBY"]);
+		await claim(bob, "Robert");
+		assert.deepEqual((await call("GET", "/users/search?prefix=bo", { as: alice })).usernames, []);
+		assert.deepEqual((await call("GET", "/users/search?prefix=ro", { as: alice })).usernames, ["Robert"]);
+		await call("POST", "/users/me/delete", { as: bob });
+		assert.deepEqual((await call("GET", "/users/search?prefix=ro", { as: alice })).usernames, []);
+	});
+
+	test("a start too short or impossible finds nobody, player rows are never found", async () => {
+		await claim(bob, "Bobby");
+		for (const prefix of ["b", "", "bo%20b", "username%23"]) {
+			assert.deepEqual((await call("GET", `/users/search?prefix=${prefix}`, { as: alice })).usernames, []);
+		}
+		assert.deepEqual((await call("GET", "/users/search?prefix=al", { as: alice })).usernames, []); // alice HAS A ROW BUT NO NAME
+	});
+
+	test("guests are refused", async () => {
+		const refusal = await call("GET", "/users/search?prefix=bo", { guest: "guest1" });
+		assert.equal(refusal.status, 403);
+		assert.equal(refusal.usernames, undefined);
+	});
+
+	test("the backfill makes names claimed before the index findable, and skips a name freed since", async () => {
+		const { backfill } = require("../scripts/backfillUsernameSearch.js");
+		const updates = [];
+		const connection = {
+			scan: async ({ ExclusiveStartKey }) => (ExclusiveStartKey
+				? { Items: [{ user_id: { S: "username#gone" }, username: { S: "Gone" } }] }
+				: { Items: [{ user_id: { S: "username#bobby" }, username: { S: "Bobby" } }], LastEvaluatedKey: { user_id: { S: "username#bobby" } } }),
+			updateItem: async (params) => {
+				if (params.Key.user_id.S == "username#gone") { throw Object.assign(new Error("failed"), { name: "ConditionalCheckFailedException" }); }
+				updates.push(params);
+			}
+		};
+		assert.deepEqual(await backfill(connection), { updated: 1, skipped: 1 });
+		assert.equal(updates[0].ExpressionAttributeValues[":search_name"].S, "bobby");
+		assert.equal(updates[0].ConditionExpression, "attribute_exists(owner_id)");
+	});
+});

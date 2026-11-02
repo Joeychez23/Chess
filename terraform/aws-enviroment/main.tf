@@ -16,7 +16,7 @@ terraform {
 
 module "cloudfront_module" {
   source           = "../modules/cloudfront"
-  aws_region 	   	 = "us-west-2"
+  aws_region       = "us-west-2"
   s3_name          = local.s3_name
   root_domain_name = local.root_domain_name
   domain_name      = local.domain_name
@@ -45,6 +45,7 @@ module "data_service_module" {
   private_ip               = local.data_service_ip
   key_name                 = local.key_name
   table_arns               = module.dynamodb_module.table_arns
+  username_index_arn       = module.dynamodb_module.username_index_arn
   maintenance              = var.maintenance
 }
 

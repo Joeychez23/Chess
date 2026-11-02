@@ -235,3 +235,30 @@ describe("names friends see", () => {
 		assert.equal((await call("GET", `/api/chess/game/${rematch.new_game_id}`, { as: bob })).opponent_name, "Alice"); // HER SCREENNAME
 	});
 });
+
+describe("player search", () => {
+	test("finds usernames by their start, in any capitals, with no email or Auth0 id", async () => {
+		const alice = player("alice");
+		const bob = player("bob");
+		await pick(bob, "Bobby");
+		const found = await call("GET", "/api/user/search?q=BOB", { as: alice });
+		assert.equal(found.http, 200);
+		assert.deepEqual(found.usernames, ["Bobby"]);
+		const { http, retry_after, ...body } = found;
+		assert.deepEqual(body, { status: 200, usernames: ["Bobby"] });
+		assert.ok(!JSON.stringify(body).includes("@") && !JSON.stringify(body).includes("auth0"));
+	});
+
+	test("a search that can't match asks nobody and finds nobody", async () => {
+		const alice = player("alice");
+		for (const q of ["b", "no%20spaces", "a@b.c"]) {
+			assert.deepEqual((await call("GET", `/api/user/search?q=${q}`, { as: alice })).usernames, []);
+		}
+	});
+
+	test("signed out is refused", async () => {
+		const refused = await call("GET", "/api/user/search?q=bob");
+		assert.equal(refused.http, 401);
+		assert.equal(refused.usernames, undefined);
+	});
+});

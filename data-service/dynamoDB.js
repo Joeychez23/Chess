@@ -15,7 +15,7 @@ const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
-const { usernameKey } = require("./utils/username.js");
+const { usernameKey, searchFields } = require("./utils/username.js");
 const { newGameId } = require("./utils/games.js");
 const config = require("./config");
 
@@ -23,6 +23,9 @@ const connection = new DynamoDB({ region: config.dynamoRegion }); // DYNAMODB_RE
 
 const CHESS_TABLE = "chess_db"; // KEY: game_id (S), NAMES MATCH terraform/aws-enviroment/locals.tf
 const USER_TABLE = "user_db"; // KEY: user_id (S), PLAYERS' ROWS & THE username#<name> ITEMS THAT HOLD EACH USERNAME (claimUsername)
+
+const USERNAME_INDEX = "username-search"; // username#<name> ITEMS BY NAME IN LOWERCASE, MATCHES terraform/modules/dynamodb
+const SEARCH_RESULTS = 10; // NAMES ONE SEARCH SHOWS
 
 const GAME_TTL = 60 * 60 * 24 * 25; // GAMES EXPIRE 25 DAYS AFTER THE LAST MOVE (SECONDS)
 
@@ -802,11 +805,13 @@ async function claimUsername(userId, username) {
 				Key: {
 					user_id: { S: claimKey }
 				},
-				UpdateExpression: 'SET username = :username',
+				UpdateExpression: 'SET username = :username, search_group = :search_group, search_name = :search_name',
 				ConditionExpression: 'owner_id = :owner_id',
 				ExpressionAttributeValues: {
 					":username": { S: username },
-					":owner_id": { S: userId }
+					":owner_id": { S: userId },
+					":search_group": searchFields(username).search_group,
+					":search_name": searchFields(username).search_name
 				}
 			}
 		} : {
@@ -815,7 +820,8 @@ async function claimUsername(userId, username) {
 				Item: {
 					user_id: { S: claimKey },
 					owner_id: { S: userId }, // WHO HOLDS IT
-					username: { S: username } // AS THEY WROTE IT
+					username: { S: username }, // AS THEY WROTE IT
+					...searchFields(username) // FINDABLE BY searchUsernames
 				},
 				ConditionExpression: 'attribute_not_exists(user_id)' // NOBODY HAS IT
 			}
@@ -1112,4 +1118,28 @@ async function findUsername(username) {
 	return { status: 200, player_id: response.Item.owner_id.S, username: response.Item.username.S, message: "Username found" };
 }
 
-module.exports = { findUsername, checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+/* ---------------------------------------------------------------- */
+// Search usernames (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The usernames starting with a prefix, from the username-search index. The index only holds the names, never who owns them.
+ * Index reads can lag a moment behind a save
+ * @param  {[string]} prefix [in lowercase, from readSearchPrefix in utils/username.js]
+ * @return {[object]} response [{ status: 200, usernames (as they wrote them, sorted, at most SEARCH_RESULTS), message }]
+ */
+async function searchUsernames(prefix) {
+	const response = await connection.query({
+		TableName: USER_TABLE,
+		IndexName: USERNAME_INDEX,
+		KeyConditionExpression: 'search_group = :search_group AND begins_with(search_name, :prefix)',
+		ProjectionExpression: 'username',
+		ExpressionAttributeValues: {
+			":search_group": searchFields(prefix).search_group,
+			":prefix": { S: prefix }
+		},
+		Limit: SEARCH_RESULTS
+	});
+	return { status: 200, usernames: (response.Items || []).map((item) => item.username.S), message: "Usernames found" };
+}
+
+module.exports = { findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

@@ -84,6 +84,7 @@ which doesn't start an Auth0 session, so there's no Auth0 login page or logout.
 | `GET /api/user` | The signed-in user, and `username` from their `user_db` row (`null` until they pick one), or `401` |
 | `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w` or `b` is `random`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
 | `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
+| `GET /api/user/search?q=` | Home's player search: up to 10 usernames starting with `q` (2 or more characters), in any capitals, as `{ usernames }`. Never an email or Auth0 id. `429` with `Retry-After` when a limit is hit (`SEARCH_LIMITS` in `middleware/rateLimit.js`) |
 | `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, then deletes your `user_db` row and frees your username. Your games stay in `chess_db`, and your next sign-in starts a new row |
 
 The session is two JWTs in httpOnly cookies: an access token (15 minutes)

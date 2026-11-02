@@ -10,8 +10,8 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, pruneOpenGames, pruneInvites, updateUserSettings, claimUsername, findUsername, deleteUser } = require("../dynamoDB.js");
-const { checkUsername } = require("../utils/username.js");
+const { retrieveUser, pruneOpenGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser } = require("../dynamoDB.js");
+const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { readAiLevel, isColor } = require("../utils/games.js");
 const { currentGame } = require("./gameController.js");
 const { refuse } = require("../utils/refuse.js");
@@ -84,6 +84,20 @@ async function findByUsername(req, res) {
 }
 
 /* ---------------------------------------------------------------- */
+// Search Usernames (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The usernames starting with what was typed, ignoring capitals. Names only, never who holds them
+ * @param  {[string]} req.query.prefix [the start of a name, nothing is found for one no name could start with]
+ * @return {[object]} response [{ status: 200, usernames, message }]
+ */
+async function searchByUsername(req, res) {
+	const prefix = readSearchPrefix(req.query.prefix);
+	if (!prefix) { return res.json({ status: 200, usernames: [], message: "Nothing to search for" }); }
+	return res.json(await searchUsernames(prefix));
+}
+
+/* ---------------------------------------------------------------- */
 // Delete My Data (POST)
 /* ---------------------------------------------------------------- */
 /**
@@ -103,4 +117,4 @@ async function deleteMe(req, res) {
 }
 
 
-module.exports = { getMe, saveSettings, saveUsername, findByUsername, deleteMe };
+module.exports = { getMe, saveSettings, saveUsername, findByUsername, searchByUsername, deleteMe };

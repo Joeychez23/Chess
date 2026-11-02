@@ -279,9 +279,14 @@ const claimUsername = (username) => call("POST", "/users/me/username", { usernam
 const findUsername = (username) => call("GET", `/users/named/${encodeURIComponent(username)}`);
 
 /**
+ * @description The usernames starting with a prefix, { status: 200, usernames }, names only
+ */
+const searchUsernames = (prefix) => call("GET", `/users/search?prefix=${encodeURIComponent(prefix)}`);
+
+/**
  * @description Deletes the requester's row & frees their username, once they've left every game (leaveAllGames)
  */
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

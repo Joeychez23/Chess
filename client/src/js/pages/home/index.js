@@ -16,12 +16,14 @@ import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
-const { validate, newAiGame, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
+const { validate, newAiGame, getUserGameData, initMultiplayerGame, searchPlayers, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { startNav, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
+const USER_URL = "/api/user"; // server/routes/api/userRoutes.js
+const SEARCH_DELAY = 250; // MS AFTER THE LAST KEY BEFORE A PLAYER SEARCH, SO A NAME TYPED QUICKLY IS ONE OR TWO SEARCHES
 
 const signedInAs = document.getElementById("signedInAs"); // "SIGNED IN // EMAIL"
 const welcome = document.getElementById("welcome"); // "WELCOME BACK, USERNAME"
@@ -35,6 +37,8 @@ const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEIT
 const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND
 const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: EMAIL & INVITE
 const multiEmailInput = document.getElementById("enterMultiEmail");
+const playerResults = document.getElementById("playerResults"); // USERNAMES STARTING WITH WHAT WAS TYPED, PRESSING ONE FILLS THE FIELD
+const playerSearchNote = document.getElementById("playerSearchNote"); // NOBODY FOUND, OR WHY THE SEARCH FAILED
 const multiEmailBtn = document.getElementById("enterMultiSubmit");
 const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
 const friendFenInput = document.getElementById("friendFen"); // START POSITION (FEN) FOR THE INVITE, BLANK = THE STANDARD POSITION
@@ -59,6 +63,8 @@ let FRIEND_NAME = "Friend"; // ITS OPPONENT, FOR THE FORFEIT WARNINGS
 let SENT_INVITE_ID = null; // THE PLAYER'S SENT INVITE (ONE AT A TIME)
 let confirmInvite = false; // INVITE NEEDS A SECOND PRESS WHILE A FRIEND GAME IS OPEN, IT FORFEITS THAT ONE
 let confirmAccept = null; // THE INVITE WHOSE ACCEPT WAS PRESSED ONCE WHILE A FRIEND GAME IS OPEN (SAME WARNING)
+let searchTimer = null; // THE PLAYER SEARCH WAITING FOR SEARCH_DELAY
+let searchTurn = 0; // A NEWER KEY PRESS MAKES AN OLDER SEARCH'S ANSWER STALE
 let homeDrawing = Promise.resolve(); // ONE REDRAW AT A TIME (refreshHome)
 let SETTINGS = null; // THE PLAYER'S DEFAULT START SETTINGS (THE SETTINGS PAGE), THE DROPDOWNS START ON THEM
 
@@ -68,6 +74,7 @@ preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OP
 startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
 muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE EMAIL FIELD
+multiEmailInput.addEventListener("input", handlePlayerSearch);
 cancelInviteBtn.addEventListener("click", handleCancelInvite);
 
 startHome();
@@ -278,6 +285,64 @@ function validateEmail(email) {
 };
 
 /**
+ * @description Searches for players as a username is typed, once the keys stop for SEARCH_DELAY. An email isn't searched
+ */
+function handlePlayerSearch() {
+	clearPlayerSearch();
+	const prefix = multiEmailInput.value.trim();
+	if (!/^[A-Za-z0-9_-]{2,20}$/.test(prefix)) { return; } // server/utils/username.js readSearchPrefix
+	const turn = searchTurn;
+	searchTimer = setTimeout(() => showPlayers(prefix, turn), SEARCH_DELAY);
+}
+
+/**
+ * @description Asks for the usernames & lists them under the field, unless another key was pressed since
+ * @param  {[string]} prefix [what was typed]
+ * @param  {[number]} turn [searchTurn when it was typed]
+ */
+async function showPlayers(prefix, turn) {
+	const response = await searchPlayers(USER_URL, prefix);
+	if (turn != searchTurn) { return; }
+	if (response?.status == 429) { return playerSearchNote.innerText = response.message; }
+	if (response?.status != 200) { return playerSearchNote.innerText = "Couldn't search for players, try again"; }
+	if (!response.usernames.length) { return playerSearchNote.innerText = "No players found"; }
+	playerResults.replaceChildren(...response.usernames.map(playerResult));
+	playerResults.hidden = false;
+	playerSearchNote.innerText = `${response.usernames.length} player${response.usernames.length == 1 ? "" : "s"} found`;
+}
+
+/**
+ * @description One found player: pressing it fills the field, ready for Invite
+ * @param  {[string]} username [as they wrote it]
+ * @return {[element]} item [the list item]
+ */
+function playerResult(username) {
+	const item = document.createElement("li");
+	const button = document.createElement("button");
+	button.type = "button";
+	button.className = "btn btnLine";
+	button.textContent = username;
+	button.addEventListener("click", () => {
+		multiEmailInput.value = username;
+		clearPlayerSearch();
+		multiEmailInput.focus();
+	});
+	item.append(button);
+	return item;
+}
+
+/**
+ * @description Clears the found players & cancels a search still waiting or on its way
+ */
+function clearPlayerSearch() {
+	clearTimeout(searchTimer);
+	searchTurn++;
+	playerResults.replaceChildren();
+	playerResults.hidden = true;
+	playerSearchNote.innerText = "";
+}
+
+/**
  * @description Checks what was typed could be a username (server/utils/username.js has the full rules) before the invite is sent
  * @param  {[string]} username [what was typed]
  * @return {[boolean]} valid
@@ -293,6 +358,7 @@ function validateUsername(username) {
 async function handleMultiSubmit(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	clearPlayerSearch();
 	const opponent = multiEmailInput.value.trim();
 	if (!validateEmail(opponent) && !validateUsername(opponent)) { return multiNote.innerText = "Enter a username or email"; }
 	if (FRIEND_GAME_ID && !confirmInvite) { // FIRST PRESS

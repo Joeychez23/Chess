@@ -8,9 +8,9 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, updateUserSettings, claimUsername, deleteUser } = require("../dataClient.js");
+const { retrieveUser, updateUserSettings, claimUsername, searchUsernames, deleteUser } = require("../dataClient.js");
 const { leaveAllGames, readSettings, userPlayerId } = require("./chessController.js");
-const { checkUsername } = require("../utils/username.js");
+const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { disconnectPlayer } = require("../socket.js");
 
 /* ---------------------------------------------------------------- */
@@ -56,6 +56,21 @@ async function saveUsername(req, res) {
 }
 
 /* ---------------------------------------------------------------- */
+// Search Players (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Home's player search as you type: the usernames starting with what was typed, ignoring capitals. Names only, never an email or Auth0 id
+ * @param  {[string]} req.query.q [at least 2 characters a username can have, anything else finds nobody]
+ * @return {[object]} response [{ status: 200, usernames (at most 10, sorted) }]
+ */
+async function searchPlayers(req, res) {
+	const prefix = readSearchPrefix(req.query.q);
+	if (!prefix) { return res.json({ status: 200, usernames: [] }); }
+	const response = await searchUsernames(prefix);
+	return res.status(response.status).json({ status: response.status, usernames: response.usernames || [] });
+}
+
+/* ---------------------------------------------------------------- */
 // Delete User Data (DELETE)
 /* ---------------------------------------------------------------- */
 /**
@@ -72,4 +87,4 @@ async function deleteUserData(req, res) {
 }
 
 
-module.exports = { getUser, saveSettings, saveUsername, deleteUserData };
+module.exports = { getUser, saveSettings, saveUsername, deleteUserData, searchPlayers };

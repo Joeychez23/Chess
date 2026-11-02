@@ -287,6 +287,20 @@ export async function saveUsername(userUrl, username) {
 }
 
 /**
+ * @description The usernames starting with what was typed (GET /api/user/search), names only
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @param  {[string]} prefix [what was typed]
+ * @return {[object]} response [{ status: 200, usernames } | { status: 429, message }]
+ */
+export async function searchPlayers(userUrl, prefix) {
+	try {
+		return await request(`${userUrl}/search?q=${encodeURIComponent(prefix)}`, { method: "GET" })
+	} catch {
+		return
+	}
+}
+
+/**
  * @description Delete my data (DELETE /api/user): the server forfeits the open games, cancels & declines the invites, then deletes the user_db row
  * @param  {[string]} userUrl [user api, "/api/user"]
  * @return {[object]} response [{ status, message }]
