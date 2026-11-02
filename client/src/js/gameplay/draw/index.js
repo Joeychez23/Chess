@@ -102,6 +102,25 @@ export function handleInitialData() {
 }
 
 /* ---------------------------------------------------------------- */
+// Last Move Highlight
+/* ---------------------------------------------------------------- */
+/**
+ * @description Tints the from & to squares of the opponent's last move (game.lastOpponentMove), it stays until their next move lands
+ */
+function drawLastMove() {
+	const lastMove = game.lastOpponentMove || [];
+	ctx.globalAlpha = 0.30;
+	for (let s = 0; s < lastMove.length; s++) {
+		const column = lastMove[s].charCodeAt(0) - 97; // a FILE IS 0
+		const rank = Number(lastMove[s][1]);
+		const x = game.viewColor == 'b' ? 7 - column : column; // FLIPPED BOARD: h1 IS 0, 0
+		const y = game.viewColor == 'b' ? rank - 1 : 8 - rank;
+		ctx.drawImage(images[checkHighlight].image, (x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
+	}
+	ctx.globalAlpha = 1.00;
+}
+
+/* ---------------------------------------------------------------- */
 // Renders Data Game Instance data
 /* ---------------------------------------------------------------- */
 /**
@@ -154,6 +173,8 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			break;
 		}
 	}
+
+	drawLastMove(); // BEFORE THE LOOP SO IT'S UNDER EVERY PIECE, REFLECTION & SHADOW
 
 	for (let i = 0; i < inst.length; i++) { // ROW
 		for (let j = 0; j < inst[i].length; j++, index++) { // COLUMN

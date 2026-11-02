@@ -13,7 +13,7 @@
 const { game, chessInst, validateState, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
 const { validate } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
-const { setTiles, countStartPieces } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH
+const { setTiles, countStartPieces, lastMoveBy } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH, A SIDE'S LAST MOVE
 const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
 const { showGameOver, openMenu } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), OPENS THE MENU
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
@@ -44,6 +44,7 @@ export async function setInitialData() {
 		game.opponentColor = game.response?.opponent_color || false;
 		chessInst.load(game.response.game_board); // THE BOARD TO DRAW
 		game.startPieceCount = countStartPieces(game.response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
+		setLastOpponentMove();
 		if (game.response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 			game.ai = game.response.ai;
 			showGameOver(game.response);
@@ -75,6 +76,18 @@ export async function setInitialData() {
 		showStatus("server", "The game couldn't be loaded. Reload the page to try again.");
 		return false;
 	}
+}
+
+/**
+ * @description Finds the opponent's last move for its highlight when a game loads (a new game has none, so Restart & Rematch clear it).
+ * prev_move can't say: it's the player's when they moved last. moves only has SAN, so they're played on the scratch board
+ */
+function setLastOpponentMove() {
+	try {
+		const startFen = game.response.start_params?.fen;
+		if (startFen) { validateState.load(startFen); } else { validateState.reset(); }
+		game.lastOpponentMove = lastMoveBy(validateState, game.response.moves || [], game.response.opponent_color);
+	} catch (err) { console.log(err); game.lastOpponentMove = null; } // ONLY THE HIGHLIGHT IS MISSING, THE GAME STILL OPENS
 }
 
 /* ---------------------------------------------------------------- */
@@ -389,6 +402,7 @@ export async function updateOpponentStateSlide(index) {
 		}
 		chessInst.load(savedGame.game_board); // UPDATE BOARD
 		game.response = savedGame;
+		game.lastOpponentMove = [game.moveObj.from, game.moveObj.to];
 		clearStatus("server");
 		game.currSlide = false;
 

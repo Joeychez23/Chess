@@ -34,3 +34,23 @@ export function countStartPieces(fen) {
 	}
 	return counts;
 }
+
+
+/* ---------------------------------------------------------------- */
+// lastMoveBy()
+/* ---------------------------------------------------------------- */
+/**
+ * @description Plays a game's saved moves to find one side's last move
+ * @param  {[object]} board [chess.js board at the game's start position, its moves get played]
+ * @param  {[array]} moves [the game's SAN moves]
+ * @param  {[string]} color ['w' | 'b']
+ * @return {[array]} [from, to], null when that side hasn't moved
+ */
+export function lastMoveBy(board, moves, color) {
+	let last = null;
+	for (let i = 0; i < moves.length; i++) {
+		const move = board.move(moves[i]); // THROWS IF IT'S NOT LEGAL
+		if (move.color == color) { last = [move.from, move.to]; }
+	}
+	return last;
+}
