@@ -90,7 +90,7 @@ npm ci                                                         # client (Webpack
 Before starting, in the `.env` files:
 
 - Set `CLIENT_URL=http://localhost:3002/` in `server/.env`, or login and logout
-  send you back to :3001.
+  are refused as coming from another site.
 - Set the same `DATA_SERVICE_SECRET` in `server/.env` and `data-service/.env`
   (the command to make one is in `data-service/.env.example`).
 - Make the session key pair: `SESSION_PRIVATE_KEY` in `data-service/.env`,

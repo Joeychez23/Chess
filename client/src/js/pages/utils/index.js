@@ -62,7 +62,7 @@ export function startLogoutButtons(auth) {
 			e.preventDefault();
 			if (btn.disabled) { return; }
 			btn.disabled = true;
-			auth.logout(); // POST /api/auth/logout, THEN AUTH0'S LOGOUT & BACK TO THE GUEST PAGE
+			auth.logout(); // POST /api/auth/logout, THEN THE GUEST PAGE
 		});
 	});
 }
@@ -156,7 +156,7 @@ export function colorText(playerColor, startParams) {
 // Loading
 /* ---------------------------------------------------------------- */
 /**
- * @description Every way into a game (Play AI, Accept, Continue current game & Your games) & Home on Game not found: it says Loading & fills up
+ * @description Every way into a game (Play AI, Accept, Continue current game & Your games), Home on Game not found & the login & signup buttons: it says Loading & fills up
  * from the left (--load, .loading in nav.css) as the game's images load, preloadImages() started them when the page opened. The last 10% is the server
  * (new game, accept), goToPage() fills it & goes to the page. stopLoading() puts it back if it didn't go through
  * @param  {[object]} btn [the button or link pressed]
@@ -176,15 +176,16 @@ export function startLoading(btn) {
 /**
  * @description Goes to the page once the game's images are in (or after 8 seconds, an image that failed never counts), the fill finishes first.
  * The next page keeps this page on screen until it's drawn, then fades into it (play.html, home.html, guest.html)
- * @param  {[string]} href [/play/:gameId (signed in), /play (guest) or / (Home)]
+ * @param  {[string]} href [/play/:gameId (signed in), /play (guest), / (Home) or the returnTo after signing in]
+ * @param  {[boolean]} replace [true: Back skips this page (signing in)]
  */
-export function goToPage(href) {
+export function goToPage(href, replace) {
 	const openCheck = setInterval(function () {
 		if (imageProgress() < 1 && Date.now() - loadingStartTime < 8000) { return; } // STILL LOADING
 		clearInterval(openCheck);
 		clearInterval(loadingCheck);
 		if (loadingBtn) { loadingBtn.style.setProperty("--load", 1); }
-		setTimeout(function () { window.location.href = href; }, 200); // THE FILL REACHES THE END FIRST (200MS IN nav.css)
+		setTimeout(function () { if (replace) { window.location.replace(href); } else { window.location.href = href; } }, 200); // THE FILL REACHES THE END FIRST (200MS IN nav.css)
 	}, 50);
 }
 
@@ -202,12 +203,12 @@ export function stopLoading() {
 }
 
 /**
- * @description Continue current game & the games in Your games load like Play AI (Home & guest). Clicks that open a new tab (cmd, ctrl, shift,
+ * @description Continue current game, the games in Your games (Home & guest) & the links between login & signup load like Play AI. Clicks that open a new tab (cmd, ctrl, shift,
  * middle) open as usual. Back from the game can show this page as it was left (the browser keeps it), so the button is put back
  */
 export function startGameLinks() {
 	document.addEventListener("click", function (e) {
-		const link = e.target.closest("a.continueGame, #gameList a");
+		const link = e.target.closest("a.continueGame, #gameList a, a.keepReturnTo");
 		if (!link || e.button != 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { return; }
 		e.preventDefault();
 		startLoading(link);

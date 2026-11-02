@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en" class="loadingPage"> <!-- loadingPage: THE LAST PAGE STAYS ON SCREEN UNTIL THIS PAGE IS DRAWN (showPage() REMOVES IT) -->
+
+<head>
+	<meta charset="UTF-8" />
+	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
+	<link rel="icon" type="image/png" sizes="32x32" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-32.png" />
+	<link rel="icon" type="image/png" sizes="192x192" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-192.png" />
+	<link rel="apple-touch-icon" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-180.png" /> <!-- iOS HOME SCREEN, ON THE BAIZE GREEN -->
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="theme-color" content="#0c2a1f" />
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..700&family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif&display=swap">
+	<title>Create account // Chess</title>
+	<style> /* IN THE PAGE, NOT home.css: IT'S NEEDED FOR THE FIRST PAINT, THE CSS FILES ARE ADDED BY THE BUNDLE AFTER THAT */
+		@view-transition { navigation: auto; } /* HOME & A GAME FADE INTO THIS PAGE THE SAME WAY */
+		html.loadingPage::view-transition-group(*),
+		html.loadingPage::view-transition-old(*),
+		html.loadingPage::view-transition-new(*) { animation-play-state: paused; } /* THE LAST PAGE STAYS ON SCREEN UNTIL THIS PAGE IS DRAWN */
+		::view-transition-group(*) { animation-duration: 400ms; }
+		@media (prefers-reduced-motion: reduce) { /* NO FADE: THE LAST PAGE STILL STAYS ON SCREEN WHILE loadingPage IS ON, THEN THIS PAGE IS JUST THERE (0s WHILE PAUSED WOULD SHOW THE UNFINISHED PAGE) */
+			html:not(.loadingPage)::view-transition-group(*) { animation-duration: 0s; }
+		}
+		html { background-color: #0c2a1f; } /* THE PAGE'S GREEN FROM THE FIRST PAINT, NOT WHITE */
+	</style>
+</head>
+
+<body id="body">
+	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
+	<nav id="menuContainer" aria-label="Menu">
+		<div id="resultDisplay">Chess</div>
+		<ul id="menuButtonList">
+			<li><a class="menuButton" href="/">Home</a></li>
+			<li><a class="menuButton" href="/login">Login/Signup</a></li>
+		</ul>
+	</nav>
+
+	<main class="page">
+		<section class="hero heroPlain">
+			<div class="heroText">
+				<p class="spec">Your account</p>
+				<h1 class="title">Create account</h1>
+				<p class="lead">Play a friend and keep your games, on any device.</p>
+			</div>
+		</section>
+
+		<section class="boxes" aria-label="Create an account">
+			<form class="box boxWalnut" id="signupForm">
+				<div class="boxHead"><h2 class="label">Create account</h2><span class="spec">No. 01</span></div>
+				<p class="boxText">Your username is the name friends see on invites and games. 3 to 20 letters, numbers, _ or -.</p>
+				<div class="loginField">
+					<label class="spec" for="signupEmail">Email</label>
+					<div class="field">
+						<input type="email" name="email" id="signupEmail" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+					</div>
+				</div>
+				<div class="loginField">
+					<label class="spec" for="signupPassword">Password</label>
+					<div class="field">
+						<input type="password" name="password" id="signupPassword" autocomplete="new-password" aria-describedby="passwordHint" required>
+						<button class="btn btnLine showPassword" type="button" aria-controls="signupPassword" aria-label="Show password">Show</button>
+					</div>
+					<span class="spec" id="passwordHint">Auth0 sets no minimum, so pick something long that you don't use elsewhere.</span> <!-- shortcut: THE CONNECTION'S POLICY WRITTEN OUT BY HAND, READ IT FROM AUTH0 IF IT STARTS CHANGING -->
+				</div>
+				<div class="loginField">
+					<label class="spec" for="signupScreenname">Username</label>
+					<div class="field">
+						<input type="text" name="screenname" id="signupScreenname" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" minlength="3" maxlength="20" pattern="[A-Za-z0-9_\-]+" required>
+					</div>
+				</div>
+				<div class="loginField">
+					<label class="spec" for="signupFirstName">First name</label>
+					<div class="field">
+						<input type="text" name="first_name" id="signupFirstName" autocomplete="given-name" maxlength="499" required>
+					</div>
+				</div>
+				<div class="loginField">
+					<label class="spec" for="signupLastName">Last name</label>
+					<div class="field">
+						<input type="text" name="last_name" id="signupLastName" autocomplete="family-name" maxlength="499" required>
+					</div>
+				</div>
+				<button class="btn btnCream" id="signupBtn" type="submit">Create account</button>
+				<p class="spec note" id="signupNote" role="status" aria-live="polite"></p>
+				<div class="field">
+					<a class="btn btnLine keepReturnTo" href="/login">Already have an account? Sign in</a>
+				</div>
+			</form>
+		</section>
+	</main>
+</body>
+
+</html>

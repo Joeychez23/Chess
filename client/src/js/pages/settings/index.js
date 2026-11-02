@@ -182,5 +182,5 @@ async function handleDeleteData(e) {
 		deleteDataBtn.innerText = "Delete my data";
 		return deleteNote.innerText = "Couldn't delete your data, try again";
 	}
-	auth.logout(); // POST /api/auth/logout, THEN AUTH0'S LOGOUT & BACK TO THE GUEST PAGE
+	auth.logout(); // POST /api/auth/logout, THEN THE GUEST PAGE
 }

@@ -41,13 +41,12 @@ In order:
 
 ## 2. Auth0
 
-In the Auth0 app's settings, add
-`https://chess.aws-prac-route53.com/api/auth/callback` to **Allowed Callback
-URLs** and `https://chess.aws-prac-route53.com/` to **Allowed Logout URLs**.
-Both fields take comma-separated lists, so keep the `localhost` entries for
-development.
+In the Auth0 app's settings, leave **Allowed Callback URLs** and **Allowed
+Logout URLs** empty: players sign in on our own page.
 
-In **Advanced Settings** -> **Grant Types**, enable **Password**. In the Auth0
+In **Advanced Settings** -> **Grant Types**, enable **Password** and **Client
+Credentials** (the Management API lookup, `getAuth0User()`), and turn off
+**Authorization Code**. In the Auth0
 tenant settings, enable **Trust Token Endpoint IP Header** so Auth0 can use the
 `auth0-forwarded-for` header for login protection.
 
@@ -87,7 +86,6 @@ every sprite, sound, and the favicon load from it.
 | Variable | On the instance |
 | --- | --- |
 | `API_PORT` | `8080`. chess-engine-api has 3001, and `deploy/nginx.conf` forwards to 8080 |
-| `AUTH0_CALLBACK_URL` | `https://chess.aws-prac-route53.com/api/auth/callback` |
 | `CLIENT_URL` | `https://chess.aws-prac-route53.com/` |
 | `ENGINE_URL` | `http://127.0.0.1:3001/v1` |
 | `SESSION_PUBLIC_KEY` | The public half of the live data service's key ([Making the session keys](../data-service/README.md#making-the-session-keys)), not your Mac's, so a session made on your Mac can't be used on the live site |

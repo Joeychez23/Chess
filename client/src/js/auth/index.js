@@ -17,21 +17,44 @@ export class InternalAuth {
 	// Login
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description Server redirects to the Auth0 login page, then back signed in: to returnTo (a page's path) or Home
+	 * @description Goes to the login page, then back signed in: to returnTo (a page's path) or Home
 	 * @param  {[string]} returnTo [optional, e.g. "/play/:gameId"]
 	 */
-	login(returnTo) { window.location.href = returnTo ? `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}` : "/api/auth/login"; }
+	login(returnTo) { window.location.href = returnTo ? `/login?returnTo=${encodeURIComponent(returnTo)}` : "/login"; }
+
+	/**
+	 * @description The login page's sign in, the server sets the session cookies
+	 * @param  {[string]} email
+	 * @param  {[string]} password
+	 * @param  {[string]} returnTo [optional, the page to go to after, the server checks it]
+	 * @return {[object]} response [{ status, returnTo, message }, null when the server can't be reached]
+	 */
+	async passwordLogin(email, password, returnTo) { return await request("/api/auth/login", "POST", { email, password, returnTo }); }
+
+	/**
+	 * @description The signup page's Create account, the server sets the session cookies
+	 * @param  {[object]} account [{ email, password, screenname, first_name, last_name, returnTo (optional) }]
+	 * @return {[object]} response [{ status, returnTo, message }, null when the server can't be reached]
+	 */
+	async signup(account) { return await request("/api/auth/signup", "POST", account); }
+
+	/**
+	 * @description The login page's Forgot password?, the server asks Auth0 to email the reset link
+	 * @param  {[string]} email
+	 * @return {[object]} response [{ status, message }, null when the server can't be reached]
+	 */
+	async forgotPassword(email) { return await request("/api/auth/forgot", "POST", { email }); }
 
 	/* ---------------------------------------------------------------- */
 	// Logout
 	/* ---------------------------------------------------------------- */
 	/**
-	 * @description Server ends the session (a POST, so another site can't, #297), then the browser goes to Auth0's logout & back to the game.
-	 * If the server can't be reached, Home (still signed in, so they can try again)
+	 * @description Server ends the session (a POST, so another site can't, #297), then the browser goes Home.
+	 * If the server can't be reached they're still signed in there, so they can try again
 	 */
 	async logout() {
-		const response = await request("/api/auth/logout", "POST");
-		window.location.href = response?.logoutUrl || "/";
+		await request("/api/auth/logout", "POST");
+		window.location.href = "/";
 	}
 
 	/* ---------------------------------------------------------------- */
@@ -77,8 +100,9 @@ export class InternalAuth {
 /**
  * @description fetch() wrapper for the auth routes, returns null when the server can't be reached
  */
-async function request(url, method) {
+async function request(url, method, body) {
 	try {
-		return await fetch(url, { method, credentials: "same-origin" }).then(res => res.json());
+		const json = body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {};
+		return await fetch(url, { method, credentials: "same-origin", ...json }).then(res => res.json());
 	} catch { return null; }
 }

@@ -230,7 +230,7 @@ const checkTables = () => call("GET", "/health/tables");
 /* ---------------------------------------------------------------- */
 /**
  * @description Signs a player in: the data service checks Auth0's id_token & that the user is the one it names, then signs the session tokens
- * @param  {[string]} idToken [Auth0's id_token from exchangeCode]
+ * @param  {[string]} idToken [Auth0's id_token from the password login]
  * @param  {[object]} user [sessionUser(getAuth0User()), what the tokens hold]
  * @return {[object]} response [{ status: 200, access_token, refresh_token } | { status: 401, message } (a bad id_token, or not its user)]
  */

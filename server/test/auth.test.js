@@ -1,7 +1,7 @@
 /*
  *  auth.test.js  --  chess server tests
- *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, #252, only a 401 signs out #283, a failed login says why #282)
- *  The server can't make a session: the login callback passes Auth0's id_token to the data service, which checks it & signs the tokens.
+ *	Signing In & Session Tokens (controllers/authController.js, middleware/auth.js, password login #223, signup #225, forgot password #226, every sign-in on our page #227, #252, only a 401 signs out #283)
+ *  The server can't make a session: a login passes Auth0's id_token to the data service, which checks it & signs the tokens.
  *  The server only checks tokens with the public key, so a token signed any other way is refused. Logout ends the session on every device
  *
  */
@@ -10,11 +10,11 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, send, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, dataServiceWillAnswer } = testServer;
+const { call, send, page, player, peek, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer } = testServer;
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 const { readSessionUser } = require("../middleware/auth.js");
-const { LOGIN_LIMITS } = require("../middleware/rateLimit.js");
+const { LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS } = require("../middleware/rateLimit.js");
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -27,32 +27,38 @@ const alice = player("alice");
 // Helpers
 /* ---------------------------------------------------------------- */
 
-/**
- * @description Logs a player in like the browser does after Auth0's login page: the callback with the code & the state cookie
- * @return {[object]} response [send()'s, cookies has access_token & refresh_token when it worked]
- */
-function logIn(someone, returnTo) {
-	const cookies = { auth_state: "state1", ...(returnTo ? { auth_return: returnTo } : {}) };
-	return send("GET", `/api/auth/callback?code=${encodeURIComponent(someone.email)}&state=state1`, cookies);
-}
-
-const loginFailed = (reason) => new URL(`/?login=${reason}`, config.clientUrl).href; // WHERE A FAILED CALLBACK GOES (#282)
 const me = (accessToken) => send("GET", "/api/user", { access_token: accessToken });
 const refresh = (refreshToken) => send("POST", "/api/auth/refresh", { refresh_token: refreshToken });
 const loginHeaders = (ip = "203.0.113.5", origin = new URL(config.clientUrl).origin) => ({ "Content-Type": "application/json", Origin: origin, "X-Forwarded-For": ip });
 const logOut = (refreshToken, headers = { Origin: new URL(config.clientUrl).origin, "Sec-Fetch-Site": "same-origin" }) => send("POST", "/api/auth/logout", { refresh_token: refreshToken }, { headers });
 const passwordLogin = (body, options = {}) => send("POST", "/api/auth/login", {}, { headers: loginHeaders(options.ip, options.origin), body: options.rawBody ?? JSON.stringify(body) });
+const logIn = (someone) => passwordLogin({ email: someone.email, password: someone.password }); // response.cookies HAS access_token & refresh_token WHEN IT WORKED
 
 /* ---------------------------------------------------------------- */
 // Login
 /* ---------------------------------------------------------------- */
 
 describe("login", () => {
-	test("the callback sets the session the data service signed & goes back to the page", async () => {
+	test("GET /api/auth/login goes to the login page, keeping a returnTo on this site", async () => {
+		const withPage = await send("GET", "/api/auth/login?returnTo=%2Fplay%2Fgame1%3Fa%3D1");
+		assert.equal(withPage.http, 302);
+		assert.equal(withPage.location, "/login?returnTo=%2Fplay%2Fgame1%3Fa%3D1");
+		assert.deepEqual(withPage.cookies, {}); // NO auth_state OR auth_return
+		assert.equal((await send("GET", "/api/auth/login")).location, "/login");
+		assert.equal((await send("GET", "/api/auth/login?returnTo=%2F%2Fother.site")).location, "/login");
+		assert.equal((await send("GET", "/api/auth/login?returnTo=%2F%09%2Fother.site")).location, "/login"); // A BROWSER DROPS TABS & NEWLINES: //other.site
+		assert.equal((await send("GET", "/api/auth/login?returnTo=%2F%0A%2Fother.site")).location, "/login");
+	});
+
+	test("the Auth0 callback is gone", async () => {
+		assert.equal((await send("GET", "/api/auth/callback?code=alice%40test&state=state1", { auth_state: "state1" })).http, 404);
+	});
+
+	test("a login sets the session the data service signed & answers the page", async () => {
 		player("alice");
-		const login = await logIn(alice, "/play/game1");
-		assert.equal(login.http, 302);
-		assert.equal(login.location, new URL("/play/game1", config.clientUrl).href);
+		const login = await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/play/game1" });
+		assert.equal(login.http, 200);
+		assert.equal(login.body.returnTo, "/play/game1");
 		assert.ok(login.cookies.access_token && login.cookies.refresh_token);
 		assert.ok(peek("user_db", "alice").sid.S); // THE SESSION ID ON THEIR ROW
 
@@ -68,35 +74,29 @@ describe("login", () => {
 		auth0WillSign((claims) => keys.idToken({ ...claims, iss: "https://another.auth0.test/" }));
 		for (let i = 0; i < 3; i++) {
 			const login = await logIn(alice);
-			assert.equal(login.location, loginFailed("failed"));
-			assert.deepEqual(login.cookies, { auth_state: "", auth_return: "" }); // ONLY THE LOGIN COOKIES ARE CLEARED
+			assert.equal(login.http, 401);
+			assert.deepEqual(login.cookies, {});
 		}
 		assert.equal(peek("user_db", "alice"), undefined);
 	});
 
-	test("a login the state doesn't match never reaches the data service", async () => {
-		player("alice");
-		const login = await send("GET", `/api/auth/callback?code=alice%40test&state=other`, { auth_state: "state1" });
-		assert.equal(login.location, loginFailed("failed"));
-		assert.equal(login.cookies.access_token, undefined);
-	});
-
-	test("a login with the data service down lands Home with the unavailable reason & logs an error", async (t) => {
+	test("a login with the data service down says try again & logs an error", async (t) => {
 		player("alice");
 		const errors = t.mock.method(console, "error", () => {});
 		dataServiceWillAnswer("/session/login", 503, "Down");
 		const login = await logIn(alice);
-		assert.equal(login.location, loginFailed("unavailable"));
+		assert.equal(login.http, 503);
+		assert.equal(login.body.message, "Try again in a moment");
 		assert.equal(login.cookies.access_token, undefined);
 		assert.match(String(errors.mock.calls[0].arguments[0]), /POST \/session\/login: 503/);
 	});
 
-	test("an id_token with a key the data service doesn't know lands with the failed reason & logs an error", async (t) => {
+	test("an id_token with a key the data service doesn't know is refused & logs an error", async (t) => {
 		player("alice");
 		const errors = t.mock.method(console, "error", () => {});
 		auth0WillSign((claims) => keys.idToken(claims, { kid: "another-key" }));
 		const login = await logIn(alice);
-		assert.equal(login.location, loginFailed("failed"));
+		assert.equal(login.http, 401);
 		assert.match(String(errors.mock.calls[0].arguments[0]), /unknown key/);
 	});
 });
@@ -109,19 +109,16 @@ test("with Auth0 not answering, a login & an invite say try again within about 5
 	const alice = player("alice");
 	const bob = player("bob");
 	const errors = t.mock.method(console, "error", () => {});
-	auth0WillStall("/oauth/token", "authorization_code");
 	auth0WillStall("/oauth/token", "http://auth0.com/oauth/grant-type/password-realm");
 	auth0WillStall("/api/v2/users-by-email");
 
 	const started = Date.now();
-	const [callback, password, invite] = await Promise.all([
-		logIn(alice),
+	const [password, invite] = await Promise.all([
 		passwordLogin({ email: alice.email, password: alice.password }),
 		call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } })
 	]);
 	const took = Date.now() - started;
 
-	assert.equal(callback.location, loginFailed("unavailable"));
 	assert.equal(password.http, 503);
 	assert.equal(password.body.message, "Try again in a moment");
 	assert.equal(invite.http, 503);
@@ -130,7 +127,6 @@ test("with Auth0 not answering, a login & an invite say try again within about 5
 	assert.equal(auth0Logins().length, 0); // THE STALLED LOGIN WASN'T TRIED AGAIN
 
 	const logged = errors.mock.calls.map((call) => String(call.arguments[0])).join("\n");
-	assert.match(logged, /Auth0: code exchange: no answer in 5 seconds/);
 	assert.match(logged, /Auth0: password login: no answer in 5 seconds/);
 	assert.match(logged, /Auth0: user search: no answer in 5 seconds/);
 	assert.ok(!logged.includes(alice.email) && !logged.includes(bob.email) && !logged.includes(alice.password));
@@ -201,6 +197,8 @@ describe("password login", () => {
 		const alice = player("alice");
 		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/play/game1" })).body.returnTo, "/play/game1");
 		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "//other.site" })).body.returnTo, "/");
+		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/\t/other.site" })).body.returnTo, "/"); // A BROWSER DROPS TABS & NEWLINES: //other.site
+		assert.equal((await passwordLogin({ email: alice.email, password: alice.password, returnTo: "/\n/other.site" })).body.returnTo, "/");
 		testServer.reset();
 		const forgedAlice = player("alice");
 		auth0WillSign((claims) => keys.idToken(claims, { forged: true }));
@@ -212,8 +210,177 @@ describe("password login", () => {
 });
 
 /* ---------------------------------------------------------------- */
+// Signup
+/* ---------------------------------------------------------------- */
+
+describe("signup", () => {
+	const newPlayer = (changes = {}) => ({ email: "newbie@test", password: "a-long-password", screenname: "Newbie", first_name: "New", last_name: "Player", ...changes });
+	const signup = (body, options = {}) => send("POST", "/api/auth/signup", {}, { headers: { ...loginHeaders(options.ip, options.origin), ...options.headers }, body: JSON.stringify(body) });
+
+	test("a returnTo that a browser would read as another site goes Home", async () => {
+		assert.equal((await signup({ ...newPlayer(), email: "tab@test", returnTo: "/\t/other.site" })).body.returnTo, "/");
+		assert.equal((await signup({ ...newPlayer(), email: "newline@test", returnTo: "/\n/other.site" })).body.returnTo, "/");
+	});
+
+	test("a new account is signed in with its screenname, unverified, & its username is claimed", async () => {
+		const response = await signup({ ...newPlayer(), returnTo: "/play/game1" });
+		assert.equal(response.http, 200);
+		assert.equal(response.body.returnTo, "/play/game1");
+		assert.deepEqual(auth0Signups()[0], { client_id: process.env.AUTH0_CLIENT_ID, connection: process.env.AUTH0_CONNECTION, email: "newbie@test", password: "a-long-password", user_metadata: { screenname: "Newbie", first_name: "New", last_name: "Player" } });
+
+		const user = await me(response.cookies.access_token);
+		assert.equal(user.body.userData.user_metadata.screenname, "Newbie");
+		assert.equal(user.body.userData.email_verified, false);
+		assert.equal(user.body.username, "Newbie");
+	});
+
+	test("a username someone has still makes the account, the settings page asks for another", async () => {
+		const first = await signup(newPlayer({ email: "first@test" }));
+		assert.equal(first.http, 200);
+		const second = await signup(newPlayer({ email: "second@test" }));
+		assert.equal(second.http, 200);
+		assert.equal((await me(second.cookies.access_token)).body.username, null);
+	});
+
+	test("a taken email is told to sign in or reset & gets no session", async () => {
+		const alice = player("alice");
+		const response = await signup(newPlayer({ email: alice.email }));
+		assert.equal(response.http, 400);
+		assert.equal(response.body.message, "Couldn't create that account. If it's yours, sign in or reset the password.");
+		assert.equal(response.cookies.access_token, undefined);
+	});
+
+	test("a weak password passes on Auth0's message", async () => {
+		const response = await signup(newPlayer({ password: "weak" }));
+		assert.equal(response.http, 400);
+		assert.equal(response.body.message, "Password is too weak");
+		assert.equal(auth0Logins().length, 0);
+	});
+
+	test("an account made while sign in is down says to sign in, without a session", async (t) => {
+		t.mock.method(console, "error", () => {});
+		dataServiceWillAnswer("/session/login", 503, "Down");
+		const response = await signup(newPlayer());
+		assert.equal(response.http, 202);
+		assert.equal(response.cookies.access_token, undefined);
+		assert.equal((await passwordLogin({ email: "newbie@test", password: "a-long-password" })).http, 200); // THE ACCOUNT IS THERE
+	});
+
+	test("the address & email limits refuse before Auth0 is asked", async () => {
+		for (let i = 0; i < SIGNUP_LIMITS.signupIp.burst; i++) {
+			await signup(newPlayer({ email: `user${i}@test`, screenname: `user${i}` }), { ip: "198.51.100.10" });
+		}
+		const beforeIp = auth0Signups().length;
+		const ipLimited = await signup(newPlayer({ email: "other@test" }), { ip: "198.51.100.10" });
+		assert.equal(ipLimited.http, 429);
+		assert.ok(Number(ipLimited.retry_after) > 0);
+		assert.equal(auth0Signups().length, beforeIp);
+
+		testServer.reset();
+		for (let i = 0; i < SIGNUP_LIMITS.signupEmail.burst; i++) {
+			await signup(newPlayer({ email: "Same@Test", password: "weak" }), { ip: `198.51.100.${i + 1}` });
+		}
+		const beforeEmail = auth0Signups().length;
+		assert.equal((await signup(newPlayer({ email: "same@test", password: "weak" }), { ip: "203.0.113.10" })).http, 429);
+		assert.equal(auth0Signups().length, beforeEmail);
+	});
+
+	test("requires same-origin JSON & fields the screen asks for, checked before Auth0", async () => {
+		assert.equal((await signup(newPlayer(), { origin: "https://wrong.test" })).http, 403);
+		assert.equal((await signup(newPlayer(), { headers: { "Sec-Fetch-Site": "cross-site" } })).http, 403);
+		const form = await send("POST", "/api/auth/signup", {}, { headers: { ...loginHeaders(), "Content-Type": "application/x-www-form-urlencoded" }, body: "email=a@test&password=x" });
+		assert.equal(form.http, 403);
+		for (const changes of [{ email: 1 }, { email: "no-at-sign" }, { password: "" }, { first_name: "" }, { last_name: 1 }, { first_name: "x".repeat(500) }, { screenname: "ab" }, { screenname: "has space" }, { screenname: "admin" }, { screenname: 1 }]) {
+			assert.equal((await signup(newPlayer(changes))).http, 400, JSON.stringify(changes));
+		}
+		assert.equal(auth0Signups().length, 0);
+	});
+});
+
+/* ---------------------------------------------------------------- */
 // Refresh, Resume & Logout
 /* ---------------------------------------------------------------- */
+
+describe("forgot password", () => {
+	const forgot = (email, options = {}) => send("POST", "/api/auth/forgot", {}, { headers: { ...loginHeaders(options.ip, options.origin), ...options.headers }, body: options.rawBody ?? JSON.stringify({ email }) });
+	const answer = "If there's an account for that email, we've sent a reset link";
+
+	test("asks Auth0 to email the link", async () => {
+		const response = await forgot(`  ${alice.email} `);
+		assert.equal(response.http, 200);
+		assert.equal(response.body.message, answer);
+		assert.deepEqual(auth0Resets(), [{ client_id: process.env.AUTH0_CLIENT_ID, email: alice.email, connection: process.env.AUTH0_CONNECTION }]);
+	});
+
+	test("an unknown email gets the same answer", async () => {
+		const known = await forgot(alice.email);
+		const unknown = await forgot("unknown@test");
+		assert.equal(unknown.http, known.http);
+		assert.deepEqual(unknown.body, known.body);
+	});
+
+	test("limits each address and each email, before Auth0 is asked", async () => {
+		for (let i = 0; i < FORGOT_LIMITS.forgotIp.burst; i++) { await forgot(`user${i}@test`, { ip: "198.51.100.10" }); }
+		const beforeIp = auth0Resets().length;
+		const ipLimited = await forgot("other@test", { ip: "198.51.100.10" });
+		assert.equal(ipLimited.http, 429);
+		assert.ok(Number(ipLimited.retry_after) > 0);
+		assert.equal(auth0Resets().length, beforeIp);
+
+		for (let i = 0; i < FORGOT_LIMITS.forgotEmail.burst; i++) { await forgot("Same@Test", { ip: `198.51.101.${i + 1}` }); }
+		const beforeEmail = auth0Resets().length;
+		assert.equal((await forgot("same@test", { ip: "203.0.113.10" })).http, 429);
+		assert.equal(auth0Resets().length, beforeEmail);
+	});
+
+	test("only takes JSON with an email from our own page", async () => {
+		assert.equal((await forgot(alice.email, { origin: "https://wrong.test" })).http, 403);
+		assert.equal((await forgot(alice.email, { headers: { "Sec-Fetch-Site": "cross-site" } })).http, 403);
+		assert.equal((await forgot(alice.email, { headers: { "Content-Type": "application/x-www-form-urlencoded" }, rawBody: `email=${alice.email}` })).http, 403);
+		for (const email of [undefined, 5, "", "not-an-email"]) { assert.equal((await forgot(email)).http, 400, String(email)); }
+		assert.equal(auth0Resets().length, 0);
+	});
+
+	test("doesn't say a link was sent when Auth0 didn't take the request", async () => {
+		const refused = await forgot("refused@test");
+		assert.equal(refused.http, 500);
+		assert.notEqual(refused.body?.message, answer);
+		auth0WillStall("/dbconnections/change_password");
+		const stalled = await forgot(alice.email);
+		assert.equal(stalled.http, 503);
+		assert.notEqual(stalled.body?.message, answer);
+	});
+});
+
+describe("login page", () => {
+	test("sends a signed in player to returnTo or Home, only on this site", async () => {
+		const signedIn = { as: player("alice") };
+		assert.equal((await page("/login?returnTo=%2Fplay%2Fgame1", signedIn)).location, "/play/game1");
+		assert.equal((await page("/login", signedIn)).location, "/");
+		assert.equal((await page("/login?returnTo=%2F%2Fother.site", signedIn)).location, "/");
+		assert.equal((await page("/login?returnTo=%2F%09%2Fother.site", signedIn)).location, "/");
+		assert.equal((await page("/login?returnTo=%2F%0A%2Fother.site", signedIn)).location, "/");
+	});
+
+	test("stays on the page for a signed out player", async () => {
+		assert.equal((await page("/login?returnTo=%2Fplay%2Fgame1")).location, null);
+	});
+});
+
+describe("signup page", () => {
+	test("sends a signed in player to returnTo or Home, only on this site", async () => {
+		const signedIn = { as: player("alice") };
+		assert.equal((await page("/signup?returnTo=%2Fplay%2Fgame1", signedIn)).location, "/play/game1");
+		assert.equal((await page("/signup", signedIn)).location, "/");
+		assert.equal((await page("/signup?returnTo=%2F%2Fother.site", signedIn)).location, "/");
+		assert.equal((await page("/signup?returnTo=%2F%09%2Fother.site", signedIn)).location, "/");
+		assert.equal((await page("/signup?returnTo=%2F%0A%2Fother.site", signedIn)).location, "/");
+	});
+
+	test("stays on the page for a signed out player", async () => {
+		assert.equal((await page("/signup?returnTo=%2Fplay%2Fgame1")).location, null);
+	});
+});
 
 describe("refresh, resume & logout", () => {
 	test("refresh re-ups the session from the refresh cookie", async () => {
@@ -231,7 +398,7 @@ describe("refresh, resume & logout", () => {
 		const resumed = await send("GET", "/api/auth/resume?returnTo=%2Fplay%2Fgame1", { refresh_token: login.cookies.refresh_token });
 		assert.equal(resumed.location, "/play/game1");
 		assert.ok(resumed.cookies.access_token);
-		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2Fplay%2Fgame1")).location, "/api/auth/login?returnTo=%2Fplay%2Fgame1");
+		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2Fplay%2Fgame1")).location, "/login?returnTo=%2Fplay%2Fgame1");
 	});
 
 	test("after logout, refresh fails on every device", async () => {
@@ -240,7 +407,7 @@ describe("refresh, resume & logout", () => {
 		const laptop = await logIn(alice);
 		const logout = await logOut(phone.cookies.refresh_token);
 		assert.equal(logout.http, 200);
-		assert.match(logout.body.logoutUrl, /^https:\/\/auth0\.test\/v2\/logout/);
+		assert.deepEqual(logout.body, { status: 200, message: "SIGNED OUT" }); // NO logoutUrl: THE PAGE DOESN'T GO TO AUTH0
 		assert.deepEqual([logout.cookies.access_token, logout.cookies.refresh_token], ["", ""]);
 
 		for (const device of [phone, laptop]) {
@@ -248,7 +415,7 @@ describe("refresh, resume & logout", () => {
 			assert.equal(response.http, 401);
 			assert.equal(response.cookies.refresh_token, ""); // CLEARED
 		}
-		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2F", { refresh_token: laptop.cookies.refresh_token })).location, "/api/auth/login?returnTo=%2F");
+		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2F", { refresh_token: laptop.cookies.refresh_token })).location, "/login?returnTo=%2F");
 	});
 
 	test("logout from another site, or by a link, is refused & the session stays on every device (#297)", async () => {
