@@ -2,7 +2,7 @@
  *  socket/index.js  --  chess frontend
  *	Friend Game Socket
  *  The server pushes "move" when a friend game's board changes, "game-over" when the opponent forfeits
- *  & "rematch" when both players asked for one (server/socket.js).
+ *  "rematch" when both players asked for one & "player-left" / "player-back" when the opponent leaves or returns to the game page (server/socket.js).
  *  The socket is only open while a friend game is on screen. Guests & AI games never open one.
  *  Home opens its own (watchGames) & gets "games" when an invite or friend game changes, "friends" when a friend request or friend does.
  *
@@ -21,7 +21,7 @@ let homeSocket = null; // HOME'S SOCKET (watchGames)
  * @param  {[string]} gameId [game id]
  * @param  {[string]} playerId [this player, their own moves & forfeits already came back from the request so they're skipped]
  * @param  {[object]} handlers [{ move() opponent moved, gameOver(result) opponent forfeited, rematch(newGameId) both asked for a rematch,
- * connectionLost() trying to reconnect, reconnected() back in the room, connectionFailed() it won't come back without a reload }]
+ * opponentLeft() the opponent left the game page, opponentBack() they returned, connectionLost() trying to reconnect, reconnected() back in the room, connectionFailed() it won't come back without a reload }]
  */
 export function joinGame(gameId, playerId, handlers) {
 	leaveGame();
@@ -63,6 +63,14 @@ export function joinGame(gameId, playerId, handlers) {
 
 	gameSocket.on("rematch", (data) => {
 		if (data?.game_id == `${gameId}`) { handlers.rematch(data.new_game_id); }
+	});
+
+	gameSocket.on("player-left", (data) => {
+		if (data?.game_id == `${gameId}` && data.player_id != playerId) { handlers.opponentLeft(); }
+	});
+
+	gameSocket.on("player-back", (data) => {
+		if (data?.game_id == `${gameId}` && data.player_id != playerId) { handlers.opponentBack(); }
 	});
 
 	/**

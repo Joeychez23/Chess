@@ -208,7 +208,7 @@ async function listen(who, gameId, options = {}) {
 		const got = events.find((seen) => seen.event == event);
 		return got ? Promise.resolve(got.data) : new Promise((resolve) => waiting.push({ event, resolve }));
 	};
-	return { events, heard, closed, join };
+	return { events, heard, closed, join, disconnect: () => socket.disconnect() };
 }
 
 /**

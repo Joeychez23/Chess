@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
@@ -19,7 +19,7 @@ const { guestToken } = require("../utils/tokens.js");
 
 const SQUARE = /^[a-h][1-8]$/;
 const PROMOTIONS = ["q", "r", "b", "n"];
-const REMATCH_TIME = 60 * 1000; // BOTH PLAYERS MUST PRESS REMATCH WITHIN 1 MINUTE
+const REMATCH_TIME = 5 * 60 * 1000; // A REMATCH REQUEST STAYS OPEN FOR 5 MINUTES, ROOM TO READ THE RESULT (ACCESSIBILITY.md)
 const REMATCH_REPAIR_TIME = 60 * 60 * 1000; // A CLAIMED REMATCH WITH NO GAME IS ONLY MADE AGAIN FOR 1 HOUR, AFTER THAT THE GAME EXPIRED OR WAS NEVER MADE
 const ECO = /^[A-E][0-9]{2}$/;
 const OPENING_NAME_LENGTH = 150; // THE LONGEST IN THE DATA SET IS 99
@@ -359,7 +359,7 @@ async function declineGame(req, res) {
 // Rematch (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Friend games that are over: the first press waits 1 minute for the other player, the second makes the new game with the
+ * @description Friend games that are over: the first press waits 5 minutes for the other player, the second makes the new game with the
  * same start settings (the inviter's color, random draws again) & both players' sent invites are cancelled (they're both in a game now).
  * Neither player can be in another friend game
  * @param  {[string]} req.params.gameId [closed friend game id]
@@ -383,7 +383,7 @@ async function rematchGame(req, res) {
 	if (await requestRematch(gameId, playerId, Date.now() + REMATCH_TIME)) { return res.json(waiting); } // FIRST PRESS
 
 	const rematchId = newGameId();
-	if (!(await acceptRematch(gameId, playerId, rematchId))) { // THE OTHER MINUTE JUST RAN OUT, OR THE OTHER PRESS STARTED IT
+	if (!(await acceptRematch(gameId, playerId, rematchId))) { // THE OTHER REQUEST JUST RAN OUT OR WAS CANCELLED, OR THE OTHER PRESS STARTED IT
 		const latest = await retrieveGame(gameId, true);
 		if (latest.game_data?.rematch_game_id) { return finishRematch(req, res, latest.game_data, latest.game_data.rematch_game_id.S); }
 		if (await requestRematch(gameId, playerId, Date.now() + REMATCH_TIME)) { return res.json(waiting); }
@@ -391,6 +391,24 @@ async function rematchGame(req, res) {
 	}
 
 	return finishRematch(req, res, gameData, rematchId);
+}
+
+/**
+ * @description The player who asked for a rematch takes it back. Safe to repeat. Too late once the other press claimed it: that rematch goes ahead
+ * @param  {[string]} req.params.gameId [closed friend game id]
+ * @return {[object]} response [{ status, cancelled, message }, cancelled: false when the rematch already started]
+ */
+async function cancelRematchGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true);
+	if (!response.game_data) { return res.json(response); } // GAME NOT FOUND
+	const gameData = response.game_data;
+	const playerId = playerInGame(req.player, gameData);
+	if (!playerId) { return refuse(req, res, 403, "Player is not in this game"); }
+
+	if (await cancelRematch(gameData.game_id.S, playerId)) { return res.json({ status: 200, cancelled: true, message: "Rematch cancelled" }); }
+	const latest = await retrieveGame(gameData.game_id.S, true);
+	if (latest.game_data?.rematch_game_id) { return res.json({ status: 200, cancelled: false, message: "Rematch started" }); }
+	return res.json({ status: 200, cancelled: true, message: "No rematch request open" }); // ALREADY CANCELLED, OR THE OTHER PLAYER IS THE ONE WAITING
 }
 
 /**
@@ -481,4 +499,4 @@ async function username(playerId) {
 }
 
 
-module.exports = { getGame, moveGame, aiMoveGame, openingGame, forfeitGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, currentGame };
+module.exports = { getGame, moveGame, aiMoveGame, openingGame, forfeitGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };

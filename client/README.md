@@ -109,6 +109,8 @@ joinGame(gameId, playerId, {
 	move: () => refreshData(),                       // the friend moved: fetch the game, animate prev_move
 	gameOver: ({ winner, reason }) => showMenu(winner, reason), // the friend forfeited
 	rematch: (newGameId) => loadGame(newGameId),     // both pressed Rematch
+	opponentLeft: () => showOpponentLeft(),          // opponent left the game page, the rematch request says so
+	opponentBack: () => clearStatus("rematch"),      // they came back
 });
 
 // Going Home or opening another game

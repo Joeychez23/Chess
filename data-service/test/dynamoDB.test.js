@@ -239,6 +239,17 @@ describe("rematch", () => {
 		await db.requestRematch("game5", "alice", Date.now() - 1);
 		assert.equal(await db.acceptRematch("game5", "bob", "new1"), false);
 	});
+
+	test("only the player who asked can cancel, and only until the rematch is claimed", async () => {
+		await db.initalizeGame("game6", "alice", "bob", false, {});
+		await db.requestRematch("game6", "alice", Date.now() + 60000);
+		assert.equal(await db.cancelRematch("game6", "bob"), false);
+		assert.equal(await db.cancelRematch("game6", "alice"), true);
+		assert.equal(await db.acceptRematch("game6", "bob", "new1"), false); // NOTHING LEFT TO ACCEPT
+		assert.equal(await db.requestRematch("game6", "bob", Date.now() + 60000), true); // BOB CAN ASK NOW
+		assert.equal(await db.acceptRematch("game6", "alice", "new1"), true);
+		assert.equal(await db.cancelRematch("game6", "bob"), false); // TOO LATE
+	});
 });
 
 describe("game lists", () => {

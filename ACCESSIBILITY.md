@@ -33,8 +33,7 @@ Chess should be playable by as many people as possible, including people who use
 - **Keyboard play is by typing only.** Press `/` (or choose Type a Move in the menu), type a move like `e4`, `Nf3` or `e8=Q` and press Enter, or choose from the legal moves it lists with the arrow keys and Enter. Screen readers hear how many there are. Picking up pieces still needs a mouse or touch. Arrow keys and Enter work only in a TV remote mode that's switched off on the live site.
 - **Moves are shown only by animation and sound.** Nothing announces your opponent's move in words, and there's no move list to look back at.
 - **There are no board coordinates** (a–h, 1–8).
-- **The result doesn't always say why the game ended.** The menu shows "White Wins!", "Black Wins!" or "Draw", but only forfeits are named, not checkmate, stalemate and so on.
-- **Rematch has a 1-minute limit** that can't be extended.
+- **A rematch request lasts 5 minutes** and that can't be extended. Press Rematch again to restart it.
 - **Color contrast** of the move, capture and check highlights hasn't been measured yet.
 
 ## Planned improvements

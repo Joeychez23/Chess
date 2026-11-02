@@ -49,7 +49,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Play a friend** | Invite by username or email with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
 | **Set positions** | An optional FEN in **Start position**. The server refuses broken or finished positions with the reason, and Restart and Rematch keep it. |
 | **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition or a forfeit. Both boards show the result. |
-| **Rematch** | Both players press within 1 minute and a new game loads on both boards. "Can't rematch" when either is in another friend game, or that rematch expired. |
+| **Rematch** | Both players press within 5 minutes and a new game loads on both boards. The first sees "Waiting for <name>" with Cancel, and hears if the other player leaves. "Can't rematch" when either is in another friend game, or that rematch expired. |
 | **Ratings** | Elo from 1500. Only finished friend games (both sides moved, not from a set position) count. Shown on Home and in a friend game's menu. |
 | **Usernames** | 3 to 20 letters, numbers, `_` or `-`, unique in any capitals, some reserved. Picked on Settings after the first sign-in. |
 | **Friends** | Home's Friends box: send, accept, decline and cancel friend requests by username, see who's online, and Challenge (fills in the invite) or Remove each friend. |

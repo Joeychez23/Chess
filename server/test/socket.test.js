@@ -92,3 +92,58 @@ describe("join-game", () => {
 		assert.notEqual((await other.join("nope")).status, 429);
 	});
 });
+
+describe("a rematch request & the other player", () => {
+	/**
+	 * @description A friend game Bob forfeited: Alice asks for the rematch
+	 */
+	async function finishedGame() {
+		const alice = player("alice");
+		const bob = player("bob");
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
+		await call("POST", `/api/chess/game/${invite.game_id}/forfeit`, { as: bob });
+		return { alice, bob, gameId: invite.game_id };
+	}
+
+	test("the room hears when a player's last tab leaves, and when they come back", async () => {
+		const { alice, bob, gameId } = await finishedGame();
+		const bobsTab = await listen(bob, gameId);
+		const bobsOtherTab = await listen(bob, gameId);
+		const alicesTab = await listen(alice, gameId);
+
+		bobsOtherTab.disconnect();
+		await alicesTab.join(gameId); // A ROUND TRIP, THE DISCONNECT HAS BEEN SEEN
+		bobsTab.disconnect();
+		assert.deepEqual(await alicesTab.heard("player-left"), { game_id: gameId, player_id: "bob" });
+		assert.equal(alicesTab.events.filter(({ event }) => event == "player-left").length, 1); // BOB'S OTHER TAB LEAVING SAID NOTHING
+
+		await listen(bob, gameId);
+		assert.deepEqual(await alicesTab.heard("player-back"), { game_id: gameId, player_id: "bob" });
+	});
+
+	test("the press says who it's waiting for and whether they're still here", async () => {
+		const { alice, bob, gameId } = await finishedGame();
+		const bobsTab = await listen(bob, gameId);
+		const alicesTab = await listen(alice, gameId);
+
+		const here = await call("POST", `/api/chess/game/${gameId}/rematch`, { as: alice });
+		assert.equal(here.waiting, true);
+		assert.equal(here.opponent_name, "Bob");
+		assert.equal(here.opponent_here, true);
+
+		bobsTab.disconnect();
+		await alicesTab.heard("player-left");
+		const gone = await call("POST", `/api/chess/game/${gameId}/rematch`, { as: alice });
+		assert.equal(gone.opponent_here, false);
+	});
+
+	test("cancel: only a player in the game, and the other press then waits", async () => {
+		const { alice, bob, gameId } = await finishedGame();
+		await call("POST", `/api/chess/game/${gameId}/rematch`, { as: alice });
+		const carol = player("carol");
+		assert.equal((await call("POST", `/api/chess/game/${gameId}/rematch/cancel`, { as: carol })).status, 403);
+		assert.equal((await call("POST", `/api/chess/game/${gameId}/rematch/cancel`, { as: alice })).cancelled, true);
+		assert.equal((await call("POST", `/api/chess/game/${gameId}/rematch`, { as: bob })).waiting, true);
+	});
+});

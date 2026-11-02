@@ -22,8 +22,8 @@ const { findOpening } = require("../utils/openings.js");
 const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, saveOpening, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames, findUsername } = require("../dataClient.js");
-const { emitToGame, emitToPlayer } = require("../socket.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, saveOpening, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
+const { emitToGame, emitToPlayer, isInGameRoom } = require("../socket.js");
 
 const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PROMISE), SO PARALLEL /ai-move REQUESTS ASK THE ENGINE ONCE
 
@@ -322,10 +322,10 @@ function tellGameOver(gameData, playerId, winner) {
 // Rematch (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Friend games that are over: the first press waits 1 minute for the other player. If they press
+ * @description Friend games that are over: the first press waits 5 minutes for the other player. If they press
  * in time a new game starts with the same start settings (the inviter's color, Random draws again), and both boards load it
  * @param  {[string]} req.params.gameId [closed game id]
- * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in } while waiting]
+ * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in, opponent_name, opponent_here (still on the game page) } while waiting]
  */
 async function rematchGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -339,9 +339,19 @@ async function rematchGame(req, res) {
 	if (isAiGame(gameData)) { return res.json({ status: 500, message: "AI games restart instead" }); }
 	if (gameOpen(gameData) || gamePending(gameData)) { return res.json({ status: 500, message: "Game isn't over yet" }); }
 
-	const pressed = await ifSaved(() => rematch(gameId), () => savedRematch(gameId, playerId)); // THE DATA SERVICE: BOTH PRESSES WITHIN 1 MINUTE, NEITHER PLAYER IN ANOTHER FRIEND GAME, THE NEW GAME WITH THE INVITER'S PICK
+	const pressed = await ifSaved(() => rematch(gameId), () => savedRematch(gameId, playerId)); // THE DATA SERVICE: BOTH PRESSES WITHIN 5 MINUTES, NEITHER PLAYER IN ANOTHER FRIEND GAME, THE NEW GAME WITH THE INVITER'S PICK
 	if (pressed.status == 409) { return res.json({ status: 409, message: pressed.message }); } // ONE FRIEND GAME AT A TIME
-	if (pressed.waiting) { return res.json({ status: 200, waiting: true, expires_in: pressed.expires_in, message: pressed.message }); } // FIRST PRESS
+	if (pressed.waiting) { // FIRST PRESS
+		const opponentIsWhite = playerId != gameData.white_player_id.S;
+		return res.json({
+			status: 200,
+			waiting: true,
+			expires_in: pressed.expires_in,
+			opponent_name: playerName(gameData, opponentIsWhite ? "w" : "b"),
+			opponent_here: isInGameRoom(gameId, opponentIsWhite ? gameData.white_player_id.S : gameData.black_player_id.S),
+			message: pressed.message
+		});
+	}
 	if (!pressed.new_game_id) { return res.json({ status: 500, message: pressed.message || "Rematch failed" }); }
 
 	if (pressed.game_data) { // THE REMATCH IS OPEN: A PRESS AFTER A FAILED ONE IS THE FIRST THE OTHER BOARD HEARS OF IT
@@ -352,6 +362,16 @@ async function rematchGame(req, res) {
 	return res.json({ status: 200, new_game_id: pressed.new_game_id, message: "Rematch started" });
 }
 
+/**
+ * @description The player who pressed Rematch takes it back. A cancel that fails is answered 503 & pressing again is safe
+ * @param  {[string]} req.params.gameId [closed game id]
+ * @return {[object]} response [{ status, cancelled, message }, cancelled: false when the rematch already started & the socket's "rematch" is on its way]
+ */
+async function cancelRematchGame(req, res) {
+	const response = await cancelRematch(req.params.gameId);
+	if (notYours(response)) { return notInGame(req, res); }
+	return res.json({ status: response.status, cancelled: response.cancelled, message: response.message });
+}
 
 /**
  * @description A rematch press that timed out, read back: the new game (both boards are told again, loading it twice is harmless) or this press waiting.
@@ -825,4 +845,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };

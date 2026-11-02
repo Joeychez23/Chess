@@ -420,7 +420,7 @@ function handleMenuToggle() {
 }
 
 /**
- * @description Adds the box's listeners & opens it, startGame (gameplay/index.js) calls this once the game has loaded
+ * @description Adds the box's listeners, it starts closed (the / key or the menu opens it). startGame (gameplay/index.js) calls this once the game has loaded
  */
 export function addMoveBoxListeners() {
 	document.addEventListener("keydown", handleOpenKey);
@@ -437,5 +437,4 @@ export function addMoveBoxListeners() {
 	closeBtn.addEventListener("click", handleCloseBtn);
 	optBtn.addEventListener("click", handleMenuToggle);
 	optTypeMoveBtn.addEventListener("click", handleTypeMoveBtn);
-	openMoveBox(window.matchMedia("(pointer: fine)").matches && !game.TV_BOOL && !game.menuToggled); // A MOUSE GETS THE CURSOR. NOT A PHONE (KEYBOARD), THE TV REMOTE (handleBoxKey KEEPS ITS KEYS) OR UNDER THE MENU
 }

@@ -149,6 +149,15 @@
 	color: var(--maple);
 }
 
+#menuContainer #resultReason { /* HOW THE GAME ENDED, "by Checkmate" UNDER THE RESULT (gameplay/menu/index.js) */
+	margin-top: -8px;
+	padding: 0 4px;
+	font-family: var(--font-mono);
+	font-size: 13px;
+	line-height: 1.4;
+	color: var(--maple);
+}
+
 #menuContainer #ratingDisplay { /* FRIEND GAMES: "YOU 1520 // BOB 1480?" UNDER THE TITLE (pages/play/index.js) */
 	margin-top: -4px;
 	padding: 0 4px;
@@ -171,6 +180,10 @@
 
 #menuContainer #menuButtonList li {
 	display: flex; /* THE GAME HIDES RESUME WHEN A GAME IS OVER & SETS IT BACK TO flex */
+}
+
+#menuContainer #menuButtonList li[hidden] { /* CANCEL, ONLY WHILE A REMATCH REQUEST WAITS */
+	display: none;
 }
 
 #menuContainer .menuButton {

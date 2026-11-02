@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
-const { restartGame, forfeitGame, rematchGame, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { restartGame, forfeitGame, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
@@ -26,15 +26,27 @@ const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
+const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
+const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
 
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
+const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A FORFEIT IS ALREADY IN THE TITLE
+	"checkmate": "by Checkmate",
+	"stalemate": "by Stalemate",
+	"insufficient material": "by insufficient material",
+	"fifty-move rule": "by the fifty-move rule",
+	"threefold repetition": "by threefold repetition",
+};
 let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 let pgnLoading = false; // A SECOND PRESS WHILE THE PGN LOADS WOULD SAVE TWO FILES
-let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
+let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
+let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
 export const socketHandlers = { // SOCKET EVENT -> HANDLER
 	move: checkOpponentMove,
 	gameOver: showGameOver,
 	rematch: loadRematch,
+	opponentLeft: showOpponentLeft,
+	opponentBack: function () { clearStatus("rematch"); },
 	connectionLost: function () { showStatus("connection", "Connection lost. Reconnecting…"); },
 	reconnected: function () { showStatus("connection", "Reconnected", 3000); },
 	connectionFailed: function () { showStatus("connection", "Connection lost. Reload the page to reconnect."); },
@@ -239,6 +251,7 @@ async function loadNewBoard(fromPieces) {
 	menu.style.display = "none"
 	optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 	resultDisplay.innerText = "Chess"
+	resultReason.hidden = true;
 	game.menuToggled = false;
 	await refreshData(game.response);
 	game.opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
@@ -273,7 +286,7 @@ export function setRestartLoading(load) {
 // Forfeit / Rematch Button (Menu, friend games)
 /* ---------------------------------------------------------------- */
 /**
- * @description Game going: Forfeit -> "Are you sure?" -> forfeits. Game over: Rematch, starts when both players press it within 1 minute
+ * @description Game going: Forfeit -> "Are you sure?" -> forfeits. Game over: Rematch, starts when both players press it within 5 minutes
  */
 async function handleFriendBtn() {
 	if (!game.gameOver) {
@@ -295,13 +308,58 @@ async function handleFriendBtn() {
 	const rematchResponse = await rematchGame(game.GAME_URL, game.GAME_ID);
 	if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME, OR THE REMATCH EXPIRED
 	if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
-	if (rematchResponse?.waiting) { // WAIT 1 MINUTE FOR THE OPPONENT
-		optRestartBtn.innerHTML = "Waiting...";
-		rematchWaiting = setTimeout(function () { rematchWaiting = false; optRestartBtn.innerHTML = "Rematch"; }, rematchResponse.expires_in);
+	if (rematchResponse?.waiting) { // WAIT FOR THE OPPONENT UNTIL THE REQUEST RUNS OUT
+		clearTimeout(rematchWaiting);
+		rematchOpponent = rematchResponse.opponent_name || "your opponent";
+		optRestartBtn.innerText = `Waiting for ${rematchOpponent}`; // innerText, THE NAME IS NEVER READ AS HTML
+		optCancelRematchBtn.parentElement.hidden = false;
+		rematchWaiting = setTimeout(function () {
+			endRematchWait();
+			optRestartBtn.innerHTML = "Rematch";
+			showStatus("action", "The rematch request ran out.", MESSAGE_TIME);
+		}, rematchResponse.expires_in);
+		if (rematchResponse.opponent_here === false) { showOpponentLeft(); } // THEY LEFT BEFORE THE PRESS, NO "player-left" IS COMING
 		return;
 	}
 	console.log(rematchResponse?.message || "Rematch failed: no answer from the server");
 	showStatus("action", "The rematch request didn't go through. Try again.", MESSAGE_TIME);
+}
+
+/**
+ * @description The request isn't waiting any more (it started, ran out or was cancelled): stops the timer, Cancel & the "left the game" note go away
+ */
+function endRematchWait() {
+	clearTimeout(rematchWaiting);
+	rematchWaiting = false;
+	rematchOpponent = null;
+	optCancelRematchBtn.parentElement.hidden = true;
+	clearStatus("rematch");
+}
+
+/**
+ * @description Tells the player waiting on a rematch that the opponent isn't on the game page. The request stays open, they can come back
+ */
+function showOpponentLeft() {
+	if (rematchWaiting) { showStatus("rematch", `${rematchOpponent} left the game. You can keep waiting or cancel.`); }
+}
+
+/**
+ * @description Cancel: takes back the rematch request. Too late when the opponent just pressed, the socket's "rematch" brings the new game
+ */
+export async function handleCancelRematch(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (!rematchWaiting) { return; }
+	const response = await cancelRematch(game.GAME_URL, game.GAME_ID);
+	if (!rematchWaiting) { return; } // IT STARTED OR RAN OUT MEANWHILE
+	if (response?.cancelled) {
+		endRematchWait();
+		optRestartBtn.innerHTML = "Rematch";
+		return;
+	}
+	if (response?.status == 200) { return; } // THE OPPONENT PRESSED FIRST
+	console.log(response?.message || "Cancel failed: no answer from the server");
+	showStatus("action", "The rematch request couldn't be cancelled. Try again.", MESSAGE_TIME);
 }
 
 /* ---------------------------------------------------------------- */
@@ -321,6 +379,8 @@ export function showGameOver(result) {
 	else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
 	else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }
 	else { resultDisplay.innerText = "Draw" }
+	resultReason.innerText = RESULT_REASONS[result?.reason] || "";
+	resultReason.hidden = !resultReason.innerText;
 	if (!game.ai) { optRestartBtn.innerHTML = "Rematch"; } // FRIEND GAME
 	handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
 }
@@ -338,8 +398,7 @@ async function loadRematch(newGameId) {
 	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
 	game.GAME_ID = newGameId;
 	history.replaceState(null, "", `/play/${game.GAME_ID}`); // THE URL FOLLOWS THE REMATCH
-	clearTimeout(rematchWaiting); // STOP THE 1 MINUTE WAIT
-	rematchWaiting = false;
+	endRematchWait();
 	game.boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN WHILE THE NEW ONE LOADS
 	game.refresh = false;
 	optBtn.style.display = "none"
@@ -363,6 +422,7 @@ export function handleHomepage(e) {
 
 	stopFrames(); // STOP THE RENDER LOOP
 	leaveGame();
+	if (rematchWaiting) { cancelRematch(game.GAME_URL, game.GAME_ID); } // THE REQUEST ONLY STANDS WHILE THEY'RE HERE, A LATE PRESS WOULD START A GAME WITHOUT THEM
 	optHomepageBtn.innerText = "Loading";
 	optHomepageBtn.classList.add("loading"); // THE FILL (.loading IN nav.css), ONE PRESS
 	setTimeout(function () { optHomepageBtn.style.setProperty("--load", 1); }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)

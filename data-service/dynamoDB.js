@@ -546,7 +546,7 @@ async function requestRematch(gameId, playerId, expires) {
 			game_id: { S: gameId }
 		},
 		UpdateExpression: 'SET rematch_player_id = :player_id, rematch_expires = :expires',
-		ConditionExpression: 'attribute_not_exists(rematch_game_id) AND (attribute_not_exists(rematch_player_id) OR rematch_player_id = :player_id OR rematch_expires < :now)', // PRESSING AGAIN RESTARTS YOUR OWN MINUTE
+		ConditionExpression: 'attribute_not_exists(rematch_game_id) AND (attribute_not_exists(rematch_player_id) OR rematch_player_id = :player_id OR rematch_expires < :now)', // PRESSING AGAIN RESTARTS YOUR OWN WAIT
 		ExpressionAttributeValues: {
 			":player_id": { S: playerId },
 			":expires": { N: `${expires}` },
@@ -585,6 +585,37 @@ async function acceptRematch(gameId, playerId, newGameId) {
 			":rematch_game_id": { S: newGameId },
 			":player_id": { S: playerId },
 			":now": { N: `${Date.now()}` }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Cancel rematch (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Takes back a rematch request, only the player who asked can & only until the other press claims it
+ * @param  {[string]} gameId [closed friend game]
+ * @param  {[string]} playerId [player cancelling]
+ * @return {[boolean]} cancelled [false when they have no request open or the rematch already started]
+ */
+async function cancelRematch(gameId, playerId) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: 'REMOVE rematch_player_id, rematch_expires',
+		ConditionExpression: 'attribute_not_exists(rematch_game_id) AND rematch_player_id = :player_id',
+		ExpressionAttributeValues: {
+			":player_id": { S: playerId }
 		}
 	}
 
@@ -1276,4 +1307,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

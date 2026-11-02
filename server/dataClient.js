@@ -223,6 +223,12 @@ const decline = (gameId) => call("POST", `/games/${id(gameId)}/decline`);
  */
 const rematch = (gameId) => call("POST", `/games/${id(gameId)}/rematch`);
 
+/**
+ * @description The player who pressed Rematch takes it back
+ * @return {[object]} response [{ status, cancelled, message }, cancelled: false when the rematch already started]
+ */
+const cancelRematch = (gameId) => call("POST", `/games/${id(gameId)}/rematch/cancel`);
+
 /* ---------------------------------------------------------------- */
 // Health (#194)
 /* ---------------------------------------------------------------- */
@@ -308,4 +314,4 @@ const changeFriend = (action, username) => call("POST", `/users/me/friends/${act
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, saveOpening, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, saveOpening, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
