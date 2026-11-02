@@ -198,8 +198,9 @@ signed out, and guests start a new game.
   saves retry when the row changed, so two changes at once both stay.
 - **`created_at`** is when the game was made (ISO, UTC), the PGN's `Date`. Games
   from before it don't have one, and a guest's reset sets it again.
-- **Expiry:** finished friend games lose `expireAt` and are kept. AI games are
-  deleted 25 days after the last move.
+- **Expiry:** signed-in players' finished games lose `expireAt` and are kept.
+  Guests' games and open games are deleted 25 days after the last move, and
+  Delete my data puts that expiry back on the player's finished AI games.
 - **`user_db` rows** are made at first login (`startSession`) and hold the game
   lists, `settings`, `rating`, `rated_games`, `username`, `sid` and `friend_lists`.
 - **Friends:** `friend_lists` is a JSON string, `{ friends, sent, received }` of

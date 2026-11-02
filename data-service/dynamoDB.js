@@ -29,6 +29,7 @@ const USERNAME_INDEX = "username-search"; // username#<name> ITEMS BY NAME IN LO
 const SEARCH_RESULTS = 10; // NAMES ONE SEARCH SHOWS
 
 const GAME_TTL = 60 * 60 * 24 * 25; // GAMES EXPIRE 25 DAYS AFTER THE LAST MOVE (SECONDS)
+const FINISHED_GAMES = 20; // GAMES FINISHED GAMES ON HOME SHOWS, closed_games ONLY GROWS
 
 const GAME_LISTS = ["requested_games", "open_games", "closed_games"]; // A user_db ROW'S GAME LISTS (JSON STRINGS)
 const LIST_SAVE_TRIES = 5; // A GAME LIST SAVE THAT LOST A RACE READS THE ROW AGAIN & RETRIES
@@ -198,14 +199,14 @@ function gameItem(item) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Saves a validated move, only on a game that's still open (a forfeit can land after the move's read). A move that ends the game saves its result in the same write, so the board & the result land together or
- * not at all (run finishClosedGame after it). Finished friend games are kept forever (expireAt is removed)
+ * not at all (run finishClosedGame after it). Signed-in players' finished games are kept forever (expireAt is removed, keepsFinished)
  * @param  {[object]} gameData [Validated server data, modified by a successful client request]
  * @param  {[string]} prevBoard [board the move was made on, the save fails if the board changed since (two requests at once)]
  * @param  {[object]} result [gameResult's { winner, reason } when the move ends the game]
  * @return {[object]} response [{ status, game_data (the game as saved), message }]
  */
 async function updateGame(gameData, prevBoard, result) { // ANY MOVE ENDS A DRAW OFFER & GIVES BOTH PLAYERS THEIR OFFER BACK (DRAW_ATTRIBUTES)
-	const keepForever = result && gameData.white_player_id.S != "CHESS_AI" && gameData.black_player_id.S != "CHESS_AI"; // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
+	const keepForever = result && keepsFinished(gameData); // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
@@ -251,6 +252,16 @@ async function updateGame(gameData, prevBoard, result) { // ANY MOVE ENDS A DRAW
 	}
 }
 
+/**
+ * @description Whether a game is kept once it's finished, for Finished games on Home. Only a guest's AI game isn't: they have no game list to find it in
+ * @param  {[object]} gameData [game item]
+ * @return {[boolean]} keep [false for a guest's game, their player id is the game id ("GUEST_USER" on older games)]
+ */
+function keepsFinished(gameData) {
+	const players = [gameData.white_player_id.S, gameData.black_player_id.S];
+	return !players.includes(gameData.game_id.S) && !players.includes("GUEST_USER");
+}
+
 /* ---------------------------------------------------------------- */
 // Save opening (PUT)
 /* ---------------------------------------------------------------- */
@@ -283,7 +294,7 @@ async function saveOpening(gameId, board, opening) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Ends a game without a move (a forfeit): saves the result, then finishClosedGame. A move that ends the game saves its result in updateGame.
- * Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
+ * Signed-in players' finished games are kept forever (expireAt is removed, keepsFinished), guests' still expire 25 days after the last move
  * @param  {[object]} gameData [game item from retrieveGame]
  * @param  {[string]} winner ["w", "b" or "draw"]
  * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition", "forfeit" or "agreement"]
@@ -292,13 +303,13 @@ async function saveOpening(gameId, board, opening) {
  */
 async function closeGame(gameData, winner, reason, offeredBy) {
 	const gameId = gameData.game_id.S;
-	const aiGame = gameData.white_player_id.S == "CHESS_AI" || gameData.black_player_id.S == "CHESS_AI";
+	const keepForever = keepsFinished(gameData);
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameId }
 		},
-		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason REMOVE ${DRAW_ATTRIBUTES.join(", ")}${aiGame ? "" : ", expireAt"}`, // NO expireAt = TTL NEVER DELETES IT
+		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason REMOVE ${DRAW_ATTRIBUTES.join(", ")}${keepForever ? ", expireAt" : ""}`, // NO expireAt = TTL NEVER DELETES IT
 		ConditionExpression: 'attribute_not_exists(#state) OR #state <> :closed', // ONLY ONE CLOSE WINS (FORFEIT & CHECKMATE AT THE SAME TIME)
 		ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: {
@@ -326,7 +337,7 @@ async function closeGame(gameData, winner, reason, offeredBy) {
 	gameData.winner = { S: winner };
 	gameData.reason = { S: reason };
 	for (const attribute of DRAW_ATTRIBUTES) { delete gameData[attribute]; }
-	if (!aiGame) { delete gameData.expireAt; }
+	if (keepForever) { delete gameData.expireAt; }
 	return {
 		status: 200,
 		game_data: gameData,
@@ -989,11 +1000,37 @@ async function claimUsername(userId, username) {
 }
 
 /* ---------------------------------------------------------------- */
+// Expire finished AI games (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Puts the 25 day expiry back on a player's finished AI games, before Delete my data drops the lists that find them. Nobody else can see those games
+ * @param  {[object]} userData [user item from retrieveUser]
+ * @throws when a game can't be read or saved, before the row is gone so Delete my data can run again
+ */
+async function expireFinishedAiGames(userData) {
+	const games = [...await pruneGameList(userData, "closed_games"), ...await pruneGameList(userData, "open_games")]; // A LIST SAVE THAT FAILED LEAVES A FINISHED GAME IN open_games
+	const finishedAiGames = games.filter((game) => game.state?.S == "CLOSED" && (game.white_player_id.S == "CHESS_AI" || game.black_player_id.S == "CHESS_AI"));
+	for (const game of finishedAiGames) {
+		try {
+			await connection.updateItem({
+				TableName: CHESS_TABLE,
+				Key: { game_id: game.game_id },
+				UpdateExpression: "SET expireAt = :expireAt",
+				ConditionExpression: "attribute_exists(game_id)", // TTL DELETED IT SINCE THE READ: DON'T MAKE A NEW ITEM
+				ExpressionAttributeValues: { ":expireAt": { N: expireTime() } }
+			});
+		} catch (err) {
+			if (err.name != "ConditionalCheckFailedException") { throw err; }
+		}
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Delete user (DELETE)
 /* ---------------------------------------------------------------- */
 /**
  * @description Deletes a player's user_db row, their game lists, settings & rating (Delete my data, after leaveAllGames), & frees their username.
- * The games stay in chess_db: a friend's finished games still show the result & the name, & their next login makes a new row
+ * The friend games stay in chess_db: a friend's finished games still show the result & the name (their AI games expire, expireFinishedAiGames), & their next login makes a new row
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, message }]
  */
@@ -1120,6 +1157,20 @@ async function pruneOpenGames(userData) {
 }
 
 /* ---------------------------------------------------------------- */
+// Prune closed games
+/* ---------------------------------------------------------------- */
+/**
+ * @description Finds the user's newest finished games for Finished games on Home, dropping any TTL already deleted from closed_games
+ * @param  {[object]} userData [user item from retrieveUser]
+ * @return {[object]} userData [same item, closed_game_list = up to FINISHED_GAMES closed game items, newest first]
+ */
+async function pruneClosedGames(userData) {
+	const games = await pruneGameList(userData, "closed_games", FINISHED_GAMES);
+	userData.closed_game_list = games.filter((game) => game.state?.S == "CLOSED").reverse(); // NEWEST IS LAST IN closed_games
+	return userData;
+}
+
+/* ---------------------------------------------------------------- */
 // Prune invites
 /* ---------------------------------------------------------------- */
 /**
@@ -1155,26 +1206,34 @@ async function pruneInvites(userData) {
 /**
  * @description Checks every game in one of a user's lists still exists (TTL deletes expired games) & has the user in it, & saves the shorter list
  * @param  {[object]} userData [user item from retrieveUser, userData[listName].S is updated to the pruned list]
- * @param  {[string]} listName ["open_games" or "requested_games"]
- * @return {[array]} games [the found games in list order (newest last): game_id, player ids, names, state, level & start settings]
+ * @param  {[string]} listName ["open_games", "requested_games" or "closed_games"]
+ * @param  {[number]} newest [stop once this many games are found, reading from the newest: older ids aren't checked. Left out = the whole list]
+ * @return {[array]} games [the found games in list order (newest last): game_id, player ids, names, state, result, level & start settings]
  * @throws when the games can't all be read (batchReadGames), a missed game would look expired
  */
-async function pruneGameList(userData, listName) {
+async function pruneGameList(userData, listName, newest = Infinity) {
 	const gameIds = [...new Set(JSON.parse(userData[listName].S))]; // BATCH GET FAILS ON DUPLICATE KEYS
 	if (gameIds.length == 0) { return []; }
 
-	let foundItems = [];
-	for (let i = 0; i < gameIds.length; i += 100) { // BATCH GET TAKES 100 KEYS MAX
-		foundItems = foundItems.concat(await batchReadGames(gameIds.slice(i, i + 100), listName));
-	}
-
 	const userId = userData.user_id.S;
 	const theirs = (game) => game.white_player_id?.S == userId || game.black_player_id?.S == userId; // A GAME THAT WAS REPLACED UNDER THEIR LIST ISN'T THEIRS
-	const liveGames = gameIds.filter((gameId) => foundItems.some((game) => game.game_id.S == gameId && theirs(game))); // EVERY KEY WAS READ, A GAME THAT WASN'T FOUND EXPIRED
-	const games = liveGames.map((gameId) => foundItems.find((game) => game.game_id.S == gameId)); // BATCH GET ISN'T IN ORDER
-	if (liveGames.length == gameIds.length) { return games; } // NOTHING EXPIRED OR REPLACED
+	const pageSize = Math.min(newest, 100); // BATCH GET TAKES 100 KEYS MAX
+	const foundGames = new Map();
+	let unread = gameIds.length;
+	while (unread > 0 && foundGames.size < newest) {
+		const page = gameIds.slice(Math.max(0, unread - pageSize), unread);
+		for (const game of await batchReadGames(page, listName)) {
+			if (theirs(game)) { foundGames.set(game.game_id.S, game); }
+		}
+		unread -= page.length;
+	}
 
-	const prunedGames = JSON.stringify(liveGames);
+	const readIds = gameIds.slice(unread);
+	const games = readIds.filter((gameId) => foundGames.has(gameId)).map((gameId) => foundGames.get(gameId)).slice(-newest); // BATCH GET ISN'T IN ORDER
+	const goneIds = new Set(readIds.filter((gameId) => !foundGames.has(gameId))); // EVERY KEY WAS READ, A GAME THAT WASN'T FOUND EXPIRED
+	if (goneIds.size == 0) { return games; } // NOTHING EXPIRED OR REPLACED
+
+	const prunedGames = JSON.stringify(gameIds.filter((gameId) => !goneIds.has(gameId)));
 	const params = {
 		TableName: USER_TABLE,
 		Key: {
@@ -1215,8 +1274,8 @@ async function batchReadGames(gameIds, listName) {
 			RequestItems: {
 				[CHESS_TABLE]: {
 					Keys: keys,
-					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, ai_level, start_params, inviter_id, opening", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME, HOW IT STARTED & ITS OPENING (YOUR GAMES & INVITES)
-					ExpressionAttributeNames: { "#state": "state" }
+					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, #winner, #reason, ai_level, start_params, inviter_id, opening", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME, HOW IT STARTED, HOW IT ENDED & ITS OPENING (YOUR GAMES, FINISHED GAMES & INVITES)
+					ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }
 				}
 			}
 		};
@@ -1380,4 +1439,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { pruneClosedGames, expireFinishedAiGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

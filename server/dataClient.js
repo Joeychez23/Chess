@@ -290,7 +290,7 @@ const endSession = (refreshToken) => call("POST", "/session/logout", { refresh_t
 const retrieveUser = (consistent) => call("GET", `/users/me${consistent ? "?consistent=true" : ""}`);
 
 /**
- * @description The requester's row with expired games & invites pruned, plus ai_game_id, friend_game_id, open_game_list, sent_invite & received_invites
+ * @description The requester's row with expired games & invites pruned, plus ai_game_id, friend_game_id, open_game_list, closed_game_list, sent_invite & received_invites
  */
 const myGames = () => call("GET", "/users/me?games=true");
 

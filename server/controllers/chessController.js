@@ -617,6 +617,7 @@ async function declineGame(req, res) {
  * @param  {[string]} req.params.userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, ai_game_id / friend_game_id (the open AI / friend game or null),
  * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }], newest last),
+ * closed_game_list (the same & winner, reason, the last 20 finished games, newest first),
  * sent_invite ({ game_id, name, player_color, start_params } or null), received_invites ([{ game_id, name, player_color, start_params }]),
  * rating ({ rating, provisional, rated_games }, Home's "Rating // 1520?"), message }]
  */
@@ -637,6 +638,7 @@ async function getUserGames(req, res) {
 		ai_game_id: userData.ai_game_id, // HOME DRAWS ITS BOARD & LINKS IT (Continue current game)
 		friend_game_id: userData.friend_game_id, // SAME, IN PLAY A FRIEND
 		open_game_list: userData.open_game_list.map((game) => gameSummary(game, req.params.userId)), // YOUR GAMES: "vs AI // LEVEL 3 // YOU PLAY WHITE (RANDOM)"
+		closed_game_list: (userData.closed_game_list || []).map((game) => ({ ...gameSummary(game, req.params.userId), winner: game.winner?.S || null, reason: game.reason?.S || null })), // FINISHED GAMES: WON, LOST OR DRAW & WHY
 		sent_invite: userData.sent_invite ? inviteBody(userData.sent_invite) : null, // "INVITE SENT TO BOB // WAITING"
 		received_invites: userData.received_invites.map(inviteBody), // "BOB INVITED YOU", ACCEPT & DECLINE
 		settings: userSettings(userData), // THE SETTINGS PAGE'S DEFAULT START SETTINGS, HOME'S DROPDOWNS START ON THEM
@@ -860,7 +862,7 @@ function userSettings(userData) {
 function readColor(value) { return value == "w" || value == "b" ? value : "random"; } // RANDOM IS THE DEFAULT
 
 /**
- * @description One open game for Your games on Home
+ * @description One game for Your games or Finished games on Home
  * @param  {[object]} gameData [game item, pruneGameList's projection is enough]
  * @param  {[string]} playerId [the user the list is for]
  * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }]

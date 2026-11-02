@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Home Page (/, signed in)
- *	Five boxes: Play the AI (at a level & color), Play a friend (by username or email, with your color), Invites (sent & received), the player's open games & Friends.
+ *	Six boxes: Play the AI (at a level & color), Play a friend (by username or email, with your color), Invites (sent & received), the player's open games, their finished games & Friends.
  *	A player has one AI game & one friend game open at a time: each box shows its game's board & Continue current game,
  *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites,
  *	the socket redraws Play a friend & Invites when one changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
@@ -51,6 +51,8 @@ const cancelInviteBtn = document.getElementById("cancelInvite");
 const inviteNote = document.getElementById("inviteNote"); // ACCEPT'S FORFEIT WARNING, WHY AN ACCEPT DIDN'T GO THROUGH
 const loadingDiv = document.getElementById("loadingDiv"); // "Loading...", THEN "No open games" IF THERE ARE NONE
 const gameList = document.getElementById("gameList");
+const noFinished = document.getElementById("noFinished"); // "Loading...", THEN "No finished games" IF THERE ARE NONE
+const finishedList = document.getElementById("finishedList");
 const noFriends = document.getElementById("noFriends"); // FRIENDS: "NO FRIENDS YET"
 const friendRequests = document.getElementById("friendRequests"); // "BOB WANTS TO BE FRIENDS", ACCEPT & DECLINE
 const sentRequests = document.getElementById("sentRequests"); // "REQUEST SENT TO BOB // WAITING" & CANCEL
@@ -146,6 +148,7 @@ async function drawHome(firstLoad) {
 		const friendGame = await openGame(gameData?.friend_game_id);
 		const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
 		listGames(gameData);
+		listFinishedGames(gameData);
 		loadInvites(gameData);
 		loadFriends(friendData);
 		await loadFriendBox(gameData, friendGame);
@@ -213,6 +216,34 @@ function listGames(gameData) {
 	gameList.replaceChildren(...rows); // REDRAWN WHEN THE SOCKET SAYS A GAME CHANGED: BUILT FIRST, THEN SWAPPED IN ONE STEP (#240)
 	loadingDiv.hidden = openGames.length > 0;
 	if (!openGames.length) { loadingDiv.innerText = "No open games yet. Start one with the AI or a friend."; }
+}
+
+
+/* ---------------------------------------------------------------- */
+// Finished Games
+/* ---------------------------------------------------------------- */
+/**
+ * @description Lists the player's last 20 finished games, newest first, each one is a link to /play/:gameId with its final board:
+ * "Won" & "vs AI // Level 3 // You play white (random) // Checkmate"
+ * @param  {[object]} gameData [GET /api/chess/user/:userId response]
+ */
+function listFinishedGames(gameData) {
+	const games = gameData?.closed_game_list || []; // NEW USERS HAVE NO GAMES YET
+	const rows = games.map(function (game) {
+		const listElement = document.createElement("li");
+		const gameLink = document.createElement("a");
+		const opponent = game.ai ? `vs AI // Level ${game.ai_level}` : `vs ${game.opponent_name || "Friend"}`;
+		const reason = game.reason ? ` // ${game.reason[0].toUpperCase()}${game.reason.slice(1)}` : "";
+		gameLink.href = `/play/${encodeURIComponent(game.game_id)}`;
+		gameLink.innerHTML = `<span class="label"></span><span class="spec gameInfo"></span>`;
+		gameLink.querySelector(".label").innerText = game.winner == "draw" ? "Draw" : game.winner == game.player_color ? "Won" : "Lost";
+		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)}${reason}`; // innerText, THE NAME IS NEVER READ AS HTML
+		listElement.append(gameLink);
+		return listElement;
+	});
+	finishedList.replaceChildren(...rows); // SAME AS listGames (#240)
+	noFinished.hidden = games.length > 0;
+	if (!games.length) { noFinished.innerText = "No finished games yet. They show up here when a game ends."; }
 }
 
 

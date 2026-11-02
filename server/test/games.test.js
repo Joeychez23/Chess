@@ -147,6 +147,27 @@ describe("a signed-in player's AI games", () => {
 		assert.ok(home.closed_games.includes(first.game_id));
 	});
 
+	test("a finished game shows under Finished games with its result, and opens on its final board", async () => {
+		const alice = player("alice");
+		const first = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 3 } });
+		const board = (await call("GET", `/api/chess/game/${first.game_id}`, { as: alice })).game_board;
+		await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", replace_current: true } });
+
+		const home = await call("GET", "/api/chess/user/alice", { as: alice });
+		assert.equal(home.closed_game_list.length, 1);
+		const finished = home.closed_game_list[0];
+		assert.equal(finished.game_id, first.game_id);
+		assert.equal(finished.ai, true);
+		assert.equal(finished.player_color, "w");
+		assert.equal(finished.winner, "b");
+		assert.equal(finished.reason, "forfeit");
+		assert.equal(peek("chess_db", first.game_id).expireAt, undefined); // KEPT, SO THE ROW KEEPS OPENING
+
+		const opened = await call("GET", `/api/chess/game/${first.game_id}`, { as: alice });
+		assert.equal(opened.state, "CLOSED");
+		assert.equal(opened.game_board, board);
+	});
+
 	test("restarting mid-game forfeits it and starts a new game at the same level", async () => {
 		const alice = player("alice");
 		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 6 } });

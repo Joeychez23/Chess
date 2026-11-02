@@ -72,7 +72,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 
 | Url | Page |
 | --- | --- |
-| `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites, Your games and Friends boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
+| `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites, Your games, Finished games and Friends boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
 | `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my data boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
@@ -122,7 +122,7 @@ leaveGame();
 
 ```text
 client/
-  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Friends, menu (Home, Invites, Your games, Friends, Settings, Logout)
+  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Finished games, Friends, menu (Home, Invites, Your games, Finished games, Friends, Settings, Logout)
   settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
   login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home, Login/Signup)
   signup.html                Signup markup: Create account, link to login, menu (Home, Login/Signup), shares the login bundle
