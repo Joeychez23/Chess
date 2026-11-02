@@ -126,6 +126,10 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	color: var(--maple);
 }
 
+#moveList:not(.below) { /* LEFT OF THE BOARD: THE MOVE BOX & THE MENU'S WIDTH, NARROWER ONLY WHEN THE FREE SPACE IS. UNDER THE BOARD IT KEEPS THE FULL WIDTH */
+	max-width: var(--move-box-width);
+}
+
 #moveList[hidden],
 #moveListRows[hidden] {
 	display: none;
@@ -204,6 +208,16 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 /* Move Box (gameplay/movebox/index.js) */
 /* ---------------------------------------------------------------- */
 
+html {
+	--move-box-width: min(260px, calc(100vw - 16px)); /* THE MOVE BOX, THE GAME'S MENU & THE MOVE LIST */
+}
+
+body #menuContainer { /* body: style.css LOADS BEFORE nav.css. THE OTHER PAGES' MENUS KEEP nav.css'S WIDTH */
+	right: calc(env(safe-area-inset-right, 0px) + var(--menu-btn-right) - 8px); /* SAME WIDTH & right AS #moveBox, SO THEIR CENTERS LINE UP */
+	box-sizing: border-box;
+	width: var(--move-box-width);
+}
+
 #moveBox { /* TOP RIGHT AROUND THE MENU BUTTON, WHICH COVERS THE X. A PHONE'S KEYBOARD COMES UP FROM THE BOTTOM. UNDER THE MENU */
 	position: fixed;
 	z-index: 18;
@@ -214,7 +228,7 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	align-items: center;
 	gap: 6px;
 	box-sizing: border-box;
-	width: min(260px, calc(100vw - 16px));
+	width: var(--move-box-width);
 	padding: 8px;
 	border: 1px solid rgba(201, 163, 90, 0.45);
 	border-radius: 14px;

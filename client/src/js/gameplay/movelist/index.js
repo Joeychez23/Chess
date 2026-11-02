@@ -114,9 +114,10 @@ export function loadMoveList() {
 }
 
 /**
- * @description Collapses or opens the panel & saves it
+ * @description Collapses or opens the panel & saves it. The click is stopped so the menu stays as it is (handleClickAway)
  */
-export function handleMoveListToggle() {
+export function handleMoveListToggle(e) {
+	e.stopPropagation();
 	const collapsed = !rowList.hidden;
 	setCollapsed(collapsed);
 	try { localStorage.setItem(COLLAPSED_KEY, collapsed ? "closed" : "open"); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS

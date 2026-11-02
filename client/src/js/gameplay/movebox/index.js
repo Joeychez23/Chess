@@ -3,7 +3,7 @@
  *	Move Box
  *	Plays a typed move like e4, Nf3, exd5 or e8=Q (#moveBox on the play page, HTML over the canvas). The / key or the menu's
  *	Type a Move opens it (Type a Move also closes it), chess.js reads the move on the scratch board & it slides like a clicked move, validateMove() sends it
- *	when it lands (sound & server check as usual). It stays closed until it's asked for, a phone's keyboard resizes the window.
+ *	when it lands (sound & server check as usual). It's open when the game loads, without the cursor where that would bring up a phone's keyboard or catch the TV remote's keys.
  *	As the player types it lists the legal moves that start with what they typed, picked with a click, a tap or the arrow keys & Enter
  *	It opens at the top right behind the menu button, which covers the X. A mouse or a finger can drag it by anything but the input, the X & the list, it stays inside the window until it's closed
  *
@@ -14,7 +14,6 @@
 /* ---------------------------------------------------------------- */
 const { game, chessInst, validateState, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
 const { refreshData } = require("../moves/index.js"); // RESETS THE BOARD TO A SERVER GAME
-const { closeMenu } = require("../menu/index.js"); // THE MENU'S TYPE A MOVE CLOSES THE MENU
 const { moveBlockReason, suggestMoves, exampleMoves, stepHighlight, countMessage } = require("./suggestions.js"); // WHEN THE PLAYER CAN MOVE & WHAT THE LIST SHOWS
 const box = document.getElementById("moveBox"); // THE FORM
 const input = document.getElementById("moveBoxInput"); // WHERE THE MOVE IS TYPED
@@ -22,7 +21,6 @@ const refusal = document.getElementById("moveBoxRefusal"); // WHY A MOVE WAS REF
 const closeBtn = document.getElementById("moveBoxClose"); // CLOSES IT (PHONES HAVE NO ESCAPE KEY)
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT)
 const optTypeMoveBtn = document.getElementById("optTypeMove"); // MENU: TYPE A MOVE
-const menu = document.getElementById("menuContainer"); // THE MENU'S PANEL
 const list = document.getElementById("moveBoxSuggestions"); // THE LEGAL MOVES THAT START WITH WHAT WAS TYPED
 const countStatus = document.getElementById("moveBoxCount"); // HOW MANY THERE ARE, FOR SCREEN READERS
 const WATCH_TIME = 250; // HOW OFTEN AN OPEN BOX CHECKS THE GAME FOR CHANGES, A MOVE CAN ARRIVE WHILE THE PLAYER TYPES (ms)
@@ -41,12 +39,13 @@ let dragTouch = null; // THE identifier OF THE FINGER DRAGGING IT, null WHEN IT 
 // Open & Close
 /* ---------------------------------------------------------------- */
 /**
- * @description Opens the box & puts the cursor in it. On a phone this is what brings up the keyboard, so it only happens when asked for
+ * @description Opens the box & puts the cursor in it. On a phone the cursor is what brings up the keyboard
+ * @param  {[boolean]} focusInput [false leaves the cursor where it is]
  */
-function openMoveBox() {
+function openMoveBox(focusInput = true) {
 	box.hidden = false;
 	fitBox(); // THE WINDOW CAN HAVE CHANGED SIZE WHILE IT WAS CLOSED
-	input.focus();
+	if (focusInput) { input.focus(); }
 	clearInterval(watchTimer);
 	watchTimer = setInterval(updateSuggestions, WATCH_TIME);
 	updateSuggestions(); // THE INPUT'S EXAMPLE MOVES ARE FOR THE POSITION NOW, NOT WHEN IT LAST CLOSED
@@ -202,6 +201,13 @@ function handleDragMove(e) {
 }
 
 /**
+ * @description The click that comes with letting go of a drag, stopped so it doesn't close the menu (handleClickAway)
+ */
+function stopDragClick(e) {
+	e.stopPropagation();
+}
+
+/**
  * @description Ends the drag, the box stays where it is until it's closed
  */
 function handleDragEnd(e) {
@@ -210,6 +216,8 @@ function handleDragEnd(e) {
 	box.classList.remove("dragging");
 	window.removeEventListener("mousemove", handleDragMove, true);
 	window.removeEventListener("mouseup", handleDragEnd, true);
+	window.addEventListener("click", stopDragClick, { capture: true, once: true });
+	setTimeout(function () { window.removeEventListener("click", stopDragClick, true); }, 0); // LET GO OUTSIDE THE WINDOW THERE'S NO CLICK, THE NEXT REAL ONE STILL COUNTS
 }
 
 /**
@@ -386,40 +394,33 @@ function handleBoxKey(e) {
 }
 
 /**
- * @description The menu's Type a Move opens the box or closes an open one, the menu stays open when it can't close (game over or a new board loading)
+ * @description The menu's Type a Move opens the box or closes an open one. The menu stays open, so the box opens without
+ * the cursor (a move can't be played under the menu), a click on the input closes the menu & puts the cursor there
  */
 function handleTypeMoveBtn(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	closeMenu();
-	if (game.menuToggled) { return; }
-	if (box.hidden) { openMoveBox(); } else { closeMoveBox(); }
+	if (box.hidden) { openMoveBox(false); } else { closeMoveBox(); }
 }
 
 /**
- * @description Whether the menu button or the open menu covers any of the X
- * @return {[boolean]} covered
+ * @description The X closes the box, stopped so the menu stays as it is (handleClickAway)
  */
-function isCloseBtnCovered() {
-	const x = closeBtn.getBoundingClientRect();
-	return [optBtn, menu].some(function (el) {
-		const rect = el.getBoundingClientRect();
-		return x.left < rect.right && x.right > rect.left && x.top < rect.bottom && x.bottom > rect.top;
-	});
-}
-
-/**
- * @description The menu button was pressed, the menu has already opened or closed (handleMenuBtn). Opening it closes the box, unless
- * the X is covered: the box stays behind the menu as it was, without the keyboard so a move can't be played under the menu
- */
-function handleMenuToggle() {
-	if (!game.menuToggled) { return; }
-	if (isCloseBtnCovered()) { input.blur(); return; }
+function handleCloseBtn(e) {
+	e.stopPropagation();
 	closeMoveBox();
 }
 
 /**
- * @description Adds the box's listeners, startGame (gameplay/index.js) calls this once the game has loaded
+ * @description The menu button was pressed, the menu has already opened or closed (handleMenuBtn). Opening it leaves the box as it was,
+ * where it was, without the keyboard so a move can't be played under the menu
+ */
+function handleMenuToggle() {
+	if (game.menuToggled) { input.blur(); }
+}
+
+/**
+ * @description Adds the box's listeners & opens it, startGame (gameplay/index.js) calls this once the game has loaded
  */
 export function addMoveBoxListeners() {
 	document.addEventListener("keydown", handleOpenKey);
@@ -433,7 +434,8 @@ export function addMoveBoxListeners() {
 	window.visualViewport?.addEventListener("resize", fitBox); // A PHONE'S KEYBOARD OPENED OR CLOSED
 	window.visualViewport?.addEventListener("scroll", fitBox);
 	window.addEventListener("resize", fitBox);
-	closeBtn.addEventListener("click", closeMoveBox);
+	closeBtn.addEventListener("click", handleCloseBtn);
 	optBtn.addEventListener("click", handleMenuToggle);
 	optTypeMoveBtn.addEventListener("click", handleTypeMoveBtn);
+	openMoveBox(window.matchMedia("(pointer: fine)").matches && !game.TV_BOOL && !game.menuToggled); // A MOUSE GETS THE CURSOR. NOT A PHONE (KEYBOARD), THE TV REMOTE (handleBoxKey KEEPS ITS KEYS) OR UNDER THE MENU
 }
