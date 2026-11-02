@@ -16,6 +16,7 @@ const { checkStartFen } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
+const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams } = require("../utils/games.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
 const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames, findUsername } = require("../dataClient.js");
@@ -667,19 +668,6 @@ function readStartParams(body, fen) {
 }
 
 /**
- * @description The start settings saved with a game, Restart & Rematch start the next game with them
- * @param  {[object]} gameData [game item]
- * @return {[object]} params [{ color: "random" | "w" | "b", fen (only for a set position) }, games from before start_params are Random]
- */
-function startParams(gameData) {
-	let params = {};
-	try { params = JSON.parse(gameData.start_params?.S || "{}"); } catch { }
-	let start = { color: params.color == "w" || params.color == "b" ? params.color : "random" };
-	if (params.fen) { start.fen = params.fen; } // A SET POSITION (CHECKED WHEN THE FIRST GAME WAS MADE)
-	return start;
-}
-
-/**
  * @description The settings a request saves (the settings page's Default start settings)
  * @param  {[object]} body [req.body, { ai_level, ai_color, friend_color }]
  * @return {[object]} settings [{ ai_level (1 - 8, anything else is the default level), ai_color, friend_color ("random" | "w" | "b", anything else is Random) }]
@@ -702,15 +690,6 @@ function userSettings(userData) {
 function readColor(value) { return value == "w" || value == "b" ? value : "random"; } // RANDOM IS THE DEFAULT
 
 /**
- * @description The friend game's inviter, their pick is start_params.color (rematches keep them as the inviter)
- * @param  {[object]} gameData [friend game item]
- * @return {[string]} playerId [games from before inviter_id: white, the inviter always played white]
- */
-function inviterId(gameData) {
-	return gameData.inviter_id?.S || gameData.white_player_id.S;
-}
-
-/**
  * @description One open game for Your games on Home
  * @param  {[object]} gameData [game item, pruneGameList's projection is enough]
  * @param  {[string]} playerId [the user the list is for]
@@ -729,16 +708,6 @@ function gameSummary(gameData, playerId) {
 }
 
 /**
- * @description A friend game player's name (their username, or their Auth0 screenname before they picked one), saved when the game was made (inviteGame & rematchGame)
- * @param  {[object]} gameData [game item]
- * @param  {[string]} color ["w" or "b"]
- * @return {[string]} name [null for AI games & players without either, Home shows "Friend"]
- */
-function playerName(gameData, color) {
-	return (color == "w" ? gameData.white_name?.S : gameData.black_name?.S) || null;
-}
-
-/**
  * @description The game's result fields, sent with every game response
  * @param  {[object]} gameData [game item]
  * @return {[object]} result [{ state: "PENDING" | "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason }]
@@ -749,24 +718,6 @@ function gameState(gameData) {
 		winner: gameData.winner?.S || null,
 		reason: gameData.reason?.S || null,
 	};
-}
-
-/**
- * @description True from the start (or the accept) until the game is checkmated, drawn or forfeited
- * @param  {[object]} gameData [game item]
- * @return {[boolean]} open
- */
-function gameOpen(gameData) {
-	return (gameData.state?.S || "OPEN") == "OPEN";
-}
-
-/**
- * @description True while a friend invite waits on the invited player (Accept or Decline on Home)
- * @param  {[object]} gameData [game item]
- * @return {[boolean]} pending
- */
-function gamePending(gameData) {
-	return gameData.state?.S == "PENDING";
 }
 
 /**
@@ -811,15 +762,6 @@ function notInGame(req, res) {
  */
 function userPlayerId(user) {
 	return user.user_id.split("auth0|")[1];
-}
-
-/**
- * @description True when either side is the computer
- * @param  {[object]} gameData [game item]
- * @return {[boolean]} ai
- */
-function isAiGame(gameData) {
-	return gameData.white_player_id.S == "CHESS_AI" || gameData.black_player_id.S == "CHESS_AI";
 }
 
 

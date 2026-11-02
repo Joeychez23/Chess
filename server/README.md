@@ -313,6 +313,7 @@ server/
   utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
   utils/rating.js            Elo ratings: the math & which games are rated
+  utils/games.js             Game checks: game state, who's in a game & start settings (the same file as data-service/utils/games.js)
   utils/username.js          Username rules (3 - 20 letters, numbers, _ or -, reserved names) & the username# key
   utils/signature.js         Signs each call to the data service (the same file as data-service/utils/signature.js)
   utils/sessionKeys.js       Reads the session keys & checks a token's ES256 signature (the same file as data-service/utils/sessionKeys.js)

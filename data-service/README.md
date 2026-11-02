@@ -102,7 +102,7 @@ about a player's other games still run on the chess server first, and accepting
 an invite with `replace_current` is one call, so the inviter is checked before
 the player's own game is forfeited.
 
-`utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are copies of
+`utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are copies of
 the server's, and `test/shared.test.js` fails if they differ, so change both.
 
 ## Session keys (#252)
@@ -227,7 +227,7 @@ The data service has its own tests, the same way as the [server's](../server/REA
 | `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
 | `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
-| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are the same files as the server's, and both pin the same `chess.js` |
+| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are the same files as the server's, and both pin the same `chess.js` |
 
 ## Layout
 
@@ -245,7 +245,7 @@ data-service/                The only code that reads and writes DynamoDB (#245)
   middleware/signature.js    checkSignature(): only signed requests, sent within 30 seconds, once; keepRawBody()
   middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with its own key; requirePlayer, requireSignedIn
   middleware/fields.js       onlyFields(): refuses a body field the route doesn't name
-  utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks
+  utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks (the same file as server/utils/games.js)
   utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
   utils/signature.js         sign(), signedHeaders(), signatureMatches(): the HMAC the chess server signs with
   utils/tokens.js            Signs the access, refresh & guest tokens with SESSION_PRIVATE_KEY (ES256)
