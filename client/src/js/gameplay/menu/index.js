@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
  *	for Restart & Rematch (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
  *	socket's handlers (socketHandlers: a move, a forfeit or a rematch), startGame & loadRematch join with them
  *
@@ -122,6 +122,44 @@ export function handleSound(e) {
 	game.soundOn = !game.soundOn;
 	optSoundBtn.innerText = game.soundOn ? "Turn Sound: Off" : "Turn Sound: On"; // THE WORDS SAY WHAT A PRESS WILL DO
 	try { localStorage.setItem(SOUND_KEY, game.soundOn ? "on" : "off"); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
+}
+
+/* ---------------------------------------------------------------- */
+// Flip Board Button (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Is a piece sliding? Its tile's place in tiles is held by the code finishing the move, so the board can't flip until it lands
+ */
+function slideInFlight() {
+	return game.currSlide || game.tiles.some(function (tile) { return tile.isSliding; });
+}
+
+/**
+ * @description Draws the board from the other side. refreshData rebuilds the tiles, they're in screen order
+ */
+function flipBoard() {
+	game.flipPending = false;
+	game.viewColor = game.viewColor == 'w' ? 'b' : 'w';
+	handleInitialData();
+	refreshData(game.response);
+}
+
+/**
+ * @description Flips the board, the menu stays open. During a slide it flips when the slide is done (a second press cancels it)
+ */
+export function handleFlip(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (game.boardReset) { return; } // A NEW BOARD IS LOADING, IT STARTS FROM THE PLAYER'S SIDE
+	if (slideInFlight()) { game.flipPending = !game.flipPending; return; }
+	flipBoard();
+}
+
+/**
+ * @description The render loop calls this before each frame, it does the flip that waited for a slide
+ */
+export function flipWhenDone() {
+	if (game.flipPending && !slideInFlight()) { flipBoard(); }
 }
 
 /* ---------------------------------------------------------------- */

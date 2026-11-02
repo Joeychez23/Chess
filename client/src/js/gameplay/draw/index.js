@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, ctx, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE BOARD THAT'S DRAWN
-const { countStartPieces } = require("../utils/index.js"); // HOW MANY PIECES EACH SIDE STARTED WITH
+const { countStartPieces, materialDiff } = require("../utils/index.js"); // HOW MANY PIECES EACH SIDE STARTED WITH, WHO'S AHEAD IN MATERIAL
 const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
 const { renderBoard } = require("../layout/index.js"); // SIZES THE CANVAS & BOARD TO THE WINDOW & DRAWS THE TABLE & BOARD
 const {
@@ -24,7 +24,7 @@ const {
 	bFrontKingRefl, bBackKingRefl, bFrontQueenRefl, bBackQueenRefl, bFrontBishopRefl, bBackBishopRefl, bRightKnightRefl, bLeftKnightRefl, bFrontRookRefl, bBackRookRefl, bFrontPawnRefl, bBackPawnRefl, // BLACK REFLECT
 	moveHighlight, takeableHighlight, checkHighlight // UI
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
-const { handleKnightHop, stepSlide, KNIGHT_PAUSE_MS } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS, WHERE A SLIDING PIECE IS FROM THE TIME, HOW LONG A KNIGHT STOPS BEFORE ITS HOP
+const { handleKnightHop, stepSlide, KNIGHT_PAUSE_MS, trayNudge } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS, WHERE A SLIDING PIECE IS FROM THE TIME, HOW LONG A KNIGHT STOPS BEFORE ITS HOP, HOW FAR THE BOTTOM TRAY SITS DOWN
 const { updateUserStateSlide, updateOpponentStateSlide } = require("../moves/index.js"); // A SLIDE LANDED: SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S
 
 const DRAG_HOLD_MS = 120; // MOVING A HELD PIECE FOR LONGER THAN THIS MAKES IT A DRAG
@@ -34,7 +34,7 @@ let clickY; // PIXEL Y OF tileY
 let slidePos; // SQUARE THE SLIDING PIECE IS CROSSING (trackSlidePosition)
 let knightPause = false; // TRUE FOR THE 100MS A KNIGHT STOPS BEFORE ITS HOP (currSlide IS OFF), SO A FRAME DRAWN THEN STILL PUTS IT ON TOP
 let availableMoves; // LEGAL MOVES OF THE SELECTED PIECE (chess.js VERBOSE MOVES)
-let currInst; // 8 x 8 BOARD FROM chessInst.board(), FLIPPED WHEN PLAYING BLACK
+let currInst; // 8 x 8 BOARD FROM chessInst.board(), FLIPPED WHEN VIEWING FROM BLACK'S SIDE
 let xPos; // TAKEN PIECE TRAY COLUMN (renderTakenPieces)
 let yPos; // TAKEN PIECE TRAY ROW
 let overlapSlideObj = null; // THE 3 x 3 SQUARES AROUND A SLIDING PIECE (drawActivePiece), ONLY A HOPPING OR LANDED KNIGHT IS DRAWN AGAIN FROM IT (drawSlideBox)
@@ -47,10 +47,10 @@ let xPositive = false; // THE SLIDING PIECE IS GOING RIGHT
 /**
  * @description Sets drawScreen & gamedata based on player color. Each frame drawScreen() draws the table & board,
  * the pieces, the taken piece trays (the promotion picker while promoting), then a light table shadow over everything.
- * Black's board is flipped (rows & columns reversed) so the player is always at the bottom
+ * Black's side at the bottom (viewColor) flips the board (rows & columns reversed)
  */
 export function handleInitialData() {
-	if (game.playerColor == "w") { // DRAW SCREEN W
+	if (game.viewColor == "w") { // DRAW SCREEN W
 		currInst = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
 		game.drawScreen = async function () {
 			const boardData = renderBoard();
@@ -63,17 +63,17 @@ export function handleInitialData() {
 				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
 				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
 			} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
-				game.wTakenPieces = setTakenPieceArr(game.playerColor);
-				game.bTakenPieces = setTakenPieceArr(game.opponentColor);
-				renderTakenPieces(game.wTakenPieces, game.opponentColor);
-				renderTakenPieces(game.bTakenPieces, game.playerColor)
+				game.wTakenPieces = setTakenPieceArr('w');
+				game.bTakenPieces = setTakenPieceArr('b');
+				renderTakenPieces(game.wTakenPieces, 'b');
+				renderTakenPieces(game.bTakenPieces, 'w');
 			}
 
 			ctx.globalAlpha = 0.05
 			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 			ctx.globalAlpha = 1;
 		}
-	} else if (game.playerColor == "b") { // DRAW SCREEN B
+	} else if (game.viewColor == "b") { // DRAW SCREEN B
 		currInst = chessInst.board().reverse(); // ROW 0 IS RANK 1
 		for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); } // COLUMN 0 IS THE h FILE
 		game.drawScreen = async function () {
@@ -88,10 +88,10 @@ export function handleInitialData() {
 				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
 				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
 			} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
-				game.wTakenPieces = setTakenPieceArr(game.opponentColor);
-				game.bTakenPieces = setTakenPieceArr(game.playerColor);
-				renderTakenPieces(game.wTakenPieces, game.playerColor);
-				renderTakenPieces(game.bTakenPieces, game.opponentColor);
+				game.wTakenPieces = setTakenPieceArr('w');
+				game.bTakenPieces = setTakenPieceArr('b');
+				renderTakenPieces(game.wTakenPieces, 'b');
+				renderTakenPieces(game.bTakenPieces, 'w');
 			}
 
 			ctx.globalAlpha = 0.05
@@ -99,6 +99,64 @@ export function handleInitialData() {
 			ctx.globalAlpha = 1;
 		}
 	}
+}
+
+/* ---------------------------------------------------------------- */
+// Last Move Highlight
+/* ---------------------------------------------------------------- */
+/**
+ * @description Tints the from & to squares of the opponent's last move (game.lastOpponentMove), it stays until their next move lands
+ */
+function drawLastMove() {
+	const lastMove = game.lastOpponentMove || [];
+	ctx.globalAlpha = 0.30;
+	for (let s = 0; s < lastMove.length; s++) {
+		const column = lastMove[s].charCodeAt(0) - 97; // a FILE IS 0
+		const rank = Number(lastMove[s][1]);
+		const x = game.viewColor == 'b' ? 7 - column : column; // FLIPPED BOARD: h1 IS 0, 0
+		const y = game.viewColor == 'b' ? rank - 1 : 8 - rank;
+		ctx.drawImage(images[checkHighlight].image, (x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
+	}
+	ctx.globalAlpha = 1.00;
+}
+
+/* ---------------------------------------------------------------- */
+// Marks & Arrows
+/* ---------------------------------------------------------------- */
+/**
+ * @description Draws the player's right-click marks (a ring) & arrows (game.annotations) from square centers
+ */
+function drawAnnotations() {
+	const center = function (square) { // COLUMN & ROW OF A SQUARE'S CENTER ON SCREEN
+		const column = square.charCodeAt(0) - 97; // a FILE IS 0
+		const rank = Number(square[1]);
+		return game.viewColor == 'b' ? [7 - column + 0.5, rank - 0.5] : [column + 0.5, 8.5 - rank]; // FLIPPED BOARD: h1 IS 0, 0
+	};
+	ctx.save();
+	ctx.translate(game.xBoardOff, game.yBoardOff);
+	ctx.scale(game.tileWidth, game.tileHeight); // ONE UNIT IS ONE SQUARE: LINE WIDTHS & HEADS STRETCH WITH THE WIDE SQUARES IN EVERY DIRECTION
+	ctx.globalAlpha = 0.7;
+	ctx.strokeStyle = "#e8792b";
+	ctx.fillStyle = "#e8792b";
+	ctx.lineWidth = 0.12;
+	for (const { from, to } of game.annotations) {
+		const [x1, y1] = center(from);
+		const [x2, y2] = center(to);
+		ctx.beginPath();
+		if (from == to) { ctx.arc(x1, y1, 0.42, 0, Math.PI * 2); ctx.stroke(); continue; }
+		const length = Math.hypot(x2 - x1, y2 - y1);
+		const ux = (x2 - x1) / length; // ONE SQUARE ALONG THE ARROW
+		const uy = (y2 - y1) / length;
+		ctx.moveTo(x1 + ux * 0.3, y1 + uy * 0.3); // STARTS AT THE EDGE OF THE FROM SQUARE'S PIECE, STOPS AT THE HEAD SO THE SEE-THROUGH COLORS DON'T OVERLAP
+		ctx.lineTo(x2 - ux * 0.5, y2 - uy * 0.5);
+		ctx.stroke();
+		ctx.beginPath();
+		ctx.moveTo(x2 - ux * 0.1, y2 - uy * 0.1); // TIP
+		ctx.lineTo(x2 - ux * 0.5 - uy * 0.25, y2 - uy * 0.5 + ux * 0.25);
+		ctx.lineTo(x2 - ux * 0.5 + uy * 0.25, y2 - uy * 0.5 - ux * 0.25);
+		ctx.fill();
+	}
+	ctx.restore();
 }
 
 /* ---------------------------------------------------------------- */
@@ -154,6 +212,9 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			break;
 		}
 	}
+
+	drawLastMove(); // BEFORE THE LOOP SO IT'S UNDER EVERY PIECE, REFLECTION & SHADOW
+	drawAnnotations();
 
 	for (let i = 0; i < inst.length; i++) { // ROW
 		for (let j = 0; j < inst[i].length; j++, index++) { // COLUMN
@@ -235,10 +296,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 							let yTo; // SCREEN ROW IT WENT TO
 							for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
 								if (JSON.parse(game.response.w_piece)[n].from && JSON.parse(game.response.w_piece)[n].to == tile.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-									if (game.playerColor == 'w') {
+									if (game.viewColor == 'w') {
 										yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
 										yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
-									} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 										yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
 										yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
 									}
@@ -256,10 +317,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 							let yTo; // SCREEN ROW IT WENT TO
 							for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
 								if (JSON.parse(game.response.b_piece)[n].from && JSON.parse(game.response.b_piece)[n].to == tile.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-									if (game.playerColor == 'w') {
+									if (game.viewColor == 'w') {
 										yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
 										yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
-									} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+									} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 										yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
 										yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
 									}
@@ -293,10 +354,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				if ((game.clickedTile || game.mousedownTile) && !game.currSlide) { // MOVES FOR PIECE TOGGLED BY USER
 					let xLet;
 					let piecePos; // THIS SQUARE'S NAME (e4)
-					if (game.playerColor == 'w') {
+					if (game.viewColor == 'w') {
 						xLet = String.fromCharCode(97 + j);
 						piecePos = `${xLet}${8 - i}`
-					} else if (game.playerColor == 'b') { // FLIPPED BOARD
+					} else if (game.viewColor == 'b') { // FLIPPED BOARD
 						xLet = String.fromCharCode(96 + (8 - j));
 						piecePos = `${xLet}${i + 1}`
 					}
@@ -314,10 +375,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 							let xAvailInt; // SCREEN COLUMN & ROW OF THE MOVE
 							let yAvailInt;
 
-							if (game.playerColor == 'w') {
+							if (game.viewColor == 'w') {
 								xAvailInt = availableMoves[r].to.split("")[0].charCodeAt(0) - 96 - 1;
 								yAvailInt = 8 - availableMoves[r].to.split("")[1];
-							} else if (game.playerColor == 'b') {
+							} else if (game.viewColor == 'b') {
 								xAvailInt = 8 - (availableMoves[r].to.split("")[0].charCodeAt(0) - 96);
 								yAvailInt = availableMoves[r].to.split("")[1] - 1;
 							}
@@ -327,10 +388,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 							for (let a = 0; a < availableMoves.length; a++) { // CLEARS THE HELD PIECE'S PREVIEW SQUARE WHEN THE MOUSE ISN'T ON ANY LEGAL MOVE
 								let xAvailInt;
 								let yAvailInt;
-								if (game.playerColor == 'w') {
+								if (game.viewColor == 'w') {
 									xAvailInt = availableMoves[a].to.split("")[0].charCodeAt(0) - 96 - 1;
 									yAvailInt = 8 - availableMoves[a].to.split("")[1];
-								} else if (game.playerColor == 'b') {
+								} else if (game.viewColor == 'b') {
 									xAvailInt = 8 - (availableMoves[a].to.split("")[0].charCodeAt(0) - 96);
 									yAvailInt = availableMoves[a].to.split("")[1] - 1;
 								}
@@ -464,7 +525,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 								let yPos; // RANK OF slidePos
 								let y1x1, y1x2, y1x3, y2x1, y2x2, y2x3, y3x1, y3x2, y3x3 = null;
 
-								if (game.playerColor == 'w') {
+								if (game.viewColor == 'w') {
 									xPos = slidePos.split("")[0].charCodeAt(0) - 97;
 									yPos = Number(slidePos.split("")[1])
 
@@ -489,7 +550,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 									overlapSlideObj = { y1x1, y1x2, y1x3, y2x1, y2x2, y2x3, y3x1, y3x2, y3x3 }
 								}
 
-								else if (game.playerColor == 'b') { // FLIPPED BOARD: TURN slidePos (WHITE'S LETTERS) INTO BLACK'S SQUARE NAMES
+								else if (game.viewColor == 'b') { // FLIPPED BOARD: TURN slidePos (WHITE'S LETTERS) INTO BLACK'S SQUARE NAMES
 									xPos = (8 - (slidePos.split("")[0].charCodeAt(0) - 97))
 									yPos = 9 - Number(slidePos.split("")[1])
 
@@ -594,7 +655,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 					handleKnightDirectionW(xFrom, xTo);
 					drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false);
 				} else if (game.tiles[index].color == 'b') {
-					if (game.playerColor == 'b') { xFrom = 7 - xFrom; xTo = 7 - xTo; } // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
+					if (game.viewColor == 'b') { xFrom = 7 - xFrom; xTo = 7 - xTo; } // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
 					handleKnightDirectionB(xFrom, xTo);
 					drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false);
 				}
@@ -669,10 +730,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						let yTo; // SCREEN ROW IT WENT TO
 						for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
 							if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-								if (game.playerColor == 'w') {
+								if (game.viewColor == 'w') {
 									yFrom = 8 - game.moveObj.from.split("")[1];
 									yTo = 8 - game.moveObj.to.split("")[1];
-								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+								} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 									yFrom = game.moveObj.from.split("")[1] - 1;
 									yTo = game.moveObj.to.split("")[1] - 1;
 								}
@@ -680,10 +741,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 								drawPiece();
 								break;
 							} else if (JSON.parse(game.response.w_piece)[n].from && JSON.parse(game.response.w_piece)[n].to == game.tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-								if (game.playerColor == 'w') {
+								if (game.viewColor == 'w') {
 									yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
 									yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
-								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+								} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 									yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
 									yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
 								}
@@ -701,10 +762,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						let yTo; // SCREEN ROW IT WENT TO
 						for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
 							if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-								if (game.playerColor == 'w') {
+								if (game.viewColor == 'w') {
 									yFrom = 8 - game.moveObj.from.split("")[1];
 									yTo = 8 - game.moveObj.to.split("")[1];
-								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+								} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 									yFrom = game.moveObj.from.split("")[1] - 1;
 									yTo = game.moveObj.to.split("")[1] - 1;
 								}
@@ -712,10 +773,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 								drawPiece();
 								break;
 							} else if (JSON.parse(game.response.b_piece)[n].from && JSON.parse(game.response.b_piece)[n].to == game.tiles[index].square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-								if (game.playerColor == 'w') {
+								if (game.viewColor == 'w') {
 									yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
 									yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
-								} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+								} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 									yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
 									yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
 								}
@@ -796,10 +857,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 								for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
 									if (game.tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
 										if (hopTurn) { break; } // OVER ANOTHER SQUARE: DRAWN IN THAT SQUARE'S TURN (drawHoppingKnight), STILL COUNTED BELOW
-										if (game.playerColor == 'w') {
+										if (game.viewColor == 'w') {
 											xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 											xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-										} else if (game.playerColor == 'b') { // SAME AS WHITE, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
+										} else if (game.viewColor == 'b') { // SAME AS WHITE, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
 											xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 											xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 										}
@@ -807,21 +868,21 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 										drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity);
 										break;
 									} else if (JSON.parse(game.response.w_knight)[n].from && (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square)) { // THIS KNIGHT HAS MOVED: FACE THE WAY ITS LAST MOVE WENT
-										if (game.playerColor == 'w') {
+										if (game.viewColor == 'w') {
 											xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 											xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-										} else if (game.playerColor == 'b') {
+										} else if (game.viewColor == 'b') {
 											xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 											xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
 										}
 										handleKnightDirectionW(xFrom, xTo);
 										drawKnight();
 										break;
-									} else if (JSON.parse(game.response.w_knight)[n].from == null && JSON.parse(game.response.w_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT (b1 RIGHT, g1 LEFT), FLIPPED WHEN PLAYING BLACK
-										if (game.playerColor == 'w') {
+									} else if (JSON.parse(game.response.w_knight)[n].from == null && JSON.parse(game.response.w_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT (b1 RIGHT, g1 LEFT), FLIPPED WHEN VIEWING FROM BLACK'S SIDE
+										if (game.viewColor == 'w') {
 											if (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square && game.tiles[index].square.split("")[0] < 'e') { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 											else if (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
-										} else if (game.playerColor == 'b') {
+										} else if (game.viewColor == 'b') {
 											if (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square && game.tiles[index].square.split("")[0] < 'e') { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
 											else if (JSON.parse(game.response.w_knight)[n].to == game.tiles[index].square) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 										}
@@ -834,10 +895,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 								for (let n = 0; n < JSON.parse(game.response.b_knight).length; n++) {
 									if (game.tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
 										if (hopTurn) { break; } // OVER ANOTHER SQUARE: DRAWN IN THAT SQUARE'S TURN (drawHoppingKnight), STILL COUNTED BELOW
-										if (game.playerColor == 'w') {
+										if (game.viewColor == 'w') {
 											xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 											xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-										} else if (game.playerColor == 'b') { // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
+										} else if (game.viewColor == 'b') { // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
 											xFrom = 8 - (game.moveObj.from.split("")[0].charCodeAt(0) - 96);
 											xTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
 										}
@@ -845,21 +906,21 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 										drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity);
 										break;
 									} else if (JSON.parse(game.response.b_knight)[n].from && JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square) { // THIS KNIGHT HAS MOVED: FACE THE WAY ITS LAST MOVE WENT
-										if (game.playerColor == 'w') {
+										if (game.viewColor == 'w') {
 											xFrom = JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 											xTo = JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-										} else if (game.playerColor == 'b') {
+										} else if (game.viewColor == 'b') {
 											xFrom = 8 - (JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
 											xTo = 8 - (JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
 										}
 										handleKnightDirectionB(xFrom, xTo);
 										drawKnight();
 										break;
-									} else if (JSON.parse(game.response.b_knight)[n].from == null && JSON.parse(game.response.b_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT FROM WHITE'S SIDE (b8 RIGHT, g8 LEFT), FLIPPED WHEN PLAYING BLACK
-										if (game.playerColor == 'w') {
+									} else if (JSON.parse(game.response.b_knight)[n].from == null && JSON.parse(game.response.b_knight)[n].to) { // HASN'T MOVED: FACES THE MIDDLE, THE a - d FILES RIGHT & e - h LEFT FROM WHITE'S SIDE (b8 RIGHT, g8 LEFT), FLIPPED WHEN VIEWING FROM BLACK'S SIDE
+										if (game.viewColor == 'w') {
 											if (JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square && game.tiles[index].square.split("")[0] < 'e') { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 											else if (JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
-										} else if (game.playerColor == 'b') {
+										} else if (game.viewColor == 'b') {
 											if (JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square && game.tiles[index].square.split("")[0] < 'e') { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 											else if (JSON.parse(game.response.b_knight)[n].to == game.tiles[index].square) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 										}
@@ -928,10 +989,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				let yTo; // SCREEN ROW IT WENT TO
 				for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
 					if (pieceObj.isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							yFrom = 8 - game.moveObj.from.split("")[1];
 							yTo = 8 - game.moveObj.to.split("")[1];
-						} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+						} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 							yFrom = game.moveObj.from.split("")[1] - 1;
 							yTo = game.moveObj.to.split("")[1] - 1;
 						}
@@ -939,10 +1000,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						drawPiece();
 						break;
 					} else if (JSON.parse(game.response.w_piece)[n].from && JSON.parse(game.response.w_piece)[n].to == pieceObj.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
 							yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
-						} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+						} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 							yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
 							yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
 						}
@@ -955,10 +1016,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						break;
 					} else if (pieceObj.square == game.moveObj.from && JSON.parse(game.response.w_piece)[n].to == game.moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY IT LAST WENT UP OR DOWN
 						if (JSON.parse(game.response.w_piece)[n].from) {
-							if (game.playerColor == 'w') {
+							if (game.viewColor == 'w') {
 								yFrom = 8 - JSON.parse(game.response.w_piece)[n].from.split("")[1];
 								yTo = 8 - JSON.parse(game.response.w_piece)[n].to.split("")[1];
-							} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+							} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 								yFrom = JSON.parse(game.response.w_piece)[n].from.split("")[1] - 1;
 								yTo = JSON.parse(game.response.w_piece)[n].to.split("")[1] - 1;
 							}
@@ -973,10 +1034,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				let yTo; // SCREEN ROW IT WENT TO
 				for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
 					if (pieceObj.isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							yFrom = 8 - game.moveObj.from.split("")[1];
 							yTo = 8 - game.moveObj.to.split("")[1];
-						} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+						} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 							yFrom = game.moveObj.from.split("")[1] - 1;
 							yTo = game.moveObj.to.split("")[1] - 1;
 						}
@@ -984,10 +1045,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						drawPiece();
 						break;
 					} else if (JSON.parse(game.response.b_piece)[n].from && JSON.parse(game.response.b_piece)[n].to == pieceObj.square) { // THIS PIECE HAS MOVED UP OR DOWN: FACE THE WAY ITS LAST ONE WENT
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
 							yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
-						} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+						} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 							yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
 							yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
 						}
@@ -1000,10 +1061,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						break;
 					} else if (pieceObj.square == game.moveObj.from && JSON.parse(game.response.b_piece)[n].to == game.moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY IT LAST WENT UP OR DOWN
 						if (JSON.parse(game.response.b_piece)[n].from) {
-							if (game.playerColor == 'w') {
+							if (game.viewColor == 'w') {
 								yFrom = 8 - JSON.parse(game.response.b_piece)[n].from.split("")[1];
 								yTo = 8 - JSON.parse(game.response.b_piece)[n].to.split("")[1];
-							} else if (game.playerColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
+							} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
 								yFrom = JSON.parse(game.response.b_piece)[n].from.split("")[1] - 1;
 								yTo = JSON.parse(game.response.b_piece)[n].to.split("")[1] - 1;
 							}
@@ -1043,10 +1104,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				let xTo;
 				for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
 					if (pieceObj.isSliding) {
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 							xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-						} else if (game.playerColor == 'b') {
+						} else if (game.viewColor == 'b') {
 							xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 							xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 						}
@@ -1058,10 +1119,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						}
 						break;
 					} else if (JSON.parse(game.response.w_knight)[n].from && (JSON.parse(game.response.w_knight)[n].to == pieceObj.square)) {
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 							xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-						} else if (game.playerColor == 'b') {
+						} else if (game.viewColor == 'b') {
 							xFrom = JSON.parse(game.response.w_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 							xTo = JSON.parse(game.response.w_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
 						}
@@ -1069,10 +1130,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						drawKnight();
 						break;
 					} else if (JSON.parse(game.response.w_knight)[n].from == null && JSON.parse(game.response.w_knight)[n].to) {
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							if (JSON.parse(game.response.w_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 							else if (JSON.parse(game.response.w_knight)[n].to == pieceObj.square) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
-						} else if (game.playerColor == 'b') {
+						} else if (game.viewColor == 'b') {
 							if (JSON.parse(game.response.w_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawKnight(); break; }
 							else if (JSON.parse(game.response.w_knight)[n].to == pieceObj.square) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawKnight(); break; }
 						}
@@ -1089,10 +1150,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				let xTo;
 				for (let n = 0; n < JSON.parse(game.response.b_knight).length; n++) {
 					if (pieceObj.isSliding) {
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
 							xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-						} else if (game.playerColor == 'b') {
+						} else if (game.viewColor == 'b') {
 							xFrom = 8 - (game.moveObj.from.split("")[0].charCodeAt(0) - 96);
 							xTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
 						}
@@ -1104,10 +1165,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						}
 						break;
 					} else if (JSON.parse(game.response.b_knight)[n].from && JSON.parse(game.response.b_knight)[n].to == pieceObj.square) {
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							xFrom = JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 							xTo = JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-						} else if (game.playerColor == 'b') {
+						} else if (game.viewColor == 'b') {
 							xFrom = 8 - (JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
 							xTo = 8 - (JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
 						}
@@ -1115,18 +1176,18 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						drawKnight();
 						break;
 					} else if (JSON.parse(game.response.b_knight)[n].from == null && JSON.parse(game.response.b_knight)[n].to) {
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							if (JSON.parse(game.response.b_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 							else if (JSON.parse(game.response.b_knight)[n].to == pieceObj.square) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
-						} else if (game.playerColor == 'b') {
+						} else if (game.viewColor == 'b') {
 							if (JSON.parse(game.response.b_knight)[n].to == pieceObj.square && pieceObj.square.split("")[0] < 'e') { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawKnight(); break; }
 							else if (JSON.parse(game.response.b_knight)[n].to == pieceObj.square) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawKnight(); break; }
 						}
 					} else if (pieceObj.square == game.moveObj.from && JSON.parse(game.response.b_knight)[n].from && JSON.parse(game.response.b_knight)[n].to == game.moveObj.to) { // JUST LANDED: ITS ENTRY IS ALREADY ON moveObj.to, FACE THE WAY THIS MOVE WENT
-						if (game.playerColor == 'w') {
+						if (game.viewColor == 'w') {
 							xFrom = JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96 - 1;
 							xTo = JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96 - 1;
-						} else if (game.playerColor == 'b') {
+						} else if (game.viewColor == 'b') {
 							xFrom = 8 - (JSON.parse(game.response.b_knight)[n].from.split("")[0].charCodeAt(0) - 96);
 							xTo = 8 - (JSON.parse(game.response.b_knight)[n].to.split("")[0].charCodeAt(0) - 96);
 						}
@@ -1174,8 +1235,8 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 		function drawPieceBelow(square) {
 			if (square && overlapSlideObj.y2x2?.square || false) {
 				let sq = square.split("");
-				if (game.playerColor == 'w') { square = `${sq[0]}${Number(sq[1]) - 1}`; }
-				else if (game.playerColor == 'b') { square = `${sq[0]}${Number(sq[1]) + 1}`; }
+				if (game.viewColor == 'w') { square = `${sq[0]}${Number(sq[1]) - 1}`; }
+				else if (game.viewColor == 'b') { square = `${sq[0]}${Number(sq[1]) + 1}`; }
 				for (let a = 0; a < game.tiles.length; a++) {
 					if (game.tiles[a].square == square && overlapSlideObj.y2x2.square != square) {
 						drawSlideBox(game.tiles[a]);
@@ -1187,7 +1248,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 
 		if (landedTile) { // LANDED: DRAW IT AGAIN OVER THE PIECES BEHIND IT, THEN THE PIECE TO ITS RIGHT (DRAWN AFTER IT ON THE BOARD) & THE PIECES IN FRONT AGAIN
 			const to = game.moveObj.to.split("");
-			const right = game.playerColor == 'w' ? 1 : -1; // SCREEN RIGHT IS THE NEXT FILE (WHITE) OR THE ONE BEFORE IT (BLACK, FLIPPED)
+			const right = game.viewColor == 'w' ? 1 : -1; // SCREEN RIGHT IS THE NEXT FILE (WHITE) OR THE ONE BEFORE IT (BLACK, FLIPPED)
 			drawSlideBox(landedTile);
 			for (let q = 0; q < game.tiles.length; q++) {
 				if (game.tiles[q].square == `${String.fromCharCode(to[0].charCodeAt(0) + right)}${to[1]}` && game.tiles[q].type) { drawSlideBox(game.tiles[q]); }
@@ -1260,16 +1321,16 @@ function renderTakenPieces(takenPieces, paramColor) {
 	function drawTakenPiece(takenPiece, imgArr) {
 		for (let i = 0; i < imgArr.length; i++) { // DRAW TAKEN PIECE IMAGES
 			if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && game.currPromotion) { ctx.globalAlpha = 0.8; } // HOVERED PROMOTION CHOICE
-			ctx.drawImage(images[imgArr[i]].image, xPos * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2, yPos * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
+			ctx.drawImage(images[imgArr[i]].image, xPos * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2, (yPos + trayNudge(yPos)) * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 			if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && game.currPromotion) { ctx.globalAlpha = 1; }
 		}
 	}
 
 	if (game.widthGreater) { // WIDE SCREEN: TRAYS TO THE RIGHT OF THE BOARD (COLUMN 9), THE PLAYER'S AT THE BOTTOM (ROW 6), THE OPPONENT'S AT THE TOP (ROW -1)
-		if (game.playerColor == 'w') {
+		if (game.viewColor == 'w') {
 			if (paramColor == "w") { xPos = 9; yPos = 6; }
 			else { xPos = 9; yPos = -1; }
-		} else if (game.playerColor == 'b') {
+		} else if (game.viewColor == 'b') {
 			if (paramColor == "w") { xPos = 9; yPos = -1; }
 			else { xPos = 9; yPos = 6; }
 		}
@@ -1299,10 +1360,10 @@ function renderTakenPieces(takenPieces, paramColor) {
 		}
 	} else { // NARROW SCREEN: ONE ROW BELOW THE BOARD (ROW 9) FOR THE PLAYER, ONE ABOVE (ROW -2) FOR THE OPPONENT
 		const xStart = game.portraitBoard ? 0 : -1; // PORTRAIT BOARD FILLS THE WIDTH, SO KEEP TAKEN PIECES ON SCREEN
-		if (game.playerColor == 'w') {
+		if (game.viewColor == 'w') {
 			if (paramColor == "w") { xPos = xStart; yPos = 9; }
 			else { xPos = xStart; yPos = -2; }
-		} else if (game.playerColor == 'b') {
+		} else if (game.viewColor == 'b') {
 			if (paramColor == "w") { xPos = xStart; yPos = -2; }
 			else { xPos = xStart; yPos = 9; }
 		}
@@ -1332,6 +1393,14 @@ function renderTakenPieces(takenPieces, paramColor) {
 		}
 	}
 
+	const lead = (paramColor == 'w' ? 1 : -1) * materialDiff(currInst);
+	if (lead > 0 && !game.currPromotion) { // +N IN THE TRAY'S NEXT FREE SQUARE, THE PROMOTION PICKER HAS NO COUNT
+		ctx.font = `600 ${game.tileHeight * 0.45}px Archivo, "Helvetica Neue", Arial, sans-serif`;
+		ctx.fillStyle = "#d9b27a"; // SAME GOLD AS THE BOARD COORDINATES
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+		ctx.fillText(`+${lead}`, (xPos + 0.5) * game.tileWidth + game.xBoardOff, (yPos + trayNudge(yPos) + 0.5) * game.tileHeight + game.yBoardOff);
+	}
 }
 
 /* ---------------------------------------------------------------- */
@@ -1345,11 +1414,11 @@ function renderTakenPieces(takenPieces, paramColor) {
  * @param  {[number]} xTo [file it went to]
  */
 function handleKnightDirectionW(xFrom, xTo) {
-	if (game.playerColor == 'w') {
+	if (game.viewColor == 'w') {
 		if (xFrom < xTo) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; } // MOVED RIGHT
 		else if (xFrom > xTo) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; } // MOVED LEFT
 		else { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; } // SAME FILE (A KNIGHT ALWAYS CHANGES FILE, SO THIS DOESN'T HAPPEN)
-	} else if (game.playerColor == 'b') { // FLIPPED BOARD: A HIGHER FILE IS FURTHER LEFT ON SCREEN
+	} else if (game.viewColor == 'b') { // FLIPPED BOARD: A HIGHER FILE IS FURTHER LEFT ON SCREEN
 		if (xFrom > xTo) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; }
 		else if (xFrom < xTo) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; }
 		else { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; }
@@ -1367,11 +1436,11 @@ function handleKnightDirectionW(xFrom, xTo) {
  * @param  {[number]} xTo [screen column it went to]
  */
 function handleKnightDirectionB(xFrom, xTo) {
-	if (game.playerColor == 'w') {
+	if (game.viewColor == 'w') {
 		if (xFrom < xTo) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; } // MOVED RIGHT
 		else if (xFrom > xTo) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; } // MOVED LEFT
 		else { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; } // SAME COLUMN (DOESN'T HAPPEN FOR A KNIGHT)
-	} else if (game.playerColor == 'b') {
+	} else if (game.viewColor == 'b') {
 		if (xFrom < xTo) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; }
 		else if (xFrom > xTo) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; }
 		else { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; }
@@ -1399,12 +1468,12 @@ export function handlePieceDirectionW(yFrom, yTo) {
 		game.wQueenImg = wFrontQueenImg; game.wQueenShdw = wFrontQueenShdw; game.wQueenRefl = wFrontQueenRefl;
 		game.wBishopBlackSqImg = wFrontBishopBlackSqImg; game.wBishopWhiteSqImg = wFrontBishopWhiteSqImg; game.wBishopShdw = wFrontBishopShdw; game.wBishopRefl = wFrontBishopRefl;
 		game.wRookImg = wFrontRookImg; game.wRookShdw = wFrontRookShdw; game.wRookRefl = wFrontRookRefl;
-	} else if (game.playerColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE (THE TOP OF THE BOARD)
+	} else if (game.viewColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE (THE TOP OF THE BOARD)
 		game.wKingImg = wBackKingImg; game.wKingShdw = wBackKingShdw; game.wKingRefl = wBackKingRefl;
 		game.wQueenImg = wBackQueenImg; game.wQueenShdw = wBackQueenShdw; game.wQueenRefl = wBackQueenRefl;
 		game.wBishopBlackSqImg = wBackBishopImg; game.wBishopWhiteSqImg = wBackBishopImg; game.wBishopShdw = wBackBishopShdw; game.wBishopRefl = wBackBishopRefl;
 		game.wRookImg = wBackRookImg; game.wRookShdw = wBackRookShdw; game.wRookRefl = wBackRookRefl;
-	} else if (game.playerColor == 'b') { // FLIPPED BOARD: BLACK'S SIDE IS THE BOTTOM
+	} else if (game.viewColor == 'b') { // FLIPPED BOARD: BLACK'S SIDE IS THE BOTTOM
 		game.wKingImg = wFrontKingImg; game.wKingShdw = wFrontKingShdw; game.wKingRefl = wFrontKingRefl;
 		game.wQueenImg = wFrontQueenImg; game.wQueenShdw = wFrontQueenShdw; game.wQueenRefl = wFrontQueenRefl;
 		game.wBishopBlackSqImg = wFrontBishopBlackSqImg; game.wBishopWhiteSqImg = wFrontBishopWhiteSqImg; game.wBishopShdw = wFrontBishopShdw; game.wBishopRefl = wFrontBishopRefl;
@@ -1433,12 +1502,12 @@ export function handlePieceDirectionB(yFrom, yTo) {
 		game.bQueenImg = bFrontQueenImg; game.bQueenShdw = bFrontQueenShdw; game.bQueenRefl = bFrontQueenRefl;
 		game.bBishopBlackSqImg = bFrontBishopBlackSqImg; game.bBishopWhiteSqImg = bFrontBishopWhiteSqImg; game.bBishopShdw = bFrontBishopShdw; game.bBishopRefl = bFrontBishopRefl;
 		game.bRookImg = bFrontRookImg; game.bRookShdw = bFrontRookShdw; game.bRookRefl = bFrontRookRefl;
-	} else if (game.playerColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE (THE BOTTOM OF THE BOARD)
+	} else if (game.viewColor == 'w') { // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE (THE BOTTOM OF THE BOARD)
 		game.bKingImg = bFrontKingImg; game.bKingShdw = bFrontKingShdw; game.bKingRefl = bFrontKingRefl;
 		game.bQueenImg = bFrontQueenImg; game.bQueenShdw = bFrontQueenShdw; game.bQueenRefl = bFrontQueenRefl;
 		game.bBishopBlackSqImg = bFrontBishopBlackSqImg; game.bBishopWhiteSqImg = bFrontBishopWhiteSqImg; game.bBishopShdw = bFrontBishopShdw; game.bBishopRefl = bFrontBishopRefl;
 		game.bRookImg = bFrontRookImg; game.bRookShdw = bFrontRookShdw; game.bRookRefl = bFrontRookRefl;
-	} else if (game.playerColor == 'b') { // FLIPPED BOARD: WHITE'S SIDE IS THE TOP
+	} else if (game.viewColor == 'b') { // FLIPPED BOARD: WHITE'S SIDE IS THE TOP
 		game.bKingImg = bBackKingImg; game.bKingShdw = bBackKingShdw; game.bKingRefl = bBackKingRefl;
 		game.bQueenImg = bBackQueenImg; game.bQueenShdw = bBackQueenShdw; game.bQueenRefl = bBackQueenRefl;
 		game.bBishopBlackSqImg = bBackBishopImg; game.bBishopWhiteSqImg = bBackBishopImg; game.bBishopShdw = bBackBishopShdw; game.bBishopRefl = bBackBishopRefl;
@@ -1455,10 +1524,10 @@ export function handlePieceDirectionB(yFrom, yTo) {
  * & toward the player for the opponent's
  */
 export function handlePawnDirection() {
-	if (game.playerColor == 'w') { // WHITE PAWNS FACE BLACK'S SIDE (THE TOP OF THE BOARD), BLACK PAWNS FACE THE PLAYER
+	if (game.viewColor == 'w') { // WHITE PAWNS FACE BLACK'S SIDE (THE TOP OF THE BOARD), BLACK PAWNS FACE THE PLAYER
 		game.wPawnImg = wBackPawnImg; game.wPawnShdw = wBackPawnShdw; game.wPawnRefl = wBackPawnRefl;
 		game.bPawnImg = bFrontPawnImg; game.bPawnShdw = bFrontPawnShdw; game.bPawnRefl = bFrontPawnRefl;
-	} else if (game.playerColor == 'b') { // FLIPPED BOARD: BLACK PAWNS FACE WHITE'S SIDE (THE TOP), WHITE PAWNS FACE THE PLAYER
+	} else if (game.viewColor == 'b') { // FLIPPED BOARD: BLACK PAWNS FACE WHITE'S SIDE (THE TOP), WHITE PAWNS FACE THE PLAYER
 		game.wPawnImg = wFrontPawnImg; game.wPawnShdw = wFrontPawnShdw; game.wPawnRefl = wFrontPawnRefl;
 		game.bPawnImg = bBackPawnImg; game.bPawnShdw = bBackPawnShdw; game.bPawnRefl = bBackPawnRefl;
 	}

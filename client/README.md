@@ -124,7 +124,7 @@ client/
   login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home, Login/Signup)
   signup.html                Signup markup: Create account, link to login, menu (Home, Login/Signup), shares the login bundle
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Login/Signup)
-  play.html                  Game menu markup (Resume, Sound, Restart / Forfeit / Rematch, Home, Exit)
+  play.html                  Game menu markup (Resume, Sound, Flip Board, Restart / Forfeit / Rematch, Home, Exit)
   webpack.config.js          One entry + HTML page each (home, guest, play, settings, login; signup shares login's entry), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles
@@ -143,8 +143,8 @@ client/
     state/index.js           game: the state every gameplay file shares, plus the canvas, ctx & the chess.js boards
     images/index.js          preloadImages() / imageProgress(): loads the sprites into images[] (home, guest + play call it)
     sprites/index.js         Every sprite url in image number order + the image numbers (wFrontKingImg = 5, ...)
-    layout/index.js          renderBoard(): sizes the canvas & board to the window, draws the table & board; resize
-    draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays, which way pieces face
+    layout/index.js          renderBoard(): sizes the canvas & board to the window, draws the table, board & coordinates; resize
+    draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays & material count, right-click marks & arrows, which way pieces face
     animate/index.js         stepSlide(): where a sliding piece is from the time, knight hop height, the pieces sliding home after Restart & Rematch
     input/index.js           Mouse, touch & TV remote handlers
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()

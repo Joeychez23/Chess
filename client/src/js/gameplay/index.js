@@ -22,13 +22,14 @@ const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // D
 const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & TV REMOTE HANDLERS (ADDED IN startGame)
 const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
-const { handleMenuBtn, handleResume, handleClickAway, handleSound, loadSound, handleRestart, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
+const { handleMenuBtn, handleResume, handleClickAway, handleSound, loadSound, handleFlip, flipWhenDone, handleRestart, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
+const optFlipBtn = document.getElementById("optFlip"); // MENU: FLIP BOARD
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
@@ -128,6 +129,7 @@ async function startGame() {
 	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousemove", handleMouseMove); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousedown", handleMouseDown); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mouseup", handleMouseUp); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); }); } // THE RIGHT BUTTON DRAWS MARKS & ARROWS
 	if (!game.TV_BOOL || OVERRIDE_TV) {
 		canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
 		canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
@@ -138,6 +140,7 @@ async function startGame() {
 	if (!game.TV_BOOL || OVERRIDE_TV) { optResumeBtn.addEventListener("click", handleResume); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.addEventListener("click", handleClickAway); } // THE REST OF THE PAGE CLOSES THE MENU (THE BOARD: handleCanvasClick)
 	if (!game.TV_BOOL || OVERRIDE_TV) { optSoundBtn.addEventListener("click", handleSound); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { optFlipBtn.addEventListener("click", handleFlip); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
@@ -166,10 +169,10 @@ async function startAiSlide() {
 			if (game.tiles[i].square == game.moveObj.from) {
 				game.slideStart = true;
 				game.tiles[i].isSliding = true;
-				if (game.playerColor == 'w') { // SCREEN COLUMN & ROW OF moveObj.to (a8 IS 0, 0)
+				if (game.viewColor == 'w') { // SCREEN COLUMN & ROW OF moveObj.to (a8 IS 0, 0)
 					game.tiles[i].xSlideTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 					game.tiles[i].ySlideTo = 8 - game.moveObj.to.split("")[1];
-				} else if (game.playerColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
+				} else if (game.viewColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
 					game.tiles[i].xSlideTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
 					game.tiles[i].ySlideTo = game.moveObj.to.split("")[1] - 1;
 				}
@@ -208,6 +211,7 @@ async function renderLoop() {
 			if (game.ai && chessInst.turn() != game.playerColor && game.aiTurn) { // IF AI
 				await startAiSlide();
 			} else {
+				flipWhenDone(); // FLIP BOARD WAS PRESSED DURING THE SLIDE THAT JUST ENDED
 				game.drawScreen(); // DRAW ONE FRAME
 				document.documentElement.classList.remove("loadingPage"); // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT
 				game.refresh = false;

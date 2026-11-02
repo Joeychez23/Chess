@@ -75,11 +75,15 @@ export const game = {
 	soundOn: true, // THE PLAYER'S SOUND BUTTON, SAVED IN localStorage (SET BY loadSound, CHANGED BY handleSound IN gameplay/menu/index.js)
 	response: undefined, // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
 	revert: undefined, // GAME TO GO BACK TO IF A MOVE FAILS
-	playerColor: undefined, // 'w' OR 'b', BLACK FLIPS THE BOARD SO THE PLAYER IS ALWAYS AT THE BOTTOM
+	playerColor: undefined, // 'w' OR 'b'
+	viewColor: undefined, // 'w' OR 'b', THE SIDE AT THE BOTTOM OF THE SCREEN: THE PLAYER'S UNTIL THEY PRESS FLIP BOARD (BLACK FLIPS THE BOARD)
+	flipPending: false, // FLIP BOARD WAS PRESSED DURING A SLIDE, THE BOARD FLIPS WHEN IT'S DONE (renderLoop)
 	opponentColor: undefined, // 'w' OR 'b'
 	ai: undefined, // TRUE IN AI GAMES
 	aiTurn: false, // TRUE WHEN THE RENDER LOOP SHOULD ASK THE SERVER FOR THE AI'S MOVE
 	moveObj: [null, null], // MOVE BEING PLAYED { from, to, promotion }, THE AI'S ALSO HAS response
+	lastOpponentMove: null, // [from, to] OF THE OPPONENT'S LAST MOVE, HIGHLIGHTED BY drawLastMove(), null UNTIL THEY'VE MOVED
+	annotations: [], // THE PLAYER'S RIGHT-CLICK MARKS & ARROWS { from, to } IN BOARD SQUARES (from == to IS A MARK), DRAWN BY drawAnnotations()
 	tiles: setTiles(), // 64 TILE STATES IN SCREEN ORDER (ROW * 8 + COLUMN), FILLED WITH THE PIECE ON EACH SQUARE WHILE DRAWING
 	startPieceCount: countStartPieces(), // { w, b } PIECES EACH SIDE STARTED WITH (THE STANDARD SET, OR A SET POSITION'S, setInitialData())
 	gameOver: false, // THE SERVER CLOSED THE GAME (CHECKMATE, DRAW OR FORFEIT)

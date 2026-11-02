@@ -72,6 +72,16 @@ export function handleKnightHop(tile) {
 // Restart Slide (Restart & Rematch)
 /* ---------------------------------------------------------------- */
 /**
+ * @description How far a tray row is drawn below its row, in squares. A narrow screen's bottom tray (row 9) would cover the
+ * file letters on the board's border. Only the drawing moves, clicks still use the row
+ * @param  {[number]} row [tray row]
+ * @return {[number]} nudge [squares down]
+ */
+export function trayNudge(row) {
+	return !game.widthGreater && row === 9 ? 0.2 : 0;
+}
+
+/**
  * @description Where every piece is on screen in squares (screen column x & row y, like tiles), so the slide still lines up
  * after a resize. Board pieces sit a tenth of a square up like they're drawn, taken pieces are where renderTakenPieces()
  * last drew them (pawns aren't in the trays)
@@ -81,7 +91,7 @@ export function handleKnightHop(tile) {
 export function getRestartPieces(withTrays) {
 	let pieces = [];
 	let board = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
-	if (game.playerColor == 'b') { // FLIPPED BOARD, SAME AS handleInitialData()
+	if (game.viewColor == 'b') { // FLIPPED BOARD, SAME AS handleInitialData()
 		board = board.reverse();
 		for (let i = board.length - 1; i >= 0; i--) { board[i] = board[i].reverse(); }
 	}
@@ -93,7 +103,7 @@ export function getRestartPieces(withTrays) {
 	if (withTrays && !game.currPromotion) { // WHILE PROMOTING THE TRAY IS THE PROMOTION PICKER
 		const takenPieces = [...(game.wTakenPieces || []), ...(game.bTakenPieces || [])];
 		for (let i = 0; i < takenPieces.length; i++) {
-			if (takenPieces[i].x !== undefined) { pieces[pieces.length] = { type: takenPieces[i].type, color: takenPieces[i].color, square: null, x: takenPieces[i].x, y: takenPieces[i].y }; } // DRAWN IN A TRAY
+			if (takenPieces[i].x !== undefined) { pieces[pieces.length] = { type: takenPieces[i].type, color: takenPieces[i].color, square: null, x: takenPieces[i].x, y: takenPieces[i].y + trayNudge(takenPieces[i].y) }; } // DRAWN IN A TRAY
 		}
 	}
 	return pieces;
