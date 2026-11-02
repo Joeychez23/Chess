@@ -29,8 +29,8 @@
   replacing a cached file (see `client/README.md`).
 - **DynamoDB** (`modules/dynamodb`, us-west-2, next to the instance; moved from
   us-east-1, see [Moving the tables](#moving-the-tables-to-us-west-2)): `chess_db` (key `game_id`,
-  TTL on `expireAt`: open games and finished AI games are deleted 25 days
-  after the last move, finished friend games are kept) and `user_db` (key
+  TTL on `expireAt`: open games and guests' finished games are deleted 25 days
+  after the last move, signed-in players' finished games are kept) and `user_db` (key
   `user_id`). Both have point-in-time recovery on, so either can be put back
   the way it was at any second in the last 35 days
   ([Restoring a table](#restoring-a-table)).

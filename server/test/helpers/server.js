@@ -208,7 +208,7 @@ async function listen(who, gameId, options = {}) {
 		const got = events.find((seen) => seen.event == event);
 		return got ? Promise.resolve(got.data) : new Promise((resolve) => waiting.push({ event, resolve }));
 	};
-	return { events, heard, closed, join };
+	return { events, heard, closed, join, disconnect: () => socket.disconnect() };
 }
 
 /**
@@ -220,6 +220,14 @@ async function listen(who, gameId, options = {}) {
  */
 function engineWillPlay(from, to, promotion, wait) {
 	engineMoves.push({ from, to, promotion, wait });
+}
+
+/**
+ * @description Queues the engine's next answer to a draw offer
+ * @param  {[number]} winChance [0 - 100, from White's side]
+ */
+function engineWillScore(winChance) {
+	engineMoves.push({ from: "e2", to: "e4", winChance });
 }
 
 /**
@@ -388,4 +396,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, throttleBatchReads: fakeDynamo.throttleBatchReads };
+module.exports = { start, reset, player, call, send, page, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, throttleBatchReads: fakeDynamo.throttleBatchReads };

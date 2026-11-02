@@ -72,7 +72,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 
 | Url | Page |
 | --- | --- |
-| `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites, Your games and Friends boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
+| `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites, Your games, Finished games and Friends boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
 | `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my data boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
@@ -108,7 +108,10 @@ import { joinGame, leaveGame } from "./socket/index.js";
 joinGame(gameId, playerId, {
 	move: () => refreshData(),                       // the friend moved: fetch the game, animate prev_move
 	gameOver: ({ winner, reason }) => showMenu(winner, reason), // the friend forfeited
+	drawOffer: ({ state, mine }) => showDraw(state, mine), // a draw was offered or declined
 	rematch: (newGameId) => loadGame(newGameId),     // both pressed Rematch
+	opponentLeft: () => showOpponentLeft(),          // opponent left the game page, the rematch request says so
+	opponentBack: () => clearStatus("rematch"),      // they came back
 });
 
 // Going Home or opening another game
@@ -119,12 +122,12 @@ leaveGame();
 
 ```text
 client/
-  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Friends, menu (Home, Invites, Your games, Friends, Settings, Logout)
+  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Finished games, Friends, menu (Home, Invites, Your games, Finished games, Friends, Settings, Logout)
   settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
   login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home, Login/Signup)
   signup.html                Signup markup: Create account, link to login, menu (Home, Login/Signup), shares the login bundle
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Login/Signup)
-  play.html                  Game menu markup (Resume, Sound, Flip Board, Restart / Forfeit / Rematch, Home, Exit)
+  play.html                  Game menu markup (Resume, Sound, Flip Board, Download PGN, Offer Draw, Restart / Forfeit / Rematch, Home, Exit)
   webpack.config.js          One entry + HTML page each (home, guest, play, settings, login; signup shares login's entry), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles
@@ -148,8 +151,11 @@ client/
     animate/index.js         stepSlide(): where a sliding piece is from the time, knight hop height, the pieces sliding home after Restart & Rematch
     input/index.js           Mouse, touch & TV remote handlers
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
-    menu/index.js            Menu buttons, Restart / Forfeit / Rematch (loads the new board in place), game over, socketHandlers
+    menu/index.js            Menu buttons, draw offers, Restart / Forfeit / Rematch (loads the new board in place), game over, socketHandlers
     status/index.js          The play page's message area (#gameStatus): refused moves, lost connection, server or AI not answering
+    movelist/index.js        The move list panel (#moveList): numbered moves, where it fits next to the board, collapsing it. The opening's name (#openingDisplay)
+    movebox/index.js         The typed move box (#moveBox): the / key & the menu open it, the menu also closes it, chess.js reads the move, it slides like a clicked move, it lists the legal moves as the player types, it opens at the top right behind the menu button each time & a mouse or finger can drag it while it's open
+    movebox/suggestions.js   What the list shows & when the player can move (no page state, the server tests run it)
     validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, player search, friends, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move

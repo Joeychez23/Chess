@@ -272,6 +272,32 @@ describe("accept and decline", () => {
 /* ---------------------------------------------------------------- */
 
 describe("rematch", () => {
+	test("a request stays open for 5 minutes", async () => {
+		await closedFriendGame("game1", "alice", "bob");
+		const first = await call("POST", "/games/game1/rematch", { as: alice });
+		assert.equal(first.expires_in, 5 * 60 * 1000);
+		assert.ok(Number(peek("chess_db", "game1").rematch_expires.N) > Date.now() + 4 * 60 * 1000);
+	});
+
+	test("cancel takes the request back: the other press waits instead of starting a game", async () => {
+		await closedFriendGame("game1", "alice", "bob");
+		await call("POST", "/games/game1/rematch", { as: alice });
+		const cancelled = await call("POST", "/games/game1/rematch/cancel", { as: alice });
+		assert.equal(cancelled.cancelled, true);
+		assert.equal(peek("chess_db", "game1").rematch_player_id, undefined);
+		assert.equal((await call("POST", "/games/game1/rematch/cancel", { as: alice })).cancelled, true); // SAFE TO REPEAT
+		assert.equal((await call("POST", "/games/game1/rematch", { as: bob })).waiting, true);
+	});
+
+	test("cancel is too late once the other press started it, and doesn't touch the other player's request", async () => {
+		await closedFriendGame("game1", "alice", "bob");
+		await call("POST", "/games/game1/rematch", { as: alice });
+		assert.equal((await call("POST", "/games/game1/rematch/cancel", { as: bob })).cancelled, true); // BOB HAS NOTHING OPEN
+		assert.equal(peek("chess_db", "game1").rematch_player_id.S, "alice");
+		await call("POST", "/games/game1/rematch", { as: bob });
+		assert.equal((await call("POST", "/games/game1/rematch/cancel", { as: alice })).cancelled, false);
+	});
+
 	test("the first press waits, the second makes the game with the inviter's pick and cancels both sent invites", async () => {
 		await closedFriendGame("game1", "alice", "bob");
 		await friendGame("invite1", "alice", "carol", true); // ALICE'S SENT INVITE

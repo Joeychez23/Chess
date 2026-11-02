@@ -76,19 +76,81 @@ button {
 	pointer-events: none;
 }
 
-#opponentDisplay { /* FRIEND GAMES: "vs Bob", BOTTOM LEFT, UNDER THE MENU. CLICKS GO THROUGH TO THE BOARD */
+body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TOP RIGHT, THE MESSAGE STOPS SHORT OF IT */
+	max-width: calc(100vw - 390px);
+}
+
+@media (max-width: 640px) {
+	body:has(#moveBox:not([hidden])) #gameStatus { /* NO ROOM NEXT TO IT, THE MESSAGE GOES UNDER IT */
+		top: calc(env(safe-area-inset-top, 0px) + 76px);
+		max-width: calc(100vw - 64px);
+	}
+}
+
+#drawPrompt { /* THE OPPONENT'S DRAW OFFER, UNDER THE MESSAGE AREA THAT SAYS WHO */
+	position: fixed;
+	z-index: 21;
+	top: calc(env(safe-area-inset-top, 0px) + 64px);
+	left: calc(env(safe-area-inset-left, 0px) + 16px);
+	display: flex;
+	gap: 8px;
+}
+
+#drawPrompt[hidden] {
+	display: none;
+}
+
+#drawPrompt button {
+	min-height: 44px;
+	padding: 8px 14px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 14px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 14px;
+	cursor: pointer;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+#drawPrompt button:focus-visible {
+	outline: 2px solid var(--maple);
+	outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+	body:has(#moveBox:not([hidden])) #drawPrompt { /* THE MESSAGE AREA MOVED UNDER THE OPEN MOVE BOX, THIS STAYS UNDER IT */
+		top: calc(env(safe-area-inset-top, 0px) + 126px);
+	}
+}
+
+#gameInfo { /* THE OPENING & FRIEND GAMES' "vs Bob", BOTTOM LEFT, UNDER THE MENU. CLICKS GO THROUGH TO THE BOARD */
 	position: fixed;
 	z-index: 18;
 	bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
 	left: calc(env(safe-area-inset-left, 0px) + 16px);
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
 	max-width: calc(100vw - 32px);
+	pointer-events: none;
+}
+
+#openingDisplay,
+#opponentDisplay {
+	margin: 0;
 	padding: 6px 10px;
 	border-radius: 10px;
 	background-color: var(--walnut);
 	color: var(--maple);
 	font-family: var(--font-label);
 	font-size: 14px;
-	pointer-events: none;
+}
+
+#openingDisplay[hidden],
+#opponentDisplay[hidden] {
+	display: none;
 }
 
 #gameStatus:empty { /* NOT display: none, SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
@@ -96,4 +158,239 @@ button {
 	border: 0;
 	box-shadow: none;
 	background: none;
+}
+
+/* ---------------------------------------------------------------- */
+/* Move List (gameplay/movelist/index.js) */
+/* ---------------------------------------------------------------- */
+
+#moveList { /* left, top, width & max-height COME FROM THE FREE SPACE NEXT TO THE BOARD. UNDER THE MENU */
+	position: fixed;
+	z-index: 17;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	overflow: hidden;
+	border: 1px solid rgba(201, 163, 90, 0.35);
+	border-radius: 14px;
+	background-color: var(--walnut);
+	color: var(--maple);
+}
+
+#moveList:not(.below) { /* LEFT OF THE BOARD: THE MOVE BOX & THE MENU'S WIDTH, NARROWER ONLY WHEN THE FREE SPACE IS. UNDER THE BOARD IT KEEPS THE FULL WIDTH */
+	max-width: var(--move-box-width);
+}
+
+#moveList[hidden],
+#moveListRows[hidden] {
+	display: none;
+}
+
+#moveList.below { /* UNDER THE BOTTOM TRAY, CLEAR OF THE PHONE'S HOME BAR */
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+#moveListToggle {
+	flex: none;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	min-height: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	padding: 0 12px;
+	border: none;
+	background: none;
+	color: inherit;
+	font-family: var(--font-label);
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	cursor: pointer;
+}
+
+#moveListToggle::after { /* POINTS UP WHEN OPEN, DOWN WHEN COLLAPSED */
+	content: "";
+	width: 7px;
+	height: 7px;
+	border-right: 2px solid var(--gold);
+	border-bottom: 2px solid var(--gold);
+	transform: translateY(2px) rotate(-135deg);
+}
+
+#moveListToggle[aria-expanded="false"]::after {
+	transform: translateY(-2px) rotate(45deg);
+}
+
+#moveListToggle:focus-visible {
+	outline: 2px solid var(--gold);
+	outline-offset: -2px;
+}
+
+#moveListRows {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	touch-action: pan-y;
+	padding: 0 8px 4px;
+	list-style: none;
+}
+
+#moveListRows li {
+	display: grid;
+	grid-template-columns: 2.5em 1fr 1fr;
+	gap: 4px;
+	padding: 2px 0;
+	font-size: 11.5px;
+	line-height: 18px;
+}
+
+#moveListRows span {
+	min-width: 0;
+	overflow-wrap: anywhere; /* A LONG MOVE WRAPS IN THE NARROWEST PANEL, NEVER CUT OFF */
+	font-family: var(--font-mono);
+}
+
+#moveListRows span:first-child {
+	color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- */
+/* Move Box (gameplay/movebox/index.js) */
+/* ---------------------------------------------------------------- */
+
+html {
+	--move-box-width: min(260px, calc(100vw - 16px)); /* THE MOVE BOX, THE GAME'S MENU & THE MOVE LIST */
+}
+
+body #menuContainer { /* body: style.css LOADS BEFORE nav.css. THE OTHER PAGES' MENUS KEEP nav.css'S WIDTH */
+	right: calc(env(safe-area-inset-right, 0px) + var(--menu-btn-right) - 8px); /* SAME WIDTH & right AS #moveBox, SO THEIR CENTERS LINE UP */
+	box-sizing: border-box;
+	width: var(--move-box-width);
+}
+
+#moveBox { /* TOP RIGHT AROUND THE MENU BUTTON, WHICH COVERS THE X. A PHONE'S KEYBOARD COMES UP FROM THE BOTTOM. UNDER THE MENU */
+	position: fixed;
+	z-index: 18;
+	top: calc(env(safe-area-inset-top, 0px) + var(--menu-btn-top) - 7px); /* THE INPUT'S MIDDLE LINES UP WITH THE BUTTON'S */
+	right: calc(env(safe-area-inset-right, 0px) + var(--menu-btn-right) - 8px);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	width: var(--move-box-width);
+	padding: 8px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 14px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+	cursor: grab; /* THE MOUSE DRAGS IT (handleDragStart) */
+}
+
+@media (pointer: coarse) {
+	#moveBox::before { /* A FINGER DRAGS IT BY ITS EDGE, THIS MAKES THE EDGE WIDE ENOUGH TO HOLD */
+		content: "";
+		position: absolute;
+		inset: -12px;
+		z-index: -1;
+	}
+}
+
+#moveBox.dragging {
+	cursor: grabbing;
+}
+
+#moveBox[hidden] {
+	display: none;
+}
+
+#moveBoxInput {
+	flex: 1 1 0;
+	min-width: 0;
+	min-height: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	box-sizing: border-box;
+	padding: 0 10px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 8px;
+	background-color: var(--walnut-2);
+	color: inherit;
+	font-family: var(--font-mono);
+	font-size: 16px; /* IOS ZOOMS THE PAGE INTO ANYTHING SMALLER */
+}
+
+#moveBoxInput::placeholder {
+	color: var(--muted);
+}
+
+#moveBoxInput:placeholder-shown {
+	text-overflow: ellipsis; /* THE EXAMPLE MOVES CHANGE WITH THE POSITION, LONG ONES CAN RUN PAST THE INPUT */
+}
+
+#moveBoxClose {
+	flex: none;
+	width: 28px;
+	height: 28px;
+	margin: 8px; /* THE INPUT STAYS THE SAME WIDTH, THIS SPACE AROUND THE X DRAGS THE BOX */
+	border: none;
+	border-radius: 8px;
+	background: none;
+	color: inherit;
+	font-size: 22px;
+	cursor: pointer;
+}
+
+#moveBoxInput:focus-visible,
+#moveBoxClose:focus-visible {
+	outline: 2px solid var(--gold);
+	outline-offset: -2px;
+}
+
+#moveBoxRefusal {
+	flex: 1 0 100%;
+	font-family: var(--font-label);
+	font-size: 14px;
+}
+
+#moveBoxRefusal:empty { /* NOT display: none, SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
+	margin-top: -6px; /* TAKES BACK THE FORM'S GAP */
+}
+
+#moveBoxCount { /* ONLY FOR SCREEN READERS, NOT display: none OR THEY WOULDN'T READ IT */
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+#moveBoxSuggestions {
+	flex: 1 0 100%;
+	overflow-y: auto; /* fitBox() LIMITS ITS HEIGHT */
+	max-height: 220px;
+	list-style: none;
+}
+
+#moveBoxSuggestions [role="option"] {
+	display: flex;
+	align-items: center;
+	min-height: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	box-sizing: border-box;
+	padding: 0 10px;
+	border-radius: 8px;
+	font-family: var(--font-mono);
+	font-size: 16px;
+	cursor: pointer;
+}
+
+#moveBoxSuggestions [role="option"]:hover {
+	background-color: var(--walnut-2);
+}
+
+#moveBoxSuggestions [role="option"][aria-selected="true"] {
+	background-color: var(--walnut-2);
+	outline: 2px solid var(--gold);
+	outline-offset: -2px;
 }

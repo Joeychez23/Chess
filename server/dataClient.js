@@ -170,9 +170,35 @@ const saveMove = (gameId, move, promotion) => call("POST", `/games/${id(gameId)}
 const saveAiMove = (gameId, move) => call("POST", `/games/${id(gameId)}/ai-move`, { from: move.from, to: move.to, promotion: move.promotion || undefined });
 
 /**
+ * @description The opening of the position a move just saved, only saved while that's still the game's board
+ * @param  {[string]} board [the position's FEN]
+ * @param  {[object]} opening [{ eco, name } from utils/openings.js]
+ */
+const saveOpening = (gameId, board, opening) => call("POST", `/games/${id(gameId)}/opening`, { board, eco: opening.eco, name: opening.name });
+
+/**
  * @description The requester gives up an open game, the other side wins
  */
 const forfeit = (gameId) => call("POST", `/games/${id(gameId)}/forfeit`);
+
+/**
+ * @description A press of Offer Draw: the requester's offer, or accepts the opponent's
+ * @return {[object]} response [{ status, game_data, message } when it closed the game | { status, offered: true, message }]
+ */
+const offerDraw = (gameId) => call("POST", `/games/${id(gameId)}/draw`);
+
+/**
+ * @description The offered player turns the draw down (friend games)
+ * @return {[object]} response [{ status, declined: true, message }]
+ */
+const declineDraw = (gameId) => call("POST", `/games/${id(gameId)}/draw/decline`);
+
+/**
+ * @description The AI's answer to the requester's offer
+ * @param  {[boolean]} accept [true draws the game]
+ * @return {[object]} response [{ status, game_data, message } when accepted | { status, declined: true, message }]
+ */
+const answerAiDraw = (gameId, accept) => call("POST", `/games/${id(gameId)}/draw/ai-answer`, { accept });
 
 /**
  * @description Both players' ratings, for the game menu
@@ -216,6 +242,12 @@ const decline = (gameId) => call("POST", `/games/${id(gameId)}/decline`);
  */
 const rematch = (gameId) => call("POST", `/games/${id(gameId)}/rematch`);
 
+/**
+ * @description The player who pressed Rematch takes it back
+ * @return {[object]} response [{ status, cancelled, message }, cancelled: false when the rematch already started]
+ */
+const cancelRematch = (gameId) => call("POST", `/games/${id(gameId)}/rematch/cancel`);
+
 /* ---------------------------------------------------------------- */
 // Health (#194)
 /* ---------------------------------------------------------------- */
@@ -258,7 +290,7 @@ const endSession = (refreshToken) => call("POST", "/session/logout", { refresh_t
 const retrieveUser = (consistent) => call("GET", `/users/me${consistent ? "?consistent=true" : ""}`);
 
 /**
- * @description The requester's row with expired games & invites pruned, plus ai_game_id, friend_game_id, open_game_list, sent_invite & received_invites
+ * @description The requester's row with expired games & invites pruned, plus ai_game_id, friend_game_id, open_game_list, closed_game_list, sent_invite & received_invites
  */
 const myGames = () => call("GET", "/users/me?games=true");
 
@@ -301,4 +333,4 @@ const changeFriend = (action, username) => call("POST", `/users/me/friends/${act
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

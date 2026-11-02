@@ -1,9 +1,9 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
  *	for Restart & Rematch (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
- *	socket's handlers (socketHandlers: a move, a forfeit or a rematch), startGame & loadRematch join with them
+ *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer or a rematch), startGame & loadRematch join with them
  *
  */
 
@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
-const { restartGame, forfeitGame, rematchGame } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { restartGame, forfeitGame, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
@@ -26,14 +26,36 @@ const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
+const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
+const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
+const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHILE THE GAME IS GOING
+const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
 
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
+const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A FORFEIT IS ALREADY IN THE TITLE
+	"checkmate": "by Checkmate",
+	"stalemate": "by Stalemate",
+	"insufficient material": "by insufficient material",
+	"fifty-move rule": "by the fifty-move rule",
+	"threefold repetition": "by threefold repetition",
+	"agreement": "by agreement",
+};
 let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
-let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
+let pgnLoading = false; // A SECOND PRESS WHILE THE PGN LOADS WOULD SAVE TWO FILES
+let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
+let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
+let drawBoard = null; // THE BOARD drawSent & drawIncoming ARE ABOUT, A MOVE ENDS THEM
+let drawSent = false; // THIS PLAYER USED THEIR OFFER FOR THIS MOVE
+let drawIncoming = false; // THE OPPONENT'S OFFER IS STANDING
+let drawLoading = false; // THE AI CAN TAKE A FEW SECONDS TO ANSWER
+let drawOpponent = "Your opponent"; // THE NAME THE MESSAGES USE
 export const socketHandlers = { // SOCKET EVENT -> HANDLER
 	move: checkOpponentMove,
 	gameOver: showGameOver,
+	drawOffer: handleDrawEvent,
 	rematch: loadRematch,
+	opponentLeft: showOpponentLeft,
+	opponentBack: function () { clearStatus("rematch"); },
 	connectionLost: function () { showStatus("connection", "Connection lost. Reconnecting…"); },
 	reconnected: function () { showStatus("connection", "Reconnected", 3000); },
 	connectionFailed: function () { showStatus("connection", "Connection lost. Reload the page to reconnect."); },
@@ -163,6 +185,127 @@ export function flipWhenDone() {
 }
 
 /* ---------------------------------------------------------------- */
+// Download PGN Button (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves the game as a .pgn file, the menu stays open. The server writes it (GET /game/:gameId/pgn), so it has every saved move
+ */
+export async function handleDownloadPgn(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (pgnLoading) { return; }
+	pgnLoading = true;
+	const response = await getPgn(game.GAME_URL, game.GAME_ID);
+	pgnLoading = false;
+	if (response?.status != 200) { return showStatus("action", "Couldn't download the PGN. Try again.", MESSAGE_TIME); }
+
+	const url = URL.createObjectURL(new Blob([response.pgn], { type: "application/x-chess-pgn" }));
+	const link = document.createElement("a"); // NOT ADDED TO THE PAGE, ITS CLICK WOULD REACH handleClickAway & CLOSE THE MENU
+	link.href = url;
+	link.download = response.filename;
+	link.click();
+	setTimeout(function () { URL.revokeObjectURL(url); }, 1000); // THE DOWNLOAD HAS ITS OWN COPY BY THEN
+}
+
+/* ---------------------------------------------------------------- */
+// Draw Offers (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Sets the words on Offer Draw & shows Accept / Decline while the opponent's offer stands
+ */
+function showDrawButtons() {
+	drawPrompt.hidden = !drawIncoming;
+	if (drawLoading) { optDrawBtn.innerText = "Offering"; }
+	else if (drawIncoming) { optDrawBtn.innerText = "Accept Draw"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
+	else { optDrawBtn.innerText = drawSent ? "Draw Offered" : "Offer Draw"; }
+}
+
+/**
+ * @description Brings the draw offer up to date with a game from the server. A new board means a move was made, which ends any offer & gives both players theirs back.
+ * On the same board this only adds what it finds, a read can be from before the offer the socket just told about
+ * @param  {[object]} response [game from the server]
+ */
+export function syncDrawOffer(response) {
+	if (!response?.game_board) { return; }
+	optDrawBtn.parentElement.hidden = response.state != "OPEN";
+	if (response.opponent_name) { drawOpponent = response.opponent_name; }
+	if (response.game_board != drawBoard) {
+		drawBoard = response.game_board;
+		drawSent = false;
+		drawIncoming = false;
+		clearStatus("draw");
+	}
+	if (response.draw_offer == game.playerColor) { drawSent = true; }
+	else if (response.draw_offer) { showIncomingDraw(); }
+	showDrawButtons();
+}
+
+/**
+ * @description The opponent's offer is standing, the message area reads it out
+ */
+function showIncomingDraw() {
+	drawIncoming = true;
+	showStatus("draw", `${drawOpponent} offers a draw`);
+}
+
+/**
+ * @description The socket's "draw-offer", another tab of this player's counts too
+ * @param  {[object]} event [{ state: "offered" | "declined", mine: this player did it }]
+ */
+function handleDrawEvent({ state, mine }) {
+	if (state == "offered" && mine) { drawSent = true; }
+	else if (state == "offered") { showIncomingDraw(); }
+	else if (mine) { drawIncoming = false; clearStatus("draw"); }
+	else {
+		drawSent = true;
+		showStatus("draw", `${drawOpponent} declined the draw.`, MESSAGE_TIME);
+	}
+	showDrawButtons();
+}
+
+/**
+ * @description Offer Draw, or Accept while the opponent's offer stands (the server tells them apart). The menu stays open
+ */
+export async function handleOfferDraw(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (drawLoading || game.gameOver || (drawSent && !drawIncoming)) { return; }
+	drawLoading = true;
+	showDrawButtons();
+	const response = await offerDraw(game.GAME_URL, game.GAME_ID);
+	drawLoading = false;
+	if (response?.state == "CLOSED") { return showGameOver(response); }
+	if (response?.offered || response?.declined) {
+		drawSent = true;
+		showDrawButtons();
+		const name = response.opponent_name || drawOpponent;
+		showStatus("draw", response.declined ? "The AI declined the draw." : `Draw offered to ${name}.`, MESSAGE_TIME);
+		return;
+	}
+	showDrawButtons();
+	console.log(response?.message || "Draw offer failed: no answer from the server");
+	showStatus("action", response?.status == 409 ? response.message : "The draw offer didn't go through. Try again.", MESSAGE_TIME);
+}
+
+/**
+ * @description Decline: the game goes on & the opponent is told. When it fails the offer stands, a move turns it down too
+ */
+export async function handleDeclineDraw(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (!drawIncoming) { return; }
+	const response = await declineDraw(game.GAME_URL, game.GAME_ID);
+	if (response?.status == 200 || response?.status == 409) { // 409: IT ALREADY ENDED
+		drawIncoming = false;
+		clearStatus("draw");
+		showDrawButtons();
+		return;
+	}
+	console.log(response?.message || "Draw decline failed: no answer from the server");
+	showStatus("action", "The draw couldn't be declined. Try again.", MESSAGE_TIME);
+}
+
+/* ---------------------------------------------------------------- */
 // Restart Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
@@ -215,6 +358,7 @@ async function loadNewBoard(fromPieces) {
 	menu.style.display = "none"
 	optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 	resultDisplay.innerText = "Chess"
+	resultReason.hidden = true;
 	game.menuToggled = false;
 	await refreshData(game.response);
 	game.opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
@@ -249,7 +393,7 @@ export function setRestartLoading(load) {
 // Forfeit / Rematch Button (Menu, friend games)
 /* ---------------------------------------------------------------- */
 /**
- * @description Game going: Forfeit -> "Are you sure?" -> forfeits. Game over: Rematch, starts when both players press it within 1 minute
+ * @description Game going: Forfeit -> "Are you sure?" -> forfeits. Game over: Rematch, starts when both players press it within 5 minutes
  */
 async function handleFriendBtn() {
 	if (!game.gameOver) {
@@ -271,13 +415,58 @@ async function handleFriendBtn() {
 	const rematchResponse = await rematchGame(game.GAME_URL, game.GAME_ID);
 	if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME, OR THE REMATCH EXPIRED
 	if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
-	if (rematchResponse?.waiting) { // WAIT 1 MINUTE FOR THE OPPONENT
-		optRestartBtn.innerHTML = "Waiting...";
-		rematchWaiting = setTimeout(function () { rematchWaiting = false; optRestartBtn.innerHTML = "Rematch"; }, rematchResponse.expires_in);
+	if (rematchResponse?.waiting) { // WAIT FOR THE OPPONENT UNTIL THE REQUEST RUNS OUT
+		clearTimeout(rematchWaiting);
+		rematchOpponent = rematchResponse.opponent_name || "your opponent";
+		optRestartBtn.innerText = `Waiting for ${rematchOpponent}`; // innerText, THE NAME IS NEVER READ AS HTML
+		optCancelRematchBtn.parentElement.hidden = false;
+		rematchWaiting = setTimeout(function () {
+			endRematchWait();
+			optRestartBtn.innerHTML = "Rematch";
+			showStatus("action", "The rematch request ran out.", MESSAGE_TIME);
+		}, rematchResponse.expires_in);
+		if (rematchResponse.opponent_here === false) { showOpponentLeft(); } // THEY LEFT BEFORE THE PRESS, NO "player-left" IS COMING
 		return;
 	}
 	console.log(rematchResponse?.message || "Rematch failed: no answer from the server");
 	showStatus("action", "The rematch request didn't go through. Try again.", MESSAGE_TIME);
+}
+
+/**
+ * @description The request isn't waiting any more (it started, ran out or was cancelled): stops the timer, Cancel & the "left the game" note go away
+ */
+function endRematchWait() {
+	clearTimeout(rematchWaiting);
+	rematchWaiting = false;
+	rematchOpponent = null;
+	optCancelRematchBtn.parentElement.hidden = true;
+	clearStatus("rematch");
+}
+
+/**
+ * @description Tells the player waiting on a rematch that the opponent isn't on the game page. The request stays open, they can come back
+ */
+function showOpponentLeft() {
+	if (rematchWaiting) { showStatus("rematch", `${rematchOpponent} left the game. You can keep waiting or cancel.`); }
+}
+
+/**
+ * @description Cancel: takes back the rematch request. Too late when the opponent just pressed, the socket's "rematch" brings the new game
+ */
+export async function handleCancelRematch(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (!rematchWaiting) { return; }
+	const response = await cancelRematch(game.GAME_URL, game.GAME_ID);
+	if (!rematchWaiting) { return; } // IT STARTED OR RAN OUT MEANWHILE
+	if (response?.cancelled) {
+		endRematchWait();
+		optRestartBtn.innerHTML = "Rematch";
+		return;
+	}
+	if (response?.status == 200) { return; } // THE OPPONENT PRESSED FIRST
+	console.log(response?.message || "Cancel failed: no answer from the server");
+	showStatus("action", "The rematch request couldn't be cancelled. Try again.", MESSAGE_TIME);
 }
 
 /* ---------------------------------------------------------------- */
@@ -293,10 +482,17 @@ export function showGameOver(result) {
 	openMenu();
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
 	optResumeBtn.parentElement.style.display = 'none';
+	optDrawBtn.parentElement.hidden = true;
+	drawSent = false;
+	drawIncoming = false;
+	clearStatus("draw");
+	showDrawButtons();
 	if (result?.reason == "forfeit") { resultDisplay.innerText = result.winner == 'w' ? "Black Forfeits" : "White Forfeits" } // THE TITLE ONLY FITS ONE LINE
 	else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
 	else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }
 	else { resultDisplay.innerText = "Draw" }
+	resultReason.innerText = RESULT_REASONS[result?.reason] || "";
+	resultReason.hidden = !resultReason.innerText;
 	if (!game.ai) { optRestartBtn.innerHTML = "Rematch"; } // FRIEND GAME
 	handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
 }
@@ -314,8 +510,7 @@ async function loadRematch(newGameId) {
 	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
 	game.GAME_ID = newGameId;
 	history.replaceState(null, "", `/play/${game.GAME_ID}`); // THE URL FOLLOWS THE REMATCH
-	clearTimeout(rematchWaiting); // STOP THE 1 MINUTE WAIT
-	rematchWaiting = false;
+	endRematchWait();
 	game.boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN WHILE THE NEW ONE LOADS
 	game.refresh = false;
 	optBtn.style.display = "none"
@@ -339,6 +534,7 @@ export function handleHomepage(e) {
 
 	stopFrames(); // STOP THE RENDER LOOP
 	leaveGame();
+	if (rematchWaiting) { cancelRematch(game.GAME_URL, game.GAME_ID); } // THE REQUEST ONLY STANDS WHILE THEY'RE HERE, A LATE PRESS WOULD START A GAME WITHOUT THEM
 	optHomepageBtn.innerText = "Loading";
 	optHomepageBtn.classList.add("loading"); // THE FILL (.loading IN nav.css), ONE PRESS
 	setTimeout(function () { optHomepageBtn.style.setProperty("--load", 1); }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)

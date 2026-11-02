@@ -60,14 +60,19 @@ request is for comes from a token only the data service can sign
 | `GET /games/:gameId` | The requester is in the game (`?consistent=true` for a strongly consistent read) |
 | `POST /games/:gameId/move` `{ from, to, promotion }` | In the game, open, their turn, a legal move on the stored board. Checkmate or a draw closes the game and rates a friend game |
 | `POST /games/:gameId/ai-move` `{ from, to, promotion }` | AI games: the requester is in it, it's the AI's turn, and the move is legal |
+| `POST /games/:gameId/opening` `{ board, eco, name }` | In the game, and `board` is still the stored board (`409` if not), a closed game too. The chess server has the data set, so the name is only checked for its shape |
 | `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
+| `POST /games/:gameId/draw` | In the game and it's open. The opponent's standing offer is accepted and the game closes as a draw (`agreement`). Otherwise saves the requester's offer, one per player per move (`409` after that). Repeating a standing offer changes nothing |
+| `POST /games/:gameId/draw/decline` | Friend games, the offered player. Ends the offer; the player who offered can't offer again until the next move |
+| `POST /games/:gameId/draw/ai-answer` `{ accept }` | AI games, the requester's offer is standing. Draws the game or ends the offer. The chess server decides the answer: always yes until both sides have made their first move, then from the engine |
 | `GET /games/:gameId/ratings` | In the game. Both players' ratings |
 | `POST /games/ai` `{ color, level, start_fen }` | A signed-in player vs `CHESS_AI`, at a level from 1 to 8 (3 if left out), from a playable position. The data service makes every new game id (16 random bytes, base64url, `newGameId` in `utils/games.js`) and answers with it in `game_data.game_id`; a body can't name one. The game is still saved only if the id is free (`attribute_not_exists`). Invites and rematches too |
 | `POST /games/guest` `{ game_id, color, side, level, start_fen }` | Needs no player. `side` fixes this game's side while `color` is what Restart uses (the play page's first guest game). The guest's own game (their cookie) is reset and keeps its level, only while the stored game is still theirs; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched. Answers with `guest_token`, the guest's cookie for the game it saved |
 | `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
 | `POST /games/:gameId/accept` `{ replace_current }` | Pending, only the invited player. In this order: their own open friend game answers `{ status: 409, game_id }` unless `replace_current`; the inviter in another friend game is refused; then the invite is accepted (a conditional write: one declined or cancelled since is refused and nothing changes), and only then their friend game is forfeited (`forfeited`) and their sent invite cancelled (`dropped_invites`) |
 | `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
-| `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits a minute; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`). Pressing again while that game is open finishes whatever a failed save left: it makes the game under the saved id if it's missing, then repeats the list adds and the cancels. A missing game is only made again up to an hour after `rematch_expires`; after that TTL deleted it, so the press answers 409 "Rematch ended" and makes nothing |
+| `POST /games/:gameId/rematch/cancel` | The player who pressed Rematch takes it back, safe to repeat. `{ cancelled: false }` once the other press has claimed the rematch |
+| `POST /games/:gameId/rematch` | A friend game that's over and the requester is in it. Neither player can be in another friend game. The first press waits 5 minutes; the second makes the game with the inviter's pick and cancels both players' sent invites (`dropped_invites`). Pressing again while that game is open finishes whatever a failed save left: it makes the game under the saved id if it's missing, then repeats the list adds and the cancels. A missing game is only made again up to an hour after `rematch_expires`; after that TTL deleted it, so the press answers 409 "Rematch ended" and makes nothing |
 | `GET /users/me` | A signed-in player's own row as stored (`?consistent=true`). `?games=true` also prunes expired games and invites and adds the open AI and friend game, the open games, the sent invite and the received invites. Guests have no row (403) |
 | `POST /users/me/settings` `{ ai_level, ai_color, friend_color }` | A level from 1 to 8 and `w`, `b` or `random` for each color, all three |
 | `POST /users/me/username` `{ username }` | The username rules again (`utils/username.js`), then `claimUsername`: someone else's name, in any capitals, answers `{ status: 409 }` |
@@ -102,7 +107,7 @@ about a player's other games still run on the chess server first, and accepting
 an invite with `replace_current` is one call, so the inviter is checked before
 the player's own game is forfeited.
 
-`utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are copies of
+`utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are copies of
 the server's, and `test/shared.test.js` fails if they differ, so change both.
 
 ## Session keys (#252)
@@ -179,6 +184,7 @@ signed out, and guests start a new game.
 
 **Stored data** (details in `data-service/dynamoDB.js`):
 
+- **`opening`** (JSON `{ eco, name }`) is the latest named position the game reached. Games that haven't reached one don't have it.
 - **`start_params`** (JSON `{ color, fen }`) is what Restart and Rematch reuse. `moves`
   only has the moves played, so anything that replays them (threefold
   repetition, PGN, takebacks) starts from `start_params.fen` when it's there.
@@ -190,8 +196,11 @@ signed out, and guests start a new game.
   players' `requested_games`; accepting makes it `OPEN` and moves it to
   `open_games`; declining deletes it; closing moves it to `closed_games`. List
   saves retry when the row changed, so two changes at once both stay.
-- **Expiry:** finished friend games lose `expireAt` and are kept. AI games are
-  deleted 25 days after the last move.
+- **`created_at`** is when the game was made (ISO, UTC), the PGN's `Date`. Games
+  from before it don't have one, and a guest's reset sets it again.
+- **Expiry:** signed-in players' finished games lose `expireAt` and are kept.
+  Guests' games and open games are deleted 25 days after the last move, and
+  Delete my data puts that expiry back on the player's finished AI games.
 - **`user_db` rows** are made at first login (`startSession`) and hold the game
   lists, `settings`, `rating`, `rated_games`, `username`, `sid` and `friend_lists`.
 - **Friends:** `friend_lists` is a JSON string, `{ friends, sent, received }` of
@@ -224,10 +233,10 @@ The data service has its own tests, the same way as the [server's](../server/REA
 | `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, draw offers (one per player per move, ended by a move, an accept losing to a move), invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
 | `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
-| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js` and `sessionKeys.js` are the same files as the server's, and both pin the same `chess.js` |
+| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are the same files as the server's, and both pin the same `chess.js` |
 
 ## Layout
 
@@ -245,7 +254,7 @@ data-service/                The only code that reads and writes DynamoDB (#245)
   middleware/signature.js    checkSignature(): only signed requests, sent within 30 seconds, once; keepRawBody()
   middleware/player.js       req.player from X-Player-Token or X-Guest-Game, checked with its own key; requirePlayer, requireSignedIn
   middleware/fields.js       onlyFields(): refuses a body field the route doesn't name
-  utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks
+  utils/games.js             playerInGame (a guest only in their own game), game state, start settings & pickSides, level & id checks (the same file as server/utils/games.js)
   utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
   utils/signature.js         sign(), signedHeaders(), signatureMatches(): the HMAC the chess server signs with
   utils/tokens.js            Signs the access, refresh & guest tokens with SESSION_PRIVATE_KEY (ES256)

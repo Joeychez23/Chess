@@ -13,14 +13,19 @@
 
 const { Chess } = require("chess.js");
 const { checkStartFen } = require("../utils/validate.js");
-const { levelList, readLevel, aiMove } = require("../utils/ai.js");
+const { levelList, readLevel, aiMove, aiAcceptsDraw } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
+const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams } = require("../utils/games.js");
+const { buildPgn } = require("../utils/pgn.js");
+const { findOpening } = require("../utils/openings.js");
+const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames, findUsername } = require("../dataClient.js");
-const { emitToGame, emitToPlayer } = require("../socket.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
+const { emitToGame, emitToPlayer, isInGameRoom } = require("../socket.js");
 
+const AI_DRAW_FREE_MOVES = 2; // UNTIL BOTH SIDES HAVE MADE THEIR FIRST MOVE THE AI TAKES ANY DRAW, WITHOUT ASKING THE ENGINE
 const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PROMISE), SO PARALLEL /ai-move REQUESTS ASK THE ENGINE ONCE
 
 /* ---------------------------------------------------------------- */
@@ -29,7 +34,7 @@ const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PRO
 /**
  * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, draw_offer, message }]
  */
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -55,6 +60,7 @@ async function getGame(req, res) {
 		opponent_name: playerName(gameData, opponentColor), // FRIEND GAMES: HOME'S "vs Bob"
 		moves: gameData.moves.S,
 		prev_move: gameData.prev_move.S,
+		opening: readOpening(gameData),
 		w_knight: gameData.w_knight.S,
 		b_knight: gameData.b_knight.S,
 		w_piece: gameData.w_piece.S,
@@ -62,6 +68,31 @@ async function getGame(req, res) {
 		...gameState(gameData),
 		message: response.message,
 	});
+}
+
+/* ---------------------------------------------------------------- */
+// PGN (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The game as a PGN file for the game menu's Download PGN. Built here because only the server has both players' names
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, pgn, filename, message }]
+ */
+async function getPgn(req, res) {
+	const response = await retrieveGame(req.params.gameId);
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	if (!playerInGame(req, gameData)) { return notInGame(req, res); }
+
+	try {
+		const player = req.user?.user_metadata?.screenname || (req.user ? "Player" : "Guest"); // AN AI GAME HAS ONE PLAYER, THE REQUESTER. ITS GAME SAVES NO NAMES
+		return res.json({ status: 200, ...buildPgn(gameData, { site: config.clientUrl, aiLevel: aiLevel(gameData), player }), message: "PGN" });
+	} catch (err) { // A SAVED MOVE THAT CAN'T BE REPLAYED
+		console.log(`PGN failed: ${gameData.game_id.S}: ${err.message}`);
+		return res.json({ status: 500, message: "This game can't be written as a PGN" });
+	}
 }
 
 /* ---------------------------------------------------------------- */
@@ -110,7 +141,7 @@ async function newGame(req, res) {
  * The requester always moves for themself, the AI's moves come from /ai-move
  * @param  {[string]} req.params.gameId [game id]
  * @param  {[object]} req.body [{ move: [from, to], promotion }]
- * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, ai, game_board, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
  */
 async function moveGame(req, res) {
 	const { move, promotion } = req.body || {};
@@ -132,6 +163,7 @@ async function moveGame(req, res) {
 	});
 	if (response.status != 200) { return res.json({ status: 500, message: response.message == "Not your turn" ? "Invalid piece movement" : response.message }); } // NOT LEGAL, NOT THEIR TURN, OR ANOTHER MOVE SAVED FIRST
 	response.message = "Validation Successful";
+	await recordOpening(response); // BEFORE THE OPPONENT & HOME ARE TOLD, THEY LOAD THE GAME
 	emitToGame(req.params.gameId, "move", { game_id: req.params.gameId, player_id: playerId }); // THE OPPONENT'S CLIENT LOADS THE NEW BOARD
 	if (!isAiGame(response.game_data)) { notifyHome(response.game_data); } // A FRIEND GAME'S PICTURE ON HOME
 	return res.json(gameResponse(response));
@@ -178,7 +210,7 @@ async function restartGame(req, res) {
  * @description AI games: the server picks the AI's move at the game's level & saves it. The client only animates it.
  * Asking again after the AI moved returns the saved move instead of a new one
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, ai_move: { from, to, promotion }, message }]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, ai_move: { from, to, promotion }, message }]
  */
 async function aiMoveGame(req, res) {
 	let response = await retrieveGame(req.params.gameId);
@@ -218,6 +250,7 @@ async function playAiTurn(gameId, gameData) {
 	}
 	if (response.status != 200) { return { status: 500, message: response.message }; }
 	response.message = "AI moved";
+	await recordOpening(response);
 	return { ...gameResponse(response), ai_move: move };
 }
 
@@ -275,14 +308,104 @@ async function forfeitFriendGame(gameData, playerId) {
 }
 
 /**
- * @description A friend game was forfeited: the opponent's board opens the menu & both Homes redraw
+ * @description A friend game was forfeited or drawn by agreement: the opponent's board opens the menu & both Homes redraw
  * @param  {[object]} gameData [the friend game]
- * @param  {[string]} playerId [the player who forfeited]
- * @param  {[string]} winner ["w" or "b"]
+ * @param  {[string]} playerId [the player who forfeited, or accepted the draw]
+ * @param  {[string]} winner ["w", "b" or "draw"]
+ * @param  {[string]} reason ["forfeit" or "agreement"]
  */
-function tellGameOver(gameData, playerId, winner) {
-	emitToGame(gameData.game_id.S, "game-over", { game_id: gameData.game_id.S, player_id: playerId, winner, reason: "forfeit" }); // OPPONENT'S BOARD OPENS THE MENU
+function tellGameOver(gameData, playerId, winner, reason = "forfeit") {
+	emitToGame(gameData.game_id.S, "game-over", { game_id: gameData.game_id.S, player_id: playerId, winner, reason }); // OPPONENT'S BOARD OPENS THE MENU
 	notifyHome(gameData);
+}
+
+
+/* ---------------------------------------------------------------- */
+// Draw Offers (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A press of Offer Draw. The first press saves the offer, which lasts until the next move, one per player per move. The opponent's press accepts it & both boards show the draw.
+ * In an AI game the answer comes right away: the AI always accepts until both sides have made their first move, then the engine decides & it accepts when it isn't ahead
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [gameResponse's closed game when it's a draw | { status, offered: true, opponent_name, message } friend games, waiting | { status, declined: true, message } the AI said no
+ * | { status: 409, message } an offer already used this move or ended by a move]
+ */
+async function drawGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE AI JUDGES THE LATEST BOARD
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	const gameId = gameData.game_id.S;
+	const playerId = playerInGame(req, gameData);
+	if (!playerId) { return notInGame(req, res); }
+	if (gamePending(gameData)) { return res.json({ status: 500, message: "Invite not accepted yet" }); }
+	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is already over" }); }
+
+	const pressed = await ifSaved(() => offerDraw(gameId), () => savedDraw(gameId, playerId));
+	if (pressed.status != 200) { return res.json({ status: pressed.status, message: pressed.message }); }
+	if (pressed.game_data) { // THE OPPONENT'S OFFER WAS STANDING
+		tellGameOver(pressed.game_data, playerId, "draw", "agreement");
+		return res.json(gameResponse(pressed));
+	}
+	if (isAiGame(gameData)) { return res.json(await aiDrawAnswer(gameData)); }
+
+	emitToGame(gameId, "draw-offer", { game_id: gameId, player_id: playerId, state: "offered" });
+	return res.json({ status: 200, offered: true, opponent_name: playerName(gameData, playerId == gameData.white_player_id.S ? "b" : "w"), message: pressed.message });
+}
+
+/**
+ * @description The AI answers the offer that was just saved. A move landing during the engine's search ends the offer & the answer is refused
+ * @param  {[object]} gameData [the AI game]
+ * @return {[object]} response [gameResponse's closed game | { status, declined: true, message } | { status: 409, message }]
+ */
+async function aiDrawAnswer(gameData) {
+	const gameId = gameData.game_id.S;
+	const accept = gameData.moves.S.length < AI_DRAW_FREE_MOVES || await aiAcceptsDraw(gameData.game_board.S, gameData.white_player_id.S == "CHESS_AI" ? "w" : "b");
+	const answer = await ifSaved(() => answerAiDraw(gameId, accept), async () => { // TOO SLOW: SAVED IF THE GAME CLOSED, OR THE OFFER IS GONE
+		const latest = await retrieveGame(gameId, true);
+		if (!latest.game_data) { return null; }
+		const saved = accept ? !gameOpen(latest.game_data) : !latest.game_data.draw_offer_player_id;
+		return saved ? { ...latest, declined: !accept } : null;
+	});
+	if (answer.status != 200) { return { status: answer.status, message: answer.message }; }
+	return accept ? gameResponse(answer) : { status: 200, declined: true, message: "The AI declined the draw" };
+}
+
+/**
+ * @description The offered player turns the draw down (friend games), the game goes on & the player who offered is told
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, declined: true, message } | { status: 409, message } when the offer already ended]
+ */
+async function declineDrawGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true);
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameId = response.game_data.game_id.S;
+	const playerId = playerInGame(req, response.game_data);
+	if (!playerId) { return notInGame(req, res); }
+
+	const declined = await ifSaved(() => declineDraw(gameId), async () => { // TOO SLOW: SAVED IF THE OFFER IS GONE
+		const latest = await retrieveGame(gameId, true);
+		return latest.game_data && !latest.game_data.draw_offer_player_id ? { status: 200, declined: true, message: "Draw declined" } : null;
+	});
+	if (declined.status != 200) { return res.json({ status: declined.status, message: declined.message }); }
+	emitToGame(gameId, "draw-offer", { game_id: gameId, player_id: playerId, state: "declined" });
+	return res.json({ status: 200, declined: true, message: declined.message });
+}
+
+/**
+ * @description A draw press that timed out, read back: the game drawn or this player's offer standing
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} playerId [player who pressed]
+ * @return {[object]} pressed [the data service's answer as it would have been, null when nothing saved]
+ */
+async function savedDraw(gameId, playerId) {
+	const latest = await retrieveGame(gameId, true);
+	if (latest.game_data?.reason?.S == "agreement") { return latest; }
+	if (latest.game_data?.draw_offer_player_id?.S == playerId) { return { status: 200, offered: true, message: "Draw offered" }; }
+	return null;
 }
 
 
@@ -290,10 +413,10 @@ function tellGameOver(gameData, playerId, winner) {
 // Rematch (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Friend games that are over: the first press waits 1 minute for the other player. If they press
+ * @description Friend games that are over: the first press waits 5 minutes for the other player. If they press
  * in time a new game starts with the same start settings (the inviter's color, Random draws again), and both boards load it
  * @param  {[string]} req.params.gameId [closed game id]
- * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in } while waiting]
+ * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in, opponent_name, opponent_here (still on the game page) } while waiting]
  */
 async function rematchGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -307,9 +430,19 @@ async function rematchGame(req, res) {
 	if (isAiGame(gameData)) { return res.json({ status: 500, message: "AI games restart instead" }); }
 	if (gameOpen(gameData) || gamePending(gameData)) { return res.json({ status: 500, message: "Game isn't over yet" }); }
 
-	const pressed = await ifSaved(() => rematch(gameId), () => savedRematch(gameId, playerId)); // THE DATA SERVICE: BOTH PRESSES WITHIN 1 MINUTE, NEITHER PLAYER IN ANOTHER FRIEND GAME, THE NEW GAME WITH THE INVITER'S PICK
+	const pressed = await ifSaved(() => rematch(gameId), () => savedRematch(gameId, playerId)); // THE DATA SERVICE: BOTH PRESSES WITHIN 5 MINUTES, NEITHER PLAYER IN ANOTHER FRIEND GAME, THE NEW GAME WITH THE INVITER'S PICK
 	if (pressed.status == 409) { return res.json({ status: 409, message: pressed.message }); } // ONE FRIEND GAME AT A TIME
-	if (pressed.waiting) { return res.json({ status: 200, waiting: true, expires_in: pressed.expires_in, message: pressed.message }); } // FIRST PRESS
+	if (pressed.waiting) { // FIRST PRESS
+		const opponentIsWhite = playerId != gameData.white_player_id.S;
+		return res.json({
+			status: 200,
+			waiting: true,
+			expires_in: pressed.expires_in,
+			opponent_name: playerName(gameData, opponentIsWhite ? "w" : "b"),
+			opponent_here: isInGameRoom(gameId, opponentIsWhite ? gameData.white_player_id.S : gameData.black_player_id.S),
+			message: pressed.message
+		});
+	}
 	if (!pressed.new_game_id) { return res.json({ status: 500, message: pressed.message || "Rematch failed" }); }
 
 	if (pressed.game_data) { // THE REMATCH IS OPEN: A PRESS AFTER A FAILED ONE IS THE FIRST THE OTHER BOARD HEARS OF IT
@@ -320,6 +453,16 @@ async function rematchGame(req, res) {
 	return res.json({ status: 200, new_game_id: pressed.new_game_id, message: "Rematch started" });
 }
 
+/**
+ * @description The player who pressed Rematch takes it back. A cancel that fails is answered 503 & pressing again is safe
+ * @param  {[string]} req.params.gameId [closed game id]
+ * @return {[object]} response [{ status, cancelled, message }, cancelled: false when the rematch already started & the socket's "rematch" is on its way]
+ */
+async function cancelRematchGame(req, res) {
+	const response = await cancelRematch(req.params.gameId);
+	if (notYours(response)) { return notInGame(req, res); }
+	return res.json({ status: response.status, cancelled: response.cancelled, message: response.message });
+}
 
 /**
  * @description A rematch press that timed out, read back: the new game (both boards are told again, loading it twice is harmless) or this press waiting.
@@ -473,7 +616,8 @@ async function declineGame(req, res) {
  * @description Returns a user's game lists for Home, expired games & invites are pruned first
  * @param  {[string]} req.params.userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, ai_game_id / friend_game_id (the open AI / friend game or null),
- * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params }], newest last),
+ * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }], newest last),
+ * closed_game_list (the same & winner, reason, the last 20 finished games, newest first),
  * sent_invite ({ game_id, name, player_color, start_params } or null), received_invites ([{ game_id, name, player_color, start_params }]),
  * rating ({ rating, provisional, rated_games }, Home's "Rating // 1520?"), message }]
  */
@@ -494,6 +638,7 @@ async function getUserGames(req, res) {
 		ai_game_id: userData.ai_game_id, // HOME DRAWS ITS BOARD & LINKS IT (Continue current game)
 		friend_game_id: userData.friend_game_id, // SAME, IN PLAY A FRIEND
 		open_game_list: userData.open_game_list.map((game) => gameSummary(game, req.params.userId)), // YOUR GAMES: "vs AI // LEVEL 3 // YOU PLAY WHITE (RANDOM)"
+		closed_game_list: (userData.closed_game_list || []).map((game) => ({ ...gameSummary(game, req.params.userId), winner: game.winner?.S || null, reason: game.reason?.S || null })), // FINISHED GAMES: WON, LOST OR DRAW & WHY
 		sent_invite: userData.sent_invite ? inviteBody(userData.sent_invite) : null, // "INVITE SENT TO BOB // WAITING"
 		received_invites: userData.received_invites.map(inviteBody), // "BOB INVITED YOU", ACCEPT & DECLINE
 		settings: userSettings(userData), // THE SETTINGS PAGE'S DEFAULT START SETTINGS, HOME'S DROPDOWNS START ON THEM
@@ -622,6 +767,7 @@ function gameResponse(response) {
 		ai: isAiGame(response.game_data),
 		ai_level: aiLevel(response.game_data),
 		game_board: response.game_data.game_board.S,
+		opening: readOpening(response.game_data),
 		w_knight: response.game_data.w_knight.S,
 		b_knight: response.game_data.b_knight.S,
 		w_piece: response.game_data.w_piece.S,
@@ -629,6 +775,33 @@ function gameResponse(response) {
 		...gameState(response.game_data),
 		message: response.message,
 	};
+}
+
+/**
+ * @description Saves the opening of the position a move just saved. The latest match stays once the game leaves the book. The move is already saved,
+ * so a failed save only logs: the next position in the book saves its own name
+ * @param  {[object]} response [the saved move's { game_data }, its opening is updated when this saves one]
+ */
+async function recordOpening(response) {
+	const gameData = response.game_data;
+	const opening = findOpening(gameData.game_board.S);
+	const saved = readOpening(gameData);
+	if (!opening || (opening.eco == saved?.eco && opening.name == saved?.name)) { return; }
+	try {
+		const answer = await saveOpening(gameData.game_id.S, gameData.game_board.S, opening);
+		if (answer.status == 200) { gameData.opening = answer.game_data.opening; } // ANYTHING ELSE: ANOTHER MOVE LANDED FIRST, ITS REQUEST SAVES ITS OWN OPENING
+	} catch (err) {
+		console.log(`Saving the opening failed: ${gameData.game_id.S}: ${err.message}`);
+	}
+}
+
+/**
+ * @description The game's saved opening, sent with every game response
+ * @param  {[object]} gameData [game item]
+ * @return {[object]} opening [{ eco, name }, null until the game reaches a named position]
+ */
+function readOpening(gameData) {
+	return gameData.opening ? JSON.parse(gameData.opening.S) : null;
 }
 
 /**
@@ -667,19 +840,6 @@ function readStartParams(body, fen) {
 }
 
 /**
- * @description The start settings saved with a game, Restart & Rematch start the next game with them
- * @param  {[object]} gameData [game item]
- * @return {[object]} params [{ color: "random" | "w" | "b", fen (only for a set position) }, games from before start_params are Random]
- */
-function startParams(gameData) {
-	let params = {};
-	try { params = JSON.parse(gameData.start_params?.S || "{}"); } catch { }
-	let start = { color: params.color == "w" || params.color == "b" ? params.color : "random" };
-	if (params.fen) { start.fen = params.fen; } // A SET POSITION (CHECKED WHEN THE FIRST GAME WAS MADE)
-	return start;
-}
-
-/**
  * @description The settings a request saves (the settings page's Default start settings)
  * @param  {[object]} body [req.body, { ai_level, ai_color, friend_color }]
  * @return {[object]} settings [{ ai_level (1 - 8, anything else is the default level), ai_color, friend_color ("random" | "w" | "b", anything else is Random) }]
@@ -702,19 +862,10 @@ function userSettings(userData) {
 function readColor(value) { return value == "w" || value == "b" ? value : "random"; } // RANDOM IS THE DEFAULT
 
 /**
- * @description The friend game's inviter, their pick is start_params.color (rematches keep them as the inviter)
- * @param  {[object]} gameData [friend game item]
- * @return {[string]} playerId [games from before inviter_id: white, the inviter always played white]
- */
-function inviterId(gameData) {
-	return gameData.inviter_id?.S || gameData.white_player_id.S;
-}
-
-/**
- * @description One open game for Your games on Home
+ * @description One game for Your games or Finished games on Home
  * @param  {[object]} gameData [game item, pruneGameList's projection is enough]
  * @param  {[string]} playerId [the user the list is for]
- * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params }]
+ * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }]
  */
 function gameSummary(gameData, playerId) {
 	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
@@ -725,48 +876,23 @@ function gameSummary(gameData, playerId) {
 		opponent_name: playerName(gameData, playerColor == "w" ? "b" : "w"),
 		player_color: playerColor,
 		start_params: startParams(gameData),
+		opening: readOpening(gameData),
 	};
-}
-
-/**
- * @description A friend game player's name (their username, or their Auth0 screenname before they picked one), saved when the game was made (inviteGame & rematchGame)
- * @param  {[object]} gameData [game item]
- * @param  {[string]} color ["w" or "b"]
- * @return {[string]} name [null for AI games & players without either, Home shows "Friend"]
- */
-function playerName(gameData, color) {
-	return (color == "w" ? gameData.white_name?.S : gameData.black_name?.S) || null;
 }
 
 /**
  * @description The game's result fields, sent with every game response
  * @param  {[object]} gameData [game item]
- * @return {[object]} result [{ state: "PENDING" | "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason }]
+ * @return {[object]} result [{ state: "PENDING" | "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason, draw_offer: the color with a standing draw offer | null }]
  */
 function gameState(gameData) {
+	const drawOffer = gameData.draw_offer_player_id?.S;
 	return {
 		state: gameData.state?.S || "OPEN",
 		winner: gameData.winner?.S || null,
 		reason: gameData.reason?.S || null,
+		draw_offer: drawOffer ? (drawOffer == gameData.white_player_id.S ? "w" : "b") : null,
 	};
-}
-
-/**
- * @description True from the start (or the accept) until the game is checkmated, drawn or forfeited
- * @param  {[object]} gameData [game item]
- * @return {[boolean]} open
- */
-function gameOpen(gameData) {
-	return (gameData.state?.S || "OPEN") == "OPEN";
-}
-
-/**
- * @description True while a friend invite waits on the invited player (Accept or Decline on Home)
- * @param  {[object]} gameData [game item]
- * @return {[boolean]} pending
- */
-function gamePending(gameData) {
-	return gameData.state?.S == "PENDING";
 }
 
 /**
@@ -813,14 +939,5 @@ function userPlayerId(user) {
 	return user.user_id.split("auth0|")[1];
 }
 
-/**
- * @description True when either side is the computer
- * @param  {[object]} gameData [game item]
- * @return {[boolean]} ai
- */
-function isAiGame(gameData) {
-	return gameData.white_player_id.S == "CHESS_AI" || gameData.black_player_id.S == "CHESS_AI";
-}
 
-
-module.exports = { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };

@@ -100,6 +100,21 @@ export async function getUserGameData(gameUrl, userId) {
 }
 
 /**
+ * @description The game as a PGN file for the menu's Download PGN (GET /game/:gameId/pgn)
+ * @return {[object]} response [{ status, pgn, filename }]
+ */
+export async function getPgn(gameUrl, gameId) {
+	const options = {
+		method: "GET"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/pgn`, options)
+	} catch {
+		return;
+	}
+}
+
+/**
  * @description Both players' ratings for the game menu, & this game's rating change once it's over (GET /game/:gameId/ratings)
  * @return {[object]} response [{ status, rated, player_rating, opponent_rating ({ rating, provisional }, null in AI games), opponent_name, rating_change ({ before, after } or null) }]
  */
@@ -204,8 +219,38 @@ export async function forfeitGame(gameUrl, gameId) {
 }
 
 /**
- * @description Friend games that are over: asks for a rematch, it starts when both players ask within 1 minute (POST /game/:gameId/rematch)
- * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in } until then]
+ * @description Offers a draw, or accepts the opponent's offer (POST /game/:gameId/draw). The AI answers right away
+ * @return {[object]} response [{ status, state: "CLOSED", winner: "draw", reason: "agreement", ... } | { status, offered: true } | { status, declined: true } | { status: 409, message }]
+ */
+export async function offerDraw(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Turns down the opponent's draw offer (POST /game/:gameId/draw/decline)
+ * @return {[object]} response [{ status, declined: true } | { status: 409, message } when it already ended]
+ */
+export async function declineDraw(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw/decline`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Friend games that are over: asks for a rematch, it starts when both players ask within 5 minutes (POST /game/:gameId/rematch)
+ * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in, opponent_name, opponent_here } until then]
  */
 export async function rematchGame(gameUrl, gameId) {
 	const options = {
@@ -213,6 +258,21 @@ export async function rematchGame(gameUrl, gameId) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Takes back this player's rematch request (POST /game/:gameId/rematch/cancel)
+ * @return {[object]} response [{ status, cancelled, message }, cancelled: false when the rematch already started]
+ */
+export async function cancelRematch(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch/cancel`, options)
 	} catch {
 		return
 	}

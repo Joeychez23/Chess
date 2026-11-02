@@ -32,6 +32,7 @@ const LEVELS = [
 	{ level: 8, elo: "≈3300", depth: 20, time: 2000 }, // FULL STRENGTH
 ];
 const DEFAULT_LEVEL = 3;
+const DRAW_CHECK = { depth: 12, time: 1000 }; // A DRAW OFFER IS JUDGED AT FULL STRENGTH WHATEVER THE LEVEL (A SKILL LEVEL'S WEAKER PICK COMES WITHOUT A SCORE)
 
 /* ---------------------------------------------------------------- */
 // Levels
@@ -87,6 +88,17 @@ async function aiMove(fen, level) {
  * @return {[object]} move [{ from, to, promotion }]
  */
 async function stockfishMove(fen, settings) {
+	const data = await askEngine(fen, settings);
+	return { from: data.from, to: data.to, promotion: data.promotion };
+}
+
+/**
+ * @description Asks the engine API about a board
+ * @param  {[string]} fen [game board]
+ * @param  {[object]} settings [level from LEVELS, or DRAW_CHECK]
+ * @return {[object]} data [the engine's bestmove answer: { from, to, promotion, eval, winChance, ... }]
+ */
+async function askEngine(fen, settings) {
 	const body = { fen, depth: settings.depth, maxThinkingTime: settings.time };
 	if (settings.uci_elo) { body.elo = settings.uci_elo; }
 	if (settings.skill != undefined) { body.skillLevel = settings.skill; }
@@ -99,7 +111,27 @@ async function stockfishMove(fen, settings) {
 	});
 	const data = await res.json();
 	if (data.type != "bestmove") { throw new Error(data.text || `Engine answered ${res.status}`); } // ERRORS COME BACK AS { type: "info", text }
-	return { from: data.from, to: data.to, promotion: data.promotion };
+	return data;
+}
+
+/* ---------------------------------------------------------------- */
+// Draw Offers
+/* ---------------------------------------------------------------- */
+/**
+ * @description Whether the AI takes a draw: when it isn't ahead, its win chance is 50% or less. With no evaluation (the engine is down) it plays on
+ * @param  {[string]} fen [game board]
+ * @param  {[string]} aiColor ["w" or "b"]
+ * @return {[boolean]} accepts
+ */
+async function aiAcceptsDraw(fen, aiColor) {
+	try {
+		const { winChance } = await askEngine(fen, DRAW_CHECK);
+		if (typeof winChance != "number") { throw new Error("Engine sent no win chance"); }
+		return (aiColor == "w" ? winChance : 100 - winChance) <= 50; // winChance IS FROM WHITE'S SIDE
+	} catch (err) {
+		console.log(`STOCKFISH FAILED, THE AI DECLINES THE DRAW: ${err.message}`); // THE LINE MUST START WITH THIS: AN ALARM MATCHES IT (terraform/modules/monitoring)
+		return false;
+	}
 }
 
 /**
@@ -123,4 +155,4 @@ function backupMove(fen) {
 }
 
 
-module.exports = { levelList, readLevel, aiMove, checkEngine }
+module.exports = { levelList, readLevel, aiMove, aiAcceptsDraw, checkEngine }

@@ -10,7 +10,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, pruneOpenGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser, changeFriends, retrieveFriends, leaveFriends } = require("../dynamoDB.js");
+const { retrieveUser, pruneOpenGames, pruneClosedGames, expireFinishedAiGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser, changeFriends, retrieveFriends, leaveFriends } = require("../dynamoDB.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { readAiLevel, isColor } = require("../utils/games.js");
 const { currentGame } = require("./gameController.js");
@@ -23,12 +23,12 @@ const { FRIEND_ACTIONS } = require("../utils/friends.js");
 /**
  * @description The requester's row as stored. With games, expired games & invites are pruned first & the open games are added (what Home lists)
  * @param  {[string]} req.query.consistent ["true" = a strongly consistent read, right after a save]
- * @param  {[string]} req.query.games ["true" = also ai_game_id, friend_game_id, open_game_list, sent_invite & received_invites (pruneOpenGames, pruneInvites)]
+ * @param  {[string]} req.query.games ["true" = also ai_game_id, friend_game_id, open_game_list, closed_game_list, sent_invite & received_invites (pruneOpenGames, pruneClosedGames, pruneInvites)]
  * @return {[object]} response [retrieveUser's { status, user_data, message }, "User data not found" ({ status: 500 }) for a player with no row yet]
  */
 async function getMe(req, res) {
 	const response = await retrieveUser(req.player.id, req.query.consistent == "true");
-	if (response.user_data && req.query.games == "true") { response.user_data = await pruneInvites(await pruneOpenGames(response.user_data)); }
+	if (response.user_data && req.query.games == "true") { response.user_data = await pruneInvites(await pruneClosedGames(await pruneOpenGames(response.user_data))); }
 	return res.json(withoutSession(response));
 }
 
@@ -145,6 +145,7 @@ async function deleteMe(req, res) {
 	}
 	const left = await leaveFriends(playerId);
 	if (left.status != 200) { return res.json(left); }
+	if (user.user_data) { await expireFinishedAiGames(user.user_data); } // THE LISTS THAT FIND THEM GO WITH THE ROW
 	return res.json({ ...(await deleteUser(playerId)), friend_ids: left.friend_ids });
 }
 

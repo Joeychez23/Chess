@@ -4,7 +4,8 @@
  *  Friend games get the opponent's move pushed to them instead of asking the server every 2 seconds.
  *  Each game is a room ("game:<game_id>"). moveGame() emits "move" to the room after a move is saved,
  *  then the client loads the new board with GET /api/chess/game/:gameId.
- *  forfeitGame() emits "game-over" and rematchGame() emits "rematch" (the new game id) to the same room.
+ *  forfeitGame() & an accepted draw emit "game-over", drawGame() & declineDrawGame() emit "draw-offer" and rematchGame() emits "rematch" (the new game id) to the same room.
+ *  The room also hears "player-left" when a player's last tab leaves the game & "player-back" when they return (a rematch request's "left the game" note)
  *  Every socket is also in its player's room ("player:<player_id>"): Home gets "games" when an invite or friend game changes & "friends" when a friend request or friend changes
  *  The access token is only read in the handshake, so a socket is closed when that token runs out, & every socket of a player
  *  is closed when they log out or delete their data (#298). The client re-ups the session & connects again (client/src/js/socket)
@@ -49,6 +50,7 @@ function initSocket(server) {
 	io.on("connection", (socket) => {
 		const expiry = setTimeout(() => socket.disconnect(true), Math.min(Math.max(socket.data.expiresAt - Date.now(), 0), MAX_TIMER)).unref(); // THE ACCESS TOKEN RAN OUT (unref: AN OPEN SOCKET'S TIMER NEVER KEEPS THE PROCESS UP)
 		socket.on("disconnect", () => clearTimeout(expiry));
+		socket.on("disconnecting", () => { for (const room of socket.rooms) { announceLeaving(socket, room); } }); // socket.rooms IS STILL FILLED HERE
 		socket.data.joins = { tokens: JOIN_LIMIT.burst, at: Date.now() };
 		socket.join(`player:${socket.data.playerId}`); // HOME'S "games" (emitToPlayer)
 		socket.on("join-game", (gameId, ack) => joinGame(socket, gameId, ack));
@@ -112,8 +114,12 @@ async function joinGame(socket, gameId, ack) {
 			return ack({ status: 403, message: "Player is not in this game" });
 		}
 
-		for (const room of socket.rooms) { if (room.startsWith("game:")) { socket.leave(room); } } // ONE GAME AT A TIME PER TAB
-		socket.join(`game:${gameId}`);
+		const gameRoom = `game:${gameId}`;
+		for (const room of socket.rooms) { // ONE GAME AT A TIME PER TAB
+			if (room.startsWith("game:") && room != gameRoom) { announceLeaving(socket, room); socket.leave(room); }
+		}
+		if (!isInGameRoom(gameId, socket.data.playerId)) { socket.to(gameRoom).emit("player-back", { game_id: gameId, player_id: socket.data.playerId }); }
+		socket.join(gameRoom);
 		return ack({ status: 200, message: `Joined game id: ${gameId}`, state: state?.S || "OPEN", winner: winner?.S || null, reason: reason?.S || null });
 	} catch (err) {
 		if (err.name == "SessionExpired") { return ack({ status: 401, message: "SESSION EXPIRED" }); }
@@ -121,6 +127,36 @@ async function joinGame(socket, gameId, ack) {
 		console.log(err);
 		return ack({ status: 500, message: "Join failed" });
 	}
+}
+
+/**
+ * @description Tells a game's room this socket is leaving, when it's the player's last one in that room (another tab keeps them there)
+ * @param  {[object]} socket [player's socket, still in the room]
+ * @param  {[string]} room [any of the socket's rooms, only "game:<game_id>" rooms are announced]
+ */
+function announceLeaving(socket, room) {
+	if (!room.startsWith("game:")) { return; }
+	const gameId = room.slice("game:".length);
+	if (isInGameRoom(gameId, socket.data.playerId, socket)) { return; }
+	socket.to(room).emit("player-left", { game_id: gameId, player_id: socket.data.playerId });
+}
+
+/* ---------------------------------------------------------------- */
+// Is In Game Room
+/* ---------------------------------------------------------------- */
+/**
+ * @description Whether a player has a tab on a game's page. There's one server process, so its rooms are everyone's
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} playerId [auth0 user id without "auth0|"]
+ * @param  {[object]} leaving [a socket that doesn't count, it's on its way out]
+ * @return {[boolean]} here
+ */
+function isInGameRoom(gameId, playerId, leaving) {
+	for (const socketId of io?.sockets.adapter.rooms.get(`game:${gameId}`) || []) {
+		const socket = io.sockets.sockets.get(socketId);
+		if (socket && socket != leaving && socket.data.playerId == playerId) { return true; }
+	}
+	return false;
 }
 
 /* ---------------------------------------------------------------- */
@@ -173,4 +209,4 @@ function disconnectPlayer(playerId) {
 }
 
 
-module.exports = { initSocket, emitToGame, emitToPlayer, isOnline, disconnectPlayer };
+module.exports = { initSocket, emitToGame, emitToPlayer, isOnline, isInGameRoom, disconnectPlayer };
