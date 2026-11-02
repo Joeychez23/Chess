@@ -81,7 +81,7 @@ export function handleKnightHop(tile) {
 export function getRestartPieces(withTrays) {
 	let pieces = [];
 	let board = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
-	if (game.playerColor == 'b') { // FLIPPED BOARD, SAME AS handleInitialData()
+	if (game.viewColor == 'b') { // FLIPPED BOARD, SAME AS handleInitialData()
 		board = board.reverse();
 		for (let i = board.length - 1; i >= 0; i--) { board[i] = board[i].reverse(); }
 	}

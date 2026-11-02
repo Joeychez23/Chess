@@ -38,6 +38,8 @@ export async function setInitialData() {
 	}
 	game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
 	game.playerColor = game.response?.player_color || null;
+	game.viewColor = game.playerColor; // A NEW GAME STARTS FROM THE PLAYER'S SIDE
+	game.flipPending = false;
 	if (game.response?.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
 		game.opponentColor = game.response?.opponent_color || false;
 		chessInst.load(game.response.game_board); // THE BOARD TO DRAW
@@ -116,10 +118,10 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 				if (game.tiles[i].square == game.moveObj.from) {
 					game.slideStart = true;
 					game.tiles[i].isSliding = true
-					if (game.playerColor == 'w') {
+					if (game.viewColor == 'w') {
 						game.tiles[i].xSlideTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 						game.tiles[i].ySlideTo = 8 - game.moveObj.to.split("")[1];
-					} else if (game.playerColor == 'b') {
+					} else if (game.viewColor == 'b') {
 						game.tiles[i].xSlideTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
 						game.tiles[i].ySlideTo = game.moveObj.to.split("")[1] - 1;
 					}

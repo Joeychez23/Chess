@@ -13,10 +13,11 @@
 const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, TV REMOTE FOR TESTING
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { handleMenuBtn, handleResume, handleSound, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
+const { handleMenuBtn, handleResume, handleSound, handleFlip, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
+const optFlipBtn = document.getElementById("optFlip"); // MENU: FLIP BOARD
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
@@ -113,9 +114,10 @@ export async function handleKeyPress(e) {
 		if (e.keyCode == 38) { // UP
 			if (remoteNavBox.y > 0 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y -= 1; game.refresh = true; }
 			else if (game.menuToggled) {
-				if (remoteNavBox.menuBtn == optExitBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 5 -> 4
-				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 4 -> 3
-				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 3 -> 2
+				if (remoteNavBox.menuBtn == optExitBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 6 -> 5
+				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 5 -> 4
+				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optFlipBtn) } // 4 -> 3
+				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 3 -> 2
 				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optResumeBtn) } // 2 -> 1
 			}
 			else { game.refresh = true; }
@@ -125,9 +127,10 @@ export async function handleKeyPress(e) {
 			if (remoteNavBox.y < 7 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y += 1; game.refresh = true; }
 			else if (game.menuToggled) {
 				if (remoteNavBox.menuBtn == optResumeBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 1 -> 2
-				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 2 -> 3
-				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 3 -> 4
-				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optExitBtn) } // 4 -> 5
+				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optFlipBtn) } // 2 -> 3
+				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 3 -> 4
+				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 4 -> 5
+				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optExitBtn) } // 5 -> 6
 			}
 			else { game.refresh = true; }
 			checkBoxOverPiece();
@@ -136,6 +139,7 @@ export async function handleKeyPress(e) {
 			if (!remoteNavBox.menuHover && !game.menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
 			else if (remoteNavBox.menuHover && !game.menuToggled) { handleMenuBtn(e); handleRemoteMenuEnter(optResumeBtn); } // OPEN THE MENU ON RESUME
 			else if (game.menuToggled && remoteNavBox.menuBtn == optSoundBtn) { handleSound(e); } // THE MENU STAYS OPEN & SOUND STAYS SELECTED
+			else if (game.menuToggled && remoteNavBox.menuBtn == optFlipBtn) { handleFlip(e); } // THE MENU STAYS OPEN & FLIP BOARD STAYS SELECTED
 			else if (game.menuToggled && remoteNavBox.menuBtn) { // PRESS THE SELECTED MENU BUTTON, THEN THE SELECT BOX GOES BACK TO THE TOP RIGHT
 				remoteNavBox.menuBtn.style.backgroundColor = "#CD853F"
 				if (remoteNavBox.menuBtn == optResumeBtn) { handleResume(e); }
@@ -218,7 +222,7 @@ export async function handleCanvasClick(e) {
 
 				if (tile.isClicked && tile.color == game.playerColor && (game.tileX != tile.originX || game.tileY != tile.originY)) { // IF PIECE IS CLICKED AND SET IN A NEW POSITION
 					try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
-						game.moveObj = playerMove(game.playerColor, tile); // { from, to } FROM WHERE IT WAS DROPPED
+						game.moveObj = playerMove(game.playerColor, game.viewColor, tile); // { from, to } FROM WHERE IT WAS DROPPED
 						if (game.moveObj.promotion) { game.currPromotion = true; game.refresh = true; return; } // PAWN ON THE LAST RANK: OPEN THE PICKER
 						tile.isClicked = false;
 						game.clickedTile = false;
@@ -249,7 +253,7 @@ export async function handleCanvasClick(e) {
 					}
 					tile.x = game.tileX; // CLICKED A SQUARE: SLIDE THE PICKED UP PIECE THERE (THE MOVE IS SENT WHEN IT LANDS)
 					tile.y = game.tileY;
-					game.moveObj = playerMove(game.playerColor, tile);
+					game.moveObj = playerMove(game.playerColor, game.viewColor, tile);
 					validateState.load(game.response.game_board);
 					validateState.move(game.moveObj); // CHECK MOVE WITHOUT UPDATING THE BOARD SO THE DRAWSCREEN FUNCTION CAN OPERATE WITH THE PREVIOUS MOVE WHILE CHECKING IF THE MOVE IS ALLOWED
 					game.currSlide = true;

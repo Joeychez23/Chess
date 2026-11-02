@@ -75,7 +75,9 @@ export const game = {
 	soundOn: true, // THE PLAYER'S SOUND BUTTON, SAVED IN localStorage (SET BY loadSound, CHANGED BY handleSound IN gameplay/menu/index.js)
 	response: undefined, // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
 	revert: undefined, // GAME TO GO BACK TO IF A MOVE FAILS
-	playerColor: undefined, // 'w' OR 'b', BLACK FLIPS THE BOARD SO THE PLAYER IS ALWAYS AT THE BOTTOM
+	playerColor: undefined, // 'w' OR 'b'
+	viewColor: undefined, // 'w' OR 'b', THE SIDE AT THE BOTTOM OF THE SCREEN: THE PLAYER'S UNTIL THEY PRESS FLIP BOARD (BLACK FLIPS THE BOARD)
+	flipPending: false, // FLIP BOARD WAS PRESSED DURING A SLIDE, THE BOARD FLIPS WHEN IT'S DONE (renderLoop)
 	opponentColor: undefined, // 'w' OR 'b'
 	ai: undefined, // TRUE IN AI GAMES
 	aiTurn: false, // TRUE WHEN THE RENDER LOOP SHOULD ASK THE SERVER FOR THE AI'S MOVE

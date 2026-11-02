@@ -124,7 +124,7 @@ client/
   login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home, Login/Signup)
   signup.html                Signup markup: Create account, link to login, menu (Home, Login/Signup), shares the login bundle
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Login/Signup)
-  play.html                  Game menu markup (Resume, Sound, Restart / Forfeit / Rematch, Home, Exit)
+  play.html                  Game menu markup (Resume, Sound, Flip Board, Restart / Forfeit / Rematch, Home, Exit)
   webpack.config.js          One entry + HTML page each (home, guest, play, settings, login; signup shares login's entry), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles

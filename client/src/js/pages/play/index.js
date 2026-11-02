@@ -27,6 +27,7 @@ const resultDisplay = document.getElementById("resultDisplay");
 const ratingDisplay = document.getElementById("ratingDisplay"); // FRIEND GAMES: BOTH PLAYERS' RATINGS UNDER THE TITLE
 const optResumeBtn = document.getElementById("optResume");
 const optSoundBtn = document.getElementById("optSound");
+const optFlipBtn = document.getElementById("optFlip");
 const optRestartBtn = document.getElementById("optRestart");
 const optHomepageBtn = document.getElementById("optSettings");
 const optExitBtn = document.getElementById("optExit");
@@ -134,6 +135,7 @@ function gameNotFound() {
 	resultDisplay.innerHTML = "Game not found";
 	optResumeBtn.parentElement.style.display = "none";
 	optSoundBtn.parentElement.style.display = "none";
+	optFlipBtn.parentElement.style.display = "none";
 	optRestartBtn.parentElement.style.display = "none";
 	optExitBtn.innerHTML = "Logout";
 	optHomepageBtn.addEventListener("click", function () { startLoading(optHomepageBtn); goToPage("/"); }); // LOADING, THEN HOME (LIKE THE GAME'S HOME BUTTON)
