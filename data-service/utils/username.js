@@ -12,6 +12,7 @@
 /* ---------------------------------------------------------------- */
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_-]{3,20}$/; // 3 - 20 LETTERS, NUMBERS, _ OR -
+const SEARCH_PATTERN = /^[A-Za-z0-9_-]{2,20}$/; // WHAT A SEARCH CAN START WITH, 2 CHARACTERS OR MORE
 const RESERVED = ["admin", "administrator", "moderator", "support", "system", "root", "stockfish", "chess", "chess_ai", "chess-ai", "ai", "computer", "guest", "guest_user", "friend", "you", "null", "undefined", "anonymous"]; // STAFF, THE AI, & WHAT THE PAGES SHOW IN PLACE OF A NAME ("Friend", "You")
 
 /* ---------------------------------------------------------------- */
@@ -37,6 +38,24 @@ function checkUsername(value) {
 function usernameKey(username) {
 	return `username#${username.toLowerCase()}`;
 }
+/**
+ * @description The attributes that put a username#<name> item in the username-search index (terraform/modules/dynamodb), sorted by the name in lowercase
+ * @param  {[string]} username [a checked username]
+ * @return {[object]} attributes [{ search_group, search_name } as DynamoDB attribute values]
+ */
+function searchFields(username) {
+	return { search_group: { S: "all" }, search_name: { S: username.toLowerCase() } };
+}
+
+/**
+ * @description The start of a username to search for, in lowercase
+ * @param  {[string]} value [what was typed]
+ * @return {[string]} prefix [null when no username could start with it, or it's too short to search]
+ */
+function readSearchPrefix(value) {
+	const prefix = typeof value == "string" ? value.trim() : "";
+	return SEARCH_PATTERN.test(prefix) ? prefix.toLowerCase() : null;
+}
 
 
-module.exports = { checkUsername, usernameKey };
+module.exports = { checkUsername, usernameKey, searchFields, readSearchPrefix };

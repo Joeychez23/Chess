@@ -10,7 +10,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
 const { call, player, peek } = testServer;
-const { takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS } = require("../middleware/rateLimit.js");
+const { takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS, SEARCH_LIMITS } = require("../middleware/rateLimit.js");
 const { guestToken } = require("../../data-service/test/helpers/keys.js");
 
 let server;
@@ -165,6 +165,20 @@ describe("new game limits", () => {
 /* ---------------------------------------------------------------- */
 // AI Move Limits
 /* ---------------------------------------------------------------- */
+
+describe("player search limits", () => {
+	test("a player gets a burst, then 429 with Retry-After, and new games aren't touched", async () => {
+		const alice = player("alice");
+		for (let i = 0; i < SEARCH_LIMITS.searchSession.burst; i++) {
+			assert.equal((await call("GET", "/api/user/search?q=bo", { as: alice })).status, 200);
+		}
+		const limited = await call("GET", "/api/user/search?q=bo", { as: alice });
+		assert.equal(limited.http, 429);
+		assert.match(limited.message, /^Too many searches, try again in \d+ seconds?$/);
+		assert.ok(Number(limited.retry_after) > 0);
+		assert.equal((await call("POST", "/api/chess/game", { as: alice })).http, 200);
+	});
+});
 
 describe("AI move limits", () => {
 	test("one browser asking for the AI's move in a loop is cut off with a 429, and its moves still go through", async () => {

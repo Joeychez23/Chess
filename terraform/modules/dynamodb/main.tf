@@ -53,6 +53,28 @@ resource "aws_dynamodb_table" "user_table" {
     type = "S"
   }
 
+  attribute {
+    name = "search_group"
+    type = "S"
+  }
+
+  attribute {
+    name = "search_name"
+    type = "S"
+  }
+
+  # PLAYER SEARCH (#120): ONLY THE username#<name> ITEMS HAVE THESE KEYS, BEGINS_WITH ON THE NAME IN LOWERCASE.
+  # IT HOLDS THE NAMES BUT NOT owner_id, SO A SEARCH CAN'T RETURN AN AUTH0 ID
+  global_secondary_index {
+    name               = "username-search"
+    hash_key           = "search_group" # ALWAYS "all"
+    range_key          = "search_name"
+    projection_type    = "INCLUDE"
+    non_key_attributes = ["username"]
+    read_capacity      = 5
+    write_capacity     = 5
+  }
+
   point_in_time_recovery {
     enabled = true # CAN BE RESTORED TO ANY SECOND IN THE LAST 35 DAYS (terraform/README.md -> Restoring a table)
   }

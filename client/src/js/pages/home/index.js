@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Home Page (/, signed in)
- *	Four boxes: Play the AI (at a level & color), Play a friend (by email, with your color), Invites (sent & received) & the player's open games.
+ *	Five boxes: Play the AI (at a level & color), Play a friend (by username or email, with your color), Invites (sent & received), the player's open games & Friends.
  *	A player has one AI game & one friend game open at a time: each box shows its game's board & Continue current game,
  *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites,
  *	the socket redraws Play a friend & Invites when one changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
@@ -16,12 +16,14 @@ import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
-const { validate, newAiGame, getUserGameData, initMultiplayerGame, acceptInvite, declineInvite } = require("../../gameplay/validate/index.js");
+const { validate, newAiGame, getUserGameData, initMultiplayerGame, searchPlayers, acceptInvite, declineInvite, getFriends, friendAction } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { startNav, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
+const USER_URL = "/api/user"; // server/routes/api/userRoutes.js
+const SEARCH_DELAY = 250; // MS AFTER THE LAST KEY BEFORE A PLAYER SEARCH, SO A NAME TYPED QUICKLY IS ONE OR TWO SEARCHES
 
 const signedInAs = document.getElementById("signedInAs"); // "SIGNED IN // EMAIL"
 const welcome = document.getElementById("welcome"); // "WELCOME BACK, USERNAME"
@@ -35,6 +37,8 @@ const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEIT
 const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND
 const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: EMAIL & INVITE
 const multiEmailInput = document.getElementById("enterMultiEmail");
+const playerResults = document.getElementById("playerResults"); // USERNAMES STARTING WITH WHAT WAS TYPED, PRESSING ONE FILLS THE FIELD
+const playerSearchNote = document.getElementById("playerSearchNote"); // NOBODY FOUND, OR WHY THE SEARCH FAILED
 const multiEmailBtn = document.getElementById("enterMultiSubmit");
 const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
 const friendFenInput = document.getElementById("friendFen"); // START POSITION (FEN) FOR THE INVITE, BLANK = THE STANDARD POSITION
@@ -47,6 +51,14 @@ const cancelInviteBtn = document.getElementById("cancelInvite");
 const inviteNote = document.getElementById("inviteNote"); // ACCEPT'S FORFEIT WARNING, WHY AN ACCEPT DIDN'T GO THROUGH
 const loadingDiv = document.getElementById("loadingDiv"); // "Loading...", THEN "No open games" IF THERE ARE NONE
 const gameList = document.getElementById("gameList");
+const noFriends = document.getElementById("noFriends"); // FRIENDS: "NO FRIENDS YET"
+const friendRequests = document.getElementById("friendRequests"); // "BOB WANTS TO BE FRIENDS", ACCEPT & DECLINE
+const sentRequests = document.getElementById("sentRequests"); // "REQUEST SENT TO BOB // WAITING" & CANCEL
+const friendList = document.getElementById("friendList"); // EACH FRIEND, ONLINE OR NOT, WITH CHALLENGE & REMOVE
+const addFriendForm = document.getElementById("addFriendForm");
+const addFriendInput = document.getElementById("addFriendName");
+const addFriendBtn = document.getElementById("addFriendBtn");
+const friendNote = document.getElementById("friendNote"); // WHY A FRIEND ACTION DIDN'T GO THROUGH, REMOVE'S WARNING
 
 const auth = new InternalAuth;
 const sessionCheck = auth.getUser(); // STARTS CHECKING THE SESSION NOW INSTEAD OF AFTER THE PAGE LOADS
@@ -59,6 +71,9 @@ let FRIEND_NAME = "Friend"; // ITS OPPONENT, FOR THE FORFEIT WARNINGS
 let SENT_INVITE_ID = null; // THE PLAYER'S SENT INVITE (ONE AT A TIME)
 let confirmInvite = false; // INVITE NEEDS A SECOND PRESS WHILE A FRIEND GAME IS OPEN, IT FORFEITS THAT ONE
 let confirmAccept = null; // THE INVITE WHOSE ACCEPT WAS PRESSED ONCE WHILE A FRIEND GAME IS OPEN (SAME WARNING)
+let confirmRemove = null; // THE FRIEND WHOSE REMOVE WAS PRESSED ONCE
+let searchTimer = null; // THE PLAYER SEARCH WAITING FOR SEARCH_DELAY
+let searchTurn = 0; // A NEWER KEY PRESS MAKES AN OLDER SEARCH'S ANSWER STALE
 let homeDrawing = Promise.resolve(); // ONE REDRAW AT A TIME (refreshHome)
 let SETTINGS = null; // THE PLAYER'S DEFAULT START SETTINGS (THE SETTINGS PAGE), THE DROPDOWNS START ON THEM
 
@@ -68,7 +83,9 @@ preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OP
 startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
 muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE EMAIL FIELD
+multiEmailInput.addEventListener("input", handlePlayerSearch);
 cancelInviteBtn.addEventListener("click", handleCancelInvite);
+addFriendForm.addEventListener("submit", handleAddFriend);
 
 startHome();
 
@@ -116,12 +133,12 @@ function refreshHome(firstLoad) {
 }
 
 /**
- * @description Loads the player's games from the server & draws Home with them: the rating, the game list, the invites,
+ * @description Loads the player's games & friends from the server & draws Home with them: the rating, the game list, the invites, the friends,
  * the friend box & (first load only) the AI game's board picture. Only call it through refreshHome()
  * @param  {[boolean]} firstLoad [true also reads the default start settings & loads the AI game]
  */
 async function drawHome(firstLoad) {
-	const gameData = await getUserGameData(CHESS_URL, PLAYER_ID);
+	const [gameData, friendData] = await Promise.all([getUserGameData(CHESS_URL, PLAYER_ID), getFriends(USER_URL)]);
 	if (firstLoad) { SETTINGS = gameData?.settings || null; } // ONLY ON LOAD, A REDRAW DOESN'T UNDO A PICK
 	const releaseHeight = holdPageHeight(); // THE PAGE DOESN'T GET SHORTER WHILE IT'S REDRAWN, SO THE SCROLL STAYS PUT (#240)
 	try {
@@ -130,6 +147,7 @@ async function drawHome(firstLoad) {
 		const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
 		listGames(gameData);
 		loadInvites(gameData);
+		loadFriends(friendData);
 		await loadFriendBox(gameData, friendGame);
 		await currentGame; // HOME IS DRAWN ONCE IT'S IN TOO (showPageWhenDrawn)
 	} finally { releaseHeight(); }
@@ -247,7 +265,7 @@ async function handleNewSoloGame(e) {
 // Play a Friend
 /* ---------------------------------------------------------------- */
 /**
- * @description Draws Play a friend: the open friend game (board & Continue current game), then the email form.
+ * @description Draws Play a friend: the open friend game (board & Continue current game), then the invite form.
  * While a friend game is open Invite turns into a line button, it forfeits that game
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  * @param  {[object]} friendGame [the open friend game or null]
@@ -278,14 +296,82 @@ function validateEmail(email) {
 };
 
 /**
- * @description Invites a friend by email with the picked color (Random is drawn now), they accept it on their Home. Stays here & the invite shows in Invites.
+ * @description Searches for players as a username is typed, once the keys stop for SEARCH_DELAY. An email isn't searched
+ */
+function handlePlayerSearch() {
+	clearPlayerSearch();
+	const prefix = multiEmailInput.value.trim();
+	if (!/^[A-Za-z0-9_-]{2,20}$/.test(prefix)) { return; } // server/utils/username.js readSearchPrefix
+	const turn = searchTurn;
+	searchTimer = setTimeout(() => showPlayers(prefix, turn), SEARCH_DELAY);
+}
+
+/**
+ * @description Asks for the usernames & lists them under the field, unless another key was pressed since
+ * @param  {[string]} prefix [what was typed]
+ * @param  {[number]} turn [searchTurn when it was typed]
+ */
+async function showPlayers(prefix, turn) {
+	const response = await searchPlayers(USER_URL, prefix);
+	if (turn != searchTurn) { return; }
+	if (response?.status == 429) { return playerSearchNote.innerText = response.message; }
+	if (response?.status != 200) { return playerSearchNote.innerText = "Couldn't search for players, try again"; }
+	if (!response.usernames.length) { return playerSearchNote.innerText = "No players found"; }
+	playerResults.replaceChildren(...response.usernames.map(playerResult));
+	playerResults.hidden = false;
+	playerSearchNote.innerText = `${response.usernames.length} player${response.usernames.length == 1 ? "" : "s"} found`;
+}
+
+/**
+ * @description One found player: pressing it fills the field, ready for Invite
+ * @param  {[string]} username [as they wrote it]
+ * @return {[element]} item [the list item]
+ */
+function playerResult(username) {
+	const item = document.createElement("li");
+	const button = document.createElement("button");
+	button.type = "button";
+	button.className = "btn btnLine";
+	button.textContent = username;
+	button.addEventListener("click", () => {
+		multiEmailInput.value = username;
+		clearPlayerSearch();
+		multiEmailInput.focus();
+	});
+	item.append(button);
+	return item;
+}
+
+/**
+ * @description Clears the found players & cancels a search still waiting or on its way
+ */
+function clearPlayerSearch() {
+	clearTimeout(searchTimer);
+	searchTurn++;
+	playerResults.replaceChildren();
+	playerResults.hidden = true;
+	playerSearchNote.innerText = "";
+}
+
+/**
+ * @description Checks what was typed could be a username (server/utils/username.js has the full rules) before the invite is sent
+ * @param  {[string]} username [what was typed]
+ * @return {[boolean]} valid
+ */
+function validateUsername(username) {
+	return /^[A-Za-z0-9_-]{3,20}$/.test(username);
+}
+
+/**
+ * @description Invites a friend by username or email with the picked color (Random is drawn now), they accept it on their Home. Stays here & the invite shows in Invites.
  * While a friend game is open the first press says it'll be forfeited, the second sends the invite (the server forfeits the open one)
  */
 async function handleMultiSubmit(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	const email = multiEmailInput.value.trim();
-	if (!validateEmail(email)) { return multiNote.innerText = "Enter an email address"; }
+	clearPlayerSearch();
+	const opponent = multiEmailInput.value.trim();
+	if (!validateEmail(opponent) && !validateUsername(opponent)) { return multiNote.innerText = "Enter a username or email"; }
 	if (FRIEND_GAME_ID && !confirmInvite) { // FIRST PRESS
 		confirmInvite = true;
 		multiEmailBtn.innerText = "Forfeit & invite";
@@ -294,7 +380,7 @@ async function handleMultiSubmit(e) {
 	multiNote.innerText = "";
 	multiEmailBtn.disabled = true; // ONE INVITE PER PRESS
 	try {
-		const response = await initMultiplayerGame(CHESS_URL, PLAYER_ID, email, confirmInvite, friendColorSelect.value, friendFenInput.value);
+		const response = await initMultiplayerGame(CHESS_URL, PLAYER_ID, opponent, confirmInvite, friendColorSelect.value, friendFenInput.value);
 		if (response?.status == 200) {
 			multiEmailInput.value = "";
 			friendFenInput.value = "";
@@ -315,8 +401,8 @@ async function handleMultiSubmit(e) {
  * @description Why an invite didn't go through, from the server's message
  */
 function inviteError(message) {
-	if (message == "Opponent not found") { return "No player has that email"; }
-	if (message == "That's your email") { return "That's your email, invite a friend"; }
+	if (message == "Opponent not found") { return "No player has that username or email"; }
+	if (message == "That's your email" || message == "That's your username") { return `${message}, invite a friend`; }
 	if (message == "They already invited you") { return "They already invited you, accept it in Invites"; }
 	return "Couldn't send the invite, try again";
 }
@@ -417,4 +503,117 @@ async function handleCancelInvite(e) {
 	if (response?.status != 200) { console.log(response); }
 	await refreshHome();
 	cancelInviteBtn.disabled = false;
+}
+
+
+/* ---------------------------------------------------------------- */
+// Friends
+/* ---------------------------------------------------------------- */
+/**
+ * @description Draws Friends: requests to the player (Accept & Decline), the ones they sent (Cancel), then their friends (Challenge & Remove).
+ * A failed read keeps what's on screen
+ * @param  {[object]} friendData [GET /api/user/friends response]
+ */
+function loadFriends(friendData) {
+	if (friendData?.status != 200) { return; }
+	const { friends, sent, received } = friendData;
+	drawFriendRows(friendRequests, received.map(({ username }) => friendRow(`${username} wants to be friends`, "", [
+		{ text: "Accept", cream: true, press: (button) => runFriendAction("accept", username, button) },
+		{ text: "Decline", press: (button) => runFriendAction("decline", username, button) },
+	])));
+	drawFriendRows(sentRequests, sent.map(({ username }) => friendRow(`Request sent to ${username}`, "Waiting", [
+		{ text: "Cancel", press: (button) => runFriendAction("cancel", username, button) },
+	])));
+	drawFriendRows(friendList, friends.map(({ username, online }) => friendRow(username, online ? "Online" : "", [
+		{ text: "Challenge", cream: true, press: () => challengeFriend(username) },
+		{ text: confirmRemove == username ? "Press again" : "Remove", press: (button) => handleRemoveFriend(username, button) }, // STILL WARNING AFTER A REDRAW
+	])));
+	noFriends.hidden = Boolean(friends.length || sent.length || received.length);
+}
+
+/**
+ * @description Swaps a list's rows in one step (#240) & hides it when there are none
+ */
+function drawFriendRows(list, rows) {
+	list.replaceChildren(...rows);
+	list.hidden = !rows.length;
+}
+
+/**
+ * @description One row of the Friends box
+ * @param  {[string]} title [the row's name, innerText: a name is never read as HTML]
+ * @param  {[string]} detail [the small text under it, "" = none]
+ * @param  {[array]} buttons [{ text, cream (the main button), press(button) }]
+ * @return {[element]} row [the list item]
+ */
+function friendRow(title, detail, buttons) {
+	const listElement = document.createElement("li");
+	listElement.innerHTML = `<span class="inviteText"><span class="label inviteName"></span><span class="spec inviteParams"></span></span><span class="inviteButtons"></span>`;
+	listElement.querySelector(".inviteName").innerText = title;
+	listElement.querySelector(".inviteParams").innerText = detail;
+	listElement.querySelector(".inviteButtons").append(...buttons.map(({ text, cream, press }) => {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = `btn ${cream ? "btnCream" : "btnLine"}`;
+		button.innerText = text;
+		button.addEventListener("click", () => press(button));
+		return button;
+	}));
+	return listElement;
+}
+
+/**
+ * @description Runs a friend action, then redraws Home. A refusal says why in the box
+ * @param  {[string]} action ["request", "accept", "decline", "cancel" or "remove"]
+ * @param  {[string]} username [their username]
+ * @param  {[element]} button [off until the answer, one action per press]
+ * @return {[boolean]} done [true when it saved]
+ */
+async function runFriendAction(action, username, button) {
+	button.disabled = true;
+	friendNote.innerText = "";
+	const response = await friendAction(USER_URL, action, username);
+	confirmRemove = null;
+	await refreshHome();
+	button.disabled = false;
+	if (response?.status == 200) { return true; }
+	friendNote.innerText = response?.status < 500 ? response.message : "Couldn't update your friends, try again";
+	return false;
+}
+
+/**
+ * @description Sends a friend request to the username typed in the box
+ */
+async function handleAddFriend(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	const username = addFriendInput.value.trim();
+	if (!validateUsername(username)) { return friendNote.innerText = "Enter a username"; }
+	if (await runFriendAction("request", username, addFriendBtn)) { addFriendInput.value = ""; }
+}
+
+/**
+ * @description Challenge: fills their username in the invite form, the player picks a color & presses Invite
+ * @param  {[string]} username [the friend's username]
+ */
+function challengeFriend(username) {
+	multiEmailInput.value = username;
+	clearPlayerSearch();
+	resetInviteBtn(); // A FORFEIT WARNING WAS ABOUT THE LAST NAME, THE NEXT PRESS WARNS AGAIN
+	multiEmailInput.focus();
+}
+
+/**
+ * @description Remove: only they can put it back by accepting a new request, so the first press says so & the second removes them
+ * @param  {[string]} username [the friend's username]
+ * @param  {[element]} button [their Remove button]
+ */
+function handleRemoveFriend(username, button) {
+	if (confirmRemove != username) {
+		friendList.querySelectorAll(".btnLine").forEach((other) => other.innerText = "Remove"); // ONE WARNING AT A TIME
+		confirmRemove = username;
+		button.innerText = "Press again";
+		return friendNote.innerText = `This removes ${username} from your friends. Press again to remove them.`;
+	}
+	return runFriendAction("remove", username, button);
 }

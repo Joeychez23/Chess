@@ -72,7 +72,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 
 | Url | Page |
 | --- | --- |
-| `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites and Your games boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
+| `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites, Your games and Friends boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
 | `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my data boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
@@ -119,7 +119,7 @@ leaveGame();
 
 ```text
 client/
-  home.html                  Home markup: Play the AI (level), Play a friend (email), Invites, Your games, menu (Home, Invites, Your games, Settings, Logout)
+  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Friends, menu (Home, Invites, Your games, Friends, Settings, Logout)
   settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
   login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home, Login/Signup)
   signup.html                Signup markup: Create account, link to login, menu (Home, Login/Signup), shares the login bundle
@@ -130,7 +130,7 @@ client/
   src/css/home.css           Home + guest homepage styles
   src/css/style.css          Play page layout (canvas), imported by pages/play
   src/js/pages/
-    home/index.js            Open games (opponent, level, color), new solo games, invites (send, accept, decline, cancel), color dropdowns, the open AI & friend games (Continue / forfeit)
+    home/index.js            Open games (opponent, level, color), new solo games, invites (send, accept, decline, cancel), friends (requests, Challenge fills the invite, Remove), color dropdowns, the open AI & friend games (Continue / forfeit)
     guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board, Play AI / New game
     settings/index.js        Username (first pick goes Home), account info, saves the Default start settings, Delete my data (two presses, then logout)
     play/index.js            Finds the player + game (url or guest localStorage, a missing guest game is made as Random), starts renderCanvas()
@@ -150,7 +150,7 @@ client/
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
     menu/index.js            Menu buttons, Restart / Forfeit / Rematch (loads the new board in place), game over, socketHandlers
     status/index.js          The play page's message area (#gameStatus): refused moves, lost connection, server or AI not answering
-    validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, accept, decline, save settings, save username, delete my data
+    validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, player search, friends, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move
     utils/index.js           Per-square tile state

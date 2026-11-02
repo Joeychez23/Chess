@@ -330,6 +330,22 @@ body {
 	flex: none;
 }
 
+.playerResults { /* PLAY A FRIEND: THE USERNAMES FOUND AS YOU TYPE */
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	list-style: none;
+}
+
+.fieldStack .playerResults .btn {
+	width: auto;
+	text-transform: none; /* A USERNAME'S CAPITALS ARE THE PLAYER'S */
+}
+
+#playerSearchNote:empty {
+	min-height: 0; /* STAYS IN THE PAGE: SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
+}
+
 .note { /* WHY AN INVITE DIDN'T GO THROUGH, THE FORFEIT WARNINGS */
 	min-height: 1.4em;
 	color: var(--gold);

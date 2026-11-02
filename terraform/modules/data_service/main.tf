@@ -71,6 +71,11 @@ resource "aws_vpc_endpoint" "dynamodb" {
       Principal = "*"
       Action    = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchGetItem", "dynamodb:DeleteItem"] # TransactWriteItems IS CHECKED AS ITS PUTS, UPDATES & DELETES
       Resource  = var.table_arns
+      }, {
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = ["dynamodb:Query"] # PLAYER SEARCH
+      Resource  = [var.username_index_arn]
     }]
   })
   tags = { Name = "data-service-dynamodb" }
@@ -174,6 +179,11 @@ resource "aws_iam_role_policy" "dynamodb" {
       Effect    = "Allow"
       Action    = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchGetItem", "dynamodb:DeleteItem"]
       Resource  = var.table_arns
+      Condition = { StringEquals = { "aws:SourceVpce" = aws_vpc_endpoint.dynamodb.id } }
+      }, {
+      Effect    = "Allow"
+      Action    = ["dynamodb:Query"]
+      Resource  = [var.username_index_arn]
       Condition = { StringEquals = { "aws:SourceVpce" = aws_vpc_endpoint.dynamodb.id } }
     }]
   })

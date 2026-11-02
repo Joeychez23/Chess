@@ -34,6 +34,7 @@
 			<li><a class="menuButton" href="/" aria-current="page">Home</a></li>
 			<li><a class="menuButton" href="#invites">Invites</a></li>
 			<li><a class="menuButton" href="#games">Your games</a></li>
+			<li><a class="menuButton" href="#friends">Friends</a></li>
 			<li><a class="menuButton" href="/settings">Settings</a></li>
 			<li><button class="menuButton logoutBtn" type="button">Logout</button></li>
 		</ul>
@@ -75,7 +76,7 @@
 			</div>
 			<div class="box boxWalnut" id="friendBox">
 				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>
-				<p class="boxText">Invite them by the email they sign in with, pick your color and, if you like, a position to start from. The invite shows them. Once they accept, each move shows up on both boards.</p>
+				<p class="boxText">Search for their username or enter the email they sign in with, pick your color and, if you like, a position to start from. The invite shows them. Once they accept, each move shows up on both boards.</p>
 				<figure class="boardPicture" hidden>
 					<canvas role="img" aria-label="The board of your current friend game"></canvas>
 					<figcaption class="spec"></figcaption>
@@ -83,7 +84,9 @@
 				<a class="btn btnCream continueGame" href="/" hidden>Continue current game</a>
 				<form id="muliplayerForm" class="boxBottom">
 					<div class="field fieldStack">
-						<input type="email" inputmode="email" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Their email" aria-label="Friend's email">
+						<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Their username or email" aria-label="Friend's username or email">
+						<ul class="playerResults" id="playerResults" aria-label="Players found" hidden></ul>
+						<p class="spec note" id="playerSearchNote" role="status"></p>
 						<select id="friendColor" aria-label="Your color">
 							<option value="random" selected>Random color</option>
 							<option value="w">Play white</option>
@@ -109,6 +112,20 @@
 				<div class="boxHead"><h2 class="label">Your games</h2><span class="spec">No. 04</span></div>
 				<p id="loadingDiv">Loading...</p>
 				<ul id="gameList"></ul>
+			</div>
+			<div class="box boxWalnut" id="friends">
+				<div class="boxHead"><h2 class="label">Friends</h2><span class="spec">No. 05</span></div>
+				<p id="noFriends">No friends yet. Add one by their username, and challenge them from here once they accept.</p>
+				<ul class="inviteList" id="friendRequests" aria-label="Friend requests you got" hidden></ul>
+				<ul class="inviteList" id="sentRequests" aria-label="Friend requests you sent" hidden></ul>
+				<ul class="inviteList" id="friendList" aria-label="Your friends" hidden></ul>
+				<form id="addFriendForm" class="boxBottom">
+					<div class="field fieldStack">
+						<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" id="addFriendName" placeholder="Their username" aria-label="Username of the friend to add">
+						<button class="btn btnCream" id="addFriendBtn" type="submit">Add friend</button>
+					</div>
+					<p class="spec note" id="friendNote" role="status"></p>
+				</form>
 			</div>
 		</section>
 	</main>

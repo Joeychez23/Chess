@@ -76,6 +76,21 @@ button {
 	pointer-events: none;
 }
 
+#opponentDisplay { /* FRIEND GAMES: "vs Bob", BOTTOM LEFT, UNDER THE MENU. CLICKS GO THROUGH TO THE BOARD */
+	position: fixed;
+	z-index: 18;
+	bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+	left: calc(env(safe-area-inset-left, 0px) + 16px);
+	max-width: calc(100vw - 32px);
+	padding: 6px 10px;
+	border-radius: 10px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 14px;
+	pointer-events: none;
+}
+
 #gameStatus:empty { /* NOT display: none, SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
 	padding: 0;
 	border: 0;

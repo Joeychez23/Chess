@@ -15,14 +15,18 @@ const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
-const { usernameKey } = require("./utils/username.js");
+const { usernameKey, searchFields } = require("./utils/username.js");
 const { newGameId } = require("./utils/games.js");
+const { unlinkFriends } = require("./utils/friends.js");
 const config = require("./config");
 
 const connection = new DynamoDB({ region: config.dynamoRegion }); // DYNAMODB_REGION, us-west-2 BY DEFAULT. CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE DATA SERVICE'S IAM ROLE ON AWS
 
 const CHESS_TABLE = "chess_db"; // KEY: game_id (S), NAMES MATCH terraform/aws-enviroment/locals.tf
 const USER_TABLE = "user_db"; // KEY: user_id (S), PLAYERS' ROWS & THE username#<name> ITEMS THAT HOLD EACH USERNAME (claimUsername)
+
+const USERNAME_INDEX = "username-search"; // username#<name> ITEMS BY NAME IN LOWERCASE, MATCHES terraform/modules/dynamodb
+const SEARCH_RESULTS = 10; // NAMES ONE SEARCH SHOWS
 
 const GAME_TTL = 60 * 60 * 24 * 25; // GAMES EXPIRE 25 DAYS AFTER THE LAST MOVE (SECONDS)
 
@@ -802,11 +806,13 @@ async function claimUsername(userId, username) {
 				Key: {
 					user_id: { S: claimKey }
 				},
-				UpdateExpression: 'SET username = :username',
+				UpdateExpression: 'SET username = :username, search_group = :search_group, search_name = :search_name',
 				ConditionExpression: 'owner_id = :owner_id',
 				ExpressionAttributeValues: {
 					":username": { S: username },
-					":owner_id": { S: userId }
+					":owner_id": { S: userId },
+					":search_group": searchFields(username).search_group,
+					":search_name": searchFields(username).search_name
 				}
 			}
 		} : {
@@ -815,7 +821,8 @@ async function claimUsername(userId, username) {
 				Item: {
 					user_id: { S: claimKey },
 					owner_id: { S: userId }, // WHO HOLDS IT
-					username: { S: username } // AS THEY WROTE IT
+					username: { S: username }, // AS THEY WROTE IT
+					...searchFields(username) // FINDABLE BY searchUsernames
 				},
 				ConditionExpression: 'attribute_not_exists(user_id)' // NOBODY HAS IT
 			}
@@ -1092,5 +1099,153 @@ async function batchReadGames(gameIds, listName) {
 	throw new Error(`Game list check throttled (${listName})`);
 }
 
+/* ---------------------------------------------------------------- */
+// Find username (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The player holding a username, ignoring capitals, from its username#<name> item (claimUsername). A friend invite by username
+ * @param  {[string]} username [checked by checkUsername in utils/username.js]
+ * @return {[object]} response [{ status: 200, player_id, username (as they wrote it), message } | { status: 404, message }]
+ */
+async function findUsername(username) {
+	const response = await connection.getItem({
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: usernameKey(username) }
+		},
+		ConsistentRead: true // A NAME PICKED A MOMENT AGO CAN BE INVITED
+	});
+	if (!response.Item) { return { status: 404, message: "Username not found" }; }
+	return { status: 200, player_id: response.Item.owner_id.S, username: response.Item.username.S, message: "Username found" };
+}
 
-module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+/* ---------------------------------------------------------------- */
+// Search usernames (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The usernames starting with a prefix, from the username-search index. The index only holds the names, never who owns them.
+ * Index reads can lag a moment behind a save
+ * @param  {[string]} prefix [in lowercase, from readSearchPrefix in utils/username.js]
+ * @return {[object]} response [{ status: 200, usernames (as they wrote them, sorted, at most SEARCH_RESULTS), message }]
+ */
+async function searchUsernames(prefix) {
+	const response = await connection.query({
+		TableName: USER_TABLE,
+		IndexName: USERNAME_INDEX,
+		KeyConditionExpression: 'search_group = :search_group AND begins_with(search_name, :prefix)',
+		ProjectionExpression: 'username',
+		ExpressionAttributeValues: {
+			":search_group": searchFields(prefix).search_group,
+			":prefix": { S: prefix }
+		},
+		Limit: SEARCH_RESULTS
+	});
+	return { status: 200, usernames: (response.Items || []).map((item) => item.username.S), message: "Usernames found" };
+}
+
+/* ---------------------------------------------------------------- */
+// Friends (#40)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A row's friend_lists, a JSON string like its game lists. It's one attribute, so a save can check nothing in it changed. Older rows have none
+ * @param  {[object]} userData [user row, undefined = no row]
+ * @return {[object]} lists [{ friends, sent, received }, arrays of player ids]
+ */
+function readFriendLists(userData) {
+	return userData?.friend_lists ? JSON.parse(userData.friend_lists.S) : { friends: [], sent: [], received: [] };
+}
+
+/**
+ * @description The transaction item that saves a row's friend lists, only if they haven't changed since the read & the row is still there
+ */
+function saveFriendLists(userData, lists) {
+	const old = userData.friend_lists?.S;
+	return {
+		Update: {
+			TableName: USER_TABLE,
+			Key: {
+				user_id: userData.user_id
+			},
+			UpdateExpression: 'SET friend_lists = :lists',
+			ConditionExpression: old ? 'friend_lists = :old_lists' : 'attribute_exists(user_id) AND attribute_not_exists(friend_lists)',
+			ExpressionAttributeValues: {
+				":lists": { S: JSON.stringify(lists) },
+				...(old ? { ":old_lists": { S: old } } : {})
+			}
+		}
+	};
+}
+
+/**
+ * @description Changes two players' friend lists together, all or nothing. When either row changed since the read, they're read again & the change made again
+ * @param  {[string]} userId [the requester]
+ * @param  {[string]} otherId [the other player, never the requester]
+ * @param  {[function]} change [(mine, theirs) => edits both { friends, sent, received }, or answers { status, message } to refuse. It can run more than once]
+ * @return {[object]} response [{ status: 200, message } | the refusal | { status: 404 } (a row is gone) | { status: 500 } (lost every try)]
+ */
+async function changeFriends(userId, otherId, change) {
+	for (let i = 0; i < LIST_SAVE_TRIES; i++) {
+		const [user, other] = await Promise.all([retrieveUser(userId, true), retrieveUser(otherId, true)]);
+		if (!user.user_data || !other.user_data) { return { status: 404, message: "Player not found" }; }
+		const mine = readFriendLists(user.user_data);
+		const theirs = readFriendLists(other.user_data);
+		const refused = change(mine, theirs);
+		if (refused) { return refused; }
+		try {
+			await connection.transactWriteItems({ TransactItems: [saveFriendLists(user.user_data, mine), saveFriendLists(other.user_data, theirs)] }); // UPDATE REQUESTS TO DYNAMODB, BOTH OR NEITHER
+			return { status: 200, message: "Friends saved" };
+		} catch (err) {
+			if (err.name != "TransactionCanceledException") { throw err; }
+		} // A ROW CHANGED SINCE THE READ, READ THEM AGAIN
+	}
+	return { status: 500, message: `Friends save failed after ${LIST_SAVE_TRIES} tries: ${userId}` };
+}
+
+/**
+ * @description A player's friends & requests with each one's current username (a rename shows straight away). A row that's gone isn't listed
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @return {[object]} response [{ status: 200, friends, sent, received, message }, each list [{ player_id, username }] sorted by name, ignoring capitals]
+ */
+async function retrieveFriends(userId) {
+	const user = await retrieveUser(userId, true); // CONSISTENT: HOME READS IT RIGHT AFTER A SAVE
+	const lists = readFriendLists(user.user_data);
+	const names = await batchReadUsernames([...new Set([...lists.friends, ...lists.sent, ...lists.received])]);
+	const named = (ids) => ids.filter((id) => names.has(id)).map((id) => ({ player_id: id, username: names.get(id) })).sort((a, b) => a.username.toLowerCase().localeCompare(b.username.toLowerCase()));
+	return { status: 200, friends: named(lists.friends), sent: named(lists.sent), received: named(lists.received), message: `Retrieved friends: ${userId}` };
+}
+
+/**
+ * @description Reads players' usernames in one batch get (utils/friends.js keeps a row to 100 ids). Keys DynamoDB didn't read are asked for again with backoff, so a friend is never left off the list
+ * @param  {[array]} userIds [player ids, no duplicates]
+ * @return {[object]} names [Map: player id -> username, players with a row & a username]
+ * @throws when some keys are still unread after BATCH_READ_TRIES (the route answers 500, the chess server 503)
+ */
+async function batchReadUsernames(userIds) {
+	const names = new Map();
+	let keys = userIds.map((userId) => ({ user_id: { S: userId } }));
+	for (let i = 0; i < BATCH_READ_TRIES && keys.length; i++) {
+		if (i > 0) { await new Promise((resolve) => setTimeout(resolve, BATCH_READ_DELAY * 2 ** (i - 1))); }
+		const response = await connection.batchGetItem({ RequestItems: { [USER_TABLE]: { Keys: keys, ProjectionExpression: "user_id, username" } } }); // GET REQUEST TO DYNAMODB
+		for (const item of response.Responses?.[USER_TABLE] || []) { if (item.username) { names.set(item.user_id.S, item.username.S); } }
+		keys = response.UnprocessedKeys?.[USER_TABLE]?.Keys || [];
+	}
+	if (keys.length) { throw new Error(`Friend names throttled: ${keys.length} unread after ${BATCH_READ_TRIES} tries`); }
+	return names;
+}
+
+/**
+ * @description Takes a player off everyone's friend lists & requests (Delete my data), so they don't come back as a friend when they next sign in
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @return {[object]} response [{ status: 200, friend_ids (who to tell) } | { status: 500, message } (a save lost every try: try again, nothing's deleted)]
+ */
+async function leaveFriends(userId) {
+	const lists = readFriendLists((await retrieveUser(userId, true)).user_data);
+	const friendIds = [...new Set([...lists.friends, ...lists.sent, ...lists.received])];
+	for (const friendId of friendIds) {
+		const response = await changeFriends(userId, friendId, (mine, theirs) => unlinkFriends(mine, theirs, userId, friendId));
+		if (response.status == 500) { return response; } // 404: THEIR ROW IS GONE TOO, NOTHING TO TAKE THEM OFF
+	}
+	return { status: 200, friend_ids: friendIds };
+}
+
+module.exports = { changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

@@ -34,3 +34,8 @@ variable "maintenance" {
   type    = bool
   default = false # true ADDS THE UPKEEP NAT GATEWAY (terraform/README.md -> Data service instance)
 }
+
+variable "username_index_arn" {
+  description = "The username-search index, the only thing the data service can Query"
+  type        = string
+}

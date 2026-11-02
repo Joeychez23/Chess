@@ -5,7 +5,7 @@
  *  Each game is a room ("game:<game_id>"). moveGame() emits "move" to the room after a move is saved,
  *  then the client loads the new board with GET /api/chess/game/:gameId.
  *  forfeitGame() emits "game-over" and rematchGame() emits "rematch" (the new game id) to the same room.
- *  Every socket is also in its player's room ("player:<player_id>"): Home gets "games" when an invite or friend game changes
+ *  Every socket is also in its player's room ("player:<player_id>"): Home gets "games" when an invite or friend game changes & "friends" when a friend request or friend changes
  *  The access token is only read in the handshake, so a socket is closed when that token runs out, & every socket of a player
  *  is closed when they log out or delete their data (#298). The client re-ups the session & connects again (client/src/js/socket)
  *
@@ -150,6 +150,18 @@ function emitToPlayer(playerId, event, data) {
 }
 
 /* ---------------------------------------------------------------- */
+// Is Online
+/* ---------------------------------------------------------------- */
+/**
+ * @description Whether a player has a socket open: on Home or in a friend game. There's one server process, so its rooms are everyone's
+ * @param  {[string]} playerId [auth0 user id without "auth0|"]
+ * @return {[boolean]} online
+ */
+function isOnline(playerId) {
+	return !!io?.sockets.adapter.rooms.has(`player:${playerId}`);
+}
+
+/* ---------------------------------------------------------------- */
 // Disconnect Player
 /* ---------------------------------------------------------------- */
 /**
@@ -161,4 +173,4 @@ function disconnectPlayer(playerId) {
 }
 
 
-module.exports = { initSocket, emitToGame, emitToPlayer, disconnectPlayer };
+module.exports = { initSocket, emitToGame, emitToPlayer, isOnline, disconnectPlayer };
