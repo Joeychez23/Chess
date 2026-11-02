@@ -35,7 +35,7 @@ router.route('/game/:gameId/ratings').get(requireAuth, getRatings);   // /api/ch
 
 router.route('/levels').get(getLevels);                             // /api/chess/levels                -> AI LEVELS + APPROX ELO FOR HOME'S DROPDOWN
 
-router.route('/invite').post(requireAuth, limitNewGames, inviteGame); // /api/chess/invite                -> INVITE A FRIEND BY EMAIL WITH YOUR COLOR (PENDING GAME). ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+router.route('/invite').post(requireAuth, limitNewGames, inviteGame); // /api/chess/invite                -> INVITE A FRIEND BY USERNAME OR EMAIL WITH YOUR COLOR (PENDING GAME). ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
 
 router.route('/user/:userId').get(requireAuth, getUserGames);       // /api/chess/user/:userId          -> OPEN GAMES FOR HOME (WITH THEIR START SETTINGS), THE OPEN AI & FRIEND GAMES (ai_game_id, friend_game_id) & INVITES
 

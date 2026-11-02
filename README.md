@@ -25,7 +25,7 @@
 
 A chess game drawn on an HTML5 canvas: sprite pieces with shadows and
 reflections on a wooden table, sliding moves and move sounds. Play Stockfish at
-8 levels or a friend by email.
+8 levels or a friend by username or email.
 
 Every move is checked three times: by chess.js in the browser, by the Express
 server, and by the private **data service**, the only code that can touch
@@ -46,7 +46,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Canvas** | Board, table and pieces are layered sprites (reflection, shadow, piece). Pieces face the way they last moved, and knights hop. |
 | **Moving** | Drag and drop or click to move, with legal moves and check highlighted. Promote by clicking one of your captured pieces. Touch and a TV remote mode (`TV_DEV` in `client/src/js/pages/play/index.js`) work too. |
 | **Play the AI** | 8 levels with approximate Elo ([AI levels](server/README.md#ai-levels)) and a color (Random, White, Black). The server picks and saves the AI's moves. Restart reuses the level and color; restarting an unfinished game is a forfeit. One open AI game per player. |
-| **Play a friend** | Invite by email with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
+| **Play a friend** | Invite by username or email with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
 | **Set positions** | An optional FEN in **Start position**. The server refuses broken or finished positions with the reason, and Restart and Rematch keep it. |
 | **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition or a forfeit. Both boards show the result. |
 | **Rematch** | Both players press within 1 minute and a new game loads on both boards. "Can't rematch" when either is in another friend game, or that rematch expired. |

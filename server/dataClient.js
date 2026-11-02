@@ -274,9 +274,14 @@ const updateUserSettings = (settings) => call("POST", "/users/me/settings", sett
 const claimUsername = (username) => call("POST", "/users/me/username", { username });
 
 /**
+ * @description Who holds a username, { status: 200, player_id, username } | { status: 404 }
+ */
+const findUsername = (username) => call("GET", `/users/named/${encodeURIComponent(username)}`);
+
+/**
  * @description Deletes the requester's row & frees their username, once they've left every game (leaveAllGames)
  */
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

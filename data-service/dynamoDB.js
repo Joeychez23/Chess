@@ -1092,5 +1092,24 @@ async function batchReadGames(gameIds, listName) {
 	throw new Error(`Game list check throttled (${listName})`);
 }
 
+/* ---------------------------------------------------------------- */
+// Find username (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The player holding a username, ignoring capitals, from its username#<name> item (claimUsername). A friend invite by username
+ * @param  {[string]} username [checked by checkUsername in utils/username.js]
+ * @return {[object]} response [{ status: 200, player_id, username (as they wrote it), message } | { status: 404, message }]
+ */
+async function findUsername(username) {
+	const response = await connection.getItem({
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: usernameKey(username) }
+		},
+		ConsistentRead: true // A NAME PICKED A MOMENT AGO CAN BE INVITED
+	});
+	if (!response.Item) { return { status: 404, message: "Username not found" }; }
+	return { status: 200, player_id: response.Item.owner_id.S, username: response.Item.username.S, message: "Username found" };
+}
 
-module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { findUsername, checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

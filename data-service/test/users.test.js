@@ -133,6 +133,24 @@ describe("POST /users/me/username", () => {
 // Delete My Data
 /* ---------------------------------------------------------------- */
 
+describe("GET /users/named/:username", () => {
+	test("finds who holds a name in any capitals, nobody for a free or impossible name", async () => {
+		await call("POST", "/users/me/username", { as: bob, body: { username: "Bobby" } });
+		const found = await call("GET", "/users/named/BOBBY", { as: alice });
+		assert.equal(found.player_id, "bob");
+		assert.equal(found.username, "Bobby");
+		assert.equal((await call("GET", "/users/named/nobody", { as: alice })).status, 404);
+		assert.equal((await call("GET", "/users/named/no%20spaces", { as: alice })).status, 404);
+	});
+
+	test("guests are refused", async () => {
+		await call("POST", "/users/me/username", { as: bob, body: { username: "Bobby" } });
+		const refusal = await call("GET", "/users/named/Bobby", { guest: "guest1" });
+		assert.equal(refusal.status, 403);
+		assert.equal(refusal.player_id, undefined);
+	});
+});
+
 describe("POST /users/me/delete", () => {
 	test("refused while the player still has an open game or an invite", async () => {
 		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });

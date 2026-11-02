@@ -25,6 +25,7 @@ const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD 
 
 const resultDisplay = document.getElementById("resultDisplay");
 const ratingDisplay = document.getElementById("ratingDisplay"); // FRIEND GAMES: BOTH PLAYERS' RATINGS UNDER THE TITLE
+const opponentDisplay = document.getElementById("opponentDisplay"); // FRIEND GAMES: "vs Bob" ON THE GAME SCREEN
 const optResumeBtn = document.getElementById("optResume");
 const optSoundBtn = document.getElementById("optSound");
 const optFlipBtn = document.getElementById("optFlip");
@@ -56,6 +57,7 @@ window.addEventListener("load", async function () {
 		const playerId = sessionUser.userId.split("auth0|")[1];
 		const response = await validate(CHESS_URL, gameId, playerId, false, false, false); // IS IT THEIR GAME?
 		if (response?.status != 200) { return gameNotFound(); }
+		if (!response.ai && response.opponent_name) { opponentDisplay.innerText = `vs ${response.opponent_name}`; opponentDisplay.hidden = false; } // innerText, THE NAME IS NEVER READ AS HTML
 		if (!response.ai) { showRatings(gameId); } // NOT AWAITED, THE GAME DOESN'T WAIT FOR IT
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: gameId, PLAYER_ID: playerId }
 	} else {

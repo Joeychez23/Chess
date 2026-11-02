@@ -15,9 +15,10 @@ const { Chess } = require("chess.js");
 const { checkStartFen } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
+const { checkUsername } = require("../utils/username.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames } = require("../dataClient.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames, findUsername } = require("../dataClient.js");
 const { emitToGame, emitToPlayer } = require("../socket.js");
 
 const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PROMISE), SO PARALLEL /ai-move REQUESTS ASK THE ENGINE ONCE
@@ -352,16 +353,16 @@ async function savedRematch(gameId, playerId) {
  * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)]
  */
 async function inviteGame(req, res) {
-	const { opponent_email, replace_current } = req.body || {};
-	if (!opponent_email) { return res.json({ status: 500, message: "Missing opponent_email" }); }
+	const { opponent_email, opponent_username, replace_current } = req.body || {};
+	if (!opponent_email && !opponent_username) { return res.json({ status: 500, message: "Missing opponent" }); }
 	const position = checkStartFen(req.body?.start_fen); // CHECKED BEFORE ANYTHING IS FORFEITED OR SAVED
 	if (position.message) { return res.status(400).json({ status: 400, message: position.message }); }
 	const challengerId = userPlayerId(req.user); // requireAuth SETS req.user
 
-	const opponentData = await getAuth0User(opponent_email); // WAS auth0UserByEmail IN THE LAMBDA
-	if (!opponentData) { return res.json({ status: 500, message: "Opponent not found" }); }
-	const opponentId = opponentData.user_id.split("auth0|")[1]; // PLAYER IDS DROP THE "auth0|", SAME AS THE CLIENT
-	if (opponentId == challengerId) { return res.json({ status: 500, message: "That's your email" }); }
+	const opponent = await findOpponent(opponent_email, opponent_username);
+	if (!opponent) { return res.json({ status: 500, message: "Opponent not found" }); }
+	const opponentId = opponent.id;
+	if (opponentId == challengerId) { return res.json({ status: 500, message: opponent_username ? "That's your username" : "That's your email" }); }
 
 	const mine = await myGames();
 	const theirInvite = receivedInvites(mine).find((invite) => invite.player_id == opponentId);
@@ -373,7 +374,7 @@ async function inviteGame(req, res) {
 	if (mine.user_data?.sent_invite) { await dropInvite(mine.user_data.sent_invite.game_id); } // ONE SENT INVITE AT A TIME
 
 	const params = readStartParams(req.body, position.fen);
-	const screenname = opponentData.user_metadata?.screenname; // THEIR NAME UNTIL THEY PICK A USERNAME (THE CHALLENGER'S IS IN THEIR TOKEN)
+	const screenname = opponent.screenname; // THEIR NAME UNTIL THEY PICK A USERNAME (THE CHALLENGER'S IS IN THEIR TOKEN)
 	const response = await invite({ opponent_id: opponentId, opponent_screenname: typeof screenname == "string" ? screenname.slice(0, 50) : undefined, color: params.color, start_fen: params.fen }); // CREATE NEW GAME (THE DATA SERVICE MAKES THE ID), PENDING UNTIL THEY ACCEPT. RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
 	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); }
 
@@ -386,6 +387,22 @@ async function inviteGame(req, res) {
 	});
 }
 
+
+/**
+ * @description The player an invite is for, by username (the data service) or by email (Auth0)
+ * @param  {[string]} email [opponent_email, used when there's no username]
+ * @param  {[string]} username [opponent_username]
+ * @return {[object]} opponent [{ id, screenname (by email only, their name until they pick a username) }, null when nobody has it]
+ */
+async function findOpponent(email, username) {
+	if (username) {
+		const checked = checkUsername(username);
+		const found = checked.username ? await findUsername(checked.username) : null;
+		return found?.player_id ? { id: found.player_id } : null;
+	}
+	const user = await getAuth0User(email); // WAS auth0UserByEmail IN THE LAMBDA
+	return user ? { id: user.user_id.split("auth0|")[1], screenname: user.user_metadata?.screenname } : null; // PLAYER IDS DROP THE "auth0|", SAME AS THE CLIENT
+}
 
 /* ---------------------------------------------------------------- */
 // Accept Invite (POST)

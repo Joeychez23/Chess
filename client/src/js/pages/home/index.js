@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Home Page (/, signed in)
- *	Four boxes: Play the AI (at a level & color), Play a friend (by email, with your color), Invites (sent & received) & the player's open games.
+ *	Four boxes: Play the AI (at a level & color), Play a friend (by username or email, with your color), Invites (sent & received) & the player's open games.
  *	A player has one AI game & one friend game open at a time: each box shows its game's board & Continue current game,
  *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites,
  *	the socket redraws Play a friend & Invites when one changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
@@ -247,7 +247,7 @@ async function handleNewSoloGame(e) {
 // Play a Friend
 /* ---------------------------------------------------------------- */
 /**
- * @description Draws Play a friend: the open friend game (board & Continue current game), then the email form.
+ * @description Draws Play a friend: the open friend game (board & Continue current game), then the invite form.
  * While a friend game is open Invite turns into a line button, it forfeits that game
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  * @param  {[object]} friendGame [the open friend game or null]
@@ -278,14 +278,23 @@ function validateEmail(email) {
 };
 
 /**
- * @description Invites a friend by email with the picked color (Random is drawn now), they accept it on their Home. Stays here & the invite shows in Invites.
+ * @description Checks what was typed could be a username (server/utils/username.js has the full rules) before the invite is sent
+ * @param  {[string]} username [what was typed]
+ * @return {[boolean]} valid
+ */
+function validateUsername(username) {
+	return /^[A-Za-z0-9_-]{3,20}$/.test(username);
+}
+
+/**
+ * @description Invites a friend by username or email with the picked color (Random is drawn now), they accept it on their Home. Stays here & the invite shows in Invites.
  * While a friend game is open the first press says it'll be forfeited, the second sends the invite (the server forfeits the open one)
  */
 async function handleMultiSubmit(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	const email = multiEmailInput.value.trim();
-	if (!validateEmail(email)) { return multiNote.innerText = "Enter an email address"; }
+	const opponent = multiEmailInput.value.trim();
+	if (!validateEmail(opponent) && !validateUsername(opponent)) { return multiNote.innerText = "Enter a username or email"; }
 	if (FRIEND_GAME_ID && !confirmInvite) { // FIRST PRESS
 		confirmInvite = true;
 		multiEmailBtn.innerText = "Forfeit & invite";
@@ -294,7 +303,7 @@ async function handleMultiSubmit(e) {
 	multiNote.innerText = "";
 	multiEmailBtn.disabled = true; // ONE INVITE PER PRESS
 	try {
-		const response = await initMultiplayerGame(CHESS_URL, PLAYER_ID, email, confirmInvite, friendColorSelect.value, friendFenInput.value);
+		const response = await initMultiplayerGame(CHESS_URL, PLAYER_ID, opponent, confirmInvite, friendColorSelect.value, friendFenInput.value);
 		if (response?.status == 200) {
 			multiEmailInput.value = "";
 			friendFenInput.value = "";
@@ -315,8 +324,8 @@ async function handleMultiSubmit(e) {
  * @description Why an invite didn't go through, from the server's message
  */
 function inviteError(message) {
-	if (message == "Opponent not found") { return "No player has that email"; }
-	if (message == "That's your email") { return "That's your email, invite a friend"; }
+	if (message == "Opponent not found") { return "No player has that username or email"; }
+	if (message == "That's your email" || message == "That's your username") { return `${message}, invite a friend`; }
 	if (message == "They already invited you") { return "They already invited you, accept it in Invites"; }
 	return "Couldn't send the invite, try again";
 }

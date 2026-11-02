@@ -10,7 +10,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, pruneOpenGames, pruneInvites, updateUserSettings, claimUsername, deleteUser } = require("../dynamoDB.js");
+const { retrieveUser, pruneOpenGames, pruneInvites, updateUserSettings, claimUsername, findUsername, deleteUser } = require("../dynamoDB.js");
 const { checkUsername } = require("../utils/username.js");
 const { readAiLevel, isColor } = require("../utils/games.js");
 const { currentGame } = require("./gameController.js");
@@ -70,6 +70,20 @@ async function saveUsername(req, res) {
 }
 
 /* ---------------------------------------------------------------- */
+// Find Username (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Who holds a username, ignoring capitals. The chess server's invite by username (a name that breaks the rules can't be held)
+ * @param  {[string]} req.params.username [the name as typed]
+ * @return {[object]} response [findUsername's { status: 200, player_id, username, message } | { status: 404, message }]
+ */
+async function findByUsername(req, res) {
+	const checked = checkUsername(req.params.username);
+	if (!checked.username) { return res.json({ status: 404, message: "Username not found" }); }
+	return res.json(await findUsername(checked.username));
+}
+
+/* ---------------------------------------------------------------- */
 // Delete My Data (POST)
 /* ---------------------------------------------------------------- */
 /**
@@ -89,4 +103,4 @@ async function deleteMe(req, res) {
 }
 
 
-module.exports = { getMe, saveSettings, saveUsername, deleteMe };
+module.exports = { getMe, saveSettings, saveUsername, findByUsername, deleteMe };
