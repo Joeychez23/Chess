@@ -12,6 +12,7 @@
 /* ---------------------------------------------------------------- */
 const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, TV REMOTE FOR TESTING
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
+const { tileToSquare, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION, ADDS OR REMOVES A MARK OR ARROW
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
 const { handleMenuBtn, handleResume, handleSound, handleFlip, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -27,6 +28,7 @@ let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging,
 let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // TV REMOTE SELECT BOX: SQUARE (x, y), ON THE MENU BUTTON (menuHover) & THE SELECTED MENU BUTTON
 const touchDragThreshold = 10; // PX A FINGER MUST MOVE BEFORE A TAP BECOMES A DRAG
 let audioUnlocked = false; // THE MOVE SOUND WAS UNLOCKED BY A TAP (IOS)
+let annotationStart = null; // SQUARE THE RIGHT BUTTON WENT DOWN ON, null WHEN IT'S UP OR WENT DOWN OFF THE BOARD
 
 /* ---------------------------------------------------------------- */
 // Handle Remote Nav Button Hover
@@ -164,6 +166,11 @@ export async function handleKeyPress(e) {
 function getCanvasPoint(e) {
 	const rect = canvas.getBoundingClientRect();
 	return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function squareUnder(e) { // THE BOARD SQUARE UNDER THE MOUSE, null OFF THE BOARD
+	const point = getCanvasPoint(e);
+	return tileToSquare(Math.floor((point.x - game.xBoardOff) / game.tileWidth), Math.floor((point.y - game.yBoardOff) / game.tileHeight), game.viewColor);
 }
 
 /* ---------------------------------------------------------------- */
@@ -326,11 +333,14 @@ export function handleMouseMove(e) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Sets positions / tracks user mousedown drag. Starts a drag on the player's hovered piece (the render loop
- * makes it a drag after 3 frames). If another piece was picked up by a click, that one is put down instead
+ * makes it a drag after 3 frames). If another piece was picked up by a click, that one is put down instead.
+ * The right button starts a mark or arrow & never touches a piece, the left button clears them
  */
 export async function handleMouseDown(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	if (e.button == 2) { annotationStart = game.menuToggled ? null : squareUnder(e); return; }
+	if (game.annotations.length) { game.annotations = []; game.refresh = true; }
 	const point = getCanvasPoint(e);
 	game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth);
 	game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // IF HOVER IS TRUE
@@ -357,11 +367,18 @@ export async function handleMouseDown(e) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Sets positions based on mouse up event position. Lets go of the held piece. The click event comes right
- * after & handleCanvasClick() drops it on the square (a drag) or keeps it picked up (a quick click)
+ * after & handleCanvasClick() drops it on the square (a drag) or keeps it picked up (a quick click).
+ * The right button finishes a mark (same square) or arrow (another square), letting go off the board cancels it
  */
 export async function handleMouseUp(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	if (e.button == 2) {
+		const to = squareUnder(e);
+		if (annotationStart && to) { game.annotations = toggleAnnotation(game.annotations, annotationStart, to); game.refresh = true; }
+		annotationStart = null;
+		return;
+	}
 	const point = getCanvasPoint(e);
 	game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth);
 	game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // IF HOVER IS TRUE

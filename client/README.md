@@ -144,7 +144,7 @@ client/
     images/index.js          preloadImages() / imageProgress(): loads the sprites into images[] (home, guest + play call it)
     sprites/index.js         Every sprite url in image number order + the image numbers (wFrontKingImg = 5, ...)
     layout/index.js          renderBoard(): sizes the canvas & board to the window, draws the table, board & coordinates; resize
-    draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays & material count, which way pieces face
+    draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays & material count, right-click marks & arrows, which way pieces face
     animate/index.js         stepSlide(): where a sliding piece is from the time, knight hop height, the pieces sliding home after Restart & Rematch
     input/index.js           Mouse, touch & TV remote handlers
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()

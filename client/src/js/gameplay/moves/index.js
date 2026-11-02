@@ -45,6 +45,7 @@ export async function setInitialData() {
 		chessInst.load(game.response.game_board); // THE BOARD TO DRAW
 		game.startPieceCount = countStartPieces(game.response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
 		setLastOpponentMove();
+		game.annotations = []; // A NEW GAME (RESTART & REMATCH) STARTS WITHOUT THE OLD ONE'S MARKS & ARROWS
 		if (game.response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 			game.ai = game.response.ai;
 			showGameOver(game.response);
@@ -207,6 +208,7 @@ export async function validateMove() {
 		game.revert = { ...game.response }; // GO BACK TO THIS IF THE SERVER SAYS NO (A COPY, THE LISTS BELOW CHANGE response)
 		game.opposingMove = true; // LOCK THE BOARD
 		chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
+		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
 		if (game.playerColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP UNTIL THE SERVER'S COMES BACK
 			for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
 				if (game.moveObj.from == JSON.parse(game.response.w_knight)[n].to) {
@@ -328,6 +330,7 @@ export async function updateOpponentStateSlide(index) {
 		game.tiles[index].xSlideTo = 0;
 		game.tiles[index].ySlideTo = 0;
 		chessInst.move(game.moveObj); // LOCAL BOARD
+		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
 
 		if (game.opponentColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
 			for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {

@@ -72,3 +72,35 @@ export function lastMoveBy(board, moves, color) {
 	}
 	return last;
 }
+
+
+/* ---------------------------------------------------------------- */
+// tileToSquare()
+/* ---------------------------------------------------------------- */
+/**
+ * @description The board square at a screen column & row
+ * @param  {[number]} x [screen column]
+ * @param  {[number]} y [screen row]
+ * @param  {[string]} viewColor ['w' | 'b', the side at the bottom of the screen]
+ * @return {[string]} square ["e4"], null when it's off the board
+ */
+export function tileToSquare(x, y, viewColor) {
+	if (x < 0 || x > 7 || y < 0 || y > 7) { return null; }
+	return viewColor == 'b' ? `${String.fromCharCode(104 - x)}${y + 1}` : `${String.fromCharCode(97 + x)}${8 - y}`;
+}
+
+
+/* ---------------------------------------------------------------- */
+// toggleAnnotation()
+/* ---------------------------------------------------------------- */
+/**
+ * @description Adds a mark or arrow, or removes it when it's already there
+ * @param  {[array]} annotations [the current { from, to } list]
+ * @param  {[string]} from [square the right button went down on]
+ * @param  {[string]} to [square it came up on, the same square is a mark]
+ * @return {[array]} annotations [the new list]
+ */
+export function toggleAnnotation(annotations, from, to) {
+	const kept = annotations.filter(function (a) { return a.from != from || a.to != to; });
+	return kept.length == annotations.length ? [...annotations, { from, to }] : kept;
+}

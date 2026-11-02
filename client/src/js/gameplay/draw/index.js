@@ -121,6 +121,45 @@ function drawLastMove() {
 }
 
 /* ---------------------------------------------------------------- */
+// Marks & Arrows
+/* ---------------------------------------------------------------- */
+/**
+ * @description Draws the player's right-click marks (a ring) & arrows (game.annotations) from square centers
+ */
+function drawAnnotations() {
+	const center = function (square) { // COLUMN & ROW OF A SQUARE'S CENTER ON SCREEN
+		const column = square.charCodeAt(0) - 97; // a FILE IS 0
+		const rank = Number(square[1]);
+		return game.viewColor == 'b' ? [7 - column + 0.5, rank - 0.5] : [column + 0.5, 8.5 - rank]; // FLIPPED BOARD: h1 IS 0, 0
+	};
+	ctx.save();
+	ctx.translate(game.xBoardOff, game.yBoardOff);
+	ctx.scale(game.tileWidth, game.tileHeight); // ONE UNIT IS ONE SQUARE: LINE WIDTHS & HEADS STRETCH WITH THE WIDE SQUARES IN EVERY DIRECTION
+	ctx.globalAlpha = 0.7;
+	ctx.strokeStyle = "#e8792b";
+	ctx.fillStyle = "#e8792b";
+	ctx.lineWidth = 0.12;
+	for (const { from, to } of game.annotations) {
+		const [x1, y1] = center(from);
+		const [x2, y2] = center(to);
+		ctx.beginPath();
+		if (from == to) { ctx.arc(x1, y1, 0.42, 0, Math.PI * 2); ctx.stroke(); continue; }
+		const length = Math.hypot(x2 - x1, y2 - y1);
+		const ux = (x2 - x1) / length; // ONE SQUARE ALONG THE ARROW
+		const uy = (y2 - y1) / length;
+		ctx.moveTo(x1 + ux * 0.3, y1 + uy * 0.3); // STARTS AT THE EDGE OF THE FROM SQUARE'S PIECE, STOPS AT THE HEAD SO THE SEE-THROUGH COLORS DON'T OVERLAP
+		ctx.lineTo(x2 - ux * 0.5, y2 - uy * 0.5);
+		ctx.stroke();
+		ctx.beginPath();
+		ctx.moveTo(x2 - ux * 0.1, y2 - uy * 0.1); // TIP
+		ctx.lineTo(x2 - ux * 0.5 - uy * 0.25, y2 - uy * 0.5 + ux * 0.25);
+		ctx.lineTo(x2 - ux * 0.5 + uy * 0.25, y2 - uy * 0.5 - ux * 0.25);
+		ctx.fill();
+	}
+	ctx.restore();
+}
+
+/* ---------------------------------------------------------------- */
 // Renders Data Game Instance data
 /* ---------------------------------------------------------------- */
 /**
@@ -175,6 +214,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 	}
 
 	drawLastMove(); // BEFORE THE LOOP SO IT'S UNDER EVERY PIECE, REFLECTION & SHADOW
+	drawAnnotations();
 
 	for (let i = 0; i < inst.length; i++) { // ROW
 		for (let j = 0; j < inst[i].length; j++, index++) { // COLUMN

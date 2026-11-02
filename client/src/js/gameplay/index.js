@@ -129,6 +129,7 @@ async function startGame() {
 	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousemove", handleMouseMove); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousedown", handleMouseDown); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mouseup", handleMouseUp); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); }); } // THE RIGHT BUTTON DRAWS MARKS & ARROWS
 	if (!game.TV_BOOL || OVERRIDE_TV) {
 		canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
 		canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
