@@ -56,9 +56,11 @@
 	</section>
 
 	<form id="moveBox" aria-label="Type a move" hidden> <!-- TYPED MOVES, OPENED WITH / OR THE MENU (gameplay/movebox/index.js) -->
-		<input id="moveBoxInput" type="text" aria-label="Move" aria-describedby="moveBoxRefusal" placeholder="e4, Nf3, exd5" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" />
+		<input id="moveBoxInput" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="moveBoxSuggestions" aria-label="Move" aria-describedby="moveBoxRefusal" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" />
 		<button id="moveBoxClose" type="button" aria-label="Close">×</button>
 		<p id="moveBoxRefusal" role="status"></p>
+		<p id="moveBoxCount" role="status"></p>
+		<ul id="moveBoxSuggestions" role="listbox" aria-label="Legal moves" hidden></ul>
 	</form>
 
 	<main id="main"></main>

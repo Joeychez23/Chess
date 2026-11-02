@@ -26,6 +26,9 @@
 	--font-title: "Instrument Serif", Georgia, serif;
 	--font-label: "Archivo", "Helvetica Neue", Arial, sans-serif;
 	--font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+	--menu-btn-top: 14px;    /* WHERE THE MENU BUTTON SITS, THE MOVE BOX (style.css) IS PLACED FROM THESE */
+	--menu-btn-right: 16px;
 }
 
 /* ---------------------------------------------------------------- */
@@ -35,8 +38,8 @@
 #optBtn {
 	position: fixed;
 	z-index: 20;
-	top: calc(env(safe-area-inset-top, 0px) + 14px);
-	right: calc(env(safe-area-inset-right, 0px) + 16px);
+	top: calc(env(safe-area-inset-top, 0px) + var(--menu-btn-top));
+	right: calc(env(safe-area-inset-right, 0px) + var(--menu-btn-right));
 	display: flex; /* THE GAME HIDES IT WHILE A NEW BOARD LOADS & SETS IT BACK TO flex */
 	flex-direction: column;
 	justify-content: center;

@@ -76,6 +76,17 @@ button {
 	pointer-events: none;
 }
 
+body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TOP RIGHT, THE MESSAGE STOPS SHORT OF IT */
+	max-width: calc(100vw - 390px);
+}
+
+@media (max-width: 640px) {
+	body:has(#moveBox:not([hidden])) #gameStatus { /* NO ROOM NEXT TO IT, THE MESSAGE GOES UNDER IT */
+		top: calc(env(safe-area-inset-top, 0px) + 76px);
+		max-width: calc(100vw - 64px);
+	}
+}
+
 #opponentDisplay { /* FRIEND GAMES: "vs Bob", BOTTOM LEFT, UNDER THE MENU. CLICKS GO THROUGH TO THE BOARD */
 	position: fixed;
 	z-index: 18;
@@ -193,24 +204,37 @@ button {
 /* Move Box (gameplay/movebox/index.js) */
 /* ---------------------------------------------------------------- */
 
-#moveBox { /* TOP MIDDLE, A PHONE'S KEYBOARD COMES UP FROM THE BOTTOM. UNDER THE MENU */
+#moveBox { /* TOP RIGHT AROUND THE MENU BUTTON, WHICH COVERS THE X. A PHONE'S KEYBOARD COMES UP FROM THE BOTTOM. UNDER THE MENU */
 	position: fixed;
 	z-index: 18;
-	top: calc(env(safe-area-inset-top, 0px) + 64px);
-	left: 50%;
-	transform: translateX(-50%);
+	top: calc(env(safe-area-inset-top, 0px) + var(--menu-btn-top) - 7px); /* THE INPUT'S MIDDLE LINES UP WITH THE BUTTON'S */
+	right: calc(env(safe-area-inset-right, 0px) + var(--menu-btn-right) - 8px);
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 6px;
 	box-sizing: border-box;
-	width: min(260px, calc(100vw - 32px));
+	width: min(260px, calc(100vw - 16px));
 	padding: 8px;
 	border: 1px solid rgba(201, 163, 90, 0.45);
 	border-radius: 14px;
 	background-color: var(--walnut);
 	color: var(--maple);
 	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+	cursor: grab; /* THE MOUSE DRAGS IT (handleDragStart) */
+}
+
+@media (pointer: coarse) {
+	#moveBox::before { /* A FINGER DRAGS IT BY ITS EDGE, THIS MAKES THE EDGE WIDE ENOUGH TO HOLD */
+		content: "";
+		position: absolute;
+		inset: -12px;
+		z-index: -1;
+	}
+}
+
+#moveBox.dragging {
+	cursor: grabbing;
 }
 
 #moveBox[hidden] {
@@ -235,10 +259,15 @@ button {
 	color: var(--muted);
 }
 
+#moveBoxInput:placeholder-shown {
+	text-overflow: ellipsis; /* THE EXAMPLE MOVES CHANGE WITH THE POSITION, LONG ONES CAN RUN PAST THE INPUT */
+}
+
 #moveBoxClose {
 	flex: none;
-	width: 44px;
-	height: 44px;
+	width: 28px;
+	height: 28px;
+	margin: 8px; /* THE INPUT STAYS THE SAME WIDTH, THIS SPACE AROUND THE X DRAGS THE BOX */
 	border: none;
 	border-radius: 8px;
 	background: none;
@@ -261,4 +290,42 @@ button {
 
 #moveBoxRefusal:empty { /* NOT display: none, SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
 	margin-top: -6px; /* TAKES BACK THE FORM'S GAP */
+}
+
+#moveBoxCount { /* ONLY FOR SCREEN READERS, NOT display: none OR THEY WOULDN'T READ IT */
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+#moveBoxSuggestions {
+	flex: 1 0 100%;
+	overflow-y: auto; /* fitBox() LIMITS ITS HEIGHT */
+	max-height: 220px;
+	list-style: none;
+}
+
+#moveBoxSuggestions [role="option"] {
+	display: flex;
+	align-items: center;
+	min-height: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	box-sizing: border-box;
+	padding: 0 10px;
+	border-radius: 8px;
+	font-family: var(--font-mono);
+	font-size: 16px;
+	cursor: pointer;
+}
+
+#moveBoxSuggestions [role="option"]:hover {
+	background-color: var(--walnut-2);
+}
+
+#moveBoxSuggestions [role="option"][aria-selected="true"] {
+	background-color: var(--walnut-2);
+	outline: 2px solid var(--gold);
+	outline-offset: -2px;
 }
