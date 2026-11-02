@@ -157,6 +157,16 @@ describe("saves without a read back", () => {
 });
 
 describe("initalizeGame", () => {
+	test("saves when the game was made, a guest's reset sets it again", async () => {
+		const saved = () => fakeDynamo.peek("chess_db", "guest1").created_at.S;
+		await db.initalizeGame("guest1", "guest1", "CHESS_AI", 3, {});
+		const first = saved();
+		assert.equal(new Date(first).toISOString(), first);
+		await new Promise((resolve) => setTimeout(resolve, 2));
+		await db.initalizeGame("guest1", "guest1", "CHESS_AI", 3, { reset_player: "guest1" });
+		assert.notEqual(saved(), first);
+	});
+
 	test("two creates of one id at once: one wins, the other is refused & the game isn't overwritten", async () => {
 		const results = await Promise.all([
 			db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } }),

@@ -17,6 +17,8 @@ const { levelList, readLevel, aiMove } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
 const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams } = require("../utils/games.js");
+const { buildPgn } = require("../utils/pgn.js");
+const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
 const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames, findUsername } = require("../dataClient.js");
@@ -63,6 +65,31 @@ async function getGame(req, res) {
 		...gameState(gameData),
 		message: response.message,
 	});
+}
+
+/* ---------------------------------------------------------------- */
+// PGN (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The game as a PGN file for the game menu's Download PGN. Built here because only the server has both players' names
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, pgn, filename, message }]
+ */
+async function getPgn(req, res) {
+	const response = await retrieveGame(req.params.gameId);
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	if (!playerInGame(req, gameData)) { return notInGame(req, res); }
+
+	try {
+		const player = req.user?.user_metadata?.screenname || (req.user ? "Player" : "Guest"); // AN AI GAME HAS ONE PLAYER, THE REQUESTER. ITS GAME SAVES NO NAMES
+		return res.json({ status: 200, ...buildPgn(gameData, { site: config.clientUrl, aiLevel: aiLevel(gameData), player }), message: "PGN" });
+	} catch (err) { // A SAVED MOVE THAT CAN'T BE REPLAYED
+		console.log(`PGN failed: ${gameData.game_id.S}: ${err.message}`);
+		return res.json({ status: 500, message: "This game can't be written as a PGN" });
+	}
 }
 
 /* ---------------------------------------------------------------- */
@@ -765,4 +792,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };

@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
  *	for Restart & Rematch (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
  *	socket's handlers (socketHandlers: a move, a forfeit or a rematch), startGame & loadRematch join with them
  *
@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
-const { restartGame, forfeitGame, rematchGame } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { restartGame, forfeitGame, rematchGame, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
@@ -29,6 +29,7 @@ const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("
 
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
 let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
+let pgnLoading = false; // A SECOND PRESS WHILE THE PGN LOADS WOULD SAVE TWO FILES
 let rematchWaiting = false; // TIMER WHILE WAITING 1 MINUTE ON THE OPPONENT'S REMATCH PRESS
 export const socketHandlers = { // SOCKET EVENT -> HANDLER
 	move: checkOpponentMove,
@@ -160,6 +161,29 @@ export function handleFlip(e) {
  */
 export function flipWhenDone() {
 	if (game.flipPending && !slideInFlight()) { flipBoard(); }
+}
+
+/* ---------------------------------------------------------------- */
+// Download PGN Button (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves the game as a .pgn file, the menu stays open. The server writes it (GET /game/:gameId/pgn), so it has every saved move
+ */
+export async function handleDownloadPgn(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (pgnLoading) { return; }
+	pgnLoading = true;
+	const response = await getPgn(game.GAME_URL, game.GAME_ID);
+	pgnLoading = false;
+	if (response?.status != 200) { return showStatus("action", "Couldn't download the PGN. Try again.", MESSAGE_TIME); }
+
+	const url = URL.createObjectURL(new Blob([response.pgn], { type: "application/x-chess-pgn" }));
+	const link = document.createElement("a"); // NOT ADDED TO THE PAGE, ITS CLICK WOULD REACH handleClickAway & CLOSE THE MENU
+	link.href = url;
+	link.download = response.filename;
+	link.click();
+	setTimeout(function () { URL.revokeObjectURL(url); }, 1000); // THE DOWNLOAD HAS ITS OWN COPY BY THEN
 }
 
 /* ---------------------------------------------------------------- */

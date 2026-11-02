@@ -100,6 +100,21 @@ export async function getUserGameData(gameUrl, userId) {
 }
 
 /**
+ * @description The game as a PGN file for the menu's Download PGN (GET /game/:gameId/pgn)
+ * @return {[object]} response [{ status, pgn, filename }]
+ */
+export async function getPgn(gameUrl, gameId) {
+	const options = {
+		method: "GET"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/pgn`, options)
+	} catch {
+		return;
+	}
+}
+
+/**
  * @description Both players' ratings for the game menu, & this game's rating change once it's over (GET /game/:gameId/ratings)
  * @return {[object]} response [{ status, rated, player_rating, opponent_rating ({ rating, provisional }, null in AI games), opponent_name, rating_change ({ before, after } or null) }]
  */

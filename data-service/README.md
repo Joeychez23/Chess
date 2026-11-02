@@ -190,6 +190,8 @@ signed out, and guests start a new game.
   players' `requested_games`; accepting makes it `OPEN` and moves it to
   `open_games`; declining deletes it; closing moves it to `closed_games`. List
   saves retry when the row changed, so two changes at once both stay.
+- **`created_at`** is when the game was made (ISO, UTC), the PGN's `Date`. Games
+  from before it don't have one, and a guest's reset sets it again.
 - **Expiry:** finished friend games lose `expireAt` and are kept. AI games are
   deleted 25 days after the last move.
 - **`user_db` rows** are made at first login (`startSession`) and hold the game

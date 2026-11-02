@@ -8,7 +8,7 @@
 const router = require('express').Router()
 const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
 const { limitNewGames, limitAiMoves } = require('../../middleware/rateLimit.js')
-const { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
+const { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, rematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
 
 // THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME (THE ONE IN THEIR guest_game COOKIE)
 // limitNewGames: THE ROUTES THAT MAKE A GAME ANSWER 429 WHEN A SESSION, AN IP OR THE SITE MAKES TOO MANY
@@ -16,6 +16,8 @@ const { getGame, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitG
 router.route('/game').post(optionalAuth, limitNewGames, newGame);   // /api/chess/game                  -> NEW AI GAME AT A LEVEL & COLOR, OR A GUEST'S NEW GAME (OVERWRITES game_id). ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
 
 router.route('/game/:gameId').get(optionalAuth, getGame);           // /api/chess/game/:gameId          -> BOARD + PLAYER COLOR
+
+router.route('/game/:gameId/pgn').get(optionalAuth, getPgn);        // /api/chess/game/:gameId/pgn      -> THE GAME AS A PGN FILE, THE GAME MENU'S DOWNLOAD PGN
 
 router.route('/game/:gameId').put(optionalAuth, moveGame);          // /api/chess/game/:gameId          -> VALIDATE + SAVE A MOVE
 

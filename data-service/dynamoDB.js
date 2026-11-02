@@ -100,6 +100,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 			white_player_id: { S: playerId1 },
 			black_player_id: { S: playerId2 },
 			start_params: { S: JSON.stringify(start_params || { color: "random" }) }, // START SETTINGS, AI GAMES: THE PLAYER'S PICK, FRIEND GAMES: THE INVITER'S
+			created_at: { S: new Date().toISOString() }, // THE PGN'S Date HEADER, OLDER GAMES DON'T HAVE ONE
 			expireAt: { N: expireTime() } // TTL, PUSHED BACK ON EVERY MOVE IN updateGame
 		}
 	};
