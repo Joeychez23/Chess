@@ -245,6 +245,39 @@ describe("move", () => {
 // AI Moves
 /* ---------------------------------------------------------------- */
 
+describe("opening", () => {
+	const NAJDORF = { eco: "B90", name: "Sicilian Defense: Najdorf Variation" };
+
+	test("saves on the current board, a closed game too, & touches nothing else", async () => {
+		await friendGame("game1", alice.id, bob.id);
+		const before = peek("chess_db", "game1");
+		const saved = await call("POST", "/games/game1/opening", { as: bob, body: { board: before.game_board.S, ...NAJDORF } });
+		assert.equal(saved.http, 200);
+		assert.deepEqual(JSON.parse(saved.game_data.opening.S), NAJDORF);
+		const { opening, ...rest } = peek("chess_db", "game1");
+		assert.deepEqual(rest, before);
+		assert.deepEqual(JSON.parse(opening.S), NAJDORF);
+
+		await call("POST", "/games/game1/forfeit", { as: bob });
+		assert.equal((await call("POST", "/games/game1/opening", { as: alice, body: { board: board("game1"), eco: "A00", name: "Amar Opening" } })).http, 200);
+		assert.equal(peek("chess_db", "game1").state.S, "CLOSED");
+	});
+
+	test("refused: an old board, someone not in the game, no player, a bad shape or another field", async () => {
+		await friendGame("game1", alice.id, bob.id);
+		const fen = board("game1");
+		await call("POST", "/games/game1/move", { as: alice, body: { from: "e2", to: "e4" } });
+		const current = board("game1");
+		await refused("game1", "POST", "/games/game1/opening", { as: alice, body: { board: fen, ...NAJDORF } }, 409);
+		await refused("game1", "POST", "/games/game1/opening", { as: mallory, body: { board: current, ...NAJDORF } }, 403);
+		await refused("game1", "POST", "/games/game1/opening", { body: { board: current, ...NAJDORF } }, 401);
+		for (const bad of [{ eco: "Z90" }, { eco: "B900" }, { eco: 90 }, { name: "" }, { name: 5 }, { name: "x".repeat(151) }, { board: 5 }]) {
+			await refused("game1", "POST", "/games/game1/opening", { as: alice, body: { board: current, ...NAJDORF, ...bad } }, 400);
+		}
+		await refused("game1", "POST", "/games/game1/opening", { as: alice, body: { board: current, ...NAJDORF, winner: "w" } }, 400);
+	});
+});
+
 describe("ai-move", () => {
 	test("the AI's move is saved on its turn, asked for by the player in the game", async () => {
 		await aiGame("game1", "alice");

@@ -18,10 +18,11 @@ const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
 const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams } = require("../utils/games.js");
 const { buildPgn } = require("../utils/pgn.js");
+const { findOpening } = require("../utils/openings.js");
 const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames, findUsername } = require("../dataClient.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, saveOpening, forfeit, newAiGame, newGuestGame, invite, accept, decline, rematch, myGames, findUsername } = require("../dataClient.js");
 const { emitToGame, emitToPlayer } = require("../socket.js");
 
 const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PROMISE), SO PARALLEL /ai-move REQUESTS ASK THE ENGINE ONCE
@@ -32,7 +33,7 @@ const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PRO
 /**
  * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
  */
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -58,6 +59,7 @@ async function getGame(req, res) {
 		opponent_name: playerName(gameData, opponentColor), // FRIEND GAMES: HOME'S "vs Bob"
 		moves: gameData.moves.S,
 		prev_move: gameData.prev_move.S,
+		opening: readOpening(gameData),
 		w_knight: gameData.w_knight.S,
 		b_knight: gameData.b_knight.S,
 		w_piece: gameData.w_piece.S,
@@ -138,7 +140,7 @@ async function newGame(req, res) {
  * The requester always moves for themself, the AI's moves come from /ai-move
  * @param  {[string]} req.params.gameId [game id]
  * @param  {[object]} req.body [{ move: [from, to], promotion }]
- * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
+ * @return {[object]} response [{ status, game_id, ai, game_board, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
  */
 async function moveGame(req, res) {
 	const { move, promotion } = req.body || {};
@@ -160,6 +162,7 @@ async function moveGame(req, res) {
 	});
 	if (response.status != 200) { return res.json({ status: 500, message: response.message == "Not your turn" ? "Invalid piece movement" : response.message }); } // NOT LEGAL, NOT THEIR TURN, OR ANOTHER MOVE SAVED FIRST
 	response.message = "Validation Successful";
+	await recordOpening(response); // BEFORE THE OPPONENT & HOME ARE TOLD, THEY LOAD THE GAME
 	emitToGame(req.params.gameId, "move", { game_id: req.params.gameId, player_id: playerId }); // THE OPPONENT'S CLIENT LOADS THE NEW BOARD
 	if (!isAiGame(response.game_data)) { notifyHome(response.game_data); } // A FRIEND GAME'S PICTURE ON HOME
 	return res.json(gameResponse(response));
@@ -206,7 +209,7 @@ async function restartGame(req, res) {
  * @description AI games: the server picks the AI's move at the game's level & saves it. The client only animates it.
  * Asking again after the AI moved returns the saved move instead of a new one
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, ai_move: { from, to, promotion }, message }]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, ai_move: { from, to, promotion }, message }]
  */
 async function aiMoveGame(req, res) {
 	let response = await retrieveGame(req.params.gameId);
@@ -246,6 +249,7 @@ async function playAiTurn(gameId, gameData) {
 	}
 	if (response.status != 200) { return { status: 500, message: response.message }; }
 	response.message = "AI moved";
+	await recordOpening(response);
 	return { ...gameResponse(response), ai_move: move };
 }
 
@@ -501,7 +505,7 @@ async function declineGame(req, res) {
  * @description Returns a user's game lists for Home, expired games & invites are pruned first
  * @param  {[string]} req.params.userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, ai_game_id / friend_game_id (the open AI / friend game or null),
- * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params }], newest last),
+ * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }], newest last),
  * sent_invite ({ game_id, name, player_color, start_params } or null), received_invites ([{ game_id, name, player_color, start_params }]),
  * rating ({ rating, provisional, rated_games }, Home's "Rating // 1520?"), message }]
  */
@@ -650,6 +654,7 @@ function gameResponse(response) {
 		ai: isAiGame(response.game_data),
 		ai_level: aiLevel(response.game_data),
 		game_board: response.game_data.game_board.S,
+		opening: readOpening(response.game_data),
 		w_knight: response.game_data.w_knight.S,
 		b_knight: response.game_data.b_knight.S,
 		w_piece: response.game_data.w_piece.S,
@@ -657,6 +662,33 @@ function gameResponse(response) {
 		...gameState(response.game_data),
 		message: response.message,
 	};
+}
+
+/**
+ * @description Saves the opening of the position a move just saved. The latest match stays once the game leaves the book. The move is already saved,
+ * so a failed save only logs: the next position in the book saves its own name
+ * @param  {[object]} response [the saved move's { game_data }, its opening is updated when this saves one]
+ */
+async function recordOpening(response) {
+	const gameData = response.game_data;
+	const opening = findOpening(gameData.game_board.S);
+	const saved = readOpening(gameData);
+	if (!opening || (opening.eco == saved?.eco && opening.name == saved?.name)) { return; }
+	try {
+		const answer = await saveOpening(gameData.game_id.S, gameData.game_board.S, opening);
+		if (answer.status == 200) { gameData.opening = answer.game_data.opening; } // ANYTHING ELSE: ANOTHER MOVE LANDED FIRST, ITS REQUEST SAVES ITS OWN OPENING
+	} catch (err) {
+		console.log(`Saving the opening failed: ${gameData.game_id.S}: ${err.message}`);
+	}
+}
+
+/**
+ * @description The game's saved opening, sent with every game response
+ * @param  {[object]} gameData [game item]
+ * @return {[object]} opening [{ eco, name }, null until the game reaches a named position]
+ */
+function readOpening(gameData) {
+	return gameData.opening ? JSON.parse(gameData.opening.S) : null;
 }
 
 /**
@@ -720,7 +752,7 @@ function readColor(value) { return value == "w" || value == "b" ? value : "rando
  * @description One open game for Your games on Home
  * @param  {[object]} gameData [game item, pruneGameList's projection is enough]
  * @param  {[string]} playerId [the user the list is for]
- * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params }]
+ * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }]
  */
 function gameSummary(gameData, playerId) {
 	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
@@ -731,6 +763,7 @@ function gameSummary(gameData, playerId) {
 		opponent_name: playerName(gameData, playerColor == "w" ? "b" : "w"),
 		player_color: playerColor,
 		start_params: startParams(gameData),
+		opening: readOpening(gameData),
 	};
 }
 

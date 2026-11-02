@@ -16,7 +16,9 @@ const panel = document.getElementById("moveList"); // THE PANEL
 const toggleBtn = document.getElementById("moveListToggle"); // COLLAPSES & OPENS IT
 const rowList = document.getElementById("moveListRows"); // THE NUMBERED ROWS, THIS PART SCROLLS
 const statusArea = document.getElementById("gameStatus"); // THE PANEL LINES UP WITH ITS LEFT EDGE (16PX + THE PHONE'S NOTCH)
-const opponentDisplay = document.getElementById("opponentDisplay"); // FRIEND GAMES: "vs Bob", THE PANEL STAYS ABOVE IT
+const opponentDisplay = document.getElementById("opponentDisplay"); // FRIEND GAMES: "vs Bob"
+const openingDisplay = document.getElementById("openingDisplay"); // THE GAME'S OPENING
+const gameInfo = document.getElementById("gameInfo"); // HOLDS THOSE TWO, THE PANEL STAYS ABOVE IT
 
 const COLLAPSED_KEY = "MOVE_LIST"; // localStorage: "closed" WHEN THE PLAYER COLLAPSED IT, GUESTS TOO
 const GAP = 8; // SPACE BETWEEN THE PANEL & WHAT'S NEXT TO IT (PX)
@@ -124,6 +126,21 @@ export function handleMoveListToggle(e) {
 }
 
 /* ---------------------------------------------------------------- */
+// Opening
+/* ---------------------------------------------------------------- */
+/**
+ * @description Shows the game's opening under the panel. textContent, it's never read as HTML. The panel is placed again when its room changed
+ * @param  {[object]} opening [{ eco, name } from the server, null = none yet]
+ */
+export function showOpening(opening) {
+	const text = opening ? `${opening.eco} ${opening.name}` : "";
+	if (openingDisplay.textContent == text) { return; }
+	openingDisplay.textContent = text;
+	openingDisplay.hidden = !opening;
+	placedFor = null;
+}
+
+/* ---------------------------------------------------------------- */
 // Place
 /* ---------------------------------------------------------------- */
 /**
@@ -140,7 +157,7 @@ export function handleMoveListToggle(e) {
  */
 function findSpot(xBoardStart, yBoardStart, boardHeight) {
 	const left = statusArea.getBoundingClientRect().left;
-	const opponent = opponentDisplay.hidden ? null : opponentDisplay.getBoundingClientRect();
+	const opponent = opponentDisplay.hidden && openingDisplay.hidden ? null : gameInfo.getBoundingClientRect();
 	const pageBottom = (opponent ? opponent.top : game.ch) - GAP;
 	const overhang = game.yPieceOffset / 2;
 	const topTrayEnd = game.yBoardOff - game.tileHeight + overhang; // ROW -2

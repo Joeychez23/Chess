@@ -60,6 +60,7 @@ request is for comes from a token only the data service can sign
 | `GET /games/:gameId` | The requester is in the game (`?consistent=true` for a strongly consistent read) |
 | `POST /games/:gameId/move` `{ from, to, promotion }` | In the game, open, their turn, a legal move on the stored board. Checkmate or a draw closes the game and rates a friend game |
 | `POST /games/:gameId/ai-move` `{ from, to, promotion }` | AI games: the requester is in it, it's the AI's turn, and the move is legal |
+| `POST /games/:gameId/opening` `{ board, eco, name }` | In the game, and `board` is still the stored board (`409` if not), a closed game too. The chess server has the data set, so the name is only checked for its shape |
 | `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
 | `GET /games/:gameId/ratings` | In the game. Both players' ratings |
 | `POST /games/ai` `{ color, level, start_fen }` | A signed-in player vs `CHESS_AI`, at a level from 1 to 8 (3 if left out), from a playable position. The data service makes every new game id (16 random bytes, base64url, `newGameId` in `utils/games.js`) and answers with it in `game_data.game_id`; a body can't name one. The game is still saved only if the id is free (`attribute_not_exists`). Invites and rematches too |
@@ -179,6 +180,7 @@ signed out, and guests start a new game.
 
 **Stored data** (details in `data-service/dynamoDB.js`):
 
+- **`opening`** (JSON `{ eco, name }`) is the latest named position the game reached. Games that haven't reached one don't have it.
 - **`start_params`** (JSON `{ color, fen }`) is what Restart and Rematch reuse. `moves`
   only has the moves played, so anything that replays them (threefold
   repetition, PGN, takebacks) starts from `start_params.fen` when it's there.

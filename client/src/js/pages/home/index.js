@@ -193,7 +193,7 @@ async function openGame(gameId) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Lists the player's open games, each one is a link to /play/:gameId with its opponent & start settings:
- * "vs AI // Level 3 // You play white (random)", "vs Bob // You play black". They're also shown in their boxes
+ * "vs AI // Level 3 // You play white (random)", "vs Bob // You play black // C20 King's Pawn Game". They're also shown in their boxes
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  */
 function listGames(gameData) {
@@ -205,7 +205,8 @@ function listGames(gameData) {
 		const opponent = openGames[i].ai ? `vs AI // Level ${openGames[i].ai_level}` : `vs ${openGames[i].opponent_name || "Friend"}`;
 		gameLink.href = `/play/${encodeURIComponent(openGames[i].game_id)}`;
 		gameLink.innerHTML = `<span class="label">Game ${i + 1}</span><span class="spec gameInfo"></span><span class="label gameOpen">Open</span>`;
-		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(openGames[i].player_color, openGames[i].start_params)}`; // innerText, THE NAME IS NEVER READ AS HTML
+		const opening = openGames[i].opening ? ` // ${openGames[i].opening.eco} ${openGames[i].opening.name}` : "";
+		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(openGames[i].player_color, openGames[i].start_params)}${opening}`; // innerText, THE NAME IS NEVER READ AS HTML
 		listElement.append(gameLink);
 		rows.push(listElement);
 	}

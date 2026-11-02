@@ -2,7 +2,8 @@
  *  gameController.js  --  data service
  *	Game Routes
  *  Each route is one action a player takes on a game. It loads the stored game, checks the player in the request can take that
- *  action on it now, then saves through dynamoDB.js. Nothing in a body is saved as sent: a move is played on the stored board
+ *  action on it now, then saves through dynamoDB.js. Nothing in a body is saved as sent: a move is played on the stored board.
+ *  The one exception is an opening's name, the data set is on the chess server. It's checked for its shape & can't change anything else
  *
  */
 
@@ -10,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, requestRematch, acceptRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
@@ -20,6 +21,8 @@ const SQUARE = /^[a-h][1-8]$/;
 const PROMOTIONS = ["q", "r", "b", "n"];
 const REMATCH_TIME = 60 * 1000; // BOTH PLAYERS MUST PRESS REMATCH WITHIN 1 MINUTE
 const REMATCH_REPAIR_TIME = 60 * 60 * 1000; // A CLAIMED REMATCH WITH NO GAME IS ONLY MADE AGAIN FOR 1 HOUR, AFTER THAT THE GAME EXPIRED OR WAS NEVER MADE
+const ECO = /^[A-E][0-9]{2}$/;
+const OPENING_NAME_LENGTH = 150; // THE LONGEST IN THE DATA SET IS 99
 const NAME_LENGTH = 50; // AN INVITE'S SCREENNAME FROM AUTH0 (USERNAMES ARE 3 - 20)
 
 /* ---------------------------------------------------------------- */
@@ -126,6 +129,28 @@ function readMove(body) {
 	if (typeof from != "string" || typeof to != "string" || !SQUARE.test(from) || !SQUARE.test(to)) { return null; }
 	if (promotion != undefined && !PROMOTIONS.includes(promotion)) { return null; }
 	return { from, to, promotion: promotion || undefined };
+}
+
+/* ---------------------------------------------------------------- */
+// Opening (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The opening of the board a move just saved. A move that ended the game can have one, so a closed game takes it too
+ * @param  {[string]} req.params.gameId [game id]
+ * @param  {[object]} req.body [{ board (the FEN it was found for), eco, name }]
+ * @return {[object]} response [{ status, game_data, message }, 409 when the board isn't that FEN any more]
+ */
+async function openingGame(req, res) {
+	const { board, eco, name } = req.body || {};
+	if (typeof board != "string" || typeof eco != "string" || !ECO.test(eco) || typeof name != "string" || !name || name.length > OPENING_NAME_LENGTH) { return refuse(req, res, 400, "Invalid opening"); }
+
+	const response = await retrieveGame(req.params.gameId, true);
+	if (!response.game_data) { return res.json(response); } // GAME NOT FOUND
+	if (!playerInGame(req.player, response.game_data)) { return refuse(req, res, 403, "Player is not in this game"); }
+
+	const saved = await saveOpening(req.params.gameId, board, { eco, name });
+	if (saved.status != 200) { return refuse(req, res, 409, "Board changed before the opening saved"); }
+	return res.json(saved);
 }
 
 /* ---------------------------------------------------------------- */
@@ -456,4 +481,4 @@ async function username(playerId) {
 }
 
 
-module.exports = { getGame, moveGame, aiMoveGame, forfeitGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, currentGame };
+module.exports = { getGame, moveGame, aiMoveGame, openingGame, forfeitGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, currentGame };

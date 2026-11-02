@@ -49,7 +49,10 @@
 
 	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
 
-	<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
+	<div id="gameInfo"> <!-- BOTTOM LEFT, THE MOVE LIST STAYS CLEAR OF IT -->
+		<p id="openingDisplay" hidden></p> <!-- "B90 Sicilian Defense: Najdorf Variation" (gameplay/movelist/index.js) -->
+		<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
+	</div>
 
 	<section id="moveList" aria-label="Moves" hidden> <!-- THE GAME'S MOVES, PLACED NEXT TO THE BOARD (gameplay/movelist/index.js) -->
 		<button id="moveListToggle" type="button" aria-controls="moveListRows" aria-expanded="true">Moves</button>

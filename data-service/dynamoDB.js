@@ -250,6 +250,33 @@ async function updateGame(gameData, prevBoard, result) {
 }
 
 /* ---------------------------------------------------------------- */
+// Save opening (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves the game's opening, only while its board is the one the opening was found for. A closed game takes it too, a move can end the game on a named position
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} board [the FEN the opening was found for]
+ * @param  {[object]} opening [{ eco, name }]
+ * @return {[object]} response [{ status, game_data (the game as saved), message }]
+ */
+async function saveOpening(gameId, board, opening) {
+	try {
+		const response = await connection.updateItem({
+			TableName: CHESS_TABLE,
+			Key: { game_id: { S: gameId } },
+			UpdateExpression: "SET opening = :opening",
+			ConditionExpression: "game_board = :board",
+			ExpressionAttributeValues: { ":opening": { S: JSON.stringify(opening) }, ":board": { S: board } },
+			ReturnValues: "ALL_NEW"
+		});
+		return { status: 200, game_data: gameItem(response.Attributes), message: `Saved opening: ${gameId}` };
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Board changed before the opening saved: ${gameId}` }; }
+		throw err;
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Close game (PUT)
 /* ---------------------------------------------------------------- */
 /**
@@ -1084,7 +1111,7 @@ async function batchReadGames(gameIds, listName) {
 			RequestItems: {
 				[CHESS_TABLE]: {
 					Keys: keys,
-					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, ai_level, start_params, inviter_id", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME & HOW IT STARTED (YOUR GAMES & INVITES)
+					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, ai_level, start_params, inviter_id, opening", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME, HOW IT STARTED & ITS OPENING (YOUR GAMES & INVITES)
 					ExpressionAttributeNames: { "#state": "state" }
 				}
 			}
@@ -1249,4 +1276,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

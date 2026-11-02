@@ -170,6 +170,13 @@ const saveMove = (gameId, move, promotion) => call("POST", `/games/${id(gameId)}
 const saveAiMove = (gameId, move) => call("POST", `/games/${id(gameId)}/ai-move`, { from: move.from, to: move.to, promotion: move.promotion || undefined });
 
 /**
+ * @description The opening of the position a move just saved, only saved while that's still the game's board
+ * @param  {[string]} board [the position's FEN]
+ * @param  {[object]} opening [{ eco, name } from utils/openings.js]
+ */
+const saveOpening = (gameId, board, opening) => call("POST", `/games/${id(gameId)}/opening`, { board, eco: opening.eco, name: opening.name });
+
+/**
  * @description The requester gives up an open game, the other side wins
  */
 const forfeit = (gameId) => call("POST", `/games/${id(gameId)}/forfeit`);
@@ -301,4 +308,4 @@ const changeFriend = (action, username) => call("POST", `/users/me/friends/${act
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, saveOpening, forfeit, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
