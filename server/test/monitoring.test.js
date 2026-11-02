@@ -32,7 +32,7 @@ beforeEach(() => {
 });
 afterEach(() => mock.restoreAll());
 
-const report = (body) => send("POST", "/api/client-errors", {}, { headers: { "Content-Type": "application/json", "User-Agent": "test browser" }, body: JSON.stringify(body) });
+const report = (body) => send("POST", "/api/client-errors", {}, { headers: { "Content-Type": "application/json", "User-Agent": "test browser", Origin: new URL(config.clientUrl).origin }, body: JSON.stringify(body) });
 const reports = () => logged.filter((line) => line.startsWith("CLIENT ERROR "));
 
 describe("GET /api/health", () => {
@@ -234,7 +234,7 @@ describe("the browser's reportErrors.js", () => {
 	test("what it sends is accepted & logged by the route", async () => {
 		browser();
 		listeners.unhandledrejection({ reason: new Error("no answer") });
-		const res = await send("POST", "/api/client-errors", {}, { headers: { "Content-Type": beacons[0].blob.type }, body: await beacons[0].blob.text() });
+		const res = await send("POST", "/api/client-errors", {}, { headers: { "Content-Type": beacons[0].blob.type, Origin: new URL(config.clientUrl).origin }, body: await beacons[0].blob.text() });
 		assert.equal(res.http, 204);
 		assert.match(reports()[0], /"kind":"rejection","message":"no answer","page":"\/play\/:id"/);
 	});

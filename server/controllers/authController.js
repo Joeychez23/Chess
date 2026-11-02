@@ -37,20 +37,11 @@ function login(req, res) {
 // Password Login
 /* ---------------------------------------------------------------- */
 /**
- * @description A request our own page sent: its Origin is the game's, & Sec-Fetch-Site (when the browser sends it) is same-origin.
- * Another site's link, redirect or form gets false (login & logout CSRF, #297)
- */
-function fromOurPage(req) {
-	const site = req.get("Sec-Fetch-Site");
-	return req.get("Origin") === new URL(config.clientUrl).origin && (!site || site === "same-origin");
-}
-
-/**
- * @description POST /api/auth/login's checks: only JSON from our own page (login CSRF: a form post or another site gets 403),
+ * @description POST /api/auth/login's checks: only JSON (login CSRF: a form post gets 403, middleware/csrf.js refuses another site),
  * with an email & password that are strings (400)
  */
 function checkLogin(req, res, next) {
-	if (!req.is("application/json") || !fromOurPage(req)) {
+	if (!req.is("application/json")) {
 		return res.status(403).json({ status: 403, message: "Forbidden" });
 	}
 	if (typeof req.body?.email != "string" || !req.body.email.trim() || typeof req.body?.password != "string" || !req.body.password) {
@@ -81,11 +72,11 @@ async function passwordLogin(req, res, next) {
 // Signup
 /* ---------------------------------------------------------------- */
 /**
- * @description POST /api/auth/signup's checks: only JSON from our own page like a login (403), then the fields the Auth0 signup screen asks for (400).
+ * @description POST /api/auth/signup's checks: only JSON like a login (403), then the fields the Auth0 signup screen asks for (400).
  * The screenname is also the player's username (#118), so it has the same rules
  */
 function checkSignup(req, res, next) {
-	if (!req.is("application/json") || !fromOurPage(req)) {
+	if (!req.is("application/json")) {
 		return res.status(403).json({ status: 403, message: "Forbidden" });
 	}
 	const { email, password, first_name, last_name } = req.body || {};
@@ -169,10 +160,10 @@ async function startPlayerSession(idToken) {
 // Forgot Password
 /* ---------------------------------------------------------------- */
 /**
- * @description POST /api/auth/forgot's checks: only JSON from our own page like a login (403), with an email (400)
+ * @description POST /api/auth/forgot's checks: only JSON like a login (403), with an email (400)
  */
 function checkForgot(req, res, next) {
-	if (!req.is("application/json") || !fromOurPage(req)) {
+	if (!req.is("application/json")) {
 		return res.status(403).json({ status: 403, message: "Forbidden" });
 	}
 	if (typeof req.body?.email != "string" || !/^[^\s@]+@[^\s@]+$/.test(req.body.email.trim())) {
@@ -201,7 +192,6 @@ async function forgot(req, res, next) {
  * A POST from our own page only, so another site can't sign a player out everywhere (#297). Their open sockets on every device are closed too (#298)
  */
 async function logout(req, res) {
-	if (!fromOurPage(req)) { return res.status(403).json({ status: 403, message: "Forbidden" }); }
 	const refreshToken = readRefreshCookie(req);
 	const user = readRefreshUser(req) || readSessionUser(req);
 	clearSessionCookies(res);

@@ -60,6 +60,7 @@ async function start() {
 	app.use(require("../../middleware/logServerErrors.js").logServerErrors); // SAME AS index.js
 	app.use(require("../../middleware/securityHeaders.js").securityHeaders); // SAME AS index.js
 	app.set("trust proxy", "loopback"); // SAME AS index.js, A TEST'S X-Forwarded-For IS THE PLAYER'S ADDRESS
+	app.use("/api", require("../../middleware/csrf.js").requireOurPage); // SAME AS index.js
 	app.use(cookieParser());
 	app.use(express.json());
 	app.use(playerContext); // SAME AS index.js
@@ -135,7 +136,7 @@ function sessionCookie(user) {
  * @return {[object]} response [{ http: the HTTP status, retry_after: the Retry-After header, ...the JSON body }]
  */
 async function call(method, path, options = {}) {
-	const headers = { "Content-Type": "application/json" };
+	const headers = { "Content-Type": "application/json", Origin: new URL(config.clientUrl).origin }; // A BROWSER SENDS ITS PAGE'S ORIGIN (middleware/csrf.js)
 	const guest = options.as || options.cookie ? null : options.guest || "guest";
 	if (options.as) { headers.Cookie = sessionCookie(options.as.user); }
 	if (options.cookie) { headers.Cookie = options.cookie; }
@@ -152,12 +153,12 @@ async function call(method, path, options = {}) {
  * @param  {[string]} method ["GET" or "POST"]
  * @param  {[string]} path [e.g. "/api/auth/refresh"]
  * @param  {[object]} cookies [{ name: value }, sent as the Cookie header]
- * @param  {[object]} options [{ headers, body: a raw body string }]
+ * @param  {[object]} options [{ headers: instead of our own page's Origin, body: a raw body string }]
  * @return {[object]} response [{ http, headers, location, retry_after, cookies: { name: value } set by the response ("" = cleared), body: the JSON body or null }]
  */
 async function send(method, path, cookies = {}, options = {}) {
 	const Cookie = Object.entries(cookies).map(([name, value]) => `${name}=${value}`).join("; ");
-	const headers = { ...(Cookie ? { Cookie } : {}), ...(options.headers || {}) };
+	const headers = { ...(Cookie ? { Cookie } : {}), ...(options.headers || { Origin: new URL(config.clientUrl).origin }) };
 	const res = await realFetch(`${baseUrl}${path}`, { method, headers, body: options.body, redirect: "manual" });
 	const set = {};
 	for (const cookie of res.headers.getSetCookie()) {

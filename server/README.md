@@ -20,7 +20,7 @@
 | `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`) |
 | `SESSION_PUBLIC_KEY` | The public half of the data service's session key, multi-line in double quotes ([Session keys](../data-service/README.md#session-keys-252)). The server checks session and guest tokens with it but can't make one |
 | `SESSION_PUBLIC_KEY_NEXT` | Optional. Only while the key is being changed: tokens signed with the new key are accepted too |
-| `CLIENT_URL` | Optional. Where the game is served, the only origin the auth routes and sockets accept. Defaults to `http://localhost:API_PORT/` |
+| `CLIENT_URL` | Optional. Where the game is served, the only origin API writes and sockets accept. Defaults to `http://localhost:API_PORT/` |
 | `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
 | `DATA_SERVICE_URL` | Optional. Where the data service answers. Defaults to `http://127.0.0.1:8090` (`npm run dev` in `data-service`). On AWS it's the data service's private IP |
 | `DATA_SERVICE_SECRET` | Signs every call to the data service. The same value as `DATA_SERVICE_SECRET` in `data-service/.env`, at least 32 characters (the command is in `.env.example`) |
@@ -164,6 +164,12 @@ curl -s -c jar -b jar $API/game/$GAME
 
 A refused move still answers HTTP 200: check `status` and `message` in the
 body.
+
+## CSRF
+
+`middleware/csrf.js` refuses every `POST`, `PUT`, `PATCH` and `DELETE` under `/api`
+(`403`) unless its `Origin` is `CLIENT_URL`'s and its `Sec-Fetch-Site`, when sent, is
+`same-origin`. `SameSite=Lax` cookies alone would still let a same-site subdomain through.
 
 ## Socket.IO
 
