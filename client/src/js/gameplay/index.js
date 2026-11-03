@@ -222,7 +222,7 @@ async function renderLoop() {
 			if (game.ai && chessInst.turn() != game.playerColor && game.aiTurn) { // IF AI
 				await startAiSlide();
 			} else {
-				flipWhenDone(); // FLIP BOARD WAS PRESSED DURING THE SLIDE THAT JUST ENDED
+				flipWhenDone(); // FLIP BOARD WAS PRESSED DURING THE SLIDE OR SAVE THAT JUST ENDED
 				game.drawScreen(); // DRAW ONE FRAME
 				document.documentElement.classList.remove("loadingPage"); // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT
 				game.refresh = false;

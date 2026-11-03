@@ -281,7 +281,10 @@ export async function validateMove() {
 		}
 
 
-		const moveResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, [game.moveObj.from, game.moveObj.to], game.moveObj.promotion, false); // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
+		let moveResponse;
+		game.moveSaving = true; // game.response STILL HAS THE OLD BOARD, FLIP BOARD WAITS (handleFlip)
+		try { moveResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, [game.moveObj.from, game.moveObj.to], game.moveObj.promotion, false); } // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
+		finally { game.moveSaving = false; game.refresh = true; } // THE NEXT FRAME DOES A FLIP THAT WAITED (flipWhenDone)
 		if (moveResponse?.status != 200) { return moveFailed(moveResponse); } // TURNED DOWN OR NO ANSWER: BACK TO THE OLD BOARD
 
 		chessInst.load(moveResponse.game_board); // THE SERVER'S BOARD

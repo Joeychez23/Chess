@@ -77,7 +77,8 @@ export const game = {
 	revert: undefined, // GAME TO GO BACK TO IF A MOVE FAILS
 	playerColor: undefined, // 'w' OR 'b'
 	viewColor: undefined, // 'w' OR 'b', THE SIDE AT THE BOTTOM OF THE SCREEN: THE PLAYER'S UNTIL THEY PRESS FLIP BOARD (BLACK FLIPS THE BOARD)
-	flipPending: false, // FLIP BOARD WAS PRESSED DURING A SLIDE, THE BOARD FLIPS WHEN IT'S DONE (renderLoop)
+	flipPending: false, // FLIP BOARD WAS PRESSED DURING A SLIDE OR A MOVE'S SAVE, THE BOARD FLIPS WHEN IT'S DONE (renderLoop)
+	moveSaving: false, // THE PLAYER'S MOVE IS BEING SENT, game.response DOESN'T HAVE IT YET (validateMove)
 	opponentColor: undefined, // 'w' OR 'b'
 	ai: undefined, // TRUE IN AI GAMES
 	aiTurn: false, // TRUE WHEN THE RENDER LOOP SHOULD ASK THE SERVER FOR THE AI'S MOVE

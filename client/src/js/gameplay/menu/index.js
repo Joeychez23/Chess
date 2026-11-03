@@ -150,10 +150,11 @@ export function handleSound(e) {
 // Flip Board Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Is a piece sliding? Its tile's place in tiles is held by the code finishing the move, so the board can't flip until it lands
+ * @description Is a piece sliding or the player's move saving? Its tile's place in tiles is held by the code finishing the move
+ * & game.response doesn't have a move that's saving, so the board can't flip until it's done
  */
-function slideInFlight() {
-	return game.currSlide || game.tiles.some(function (tile) { return tile.isSliding; });
+function moveInFlight() {
+	return game.moveSaving || game.currSlide || game.tiles.some(function (tile) { return tile.isSliding; });
 }
 
 /**
@@ -167,13 +168,13 @@ function flipBoard() {
 }
 
 /**
- * @description Flips the board, the menu stays open. During a slide it flips when the slide is done (a second press cancels it)
+ * @description Flips the board, the menu stays open. During a slide or a move's save it flips when that's done (a second press cancels it)
  */
 export function handleFlip(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	if (game.boardReset) { return; } // A NEW BOARD IS LOADING, IT STARTS FROM THE PLAYER'S SIDE
-	if (slideInFlight()) { game.flipPending = !game.flipPending; return; }
+	if (moveInFlight()) { game.flipPending = !game.flipPending; return; }
 	flipBoard();
 }
 
@@ -181,7 +182,7 @@ export function handleFlip(e) {
  * @description The render loop calls this before each frame, it does the flip that waited for a slide
  */
 export function flipWhenDone() {
-	if (game.flipPending && !slideInFlight()) { flipBoard(); }
+	if (game.flipPending && !moveInFlight()) { flipBoard(); }
 }
 
 /* ---------------------------------------------------------------- */
