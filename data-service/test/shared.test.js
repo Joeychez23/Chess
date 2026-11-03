@@ -1,7 +1,7 @@
 /*
  *  shared.test.js  --  data service tests
  *	Shared Files
- *  The chess server & the data service each have the move rules, the ratings & the username rules. They must stay the same file,
+ *  The chess server & the data service each have the move rules, the ratings, the username rules & the game checks. They must stay the same file,
  *  and both must run the same chess.js, or the server would refuse (or allow) a move the data service doesn't
  *
  */
@@ -17,7 +17,7 @@ const serverPackage = require("../../server/package.json");
 const read = (file) => fs.readFileSync(path.join(__dirname, "..", "..", file), "utf8");
 
 describe("files both have", () => {
-	for (const name of ["validate.js", "rating.js", "username.js", "signature.js", "sessionKeys.js"]) {
+	for (const name of ["validate.js", "rating.js", "username.js", "signature.js", "sessionKeys.js", "games.js"]) {
 		test(`data-service/utils/${name} is the same as server/utils/${name}`, () => {
 			assert.equal(read(`data-service/utils/${name}`), read(`server/utils/${name}`), `change both copies of ${name}`);
 		});

@@ -5,14 +5,14 @@
  * @description calculates user promotions, and positons of next move
  * @return {[object]} An object of move params
  */
-export function playerMove(playerColor, tile) {
+export function playerMove(playerColor, viewColor, tile) {
 	let xLet
 	let endPos
-	if (playerColor == 'w') {
+	if (viewColor == 'w') {
 		xLet = String.fromCharCode(97 + tile.x); // CONEVERT TILE X POSITION TO ASSOICATED LETTER
 		endPos = `${xLet}${8 - tile.y}`
 	}
-	if (playerColor == 'b') {
+	if (viewColor == 'b') {
 		xLet = String.fromCharCode(97 + (7 - tile.x)); // CONEVERT TILE X POSITION TO ASSOICATED LETTER
 		endPos = `${xLet}${tile.y + 1}`
 	}

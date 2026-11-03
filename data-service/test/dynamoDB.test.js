@@ -127,9 +127,18 @@ describe("updateGame", () => {
 		assert.equal(fakeDynamo.peek("chess_db", "game1").state, undefined);
 	});
 
-	test("a closing move in an AI game keeps expireAt", async () => {
+	test("a closing move removes expireAt from a signed-in player's AI game", async () => {
 		const created = await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w", fen: MATE_IN_ONE } });
 		const moved = await playMate(created.game_data);
+		assert.equal((await db.updateGame(moved, MATE_IN_ONE, gameResult(moved))).status, 200);
+		const stored = fakeDynamo.peek("chess_db", "game1");
+		assert.equal(stored.state.S, "CLOSED");
+		assert.equal(stored.expireAt, undefined);
+	});
+
+	test("a closing move in a guest's game keeps expireAt", async () => {
+		const created = await db.initalizeGame("game1", "game1", "CHESS_AI", 3, { start_params: { color: "w", fen: MATE_IN_ONE } });
+		const moved = (await validateMove({ player_id: "game1", move: ["a1", "a8"] }, created.game_data)).game_data;
 		assert.equal((await db.updateGame(moved, MATE_IN_ONE, gameResult(moved))).status, 200);
 		const stored = fakeDynamo.peek("chess_db", "game1");
 		assert.equal(stored.state.S, "CLOSED");
@@ -157,6 +166,16 @@ describe("saves without a read back", () => {
 });
 
 describe("initalizeGame", () => {
+	test("saves when the game was made, a guest's reset sets it again", async () => {
+		const saved = () => fakeDynamo.peek("chess_db", "guest1").created_at.S;
+		await db.initalizeGame("guest1", "guest1", "CHESS_AI", 3, {});
+		const first = saved();
+		assert.equal(new Date(first).toISOString(), first);
+		await new Promise((resolve) => setTimeout(resolve, 2));
+		await db.initalizeGame("guest1", "guest1", "CHESS_AI", 3, { reset_player: "guest1" });
+		assert.notEqual(saved(), first);
+	});
+
 	test("two creates of one id at once: one wins, the other is refused & the game isn't overwritten", async () => {
 		const results = await Promise.all([
 			db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } }),
@@ -193,14 +212,82 @@ describe("closeGame", () => {
 		assert.equal((await db.retrieveGame("game1")).game_data.reason.S, "forfeit");
 	});
 
-	test("an AI game keeps its expiry, a friend game loses it", async () => {
+	test("a guest's game keeps its expiry, a signed-in player's AI or friend game loses it", async () => {
+		const guestGame = (await db.initalizeGame("guest1", "guest1", "CHESS_AI", 3, {})).game_data;
+		await db.closeGame(guestGame, "b", "forfeit");
+		assert.ok(fakeDynamo.peek("chess_db", "guest1").expireAt);
+
 		const aiGame = await newGame();
 		await db.closeGame(aiGame, "b", "forfeit");
-		assert.ok(fakeDynamo.peek("chess_db", "game1").expireAt);
+		assert.equal(fakeDynamo.peek("chess_db", "game1").expireAt, undefined);
 
 		const friendGame = (await db.initalizeGame("game2", "alice", "bob", false, {})).game_data;
 		await db.closeGame(friendGame, "w", "checkmate");
 		assert.equal(fakeDynamo.peek("chess_db", "game2").expireAt, undefined);
+	});
+});
+
+describe("draw offers", () => {
+	const friendGame = async () => (await db.initalizeGame("game4", "alice", "bob", false, {})).game_data;
+
+	test("one offer per player per move, and only one standing", async () => {
+		const gameData = await friendGame();
+		assert.equal(await db.offerDraw(gameData, "alice", "w"), true);
+		assert.equal(await db.offerDraw(gameData, "bob", "b"), false); // ALICE'S STANDS
+		assert.equal(await db.endDrawOffer("game4", "alice"), true);
+		assert.equal(await db.endDrawOffer("game4", "alice"), false); // ALREADY ENDED
+		assert.equal(await db.offerDraw(gameData, "alice", "w"), false); // USED THIS MOVE
+		assert.equal(await db.offerDraw(gameData, "bob", "b"), true);
+	});
+
+	test("a move ends the offer & gives both players theirs back", async () => {
+		const gameData = await friendGame();
+		await db.offerDraw(gameData, "alice", "w");
+		const moved = (await validateMove({ player_id: "alice", move: ["e2", "e4"] }, structuredClone(gameData))).game_data;
+		assert.equal((await db.updateGame(moved, gameData.game_board.S)).status, 200);
+
+		const stored = fakeDynamo.peek("chess_db", "game4");
+		assert.equal(stored.draw_offer_player_id, undefined);
+		assert.equal(stored.draw_offered_w, undefined);
+		assert.equal(await db.offerDraw((await db.retrieveGame("game4", true)).game_data, "alice", "w"), true);
+	});
+
+	test("an offer read before a move isn't saved", async () => {
+		const gameData = await friendGame();
+		const moved = (await validateMove({ player_id: "alice", move: ["e2", "e4"] }, structuredClone(gameData))).game_data;
+		await db.updateGame(moved, gameData.game_board.S);
+		assert.equal(await db.offerDraw(gameData, "bob", "b"), false);
+		assert.equal(fakeDynamo.peek("chess_db", "game4").draw_offer_player_id, undefined);
+	});
+
+	test("an accept loses to a move that ended the offer", async () => {
+		const gameData = await friendGame();
+		await db.offerDraw(gameData, "alice", "w");
+		const read = (await db.retrieveGame("game4", true)).game_data;
+		const moved = (await validateMove({ player_id: "alice", move: ["e2", "e4"] }, structuredClone(read))).game_data;
+		await db.updateGame(moved, read.game_board.S);
+
+		assert.equal((await db.closeGame(read, "draw", "agreement", "alice")).status, 500);
+		assert.notEqual(fakeDynamo.peek("chess_db", "game4").state?.S, "CLOSED");
+	});
+
+	test("an accept closes the game & clears the offer", async () => {
+		const gameData = await friendGame();
+		await db.offerDraw(gameData, "alice", "w");
+		const closed = await db.closeGame((await db.retrieveGame("game4", true)).game_data, "draw", "agreement", "alice");
+		assert.equal(closed.status, 200);
+		assert.equal(closed.game_data.draw_offer_player_id, undefined);
+
+		const stored = fakeDynamo.peek("chess_db", "game4");
+		assert.equal(stored.reason.S, "agreement");
+		assert.equal(stored.winner.S, "draw");
+		assert.equal(stored.draw_offer_player_id, undefined);
+	});
+
+	test("a closed game takes no offer", async () => {
+		const gameData = await friendGame();
+		await db.closeGame(structuredClone(gameData), "b", "forfeit");
+		assert.equal(await db.offerDraw(gameData, "alice", "w"), false);
 	});
 });
 
@@ -228,6 +315,17 @@ describe("rematch", () => {
 		await db.initalizeGame("game5", "alice", "bob", false, {});
 		await db.requestRematch("game5", "alice", Date.now() - 1);
 		assert.equal(await db.acceptRematch("game5", "bob", "new1"), false);
+	});
+
+	test("only the player who asked can cancel, and only until the rematch is claimed", async () => {
+		await db.initalizeGame("game6", "alice", "bob", false, {});
+		await db.requestRematch("game6", "alice", Date.now() + 60000);
+		assert.equal(await db.cancelRematch("game6", "bob"), false);
+		assert.equal(await db.cancelRematch("game6", "alice"), true);
+		assert.equal(await db.acceptRematch("game6", "bob", "new1"), false); // NOTHING LEFT TO ACCEPT
+		assert.equal(await db.requestRematch("game6", "bob", Date.now() + 60000), true); // BOB CAN ASK NOW
+		assert.equal(await db.acceptRematch("game6", "alice", "new1"), true);
+		assert.equal(await db.cancelRematch("game6", "bob"), false); // TOO LATE
 	});
 });
 
@@ -269,6 +367,67 @@ describe("game lists", () => {
 		assert.equal((await db.deleteInvite(invite)).status, 200);
 		assert.deepEqual(lists("alice").requested_games, []);
 		assert.deepEqual(lists("bob").requested_games, []);
+	});
+
+	const finishGames = async (count) => {
+		for (let i = 1; i <= count; i++) {
+			const game = (await db.initalizeGame(`game${i}`, "alice", "CHESS_AI", 3, {})).game_data;
+			await db.closeGame(game, i % 2 ? "w" : "draw", i % 2 ? "checkmate" : "stalemate");
+		}
+	};
+	const closedList = async () => (await db.pruneClosedGames((await db.retrieveUser("alice")).user_data)).closed_game_list;
+
+	test("Finished games lists the newest 20, newest first, with their results", async () => {
+		await finishGames(25);
+		const games = await closedList();
+		assert.deepEqual(games.map((game) => game.game_id.S), Array.from({ length: 20 }, (_, i) => `game${25 - i}`));
+		assert.equal(games[0].winner.S, "w");
+		assert.equal(games[0].reason.S, "checkmate");
+		assert.equal(games[1].winner.S, "draw");
+		assert.equal(lists("alice").closed_games.length, 25); // THE OLDER GAMES STAY ON THE LIST
+	});
+
+	test("Finished games drops games TTL deleted, and fills up from older ones", async () => {
+		await finishGames(22);
+		const user = (await db.retrieveUser("alice")).user_data;
+		await db.updateUser(user, { requested_games: [], open_games: [], closed_games: ["gone", ...lists("alice").closed_games.slice(0, 21), "expired"] });
+
+		const games = await closedList();
+		assert.equal(games.length, 20);
+		assert.equal(games[0].game_id.S, "game21");
+		assert.equal(games[19].game_id.S, "game2");
+		assert.ok(!lists("alice").closed_games.includes("expired"));
+		assert.ok(!lists("alice").closed_games.includes("gone")); // THE SECOND PAGE READ IT TOO
+	});
+
+	test("Finished games doesn't read older games once it has 20", async () => {
+		await finishGames(21);
+		const user = (await db.retrieveUser("alice")).user_data;
+		await db.updateUser(user, { requested_games: [], open_games: [], closed_games: ["gone", ...lists("alice").closed_games] });
+
+		assert.equal((await closedList()).length, 20);
+		assert.ok(lists("alice").closed_games.includes("gone")); // TOO OLD TO BE READ, IT STAYS UNTIL IT'S REACHED
+	});
+
+	test("a game in closed_games that isn't closed isn't listed", async () => {
+		await newGame();
+		const user = (await db.retrieveUser("alice")).user_data;
+		await db.updateUser(user, { requested_games: [], open_games: ["game1"], closed_games: ["game1"] });
+		assert.deepEqual(await closedList(), []);
+	});
+
+	test("Delete my data puts the expiry back on finished AI games only", async () => {
+		await finishGames(2);
+		const friendGame = (await db.initalizeGame("friend1", "alice", "bob", false, {})).game_data;
+		await db.closeGame(friendGame, "w", "checkmate");
+		await db.initalizeGame("open1", "alice", "CHESS_AI", 3, {});
+		const openExpiry = fakeDynamo.peek("chess_db", "open1").expireAt.N;
+
+		await db.expireFinishedAiGames((await db.retrieveUser("alice")).user_data);
+		assert.ok(fakeDynamo.peek("chess_db", "game1").expireAt);
+		assert.ok(fakeDynamo.peek("chess_db", "game2").expireAt);
+		assert.equal(fakeDynamo.peek("chess_db", "friend1").expireAt, undefined);
+		assert.equal(fakeDynamo.peek("chess_db", "open1").expireAt.N, openExpiry);
 	});
 
 	test("a finished game left in open_games isn't the open game", async () => {

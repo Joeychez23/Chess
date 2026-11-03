@@ -100,6 +100,21 @@ export async function getUserGameData(gameUrl, userId) {
 }
 
 /**
+ * @description The game as a PGN file for the menu's Download PGN (GET /game/:gameId/pgn)
+ * @return {[object]} response [{ status, pgn, filename }]
+ */
+export async function getPgn(gameUrl, gameId) {
+	const options = {
+		method: "GET"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/pgn`, options)
+	} catch {
+		return;
+	}
+}
+
+/**
  * @description Both players' ratings for the game menu, & this game's rating change once it's over (GET /game/:gameId/ratings)
  * @return {[object]} response [{ status, rated, player_rating, opponent_rating ({ rating, provisional }, null in AI games), opponent_name, rating_change ({ before, after } or null) }]
  */
@@ -115,19 +130,19 @@ export async function getRatings(gameUrl, gameId) {
 }
 
 /**
- * @description Invites a friend, the server finds their account by email & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
+ * @description Invites a friend, the server finds them by username or email (an @ means email, usernames can't have one) & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
  * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the server answers 409 while one is open]
  * @param  {[string]} startColor [the inviter's color: "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position, rematches keep it]
  * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
  */
-export async function initMultiplayerGame(gameUrl, _id, opponentEmail, replaceCurrent, startColor, startFen) {
+export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent, startColor, startFen) {
 	let options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			challenger_id: _id,
-			opponent_email: opponentEmail,
+			...(opponent.includes("@") ? { opponent_email: opponent } : { opponent_username: opponent }),
 			replace_current: replaceCurrent,
 			start_color: startColor,
 			start_fen: startFen
@@ -204,8 +219,38 @@ export async function forfeitGame(gameUrl, gameId) {
 }
 
 /**
- * @description Friend games that are over: asks for a rematch, it starts when both players ask within 1 minute (POST /game/:gameId/rematch)
- * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in } until then]
+ * @description Offers a draw, or accepts the opponent's offer (POST /game/:gameId/draw). The AI answers right away
+ * @return {[object]} response [{ status, state: "CLOSED", winner: "draw", reason: "agreement", ... } | { status, offered: true } | { status, declined: true } | { status: 409, message }]
+ */
+export async function offerDraw(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Turns down the opponent's draw offer (POST /game/:gameId/draw/decline)
+ * @return {[object]} response [{ status, declined: true } | { status: 409, message } when it already ended]
+ */
+export async function declineDraw(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw/decline`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Friend games that are over: asks for a rematch, it starts when both players ask within 5 minutes (POST /game/:gameId/rematch)
+ * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in, opponent_name, opponent_here } until then]
  */
 export async function rematchGame(gameUrl, gameId) {
 	const options = {
@@ -213,6 +258,21 @@ export async function rematchGame(gameUrl, gameId) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Takes back this player's rematch request (POST /game/:gameId/rematch/cancel)
+ * @return {[object]} response [{ status, cancelled, message }, cancelled: false when the rematch already started]
+ */
+export async function cancelRematch(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch/cancel`, options)
 	} catch {
 		return
 	}
@@ -281,6 +341,53 @@ export async function saveUsername(userUrl, username) {
 	};
 	try {
 		return await request(`${userUrl}/username`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description The usernames starting with what was typed (GET /api/user/search), names only
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @param  {[string]} prefix [what was typed]
+ * @return {[object]} response [{ status: 200, usernames } | { status: 429, message }]
+ */
+export async function searchPlayers(userUrl, prefix) {
+	try {
+		return await request(`${userUrl}/search?q=${encodeURIComponent(prefix)}`, { method: "GET" })
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description The player's friends & friend requests for Home (GET /api/user/friends), names only
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @return {[object]} response [{ status: 200, friends: [{ username, online }], sent: [{ username }], received: [{ username }] }]
+ */
+export async function getFriends(userUrl) {
+	try {
+		return await request(`${userUrl}/friends`, { method: "GET" })
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description One friend action on the player holding a username (POST /api/user/friends/:action)
+ * @param  {[string]} userUrl [user api, "/api/user"]
+ * @param  {[string]} action ["request", "accept", "decline", "cancel" or "remove"]
+ * @param  {[string]} username [their username]
+ * @return {[object]} response [{ status, message }, status 400, 404 or 409 says why it can't, 429 when a limit is hit]
+ */
+export async function friendAction(userUrl, action, username) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ username })
+	};
+	try {
+		return await request(`${userUrl}/friends/${action}`, options)
 	} catch {
 		return
 	}

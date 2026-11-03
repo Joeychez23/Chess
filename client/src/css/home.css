@@ -20,13 +20,14 @@ html {
 
 @media (prefers-reduced-motion: no-preference) {
 	html {
-		scroll-behavior: smooth; /* THE MENU'S #invites, #games & #soloBox LINKS SCROLL TO THEIR BOX INSTEAD OF JUMPING (#240) */
+		scroll-behavior: smooth; /* THE MENU'S #invites, #games, #finished & #soloBox LINKS SCROLL TO THEIR BOX INSTEAD OF JUMPING (#240) */
 	}
 }
 
 #soloBox,
 #invites,
-#games {
+#games,
+#finished {
 	scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 72px); /* THE MENU'S LINKS STOP WITH THE BOX BELOW THE MENU BUTTON */
 }
 
@@ -330,6 +331,22 @@ body {
 	flex: none;
 }
 
+.playerResults { /* PLAY A FRIEND: THE USERNAMES FOUND AS YOU TYPE */
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	list-style: none;
+}
+
+.fieldStack .playerResults .btn {
+	width: auto;
+	text-transform: none; /* A USERNAME'S CAPITALS ARE THE PLAYER'S */
+}
+
+#playerSearchNote:empty {
+	min-height: 0; /* STAYS IN THE PAGE: SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
+}
+
 .note { /* WHY AN INVITE DIDN'T GO THROUGH, THE FORFEIT WARNINGS */
 	min-height: 1.4em;
 	color: var(--gold);
@@ -419,21 +436,21 @@ body {
 }
 
 /* ---------------------------------------------------------------- */
-/* Your Games */
+/* Your Games & Finished Games */
 /* ---------------------------------------------------------------- */
 
-#gameList {
+.gameRows {
 	display: flex;
 	flex-direction: column;
 	list-style: none;
 	overflow-anchor: none; /* SAME AS .inviteList (#240) */
 }
 
-#gameList li + li {
+.gameRows li + li {
 	border-top: 1px solid rgba(35, 22, 14, 0.15);
 }
 
-#gameList a {
+.gameRows a {
 	display: flex;
 	align-items: center;
 	gap: 12px;
@@ -447,20 +464,20 @@ body {
 }
 
 @media (hover: hover) {
-	#gameList a:hover { background-color: rgba(35, 22, 14, 0.08); transition: ease-in 125ms; }
+	.gameRows a:hover { background-color: rgba(35, 22, 14, 0.08); transition: ease-in 125ms; }
 }
 
-#gameList .label {
+.gameRows .label {
 	white-space: nowrap;
 }
 
-#gameList .gameInfo { /* "vs AI // LEVEL 3 // YOU PLAY WHITE (RANDOM)" */
+.gameRows .gameInfo { /* "vs AI // LEVEL 3 // YOU PLAY WHITE (RANDOM)" */
 	min-width: 0;
 	overflow-wrap: anywhere; /* WRAPS ON A PHONE, A LONG SCREENNAME NEVER WIDENS THE PAGE */
 	color: #7a6648;
 }
 
-#gameList .gameOpen {
+.gameRows .gameOpen {
 	margin-left: auto;
 	font-size: 12px;
 }

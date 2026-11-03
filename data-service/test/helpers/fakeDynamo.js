@@ -1,7 +1,7 @@
 /*
  *  fakeDynamo.js  --  data service tests
  *	In-memory DynamoDB
- *  Replaces the DynamoDB client's calls (getItem, putItem, updateItem, deleteItem, batchGetItem, transactWriteItems) with tables held in memory,
+ *  Replaces the DynamoDB client's calls (getItem, putItem, updateItem, deleteItem, batchGetItem, query, transactWriteItems) with tables held in memory,
  *  so data-service/dynamoDB.js runs unchanged with no AWS account. It understands the update and condition expressions
  *  dynamoDB.js uses: SET / REMOVE, =, <>, <, <=, >, >=, AND, OR, parentheses, attribute_exists and attribute_not_exists.
  *  Reads are up to date (strongly consistent) unless a test turns on staleReads(), see below.
@@ -21,6 +21,7 @@ let throttledReads = 0; // throttleBatchReads()
 let failingReads = false; // failBatchReads()
 const failingWrites = new Set(); // failTransactionWrite()
 const KEYS = { chess_db: "game_id", user_db: "user_id" }; // HASH KEYS, MATCH terraform/modules/dynamodb
+const INDEXES = { "username-search": { table: "user_db", hash: "search_group", range: "search_name" } }; // MATCH terraform/modules/dynamodb
 
 /* ---------------------------------------------------------------- */
 // Install
@@ -35,6 +36,7 @@ function install() {
 	DynamoDB.prototype.updateItem = async (params) => updateItem(params);
 	DynamoDB.prototype.deleteItem = async (params) => deleteItem(params);
 	DynamoDB.prototype.batchGetItem = async (params) => batchGetItem(params);
+	DynamoDB.prototype.query = async (params) => query(params);
 	DynamoDB.prototype.transactWriteItems = async (params) => transactWriteItems(params);
 }
 
@@ -193,6 +195,22 @@ async function batchGetItem({ RequestItems }) {
 		Responses[TableName] = keys.map((key) => readItem(TableName, keyOf(TableName, key), request.ConsistentRead)).filter(Boolean).map((item) => structuredClone(item));
 	}
 	return { Responses, UnprocessedKeys };
+}
+
+/**
+ * @description A query on an index, with a key condition of "hash = :value AND begins_with(range, :prefix)". Items without both keys aren't in the index (sparse), results come sorted by the range key
+ */
+async function query({ TableName, IndexName, KeyConditionExpression, ProjectionExpression, ExpressionAttributeValues, Limit }) {
+	const index = INDEXES[IndexName];
+	const condition = KeyConditionExpression.match(/^(\w+) = (:\w+) AND begins_with\((\w+), (:\w+)\)$/);
+	if (index?.table != TableName || condition?.[1] != index.hash || condition[3] != index.range) { throw Object.assign(new Error("Query doesn't match an index"), { name: "ValidationException" }); }
+	const matches = [...table(TableName).values()]
+		.filter((item) => item[index.hash]?.S == ExpressionAttributeValues[condition[2]].S && item[index.range]?.S.startsWith(ExpressionAttributeValues[condition[4]].S))
+		.sort((a, b) => (a[index.range].S < b[index.range].S ? -1 : 1))
+		.slice(0, Limit);
+	const fields = ProjectionExpression.split(",").map((part) => part.trim());
+	const Items = matches.map((item) => Object.fromEntries(fields.filter((field) => item[field]).map((field) => [field, structuredClone(item[field])])));
+	return { Items, Count: Items.length };
 }
 
 /**

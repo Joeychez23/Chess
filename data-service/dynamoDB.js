@@ -15,8 +15,9 @@ const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
-const { usernameKey } = require("./utils/username.js");
+const { usernameKey, searchFields } = require("./utils/username.js");
 const { newGameId } = require("./utils/games.js");
+const { unlinkFriends } = require("./utils/friends.js");
 const config = require("./config");
 
 const connection = new DynamoDB({ region: config.dynamoRegion }); // DYNAMODB_REGION, us-west-2 BY DEFAULT. CREDENTIALS COME FROM ~/.aws LOCALLY, OR THE DATA SERVICE'S IAM ROLE ON AWS
@@ -24,7 +25,11 @@ const connection = new DynamoDB({ region: config.dynamoRegion }); // DYNAMODB_RE
 const CHESS_TABLE = "chess_db"; // KEY: game_id (S), NAMES MATCH terraform/aws-enviroment/locals.tf
 const USER_TABLE = "user_db"; // KEY: user_id (S), PLAYERS' ROWS & THE username#<name> ITEMS THAT HOLD EACH USERNAME (claimUsername)
 
+const USERNAME_INDEX = "username-search"; // username#<name> ITEMS BY NAME IN LOWERCASE, MATCHES terraform/modules/dynamodb
+const SEARCH_RESULTS = 10; // NAMES ONE SEARCH SHOWS
+
 const GAME_TTL = 60 * 60 * 24 * 25; // GAMES EXPIRE 25 DAYS AFTER THE LAST MOVE (SECONDS)
+const FINISHED_GAMES = 20; // GAMES FINISHED GAMES ON HOME SHOWS, closed_games ONLY GROWS
 
 const GAME_LISTS = ["requested_games", "open_games", "closed_games"]; // A user_db ROW'S GAME LISTS (JSON STRINGS)
 const LIST_SAVE_TRIES = 5; // A GAME LIST SAVE THAT LOST A RACE READS THE ROW AGAIN & RETRIES
@@ -34,6 +39,8 @@ const BATCH_READ_DELAY = 50; // MS BEFORE THE FIRST RETRY, DOUBLED EACH TRY
 /* ---------------------------------------------------------------- */
 // Expire Time
 /* ---------------------------------------------------------------- */
+const DRAW_ATTRIBUTES = ["draw_offer_player_id", "draw_offered_w", "draw_offered_b"]; // A DRAW OFFER: WHO OFFERED, WHICH COLORS USED THEIR OFFER THIS MOVE. A MOVE OR THE GAME CLOSING REMOVES THEM
+
 /**
  * @description Builds the expireAt value DynamoDB TTL reads on chess_db
  * @return {[string]} expireAt [epoch SECONDS as a string, the SDK only takes strings for N]
@@ -96,6 +103,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 			white_player_id: { S: playerId1 },
 			black_player_id: { S: playerId2 },
 			start_params: { S: JSON.stringify(start_params || { color: "random" }) }, // START SETTINGS, AI GAMES: THE PLAYER'S PICK, FRIEND GAMES: THE INVITER'S
+			created_at: { S: new Date().toISOString() }, // THE PGN'S Date HEADER, OLDER GAMES DON'T HAVE ONE
 			expireAt: { N: expireTime() } // TTL, PUSHED BACK ON EVERY MOVE IN updateGame
 		}
 	};
@@ -191,20 +199,20 @@ function gameItem(item) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Saves a validated move, only on a game that's still open (a forfeit can land after the move's read). A move that ends the game saves its result in the same write, so the board & the result land together or
- * not at all (run finishClosedGame after it). Finished friend games are kept forever (expireAt is removed)
+ * not at all (run finishClosedGame after it). Signed-in players' finished games are kept forever (expireAt is removed, keepsFinished)
  * @param  {[object]} gameData [Validated server data, modified by a successful client request]
  * @param  {[string]} prevBoard [board the move was made on, the save fails if the board changed since (two requests at once)]
  * @param  {[object]} result [gameResult's { winner, reason } when the move ends the game]
  * @return {[object]} response [{ status, game_data (the game as saved), message }]
  */
-async function updateGame(gameData, prevBoard, result) {
-	const keepForever = result && gameData.white_player_id.S != "CHESS_AI" && gameData.black_player_id.S != "CHESS_AI"; // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
+async function updateGame(gameData, prevBoard, result) { // ANY MOVE ENDS A DRAW OFFER & GIVES BOTH PLAYERS THEIR OFFER BACK (DRAW_ATTRIBUTES)
+	const keepForever = result && keepsFinished(gameData); // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameData.game_id.S }
 		},
-		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""}${keepForever ? " REMOVE expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""} REMOVE ${DRAW_ATTRIBUTES.join(", ")}${keepForever ? ", expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
 		ConditionExpression: '(attribute_not_exists(#state) OR #state = :open)', // GAMES FROM BEFORE state ARE OPEN
 		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
@@ -244,26 +252,64 @@ async function updateGame(gameData, prevBoard, result) {
 	}
 }
 
+/**
+ * @description Whether a game is kept once it's finished, for Finished games on Home. Only a guest's AI game isn't: they have no game list to find it in
+ * @param  {[object]} gameData [game item]
+ * @return {[boolean]} keep [false for a guest's game, their player id is the game id ("GUEST_USER" on older games)]
+ */
+function keepsFinished(gameData) {
+	const players = [gameData.white_player_id.S, gameData.black_player_id.S];
+	return !players.includes(gameData.game_id.S) && !players.includes("GUEST_USER");
+}
+
+/* ---------------------------------------------------------------- */
+// Save opening (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves the game's opening, only while its board is the one the opening was found for. A closed game takes it too, a move can end the game on a named position
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} board [the FEN the opening was found for]
+ * @param  {[object]} opening [{ eco, name }]
+ * @return {[object]} response [{ status, game_data (the game as saved), message }]
+ */
+async function saveOpening(gameId, board, opening) {
+	try {
+		const response = await connection.updateItem({
+			TableName: CHESS_TABLE,
+			Key: { game_id: { S: gameId } },
+			UpdateExpression: "SET opening = :opening",
+			ConditionExpression: "game_board = :board",
+			ExpressionAttributeValues: { ":opening": { S: JSON.stringify(opening) }, ":board": { S: board } },
+			ReturnValues: "ALL_NEW"
+		});
+		return { status: 200, game_data: gameItem(response.Attributes), message: `Saved opening: ${gameId}` };
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Board changed before the opening saved: ${gameId}` }; }
+		throw err;
+	}
+}
+
 /* ---------------------------------------------------------------- */
 // Close game (PUT)
 /* ---------------------------------------------------------------- */
 /**
  * @description Ends a game without a move (a forfeit): saves the result, then finishClosedGame. A move that ends the game saves its result in updateGame.
- * Finished friend games are kept forever (expireAt is removed), AI games still expire 25 days after the last move
+ * Signed-in players' finished games are kept forever (expireAt is removed, keepsFinished), guests' still expire 25 days after the last move
  * @param  {[object]} gameData [game item from retrieveGame]
  * @param  {[string]} winner ["w", "b" or "draw"]
- * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition" or "forfeit"]
+ * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition", "forfeit" or "agreement"]
+ * @param  {[string]} offeredBy [a draw by agreement: the player whose offer was accepted, the close only saves while that offer stands (a move ends it)]
  * @return {[object]} response [{ status, game_data, message }]
  */
-async function closeGame(gameData, winner, reason) {
+async function closeGame(gameData, winner, reason, offeredBy) {
 	const gameId = gameData.game_id.S;
-	const aiGame = gameData.white_player_id.S == "CHESS_AI" || gameData.black_player_id.S == "CHESS_AI";
+	const keepForever = keepsFinished(gameData);
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameId }
 		},
-		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason${aiGame ? "" : " REMOVE expireAt"}`, // NO expireAt = TTL NEVER DELETES IT
+		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason REMOVE ${DRAW_ATTRIBUTES.join(", ")}${keepForever ? ", expireAt" : ""}`, // NO expireAt = TTL NEVER DELETES IT
 		ConditionExpression: 'attribute_not_exists(#state) OR #state <> :closed', // ONLY ONE CLOSE WINS (FORFEIT & CHECKMATE AT THE SAME TIME)
 		ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: {
@@ -271,6 +317,11 @@ async function closeGame(gameData, winner, reason) {
 			":winner": { S: winner },
 			":reason": { S: reason }
 		}
+	}
+
+	if (offeredBy) {
+		params.ConditionExpression = `draw_offer_player_id = :offered_by AND (${params.ConditionExpression})`;
+		params.ExpressionAttributeValues[":offered_by"] = { S: offeredBy };
 	}
 
 	try {
@@ -285,7 +336,8 @@ async function closeGame(gameData, winner, reason) {
 	gameData.state = { S: "CLOSED" };
 	gameData.winner = { S: winner };
 	gameData.reason = { S: reason };
-	if (!aiGame) { delete gameData.expireAt; }
+	for (const attribute of DRAW_ATTRIBUTES) { delete gameData[attribute]; }
+	if (keepForever) { delete gameData.expireAt; }
 	return {
 		status: 200,
 		game_data: gameData,
@@ -498,6 +550,70 @@ async function movePlayersGame(gameData, gameId, fromList, toList) {
 }
 
 /* ---------------------------------------------------------------- */
+// Draw offers (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A player's draw offer: saves who offered & that their color used its offer for this move. Only on the board the offer was checked on
+ * @param  {[object]} gameData [the open game, as read]
+ * @param  {[string]} playerId [player offering]
+ * @param  {[string]} color [their color from the stored game, "w" or "b"]
+ * @return {[boolean]} saved [false when the game moved or closed, an offer is standing or this color already offered this move]
+ */
+async function offerDraw(gameData, playerId, color) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameData.game_id.S }
+		},
+		UpdateExpression: `SET draw_offer_player_id = :player_id, draw_offered_${color} = :used`,
+		ConditionExpression: `game_board = :board AND (attribute_not_exists(#state) OR #state = :open) AND attribute_not_exists(draw_offer_player_id) AND attribute_not_exists(draw_offered_${color})`,
+		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
+		ExpressionAttributeValues: {
+			":player_id": { S: playerId },
+			":used": { BOOL: true },
+			":board": { S: gameData.game_board.S },
+			":open": { S: "OPEN" }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/**
+ * @description Takes a declined offer off the game. draw_offered_w / b stay, the player can't offer again until the next move
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} offeredBy [the player whose offer was declined]
+ * @return {[boolean]} saved [false when that offer already ended]
+ */
+async function endDrawOffer(gameId, offeredBy) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: 'REMOVE draw_offer_player_id',
+		ConditionExpression: 'draw_offer_player_id = :offered_by',
+		ExpressionAttributeValues: {
+			":offered_by": { S: offeredBy }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Request rematch (PUT)
 /* ---------------------------------------------------------------- */
 /**
@@ -514,7 +630,7 @@ async function requestRematch(gameId, playerId, expires) {
 			game_id: { S: gameId }
 		},
 		UpdateExpression: 'SET rematch_player_id = :player_id, rematch_expires = :expires',
-		ConditionExpression: 'attribute_not_exists(rematch_game_id) AND (attribute_not_exists(rematch_player_id) OR rematch_player_id = :player_id OR rematch_expires < :now)', // PRESSING AGAIN RESTARTS YOUR OWN MINUTE
+		ConditionExpression: 'attribute_not_exists(rematch_game_id) AND (attribute_not_exists(rematch_player_id) OR rematch_player_id = :player_id OR rematch_expires < :now)', // PRESSING AGAIN RESTARTS YOUR OWN WAIT
 		ExpressionAttributeValues: {
 			":player_id": { S: playerId },
 			":expires": { N: `${expires}` },
@@ -553,6 +669,37 @@ async function acceptRematch(gameId, playerId, newGameId) {
 			":rematch_game_id": { S: newGameId },
 			":player_id": { S: playerId },
 			":now": { N: `${Date.now()}` }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Cancel rematch (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Takes back a rematch request, only the player who asked can & only until the other press claims it
+ * @param  {[string]} gameId [closed friend game]
+ * @param  {[string]} playerId [player cancelling]
+ * @return {[boolean]} cancelled [false when they have no request open or the rematch already started]
+ */
+async function cancelRematch(gameId, playerId) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: 'REMOVE rematch_player_id, rematch_expires',
+		ConditionExpression: 'attribute_not_exists(rematch_game_id) AND rematch_player_id = :player_id',
+		ExpressionAttributeValues: {
+			":player_id": { S: playerId }
 		}
 	}
 
@@ -802,11 +949,13 @@ async function claimUsername(userId, username) {
 				Key: {
 					user_id: { S: claimKey }
 				},
-				UpdateExpression: 'SET username = :username',
+				UpdateExpression: 'SET username = :username, search_group = :search_group, search_name = :search_name',
 				ConditionExpression: 'owner_id = :owner_id',
 				ExpressionAttributeValues: {
 					":username": { S: username },
-					":owner_id": { S: userId }
+					":owner_id": { S: userId },
+					":search_group": searchFields(username).search_group,
+					":search_name": searchFields(username).search_name
 				}
 			}
 		} : {
@@ -815,7 +964,8 @@ async function claimUsername(userId, username) {
 				Item: {
 					user_id: { S: claimKey },
 					owner_id: { S: userId }, // WHO HOLDS IT
-					username: { S: username } // AS THEY WROTE IT
+					username: { S: username }, // AS THEY WROTE IT
+					...searchFields(username) // FINDABLE BY searchUsernames
 				},
 				ConditionExpression: 'attribute_not_exists(user_id)' // NOBODY HAS IT
 			}
@@ -850,11 +1000,37 @@ async function claimUsername(userId, username) {
 }
 
 /* ---------------------------------------------------------------- */
+// Expire finished AI games (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Puts the 25 day expiry back on a player's finished AI games, before Delete my data drops the lists that find them. Nobody else can see those games
+ * @param  {[object]} userData [user item from retrieveUser]
+ * @throws when a game can't be read or saved, before the row is gone so Delete my data can run again
+ */
+async function expireFinishedAiGames(userData) {
+	const games = [...await pruneGameList(userData, "closed_games"), ...await pruneGameList(userData, "open_games")]; // A LIST SAVE THAT FAILED LEAVES A FINISHED GAME IN open_games
+	const finishedAiGames = games.filter((game) => game.state?.S == "CLOSED" && (game.white_player_id.S == "CHESS_AI" || game.black_player_id.S == "CHESS_AI"));
+	for (const game of finishedAiGames) {
+		try {
+			await connection.updateItem({
+				TableName: CHESS_TABLE,
+				Key: { game_id: game.game_id },
+				UpdateExpression: "SET expireAt = :expireAt",
+				ConditionExpression: "attribute_exists(game_id)", // TTL DELETED IT SINCE THE READ: DON'T MAKE A NEW ITEM
+				ExpressionAttributeValues: { ":expireAt": { N: expireTime() } }
+			});
+		} catch (err) {
+			if (err.name != "ConditionalCheckFailedException") { throw err; }
+		}
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Delete user (DELETE)
 /* ---------------------------------------------------------------- */
 /**
  * @description Deletes a player's user_db row, their game lists, settings & rating (Delete my data, after leaveAllGames), & frees their username.
- * The games stay in chess_db: a friend's finished games still show the result & the name, & their next login makes a new row
+ * The friend games stay in chess_db: a friend's finished games still show the result & the name (their AI games expire, expireFinishedAiGames), & their next login makes a new row
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, message }]
  */
@@ -981,6 +1157,20 @@ async function pruneOpenGames(userData) {
 }
 
 /* ---------------------------------------------------------------- */
+// Prune closed games
+/* ---------------------------------------------------------------- */
+/**
+ * @description Finds the user's newest finished games for Finished games on Home, dropping any TTL already deleted from closed_games
+ * @param  {[object]} userData [user item from retrieveUser]
+ * @return {[object]} userData [same item, closed_game_list = up to FINISHED_GAMES closed game items, newest first]
+ */
+async function pruneClosedGames(userData) {
+	const games = await pruneGameList(userData, "closed_games", FINISHED_GAMES);
+	userData.closed_game_list = games.filter((game) => game.state?.S == "CLOSED").reverse(); // NEWEST IS LAST IN closed_games
+	return userData;
+}
+
+/* ---------------------------------------------------------------- */
 // Prune invites
 /* ---------------------------------------------------------------- */
 /**
@@ -1016,26 +1206,34 @@ async function pruneInvites(userData) {
 /**
  * @description Checks every game in one of a user's lists still exists (TTL deletes expired games) & has the user in it, & saves the shorter list
  * @param  {[object]} userData [user item from retrieveUser, userData[listName].S is updated to the pruned list]
- * @param  {[string]} listName ["open_games" or "requested_games"]
- * @return {[array]} games [the found games in list order (newest last): game_id, player ids, names, state, level & start settings]
+ * @param  {[string]} listName ["open_games", "requested_games" or "closed_games"]
+ * @param  {[number]} newest [stop once this many games are found, reading from the newest: older ids aren't checked. Left out = the whole list]
+ * @return {[array]} games [the found games in list order (newest last): game_id, player ids, names, state, result, level & start settings]
  * @throws when the games can't all be read (batchReadGames), a missed game would look expired
  */
-async function pruneGameList(userData, listName) {
+async function pruneGameList(userData, listName, newest = Infinity) {
 	const gameIds = [...new Set(JSON.parse(userData[listName].S))]; // BATCH GET FAILS ON DUPLICATE KEYS
 	if (gameIds.length == 0) { return []; }
 
-	let foundItems = [];
-	for (let i = 0; i < gameIds.length; i += 100) { // BATCH GET TAKES 100 KEYS MAX
-		foundItems = foundItems.concat(await batchReadGames(gameIds.slice(i, i + 100), listName));
-	}
-
 	const userId = userData.user_id.S;
 	const theirs = (game) => game.white_player_id?.S == userId || game.black_player_id?.S == userId; // A GAME THAT WAS REPLACED UNDER THEIR LIST ISN'T THEIRS
-	const liveGames = gameIds.filter((gameId) => foundItems.some((game) => game.game_id.S == gameId && theirs(game))); // EVERY KEY WAS READ, A GAME THAT WASN'T FOUND EXPIRED
-	const games = liveGames.map((gameId) => foundItems.find((game) => game.game_id.S == gameId)); // BATCH GET ISN'T IN ORDER
-	if (liveGames.length == gameIds.length) { return games; } // NOTHING EXPIRED OR REPLACED
+	const pageSize = Math.min(newest, 100); // BATCH GET TAKES 100 KEYS MAX
+	const foundGames = new Map();
+	let unread = gameIds.length;
+	while (unread > 0 && foundGames.size < newest) {
+		const page = gameIds.slice(Math.max(0, unread - pageSize), unread);
+		for (const game of await batchReadGames(page, listName)) {
+			if (theirs(game)) { foundGames.set(game.game_id.S, game); }
+		}
+		unread -= page.length;
+	}
 
-	const prunedGames = JSON.stringify(liveGames);
+	const readIds = gameIds.slice(unread);
+	const games = readIds.filter((gameId) => foundGames.has(gameId)).map((gameId) => foundGames.get(gameId)).slice(-newest); // BATCH GET ISN'T IN ORDER
+	const goneIds = new Set(readIds.filter((gameId) => !foundGames.has(gameId))); // EVERY KEY WAS READ, A GAME THAT WASN'T FOUND EXPIRED
+	if (goneIds.size == 0) { return games; } // NOTHING EXPIRED OR REPLACED
+
+	const prunedGames = JSON.stringify(gameIds.filter((gameId) => !goneIds.has(gameId)));
 	const params = {
 		TableName: USER_TABLE,
 		Key: {
@@ -1076,8 +1274,8 @@ async function batchReadGames(gameIds, listName) {
 			RequestItems: {
 				[CHESS_TABLE]: {
 					Keys: keys,
-					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, ai_level, start_params, inviter_id", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME & HOW IT STARTED (YOUR GAMES & INVITES)
-					ExpressionAttributeNames: { "#state": "state" }
+					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, #winner, #reason, ai_level, start_params, inviter_id, opening", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME, HOW IT STARTED, HOW IT ENDED & ITS OPENING (YOUR GAMES, FINISHED GAMES & INVITES)
+					ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }
 				}
 			}
 		};
@@ -1092,5 +1290,153 @@ async function batchReadGames(gameIds, listName) {
 	throw new Error(`Game list check throttled (${listName})`);
 }
 
+/* ---------------------------------------------------------------- */
+// Find username (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The player holding a username, ignoring capitals, from its username#<name> item (claimUsername). A friend invite by username
+ * @param  {[string]} username [checked by checkUsername in utils/username.js]
+ * @return {[object]} response [{ status: 200, player_id, username (as they wrote it), message } | { status: 404, message }]
+ */
+async function findUsername(username) {
+	const response = await connection.getItem({
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: usernameKey(username) }
+		},
+		ConsistentRead: true // A NAME PICKED A MOMENT AGO CAN BE INVITED
+	});
+	if (!response.Item) { return { status: 404, message: "Username not found" }; }
+	return { status: 200, player_id: response.Item.owner_id.S, username: response.Item.username.S, message: "Username found" };
+}
 
-module.exports = { checkTables, initalizeGame, retrieveGame, updateGame, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, requestRematch, acceptRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+/* ---------------------------------------------------------------- */
+// Search usernames (GET)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The usernames starting with a prefix, from the username-search index. The index only holds the names, never who owns them.
+ * Index reads can lag a moment behind a save
+ * @param  {[string]} prefix [in lowercase, from readSearchPrefix in utils/username.js]
+ * @return {[object]} response [{ status: 200, usernames (as they wrote them, sorted, at most SEARCH_RESULTS), message }]
+ */
+async function searchUsernames(prefix) {
+	const response = await connection.query({
+		TableName: USER_TABLE,
+		IndexName: USERNAME_INDEX,
+		KeyConditionExpression: 'search_group = :search_group AND begins_with(search_name, :prefix)',
+		ProjectionExpression: 'username',
+		ExpressionAttributeValues: {
+			":search_group": searchFields(prefix).search_group,
+			":prefix": { S: prefix }
+		},
+		Limit: SEARCH_RESULTS
+	});
+	return { status: 200, usernames: (response.Items || []).map((item) => item.username.S), message: "Usernames found" };
+}
+
+/* ---------------------------------------------------------------- */
+// Friends (#40)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A row's friend_lists, a JSON string like its game lists. It's one attribute, so a save can check nothing in it changed. Older rows have none
+ * @param  {[object]} userData [user row, undefined = no row]
+ * @return {[object]} lists [{ friends, sent, received }, arrays of player ids]
+ */
+function readFriendLists(userData) {
+	return userData?.friend_lists ? JSON.parse(userData.friend_lists.S) : { friends: [], sent: [], received: [] };
+}
+
+/**
+ * @description The transaction item that saves a row's friend lists, only if they haven't changed since the read & the row is still there
+ */
+function saveFriendLists(userData, lists) {
+	const old = userData.friend_lists?.S;
+	return {
+		Update: {
+			TableName: USER_TABLE,
+			Key: {
+				user_id: userData.user_id
+			},
+			UpdateExpression: 'SET friend_lists = :lists',
+			ConditionExpression: old ? 'friend_lists = :old_lists' : 'attribute_exists(user_id) AND attribute_not_exists(friend_lists)',
+			ExpressionAttributeValues: {
+				":lists": { S: JSON.stringify(lists) },
+				...(old ? { ":old_lists": { S: old } } : {})
+			}
+		}
+	};
+}
+
+/**
+ * @description Changes two players' friend lists together, all or nothing. When either row changed since the read, they're read again & the change made again
+ * @param  {[string]} userId [the requester]
+ * @param  {[string]} otherId [the other player, never the requester]
+ * @param  {[function]} change [(mine, theirs) => edits both { friends, sent, received }, or answers { status, message } to refuse. It can run more than once]
+ * @return {[object]} response [{ status: 200, message } | the refusal | { status: 404 } (a row is gone) | { status: 500 } (lost every try)]
+ */
+async function changeFriends(userId, otherId, change) {
+	for (let i = 0; i < LIST_SAVE_TRIES; i++) {
+		const [user, other] = await Promise.all([retrieveUser(userId, true), retrieveUser(otherId, true)]);
+		if (!user.user_data || !other.user_data) { return { status: 404, message: "Player not found" }; }
+		const mine = readFriendLists(user.user_data);
+		const theirs = readFriendLists(other.user_data);
+		const refused = change(mine, theirs);
+		if (refused) { return refused; }
+		try {
+			await connection.transactWriteItems({ TransactItems: [saveFriendLists(user.user_data, mine), saveFriendLists(other.user_data, theirs)] }); // UPDATE REQUESTS TO DYNAMODB, BOTH OR NEITHER
+			return { status: 200, message: "Friends saved" };
+		} catch (err) {
+			if (err.name != "TransactionCanceledException") { throw err; }
+		} // A ROW CHANGED SINCE THE READ, READ THEM AGAIN
+	}
+	return { status: 500, message: `Friends save failed after ${LIST_SAVE_TRIES} tries: ${userId}` };
+}
+
+/**
+ * @description A player's friends & requests with each one's current username (a rename shows straight away). A row that's gone isn't listed
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @return {[object]} response [{ status: 200, friends, sent, received, message }, each list [{ player_id, username }] sorted by name, ignoring capitals]
+ */
+async function retrieveFriends(userId) {
+	const user = await retrieveUser(userId, true); // CONSISTENT: HOME READS IT RIGHT AFTER A SAVE
+	const lists = readFriendLists(user.user_data);
+	const names = await batchReadUsernames([...new Set([...lists.friends, ...lists.sent, ...lists.received])]);
+	const named = (ids) => ids.filter((id) => names.has(id)).map((id) => ({ player_id: id, username: names.get(id) })).sort((a, b) => a.username.toLowerCase().localeCompare(b.username.toLowerCase()));
+	return { status: 200, friends: named(lists.friends), sent: named(lists.sent), received: named(lists.received), message: `Retrieved friends: ${userId}` };
+}
+
+/**
+ * @description Reads players' usernames in one batch get (utils/friends.js keeps a row to 100 ids). Keys DynamoDB didn't read are asked for again with backoff, so a friend is never left off the list
+ * @param  {[array]} userIds [player ids, no duplicates]
+ * @return {[object]} names [Map: player id -> username, players with a row & a username]
+ * @throws when some keys are still unread after BATCH_READ_TRIES (the route answers 500, the chess server 503)
+ */
+async function batchReadUsernames(userIds) {
+	const names = new Map();
+	let keys = userIds.map((userId) => ({ user_id: { S: userId } }));
+	for (let i = 0; i < BATCH_READ_TRIES && keys.length; i++) {
+		if (i > 0) { await new Promise((resolve) => setTimeout(resolve, BATCH_READ_DELAY * 2 ** (i - 1))); }
+		const response = await connection.batchGetItem({ RequestItems: { [USER_TABLE]: { Keys: keys, ProjectionExpression: "user_id, username" } } }); // GET REQUEST TO DYNAMODB
+		for (const item of response.Responses?.[USER_TABLE] || []) { if (item.username) { names.set(item.user_id.S, item.username.S); } }
+		keys = response.UnprocessedKeys?.[USER_TABLE]?.Keys || [];
+	}
+	if (keys.length) { throw new Error(`Friend names throttled: ${keys.length} unread after ${BATCH_READ_TRIES} tries`); }
+	return names;
+}
+
+/**
+ * @description Takes a player off everyone's friend lists & requests (Delete my data), so they don't come back as a friend when they next sign in
+ * @param  {[string]} userId [auth0 user id without "auth0|"]
+ * @return {[object]} response [{ status: 200, friend_ids (who to tell) } | { status: 500, message } (a save lost every try: try again, nothing's deleted)]
+ */
+async function leaveFriends(userId) {
+	const lists = readFriendLists((await retrieveUser(userId, true)).user_data);
+	const friendIds = [...new Set([...lists.friends, ...lists.sent, ...lists.received])];
+	for (const friendId of friendIds) {
+		const response = await changeFriends(userId, friendId, (mine, theirs) => unlinkFriends(mine, theirs, userId, friendId));
+		if (response.status == 500) { return response; } // 404: THEIR ROW IS GONE TOO, NOTHING TO TAKE THEM OFF
+	}
+	return { status: 200, friend_ids: friendIds };
+}
+
+module.exports = { pruneClosedGames, expireFinishedAiGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

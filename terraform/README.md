@@ -29,8 +29,8 @@
   replacing a cached file (see `client/README.md`).
 - **DynamoDB** (`modules/dynamodb`, us-west-2, next to the instance; moved from
   us-east-1, see [Moving the tables](#moving-the-tables-to-us-west-2)): `chess_db` (key `game_id`,
-  TTL on `expireAt`: open games and finished AI games are deleted 25 days
-  after the last move, finished friend games are kept) and `user_db` (key
+  TTL on `expireAt`: open games and guests' finished games are deleted 25 days
+  after the last move, signed-in players' finished games are kept) and `user_db` (key
   `user_id`). Both have point-in-time recovery on, so either can be put back
   the way it was at any second in the last 35 days
   ([Restoring a table](#restoring-a-table)).
@@ -43,7 +43,8 @@
   only way out, limited to the two tables. Its security group lets in only
   `Chess-Stockfish`'s group, on 8090 and SSH. Its role, `EC2_Chess_DataService`,
   is the only one allowed to use the tables: `GetItem`, `PutItem`, `UpdateItem`,
-  `BatchGetItem` and `DeleteItem` on the two tables, only through that endpoint
+  `BatchGetItem` and `DeleteItem` on the two tables, and `Query` on the
+  `username-search` index (#120), only through that endpoint
   (`aws:SourceVpce`), so its keys don't work anywhere else. Usernames are saved
   with `TransactWriteItems`, which has no IAM action of its own: each write in it
   is checked as the `PutItem`, `UpdateItem` or `DeleteItem` it is
@@ -148,6 +149,14 @@ games.
    aws dynamodb delete-table --region us-west-2 --table-name chess_db_restore
    aws dynamodb delete-backup --region us-west-2 --backup-arn <BackupArn>
    ```
+
+### Username search index
+
+`user_db`'s `username-search` index (#120) only holds `username#<name>` items that
+have `search_group` and `search_name`. To add it to live tables, in this order:
+`terraform apply` and wait until the index is `ACTIVE`, then with admin credentials
+run `node scripts/backfillUsernameSearch.js` in `data-service/` so names claimed
+earlier are found (safe to run again), then deploy the code.
 
 ### Moving the tables to us-west-2
 

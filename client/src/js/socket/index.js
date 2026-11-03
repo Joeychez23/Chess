@@ -1,10 +1,10 @@
 /*
  *  socket/index.js  --  chess frontend
  *	Friend Game Socket
- *  The server pushes "move" when a friend game's board changes, "game-over" when the opponent forfeits
- *  & "rematch" when both players asked for one (server/socket.js).
+ *  The server pushes "move" when a friend game's board changes, "game-over" when the opponent forfeits or accepts a draw, "draw-offer" when a draw is offered or declined,
+ *  "rematch" when both players asked for one & "player-left" / "player-back" when the opponent leaves or returns to the game page (server/socket.js).
  *  The socket is only open while a friend game is on screen. Guests & AI games never open one.
- *  Home opens its own (watchGames) & gets "games" when an invite or friend game changes.
+ *  Home opens its own (watchGames) & gets "games" when an invite or friend game changes, "friends" when a friend request or friend does.
  *
  */
 
@@ -20,8 +20,8 @@ let homeSocket = null; // HOME'S SOCKET (watchGames)
  * @description Opens the socket & joins a friend game's room. After a reconnect it joins again & catches up on anything missed
  * @param  {[string]} gameId [game id]
  * @param  {[string]} playerId [this player, their own moves & forfeits already came back from the request so they're skipped]
- * @param  {[object]} handlers [{ move() opponent moved, gameOver(result) opponent forfeited, rematch(newGameId) both asked for a rematch,
- * connectionLost() trying to reconnect, reconnected() back in the room, connectionFailed() it won't come back without a reload }]
+ * @param  {[object]} handlers [{ move() opponent moved, gameOver(result) opponent forfeited or accepted a draw, drawOffer({ state, mine }) a draw was offered or declined, rematch(newGameId) both asked for a rematch,
+ * opponentLeft() the opponent left the game page, opponentBack() they returned, connectionLost() trying to reconnect, reconnected() back in the room, connectionFailed() it won't come back without a reload }]
  */
 export function joinGame(gameId, playerId, handlers) {
 	leaveGame();
@@ -47,7 +47,7 @@ export function joinGame(gameId, playerId, handlers) {
 			if (lost) { lost = false; handlers.reconnected(); }
 			if (joined) { // RECONNECTED, THE OPPONENT MAY HAVE MOVED OR FORFEITED WHILE OFFLINE
 				handlers.move();
-				if (response.state == "CLOSED" && response.reason == "forfeit") { handlers.gameOver(response); }
+				if (response.state == "CLOSED" && (response.reason == "forfeit" || response.reason == "agreement")) { handlers.gameOver(response); } // THE ENDS WITHOUT A MOVE
 			}
 			joined = true;
 		});
@@ -61,8 +61,20 @@ export function joinGame(gameId, playerId, handlers) {
 		if (data?.game_id == `${gameId}` && data.player_id != playerId) { handlers.gameOver(data); }
 	});
 
+	gameSocket.on("draw-offer", (data) => {
+		if (data?.game_id == `${gameId}`) { handlers.drawOffer({ state: data.state, mine: data.player_id == playerId }); } // ANOTHER OF THIS PLAYER'S TABS STAYS IN STEP
+	});
+
 	gameSocket.on("rematch", (data) => {
 		if (data?.game_id == `${gameId}`) { handlers.rematch(data.new_game_id); }
+	});
+
+	gameSocket.on("player-left", (data) => {
+		if (data?.game_id == `${gameId}` && data.player_id != playerId) { handlers.opponentLeft(); }
+	});
+
+	gameSocket.on("player-back", (data) => {
+		if (data?.game_id == `${gameId}` && data.player_id != playerId) { handlers.opponentBack(); }
 	});
 
 	/**
@@ -108,7 +120,7 @@ export function leaveGame() {
 /* ---------------------------------------------------------------- */
 /**
  * @description Home's socket: the server sends "games" to every tab the player has open when an invite is sent, accepted, declined
- * or cancelled & when a friend game moves or ends (server/socket.js emitToPlayer). After a reconnect Home redraws too, it may have missed one
+ * or cancelled & when a friend game moves or ends, & "friends" when a friend request or friend changes (server/socket.js emitToPlayer). After a reconnect Home redraws too, it may have missed one
  * @param  {[function]} handler [redraws Home]
  */
 export function watchGames(handler) {
@@ -131,6 +143,7 @@ export function watchGames(handler) {
 	});
 
 	gamesSocket.on("games", redrawSoon);
+	gamesSocket.on("friends", redrawSoon);
 
 	async function refreshAndReconnect() { // RE-UP ONCE & TRY AGAIN
 		refreshed = true;

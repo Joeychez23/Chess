@@ -34,17 +34,46 @@
 	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
 	<nav id="menuContainer" aria-label="Menu">
 		<div id="resultDisplay">Chess</div>
+		<p id="resultReason" hidden></p>
 		<p id="ratingDisplay" hidden></p>
 		<ul id="menuButtonList">
 			<li><button class="menuButton" id="optResume">Resume</button></li>
 			<li><button class="menuButton" id="optSound">Turn Sound: Off</button></li>
+			<li><button class="menuButton" id="optFlip">Flip Board</button></li>
+			<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
+			<li><button class="menuButton" id="optPgn">Download PGN</button></li>
+			<li hidden><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
 			<li><button class="menuButton" id="optRestart">Restart</button></li>
+			<li hidden><button class="menuButton" id="optCancelRematch">Cancel</button></li>
 			<li><button class="menuButton" id="optSettings">Home</button></li>
 			<li><button class="menuButton" id="optExit">Exit</button></li>
 		</ul>
 	</nav>
 
 	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
+
+	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
+		<button id="drawAccept" type="button">Accept Draw</button>
+		<button id="drawDecline" type="button">Decline Draw</button>
+	</div>
+
+	<div id="gameInfo"> <!-- BOTTOM LEFT, THE MOVE LIST STAYS CLEAR OF IT -->
+		<p id="openingDisplay" hidden></p> <!-- "B90 Sicilian Defense: Najdorf Variation" (gameplay/movelist/index.js) -->
+		<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
+	</div>
+
+	<section id="moveList" aria-label="Moves" hidden> <!-- THE GAME'S MOVES, PLACED NEXT TO THE BOARD (gameplay/movelist/index.js) -->
+		<button id="moveListToggle" type="button" aria-controls="moveListRows" aria-expanded="true">Moves</button>
+		<ol id="moveListRows"></ol>
+	</section>
+
+	<form id="moveBox" aria-label="Type a move" hidden> <!-- TYPED MOVES, OPENED WITH / OR THE MENU (gameplay/movebox/index.js) -->
+		<input id="moveBoxInput" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="moveBoxSuggestions" aria-label="Move" aria-describedby="moveBoxRefusal" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" />
+		<button id="moveBoxClose" type="button" aria-label="Close">×</button>
+		<p id="moveBoxRefusal" role="status"></p>
+		<p id="moveBoxCount" role="status"></p>
+		<ul id="moveBoxSuggestions" role="listbox" aria-label="Legal moves" hidden></ul>
+	</form>
 
 	<main id="main"></main>
 </body>

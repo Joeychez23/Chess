@@ -208,7 +208,7 @@ export function stopLoading() {
  */
 export function startGameLinks() {
 	document.addEventListener("click", function (e) {
-		const link = e.target.closest("a.continueGame, #gameList a, a.keepReturnTo");
+		const link = e.target.closest("a.continueGame, .gameRows a, a.keepReturnTo");
 		if (!link || e.button != 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { return; }
 		e.preventDefault();
 		startLoading(link);

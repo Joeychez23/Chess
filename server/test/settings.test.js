@@ -100,6 +100,8 @@ describe("delete my data", () => {
 		assert.deepEqual(list(peek("user_db", "bob"), "closed_games"), [gameId]); // BOB'S LISTS STILL HAVE THE GAME
 
 		assert.equal(peek("chess_db", aiGame.game_id).state.S, "CLOSED");
+		assert.ok(peek("chess_db", aiGame.game_id).expireAt); // THE LISTS THAT FIND IT ARE GONE, SO IT EXPIRES
+		assert.equal(peek("chess_db", gameId).expireAt, undefined); // BOB KEEPS THE FINISHED GAME
 		assert.equal(peek("chess_db", carolsInvite.game_id), undefined); // DECLINED
 		assert.deepEqual((await call("GET", "/api/chess/user/carol", { as: carol })).sent_invite, null);
 		assert.equal(peek("user_db", "alice"), undefined);

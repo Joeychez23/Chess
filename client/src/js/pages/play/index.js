@@ -25,8 +25,10 @@ const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD 
 
 const resultDisplay = document.getElementById("resultDisplay");
 const ratingDisplay = document.getElementById("ratingDisplay"); // FRIEND GAMES: BOTH PLAYERS' RATINGS UNDER THE TITLE
+const opponentDisplay = document.getElementById("opponentDisplay"); // FRIEND GAMES: "vs Bob" ON THE GAME SCREEN
 const optResumeBtn = document.getElementById("optResume");
 const optSoundBtn = document.getElementById("optSound");
+const optFlipBtn = document.getElementById("optFlip");
 const optRestartBtn = document.getElementById("optRestart");
 const optHomepageBtn = document.getElementById("optSettings");
 const optExitBtn = document.getElementById("optExit");
@@ -55,6 +57,7 @@ window.addEventListener("load", async function () {
 		const playerId = sessionUser.userId.split("auth0|")[1];
 		const response = await validate(CHESS_URL, gameId, playerId, false, false, false); // IS IT THEIR GAME?
 		if (response?.status != 200) { return gameNotFound(); }
+		if (!response.ai && response.opponent_name) { opponentDisplay.innerText = `vs ${response.opponent_name}`; opponentDisplay.hidden = false; } // innerText, THE NAME IS NEVER READ AS HTML
 		if (!response.ai) { showRatings(gameId); } // NOT AWAITED, THE GAME DOESN'T WAIT FOR IT
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: gameId, PLAYER_ID: playerId }
 	} else {
@@ -134,6 +137,7 @@ function gameNotFound() {
 	resultDisplay.innerHTML = "Game not found";
 	optResumeBtn.parentElement.style.display = "none";
 	optSoundBtn.parentElement.style.display = "none";
+	optFlipBtn.parentElement.style.display = "none";
 	optRestartBtn.parentElement.style.display = "none";
 	optExitBtn.innerHTML = "Logout";
 	optHomepageBtn.addEventListener("click", function () { startLoading(optHomepageBtn); goToPage("/"); }); // LOADING, THEN HOME (LIKE THE GAME'S HOME BUTTON)

@@ -13,10 +13,11 @@
 const { game, chessInst, validateState, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
 const { validate } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
-const { setTiles, countStartPieces } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH
+const { setTiles, countStartPieces, lastMoveBy } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH, A SIDE'S LAST MOVE
 const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
-const { showGameOver, openMenu } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), OPENS THE MENU
+const { showGameOver, openMenu, syncDrawOffer } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), OPENS THE MENU, THE DRAW OFFER'S BUTTONS
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { setMoves, addMove, showOpening } = require("../movelist/index.js"); // THE MOVE LIST PANEL & THE OPENING UNDER IT
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
@@ -38,10 +39,17 @@ export async function setInitialData() {
 	}
 	game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
 	game.playerColor = game.response?.player_color || null;
+	game.viewColor = game.playerColor; // A NEW GAME STARTS FROM THE PLAYER'S SIDE
+	game.flipPending = false;
+	setMoves(game.response?.moves, game.response?.start_params?.fen); // A NEW GAME (RESTART & REMATCH) STARTS THE LIST OVER
+	showOpening(game.response?.opening);
 	if (game.response?.status == 200) { // IF GAME IS ON AI TURN, PLAY TURN
 		game.opponentColor = game.response?.opponent_color || false;
 		chessInst.load(game.response.game_board); // THE BOARD TO DRAW
 		game.startPieceCount = countStartPieces(game.response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
+		setLastOpponentMove();
+		syncDrawOffer(game.response);
+		game.annotations = []; // A NEW GAME (RESTART & REMATCH) STARTS WITHOUT THE OLD ONE'S MARKS & ARROWS
 		if (game.response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 			game.ai = game.response.ai;
 			showGameOver(game.response);
@@ -75,6 +83,18 @@ export async function setInitialData() {
 	}
 }
 
+/**
+ * @description Finds the opponent's last move for its highlight when a game loads (a new game has none, so Restart & Rematch clear it).
+ * prev_move can't say: it's the player's when they moved last. moves only has SAN, so they're played on the scratch board
+ */
+function setLastOpponentMove() {
+	try {
+		const startFen = game.response.start_params?.fen;
+		if (startFen) { validateState.load(startFen); } else { validateState.reset(); }
+		game.lastOpponentMove = lastMoveBy(validateState, game.response.moves || [], game.response.opponent_color);
+	} catch (err) { console.log(err); game.lastOpponentMove = null; } // ONLY THE HIGHLIGHT IS MISSING, THE GAME STILL OPENS
+}
+
 /* ---------------------------------------------------------------- */
 // Check Opponent Move
 /* ---------------------------------------------------------------- */
@@ -89,6 +109,7 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 		const updatedResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
 		if (updatedResponse?.status != 200) { return opponentMoveFailed(updatedResponse); }
 		clearStatus("server");
+		syncDrawOffer(updatedResponse); // THEIR MOVE ENDS ANY OFFER, A RECONNECT CATCHES UP ON ONE
 		if (updatedResponse.game_board != game.revert.game_board && game.opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
 			if (chessInst.isGameOver()) { // THIS BOARD WAS ALREADY OVER
 				openMenu();
@@ -116,10 +137,10 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 				if (game.tiles[i].square == game.moveObj.from) {
 					game.slideStart = true;
 					game.tiles[i].isSliding = true
-					if (game.playerColor == 'w') {
+					if (game.viewColor == 'w') {
 						game.tiles[i].xSlideTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
 						game.tiles[i].ySlideTo = 8 - game.moveObj.to.split("")[1];
-					} else if (game.playerColor == 'b') {
+					} else if (game.viewColor == 'b') {
 						game.tiles[i].xSlideTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
 						game.tiles[i].ySlideTo = game.moveObj.to.split("")[1] - 1;
 					}
@@ -159,8 +180,8 @@ export async function updateUserStateSlide(index) {
 	try {
 		game.tiles[index].xSlideTo = 0;
 		game.tiles[index].ySlideTo = 0;
-		if (game.moveObj.promotion) { game.currPromotion = true; game.refresh = true; return; } // OPEN THE PROMOTION 
-		
+		if (game.moveObj.promotion && !game.moveObj.typed) { game.currPromotion = true; game.refresh = true; return; } // OPEN THE PROMOTION (A TYPED MOVE ALREADY CHOSE ITS PIECE)
+
 		await validateMove(); // SEND THE MOVE
 		game.tiles[index].isSliding = null;
 	} catch (err) { console.log(err); game.currSlide = false; return refreshData(game.response); }
@@ -191,7 +212,8 @@ export async function validateMove() {
 		playMoveSound();
 		game.revert = { ...game.response }; // GO BACK TO THIS IF THE SERVER SAYS NO (A COPY, THE LISTS BELOW CHANGE response)
 		game.opposingMove = true; // LOCK THE BOARD
-		chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
+		const playedMove = chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
+		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
 		if (game.playerColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP UNTIL THE SERVER'S COMES BACK
 			for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
 				if (game.moveObj.from == JSON.parse(game.response.w_knight)[n].to) {
@@ -264,6 +286,9 @@ export async function validateMove() {
 
 		chessInst.load(moveResponse.game_board); // THE SERVER'S BOARD
 		game.response = moveResponse;
+		syncDrawOffer(moveResponse); // THIS MOVE ENDED ANY OFFER
+		addMove(playedMove.san); // ONLY NOW, THE SERVER COULD TURN IT DOWN
+		showOpening(game.response.opening);
 		clearStatus("move");
 		clearStatus("server");
 
@@ -312,7 +337,8 @@ export async function updateOpponentStateSlide(index) {
 		playMoveSound();
 		game.tiles[index].xSlideTo = 0;
 		game.tiles[index].ySlideTo = 0;
-		chessInst.move(game.moveObj); // LOCAL BOARD
+		const playedMove = chessInst.move(game.moveObj); // LOCAL BOARD
+		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
 
 		if (game.opponentColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
 			for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
@@ -387,6 +413,10 @@ export async function updateOpponentStateSlide(index) {
 		}
 		chessInst.load(savedGame.game_board); // UPDATE BOARD
 		game.response = savedGame;
+		syncDrawOffer(savedGame);
+		game.lastOpponentMove = [game.moveObj.from, game.moveObj.to];
+		addMove(playedMove.san);
+		showOpening(game.response.opening);
 		clearStatus("server");
 		game.currSlide = false;
 
@@ -443,7 +473,7 @@ export function refreshData(response) {
  */
 export function revertUnfinishedMove() {
 	const heldPiece = !game.opposingMove && (game.clickedTile || game.mousedownTile); // THE TURN CHECK: A DROPPED PROMOTION KEEPS clickedTile AFTER IT'S SENT
-	const promotionSlide = game.currSlide && game.moveObj.promotion && game.tiles.some(function (tile) { return tile.isSliding && tile.color == game.playerColor; });
+	const promotionSlide = game.currSlide && game.moveObj.promotion && !game.moveObj.typed && game.tiles.some(function (tile) { return tile.isSliding && tile.color == game.playerColor; });
 	if (!heldPiece && !game.currPromotion && !promotionSlide) { return; }
 	game.opposingMove = false; // STILL THE PLAYER'S TURN
 	refreshData(game.response);

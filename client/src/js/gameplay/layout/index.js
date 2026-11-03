@@ -2,7 +2,7 @@
  *  index.js  --  chess frontend
  *	Layout
  *	Sizes the canvas & the board to the window (large, medium & small boards on wide screens, portrait on phones),
- *	draws the table & board under the pieces & works out the squares the rest of the game draws on
+ *	draws the table, board & coordinates under the pieces & works out the squares the rest of the game draws on
  *	(game.xBoardOff, game.tileWidth, ...). Redraws the game when the window is resized
  *
  */
@@ -13,8 +13,10 @@
 const { game, canvas, ctx } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS
 const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
 const { tableShdw, boardImg, boardShdw, rawBoardImg } = require("../sprites/index.js"); // IMAGE NUMBERS
+const { placeMoveList } = require("../movelist/index.js"); // MOVES THE MOVE LIST PANEL TO THE FREE SPACE NEXT TO THE BOARD
 
 const xBoardShadowRatio = 0.985; // NUDGES THE SQUARES RIGHT A LITTLE TO LINE UP WITH THE BOARD IMAGE
+const COORD_BORDER_RATIO = 0.285; // SQUARES FROM THE BOARD'S EDGE TO THE MIDDLE OF THE BAND BETWEEN THE BORDER'S GOLD LINES
 
 let bw; // WIDTH OF THE 64 SQUARES (BOARD WITHOUT ITS WOOD BORDER)
 let bh; // HEIGHT OF THE 64 SQUARES
@@ -106,9 +108,11 @@ export function renderBoard() {
 	game.yBoardOff = (game.ch - bh) / 2; // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS Y
 	game.tileWidth = bw / 8;
 	game.tileHeight = bh / 8;
+	drawCoordinates();
 
 	game.xPieceOffset = bw / 5.75; // PIECE IMAGES ARE A SQUARE PLUS THIS, CENTERED ON THE SQUARE
 	game.yPieceOffset = bh / 4.25;
+	placeMoveList(xBoardStart, yBoardStart, boardHeight);
 
 	let clickX = game.tileX * game.tileWidth; // SQUARE UNDER THE MOUSE IN PIXELS
 	let clickY = game.tileY * game.tileHeight;
@@ -137,6 +141,27 @@ export function renderBoard() {
 		ctx.drawImage(images[candleObj.img2].image, candleObj.x, candleObj.y, candleObj.width, candleObj.height);
 	}
 	return { clickX, clickY }
+}
+
+/* ---------------------------------------------------------------- */
+// Board Coordinates
+/* ---------------------------------------------------------------- */
+/**
+ * @description Draws a - h along the bottom & 1 - 8 up the left of the wood border, centered on their files & ranks,
+ * reversed when viewing from black's side. Sized from the squares, so it fits every board renderBoard() picks
+ */
+function drawCoordinates() {
+	const flipped = game.viewColor == 'b';
+	const fileY = game.yBoardOff + game.tileHeight * (8 + COORD_BORDER_RATIO);
+	const rankX = game.xBoardOff - game.tileWidth * COORD_BORDER_RATIO;
+	ctx.font = `600 ${game.tileHeight * 0.3}px Archivo, "Helvetica Neue", Arial, sans-serif`;
+	ctx.fillStyle = "#d9b27a"; // THE BOARD'S GOLD INLAY
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	for (let i = 0; i < 8; i++) {
+		ctx.fillText(String.fromCharCode(97 + (flipped ? 7 - i : i)), game.xBoardOff + (i + 0.5) * game.tileWidth, fileY);
+		ctx.fillText(flipped ? i + 1 : 8 - i, rankX, game.yBoardOff + (i + 0.5) * game.tileHeight);
+	}
 }
 
 /* ---------------------------------------------------------------- */
