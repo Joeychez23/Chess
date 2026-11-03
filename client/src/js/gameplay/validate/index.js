@@ -296,6 +296,21 @@ export async function aiMove(gameUrl, gameId) {
 }
 
 /**
+ * @description AI games & finished games: the engine's best move & evaluation of the saved board (POST /game/:gameId/analysis)
+ * @return {[object]} response [{ status, game_board, from, to, eval, mate, winChance } | { status: 403, message } a friend game | { status: 409, message } | { status: 503, message } the engine didn't answer]
+ */
+export async function getAnalysis(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/analysis`, options)
+	} catch {
+		return
+	}
+}
+
+/**
  * @description AI games: takes back the player's last move & the AI's reply to it, if it made one. Friend games: asks the opponent, or accepts their request (POST /game/:gameId/takeback)
  * @return {[object]} response [the game, same as GET /game/:gameId | { status, requested: true, opponent_name } friend games, waiting | { status: 409, message } when it was refused]
  */

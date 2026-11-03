@@ -226,8 +226,8 @@ function engineWillPlay(from, to, promotion, wait) {
  * @description Queues the engine's next answer to a draw offer
  * @param  {[number]} winChance [0 - 100, from White's side]
  */
-function engineWillScore(winChance) {
-	engineMoves.push({ from: "e2", to: "e4", winChance });
+function engineWillScore(winChance, answer = {}) {
+	engineMoves.push({ from: "e2", to: "e4", winChance, ...answer });
 }
 
 /**

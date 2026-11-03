@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Takeback, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Hint, Takeback, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
  *	for Restart, Rematch & Takeback (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
  *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer, a takeback or a rematch), startGame & loadRematch join with them
  *
@@ -19,6 +19,7 @@ const { setInitialData, checkOpponentMove, refreshData, revertUnfinishedMove } =
 const { InternalAuth } = require("../../auth/index.js"); // LOGOUT IS A POST TO THE SERVER (#297)
 const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -219,6 +220,18 @@ export async function handleDownloadPgn(e) {
 }
 
 /* ---------------------------------------------------------------- */
+// Hint Button (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Asks for a hint, the menu closes when it's on the board so the player can see it. It stays open with a message when there's none
+ */
+export async function handleHint(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (await showHint()) { closeMenu(); }
+}
+
+/* ---------------------------------------------------------------- */
 // Takeback Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
@@ -402,6 +415,7 @@ export function syncDrawOffer(response) {
 	if (!response?.game_board) { return; }
 	optDrawBtn.parentElement.hidden = response.state != "OPEN";
 	syncTakeback(response);
+	syncAnalysis(response);
 	if (response.opponent_name) { drawOpponent = response.opponent_name; }
 	if (response.game_board != drawBoard) {
 		drawBoard = response.game_board;
@@ -661,6 +675,7 @@ export function showGameOver(result) {
 	optResumeBtn.parentElement.style.display = 'none';
 	optDrawBtn.parentElement.hidden = true;
 	optTakebackBtn.parentElement.hidden = true;
+	syncAnalysis({ ...game.response, state: "CLOSED" }); // A FORFEIT COMES OVER THE SOCKET WITHOUT A GAME
 	drawSent = false;
 	drawIncoming = false;
 	clearStatus("draw");

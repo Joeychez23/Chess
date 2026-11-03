@@ -13,7 +13,7 @@
 
 const { Chess } = require("chess.js");
 const { checkStartFen } = require("../utils/validate.js");
-const { levelList, readLevel, aiMove, aiAcceptsDraw } = require("../utils/ai.js");
+const { levelList, readLevel, aiMove, aiAcceptsDraw, analyzePosition } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
 const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft } = require("../utils/games.js");
@@ -27,6 +27,7 @@ const { emitToGame, emitToPlayer, isInGameRoom } = require("../socket.js");
 
 const AI_DRAW_FREE_MOVES = 2; // UNTIL BOTH SIDES HAVE MADE THEIR FIRST MOVE THE AI TAKES ANY DRAW, WITHOUT ASKING THE ENGINE
 const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PROMISE), SO PARALLEL /ai-move REQUESTS ASK THE ENGINE ONCE
+const runningAnalyses = new Map(); // GAME ID -> { board, answer (A PROMISE) }, ONE ENGINE REQUEST AT A TIME PER GAME
 
 /* ---------------------------------------------------------------- */
 // Get Game (GET)
@@ -262,6 +263,41 @@ async function playAiTurn(gameId, gameData) {
 	response.message = "AI moved";
 	await recordOpening(response);
 	return { ...gameResponse(response), ai_move: move };
+}
+
+
+/* ---------------------------------------------------------------- */
+// Analysis (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The best move & the evaluation of the game's saved board, for the Hint button & the evaluation bar. AI games & finished games only, in a friend game that's still going it's cheating.
+ * The board comes from the game, never the request, so this can't be used to run the engine on anything else. One at a time per game: the same board shares the answer, another board is refused
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, game_board, from, to, eval, mate, winChance, message } from & to are null when the game can't go on | { status: 403, message } a friend game | { status: 409, message } another board is being analyzed | { status: 503, message } the engine didn't answer]
+ */
+async function analysisGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE CLIENT ASKS RIGHT AFTER A MOVE
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	if (!playerInGame(req, gameData)) { return notInGame(req, res); }
+	if (!isAiGame(gameData) && (gameOpen(gameData) || gamePending(gameData))) { return res.json({ status: 403, message: "No hints in a friend game" }); }
+
+	const gameId = gameData.game_id.S;
+	const board = gameData.game_board.S;
+	let running = runningAnalyses.get(gameId);
+	if (running && running.board != board) { return res.json({ status: 409, message: "Wait for the analysis to finish." }); }
+	if (!running) {
+		running = { board, answer: analyzePosition(board).finally(() => runningAnalyses.delete(gameId)) };
+		runningAnalyses.set(gameId, running);
+	}
+	try {
+		return res.json({ status: 200, game_board: board, ...await running.answer, message: "Analysis" });
+	} catch (err) {
+		console.log(`STOCKFISH FAILED, NO ANALYSIS: ${err.message}`); // THE LINE MUST START WITH THIS: AN ALARM MATCHES IT (terraform/modules/monitoring)
+		return res.json({ status: 503, message: "The engine isn't answering, try again in a moment" });
+	}
 }
 
 
@@ -1040,4 +1076,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };

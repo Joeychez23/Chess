@@ -17,6 +17,7 @@ export const canvas = document.createElement("canvas"); // THE WHOLE GAME IS DRA
 export const ctx = canvas.getContext("2d"); // EVERYTHING IS DRAWN WITH THIS
 export const chessInst = new Chess(); // THE BOARD THAT'S DRAWN, LOADED FROM THE SERVER'S FEN
 export const validateState = new Chess(); // SCRATCH BOARD, TESTS A MOVE WITHOUT CHANGING chessInst
+export const EVAL_BAR_ROOM = 20; // THE EVALUATION BAR & ITS GAP NEXT TO THE BOARD (PX)
 export const OVERRIDE_TV = false; // TRUE TURNS ON THE TV REMOTE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
 
 /* ---------------------------------------------------------------- */
@@ -85,6 +86,8 @@ export const game = {
 	aiTimer: null, // THE TIMER THAT SETS aiTurn, A TAKEBACK STOPS IT
 	moveObj: [null, null], // MOVE BEING PLAYED { from, to, promotion }, THE AI'S ALSO HAS response
 	lastOpponentMove: null, // [from, to] OF THE OPPONENT'S LAST MOVE, HIGHLIGHTED BY drawLastMove(), null UNTIL THEY'VE MOVED
+	hint: null, // [from, to] OF THE HINT, HIGHLIGHTED BY drawHint() UNTIL THE NEXT MOVE, null WITHOUT ONE
+	evalBarShown: false, // THE EVALUATION BAR IS ON SCREEN, THE MOVE LIST MAKES ROOM FOR IT (gameplay/analysis/index.js)
 	annotations: [], // THE PLAYER'S RIGHT-CLICK MARKS & ARROWS { from, to } IN BOARD SQUARES (from == to IS A MARK), DRAWN BY drawAnnotations()
 	tiles: setTiles(), // 64 TILE STATES IN SCREEN ORDER (ROW * 8 + COLUMN), FILLED WITH THE PIECE ON EACH SQUARE WHILE DRAWING
 	startPieceCount: countStartPieces(), // { w, b } PIECES EACH SIDE STARTED WITH (THE STANDARD SET, OR A SET POSITION'S, setInitialData())

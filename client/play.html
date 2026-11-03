@@ -42,6 +42,8 @@
 			<li><button class="menuButton" id="optFlip">Flip Board</button></li>
 			<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
 			<li><button class="menuButton" id="optPgn">Download PGN</button></li>
+			<li hidden><button class="menuButton" id="optHint">Hint</button></li> <!-- AI GAMES WHILE THEY'RE GOING -->
+			<li hidden><button class="menuButton" id="optEvalBar">Turn Eval Bar: On</button></li> <!-- AI GAMES & FINISHED GAMES -->
 			<li hidden><button class="menuButton" id="optTakeback">Takeback</button></li> <!-- WHILE THE GAME IS GOING, FRIEND GAMES WITH TAKEBACKS LEFT -->
 			<li hidden><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
 			<li><button class="menuButton" id="optRestart">Restart</button></li>
@@ -67,6 +69,8 @@
 		<p id="openingDisplay" hidden></p> <!-- "B90 Sicilian Defense: Najdorf Variation" (gameplay/movelist/index.js) -->
 		<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
 	</div>
+
+	<div id="evalBar" role="img" aria-label="Evaluation" hidden><div id="evalBarFill"></div></div> <!-- BESIDE THE BOARD, TURNED ON FROM THE MENU (gameplay/analysis/index.js) -->
 
 	<section id="moveList" aria-label="Moves" hidden> <!-- THE GAME'S MOVES, PLACED NEXT TO THE BOARD (gameplay/movelist/index.js) -->
 		<button id="moveListToggle" type="button" aria-controls="moveListRows" aria-expanded="true">Moves</button>
