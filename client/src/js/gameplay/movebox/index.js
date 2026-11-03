@@ -5,6 +5,7 @@
  *	Type a Move opens it (Type a Move also closes it), chess.js reads the move on the scratch board & it slides like a clicked move, validateMove() sends it
  *	when it lands (sound & server check as usual). It's open when the game loads, without the cursor where that would bring up a phone's keyboard or catch the TV remote's keys.
  *	As the player types it lists the legal moves that start with what they typed, picked with a click, a tap or the arrow keys & Enter
+ *	Keyboard: closing gives focus back to where it was when the box opened & Left or Right leave the box with the cursor at that end (pages/utils/nav.js).
  *	It opens at the top right behind the menu button, which covers the X. A mouse or a finger can drag it by anything but the input, the X & the list, it stays inside the window until it's closed
  *
  */
@@ -14,6 +15,8 @@
 /* ---------------------------------------------------------------- */
 const { game, chessInst, validateState, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
 const { refreshData } = require("../moves/index.js"); // RESETS THE BOARD TO A SERVER GAME
+const { closeMenu } = require("../menu/index.js"); // A KEY ON TYPE A MOVE CLOSES THE MENU, THE CURSOR GOES IN THE BOX
+const { canLeave } = require("../../pages/utils/nav.js"); // LEFT & RIGHT LET GO WITH THE CURSOR AT THAT END
 const { moveBlockReason, suggestMoves, exampleMoves, stepHighlight, countMessage } = require("./suggestions.js"); // WHEN THE PLAYER CAN MOVE & WHAT THE LIST SHOWS
 const box = document.getElementById("moveBox"); // THE FORM
 const input = document.getElementById("moveBoxInput"); // WHERE THE MOVE IS TYPED
@@ -27,6 +30,7 @@ const WATCH_TIME = 250; // HOW OFTEN AN OPEN BOX CHECKS THE GAME FOR CHANGES, A 
 const VIEW_GAP = 16; // SPACE KEPT BELOW THE LIST, THE BOX'S PADDING & A MARGIN (px)
 const BOX_TOP = 7; // THE BOX'S TOP WHEN IT MOVES UP, THE SAME GAP AS ITS USUAL SPOT UNDER THE MENU BUTTON (px)
 const MIN_LIST_ROOM = 88; // TWO ROWS, WITH LESS THAN THIS THE BOX MOVES UP (A PHONE'S KEYBOARD IN LANDSCAPE)
+let opener = null; // WHAT HAD FOCUS WHEN THE BOX OPENED, FOCUS GOES BACK THERE WHEN IT CLOSES
 let suggestions = []; // THE MOVES IN THE LIST
 let highlighted = -1; // THE ONE THE ARROW KEYS ARE ON, -1 FOR NONE
 let shownFor = null; // WHAT THE LIST WAS LAST BUILT FOR, IT'S ONLY REBUILT WHEN THIS CHANGES
@@ -43,7 +47,10 @@ let dragTouch = null; // THE identifier OF THE FINGER DRAGGING IT, null WHEN IT 
  * @param  {[boolean]} focusInput [false leaves the cursor where it is]
  */
 function openMoveBox(focusInput = true) {
+	const focused = document.activeElement;
+	if (!box.contains(focused)) { opener = focused == document.body ? null : focused; }
 	box.hidden = false;
+	optTypeMoveBtn.setAttribute("aria-expanded", "true");
 	fitBox(); // THE WINDOW CAN HAVE CHANGED SIZE WHILE IT WAS CLOSED
 	if (focusInput) { input.focus(); }
 	clearInterval(watchTimer);
@@ -55,13 +62,24 @@ function openMoveBox(focusInput = true) {
  * @description Closes the box, clears what was typed & forgets where it was dragged, so it opens at its usual spot again
  */
 function closeMoveBox() {
+	if (box.contains(document.activeElement)) { returnFocus(); } // BEFORE IT'S HIDDEN, THAT WOULD DROP FOCUS TO THE PAGE
+	opener = null;
 	box.hidden = true;
+	optTypeMoveBtn.setAttribute("aria-expanded", "false");
 	dragPos = null;
 	box.style.left = ""; // fitBox() CLEARS THE TOP
 	input.value = "";
 	refusal.textContent = "";
 	clearInterval(watchTimer);
 	updateSuggestions();
+}
+
+/**
+ * @description Focus goes back to where it was when the box opened. An item in a menu that has closed can't take it, the menu button does. Nothing had it: the page
+ */
+function returnFocus() {
+	const target = opener?.closest("#menuContainer") && !game.menuToggled ? optBtn : opener;
+	if (target?.isConnected) { target.focus(); } else { input.blur(); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -201,7 +219,7 @@ function handleDragMove(e) {
 }
 
 /**
- * @description The click that comes with letting go of a drag, stopped so it doesn't close the menu (handleClickAway)
+ * @description The click that comes with letting go of a drag, stopped so it doesn't close the menu (a click away closes it, pages/utils/nav.js)
  */
 function stopDragClick(e) {
 	e.stopPropagation();
@@ -381,6 +399,7 @@ function handleOpenKey(e) {
  * the arrow keys move along the list & Enter plays the highlighted move (with nothing highlighted the form plays what was typed)
  */
 function handleBoxKey(e) {
+	if (!game.TV_BOOL && (e.key == "Tab" || leavesBox(e))) { return; } // THE PAGE'S KEYS (pages/utils/nav.js)
 	e.stopPropagation();
 	if (e.key == "Escape") { closeMoveBox(); return; }
 	if (e.target != input || suggestions.length == 0) { return; }
@@ -390,21 +409,39 @@ function handleBoxKey(e) {
 	} else if (e.key == "Enter" && highlighted >= 0) {
 		e.preventDefault(); // NOT THE FORM'S SUBMIT
 		playSuggestion(suggestions[highlighted]);
+	} else if ((e.key == "Home" || e.key == "End") && highlighted >= 0) { // WITH NOTHING HIGHLIGHTED THEY MOVE THE CURSOR IN THE INPUT
+		e.preventDefault();
+		setHighlight(e.key == "Home" ? 0 : suggestions.length - 1);
 	}
 }
 
 /**
+ * @description Do Left or Right leave the box? From the X, the box counts as the input with its cursor at that end, so the page's keys move on from it
+ * @return {[boolean]} leaves
+ */
+function leavesBox(e) {
+	if (e.key != "ArrowLeft" && e.key != "ArrowRight") { return false; }
+	if (e.target == input) { return canLeave(input, e.key); }
+	const end = e.key == "ArrowLeft" ? 0 : input.value.length;
+	input.focus();
+	input.setSelectionRange(end, end);
+	return true;
+}
+
+/**
  * @description The menu's Type a Move opens the box or closes an open one. The menu stays open, so the box opens without
- * the cursor (a move can't be played under the menu), a click on the input closes the menu & puts the cursor there
+ * the cursor (a move can't be played under the menu), a click on the input closes the menu & puts the cursor there. A key on the button closes the menu itself & puts the cursor there
  */
 function handleTypeMoveBtn(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (box.hidden) { openMoveBox(false); } else { closeMoveBox(); }
+	if (!box.hidden) { return closeMoveBox(); }
+	if (e.detail === 0) { closeMenu(); } // A KEY PRESSED IT (A MOUSE OR FINGER'S CLICK COUNTS FROM 1)
+	openMoveBox(e.detail === 0 && !game.menuToggled); // A NEW BOARD LOADING KEEPS THE MENU OPEN
 }
 
 /**
- * @description The X closes the box, stopped so the menu stays as it is (handleClickAway)
+ * @description The X closes the box, stopped so the menu stays as it is (a click away closes it, pages/utils/nav.js)
  */
 function handleCloseBtn(e) {
 	e.stopPropagation();
@@ -412,7 +449,7 @@ function handleCloseBtn(e) {
 }
 
 /**
- * @description The menu button was pressed, the menu has already opened or closed (handleMenuBtn). Opening it leaves the box as it was,
+ * @description The menu button was pressed, the menu has already opened or closed (pages/utils/nav.js). Opening it leaves the box as it was,
  * where it was, without the keyboard so a move can't be played under the menu
  */
 function handleMenuToggle() {
@@ -437,4 +474,6 @@ export function addMoveBoxListeners() {
 	closeBtn.addEventListener("click", handleCloseBtn);
 	optBtn.addEventListener("click", handleMenuToggle);
 	optTypeMoveBtn.addEventListener("click", handleTypeMoveBtn);
+	optTypeMoveBtn.setAttribute("aria-controls", "moveBox");
+	optTypeMoveBtn.setAttribute("aria-expanded", "false");
 }

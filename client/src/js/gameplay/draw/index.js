@@ -121,6 +121,25 @@ function drawLastMove() {
 }
 
 /* ---------------------------------------------------------------- */
+// Hint
+/* ---------------------------------------------------------------- */
+/**
+ * @description Highlights the from & to squares of the hint (game.hint) with the move highlight
+ */
+function drawHint() {
+	const hint = game.hint || [];
+	ctx.globalAlpha = 0.50;
+	for (let s = 0; s < hint.length; s++) {
+		const column = hint[s].charCodeAt(0) - 97; // a FILE IS 0
+		const rank = Number(hint[s][1]);
+		const x = game.viewColor == 'b' ? 7 - column : column; // FLIPPED BOARD: h1 IS 0, 0
+		const y = game.viewColor == 'b' ? rank - 1 : 8 - rank;
+		ctx.drawImage(images[moveHighlight].image, x * game.tileWidth + game.xBoardOff, y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff, game.tileWidth, game.tileHeight);
+	}
+	ctx.globalAlpha = 1.00;
+}
+
+/* ---------------------------------------------------------------- */
 // Marks & Arrows
 /* ---------------------------------------------------------------- */
 /**
@@ -214,6 +233,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 	}
 
 	drawLastMove(); // BEFORE THE LOOP SO IT'S UNDER EVERY PIECE, REFLECTION & SHADOW
+	drawHint();
 	drawAnnotations();
 
 	for (let i = 0; i < inst.length; i++) { // ROW

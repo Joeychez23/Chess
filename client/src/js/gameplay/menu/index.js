@@ -1,35 +1,43 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
- *	for Restart & Rematch (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
- *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer or a rematch), startGame & loadRematch join with them
+ *	The in game menu (the 3 line button, Resume, Hint, Takeback, Offer Draw, Type a Move, Sound, Flip Board, Eval Bar, Download PGN, Forfeit / Restart / Rematch, Home & Exit), loading a new board in place
+ *	for Restart, Rematch & Takeback (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
+ *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer, a takeback or a rematch), startGame & loadRematch join with them
  *
  */
 
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
-const { restartGame, forfeitGame, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { game, chessInst, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
+const { validate, restartGame, forfeitGame, takeback, declineTakeback, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
-const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
+const { handleRemoteMenuEnter, clearRemoteSelection, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
 const { setInitialData, checkOpponentMove, refreshData, revertUnfinishedMove } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD, TAKES BACK A MOVE THAT ISN'T FINISHED
 const { InternalAuth } = require("../../auth/index.js"); // LOGOUT IS A POST TO THE SERVER (#297)
 const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
+const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
+const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
+const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
-const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
+const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
-const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
-const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
+const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
+const optHomepageBtn = document.getElementById("optHome"); // MENU: HOMEPAGE
+const optExitBtn = document.getElementById("optExit"); // MENU: LOGOUT (SIGNED IN) / LOGIN/SIGNUP (GUESTS)
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
+const resultAnnouncement = document.getElementById("resultAnnouncement"); // SCREEN READERS ARE TOLD THE RESULT HERE
 const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
+const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, WHILE THE GAME IS GOING
 const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHILE THE GAME IS GOING
 const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
+const takebackPrompt = document.getElementById("takebackPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S TAKEBACK REQUEST STANDS
 
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
 const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A FORFEIT IS ALREADY IN THE TITLE
@@ -40,7 +48,6 @@ const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A 
 	"threefold repetition": "by threefold repetition",
 	"agreement": "by agreement",
 };
-let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 let pgnLoading = false; // A SECOND PRESS WHILE THE PGN LOADS WOULD SAVE TWO FILES
 let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
 let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
@@ -49,10 +56,18 @@ let drawSent = false; // THIS PLAYER USED THEIR OFFER FOR THIS MOVE
 let drawIncoming = false; // THE OPPONENT'S OFFER IS STANDING
 let drawLoading = false; // THE AI CAN TAKE A FEW SECONDS TO ANSWER
 let drawOpponent = "Your opponent"; // THE NAME THE MESSAGES USE
+let takebackBoard = null; // THE BOARD takebackSent & takebackIncoming ARE ABOUT, A MOVE ENDS THEM
+let takebackSent = false; // FRIEND GAMES: THIS PLAYER ASKED FOR THIS MOVE
+let takebackIncoming = false; // THE OPPONENT'S REQUEST IS STANDING
+let takebackLoading = false; // THE REQUEST IS SAVING
+let takebacksLeft = null; // FRIEND GAMES' TAKEBACKS LEFT, AI GAMES HAVE NO LIMIT: null
+const TAKEBACK_RETRY_TIME = 500; // LOADS THE EARLIER BOARD AGAIN AFTER THIS WHEN IT WASN'T READY (ms)
+const TAKEBACK_RETRIES = 6;
 export const socketHandlers = { // SOCKET EVENT -> HANDLER
 	move: checkOpponentMove,
 	gameOver: showGameOver,
 	drawOffer: handleDrawEvent,
+	takeback: handleTakebackEvent,
 	rematch: loadRematch,
 	opponentLeft: showOpponentLeft,
 	opponentBack: function () { clearStatus("rematch"); },
@@ -64,52 +79,37 @@ export const socketHandlers = { // SOCKET EVENT -> HANDLER
 /* ---------------------------------------------------------------- */
 // Open & Close
 /* ---------------------------------------------------------------- */
-/**
- * @description Every way the menu opens comes through here. A move that isn't finished goes back (revertUnfinishedMove) &
- * no piece stays hovered, so pieces can't be touched until the menu closes
- */
-export function openMenu() {
-	clearTouch();
-	revertUnfinishedMove();
-	for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isHovering = false; }
-	game.menuToggled = true;
-	game.refresh = true;
-	menu.style.display = "flex";
-}
+const nav = createNav({
+	/**
+	 * @description Every way the menu opens comes through here. A move that isn't finished goes back (revertUnfinishedMove) &
+	 * no piece stays hovered, so pieces can't be touched until the menu closes
+	 */
+	onOpen() {
+		clearTouch();
+		revertUnfinishedMove();
+		for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isHovering = false; }
+		game.menuToggled = true;
+		game.refresh = true;
+	},
+	onClose() { game.menuToggled = false; clearRemoteSelection(); },
+	canClose() { return !game.boardReset; }, // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS, THE OLD BOARD UNDER IT IS LOCKED
+	arrowStops() { // LEFT & RIGHT GO THAT WAY ON SCREEN (THE BOX CAN BE DRAGGED), THE ONES NOT ON SCREEN ARE SKIPPED
+		const stops = ["optBtn", "moveBoxInput", "moveListToggle"].map((id) => document.getElementById(id));
+		return stops.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+	},
+});
 
 /**
- * @description Back to the game (Resume or a click away from the menu). The menu stays open while a new board loads
- * (the old board under it is locked) & when the game is over (Resume is hidden, there's no game to go back to)
+ * @description Turns on the menu button, a click away & Escape. Clicks on the board are handled by handleCanvasClick (input/index.js), it stops them before they get to the page
  */
-export function closeMenu() {
-	if (game.boardReset || optResumeBtn.parentElement.style.display == "none") { return; }
-	game.menuToggled = false;
-	menu.style.display = "none";
-}
+export const addMenuListeners = nav.addListeners;
+
+export function openMenu() { nav.toggleNav(true); }
 
 /**
- * @description A click outside the board, the menu & the menu button closes the menu. Clicks on the board are handled by
- * handleCanvasClick (input/index.js), it stops them before they get here
+ * @description Back to the game or, when it's over, a look at the final position (reopening the menu still shows the result)
  */
-export function handleClickAway(e) {
-	if (!game.menuToggled || menu.contains(e.target) || optBtn.contains(e.target)) { return; }
-	closeMenu();
-}
-
-/* ---------------------------------------------------------------- */
-// Options (Menu) Button
-/* ---------------------------------------------------------------- */
-/**
- * @description Toggles menu based on menu state. The menu button (3 lines) opens or closes the menu
- */
-export function handleMenuBtn(e) {
-	e.preventDefault();
-	e.stopPropagation();
-	if (game.menuToggled) {
-		game.menuToggled = false;
-		menu.style.display = "none";
-	} else { openMenu(); }
-}
+export function closeMenu() { nav.toggleNav(false); }
 
 /* ---------------------------------------------------------------- */
 // Resume Button (Menu)
@@ -150,10 +150,11 @@ export function handleSound(e) {
 // Flip Board Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Is a piece sliding? Its tile's place in tiles is held by the code finishing the move, so the board can't flip until it lands
+ * @description Is a piece sliding or the player's move saving? Its tile's place in tiles is held by the code finishing the move
+ * & game.response doesn't have a move that's saving, so the board can't flip until it's done
  */
-function slideInFlight() {
-	return game.currSlide || game.tiles.some(function (tile) { return tile.isSliding; });
+function moveInFlight() {
+	return game.moveSaving || game.currSlide || game.tiles.some(function (tile) { return tile.isSliding; });
 }
 
 /**
@@ -167,13 +168,13 @@ function flipBoard() {
 }
 
 /**
- * @description Flips the board, the menu stays open. During a slide it flips when the slide is done (a second press cancels it)
+ * @description Flips the board, the menu stays open. During a slide or a move's save it flips when that's done (a second press cancels it)
  */
 export function handleFlip(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	if (game.boardReset) { return; } // A NEW BOARD IS LOADING, IT STARTS FROM THE PLAYER'S SIDE
-	if (slideInFlight()) { game.flipPending = !game.flipPending; return; }
+	if (moveInFlight()) { game.flipPending = !game.flipPending; return; }
 	flipBoard();
 }
 
@@ -181,7 +182,7 @@ export function handleFlip(e) {
  * @description The render loop calls this before each frame, it does the flip that waited for a slide
  */
 export function flipWhenDone() {
-	if (game.flipPending && !slideInFlight()) { flipBoard(); }
+	if (game.flipPending && !moveInFlight()) { flipBoard(); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -195,12 +196,16 @@ export async function handleDownloadPgn(e) {
 	e.stopPropagation();
 	if (pgnLoading) { return; }
 	pgnLoading = true;
+	optPgnBtn.innerText = "Downloading";
+	setFill(optPgnBtn);
 	const response = await getPgn(game.GAME_URL, game.GAME_ID);
 	pgnLoading = false;
+	optPgnBtn.innerText = "Download PGN";
+	stopFill(optPgnBtn);
 	if (response?.status != 200) { return showStatus("action", "Couldn't download the PGN. Try again.", MESSAGE_TIME); }
 
 	const url = URL.createObjectURL(new Blob([response.pgn], { type: "application/x-chess-pgn" }));
-	const link = document.createElement("a"); // NOT ADDED TO THE PAGE, ITS CLICK WOULD REACH handleClickAway & CLOSE THE MENU
+	const link = document.createElement("a"); // NOT ADDED TO THE PAGE, ITS CLICK WOULD REACH THE PAGE & CLOSE THE MENU
 	link.href = url;
 	link.download = response.filename;
 	link.click();
@@ -208,26 +213,210 @@ export async function handleDownloadPgn(e) {
 }
 
 /* ---------------------------------------------------------------- */
+// Hint Button (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Asks for a hint, the menu closes when it's on the board so the player can see it. It stays open with a message when there's none
+ */
+export async function handleHint(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (await showHint()) { closeMenu(); }
+}
+
+/* ---------------------------------------------------------------- */
+// Takeback Button (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description AI games: takes back the player's last move & the AI's reply, the server works out how many. Friend games: asks the opponent (askTakeback), or
+ * accepts their request. Refused while a move is in flight (asked for or sliding in). The old board stays on screen until the answer, then the pieces slide to the
+ * earlier position. Between the player's move & asking for the AI's there's no request yet, so its timer is stopped & started again if this fails
+ */
+export async function handleTakeback(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (game.boardReset || game.gameOver) { return; }
+	if (!game.ai && !takebackIncoming) { return await askTakeback(); }
+	if (game.aiTurn || moveInFlight()) { return showStatus("action", game.ai ? "Wait for the AI's move to finish." : "Wait for the move to finish.", MESSAGE_TIME); }
+	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE BACK FROM HERE
+	clearTimeout(game.aiTimer);
+	game.boardReset = true; // STOP DRAWING, THE BOARD STAYS ON SCREEN UNDER THE MENU
+	game.refresh = false;
+	optBtn.style.display = "none";
+	takebackLoading = true;
+	showTakebackButtons();
+	const response = await takeback(game.GAME_URL, game.GAME_ID);
+	takebackLoading = false;
+	if (response?.status == 409 && !game.ai) { // THE REQUEST ENDED, A MOVE LANDED FIRST
+		takebackIncoming = false;
+		clearStatus("takeback");
+	}
+	showTakebackButtons();
+	if (response?.status != 200 || !response.game_board) { // THE GAME GOES ON AS IT WAS (THE MENU STAYS OPEN)
+		game.boardReset = false;
+		optBtn.style.display = "flex";
+		game.refresh = true;
+		if (game.ai && chessInst.turn() != game.playerColor) { game.aiTurn = true; } // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE
+		console.log(response?.message || "Takeback failed: no answer from the server");
+		showStatus("action", response?.status == 409 ? response.message : "The takeback didn't go through. Try again.", MESSAGE_TIME);
+		return;
+	}
+	await loadNewBoard(fromPieces, response);
+}
+
+/**
+ * @description Friend games: asks the opponent for a takeback, the menu stays open. Their answer comes over the socket. The server refuses a second request at the same move
+ */
+async function askTakeback() {
+	if (takebackLoading || takebackSent) { return; }
+	if (moveInFlight()) { return showStatus("action", "Wait for the move to finish.", MESSAGE_TIME); }
+	takebackLoading = true;
+	showTakebackButtons();
+	const response = await takeback(game.GAME_URL, game.GAME_ID);
+	takebackLoading = false;
+	if (response?.game_board) { return await loadTakeback(response); } // THE OPPONENT'S REQUEST LANDED FIRST, THIS PRESS ACCEPTED IT
+	if (response?.requested) {
+		takebackSent = true;
+		showTakebackButtons();
+		showStatus("takeback", `Takeback asked of ${response.opponent_name || drawOpponent}.`, MESSAGE_TIME);
+		return;
+	}
+	showTakebackButtons();
+	console.log(response?.message || "Takeback request failed: no answer from the server");
+	showStatus("action", response?.status == 409 ? response.message : "The takeback request didn't go through. Try again.", MESSAGE_TIME);
+}
+
+/**
+ * @description Decline: the game goes on & the opponent is told. When it fails the request stands, a move turns it down too
+ */
+export async function handleDeclineTakeback(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (!takebackIncoming) { return; }
+	const response = await declineTakeback(game.GAME_URL, game.GAME_ID);
+	if (response?.status == 200 || response?.status == 409) { // 409: IT ALREADY ENDED
+		takebackIncoming = false;
+		clearStatus("takeback");
+		showTakebackButtons();
+		return;
+	}
+	console.log(response?.message || "Takeback decline failed: no answer from the server");
+	showStatus("action", "The takeback couldn't be declined. Try again.", MESSAGE_TIME);
+}
+
+/**
+ * @description Sets the words & state on Takeback & shows Accept / Decline while the opponent's request stands. Asked already: nothing to press until a move
+ */
+function showTakebackButtons() {
+	takebackPrompt.hidden = !takebackIncoming;
+	setUnavailable(optTakebackBtn, takebackSent && !takebackIncoming && !takebackLoading);
+	if (takebackLoading) { setFill(optTakebackBtn); }
+	else { stopFill(optTakebackBtn); }
+	if (takebackLoading) { optTakebackBtn.innerText = game.ai || takebackIncoming ? "Taking Back" : "Asking"; }
+	else if (takebackIncoming) { optTakebackBtn.innerText = "Accept Takeback"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
+	else if (takebackSent) { optTakebackBtn.innerText = "Takeback Asked"; }
+	else { optTakebackBtn.innerText = takebacksLeft === null ? "Takeback" : `Takeback (${takebacksLeft} left)`; }
+}
+
+/**
+ * @description Brings the takeback request up to date with a game from the server. A new board means a move or a takeback, which ends any request.
+ * On the same board this only adds what it finds, a read can be from before the request the socket just told about
+ * @param  {[object]} response [game from the server]
+ */
+function syncTakeback(response) {
+	takebacksLeft = response.ai ? null : response.takebacks_left ?? null;
+	optTakebackBtn.parentElement.hidden = response.state != "OPEN" || takebacksLeft === 0;
+	if (response.game_board != takebackBoard) {
+		takebackBoard = response.game_board;
+		takebackSent = false;
+		takebackIncoming = false;
+		clearStatus("takeback");
+	}
+	if (response.takeback_request == game.playerColor) { takebackSent = true; }
+	else if (response.takeback_request) { showIncomingTakeback(); }
+	showTakebackButtons();
+}
+
+/**
+ * @description The opponent's request is standing, the message area reads it out
+ */
+function showIncomingTakeback() {
+	takebackIncoming = true;
+	showStatus("takeback", `${drawOpponent} asks for a takeback`);
+}
+
+/**
+ * @description The socket's "takeback", another tab of this player's counts too
+ * @param  {[object]} event [{ state: "requested" | "declined" | "accepted", mine: this player did it, board: the earlier position when accepted }]
+ */
+function handleTakebackEvent({ state, mine, board }) {
+	if (state == "accepted") { return loadTakeback(undefined, board); }
+	if (state == "requested" && mine) { takebackSent = true; }
+	else if (state == "requested") { showIncomingTakeback(); }
+	else if (mine) { takebackIncoming = false; clearStatus("takeback"); }
+	else {
+		takebackSent = true;
+		showStatus("takeback", `${drawOpponent} declined the takeback.`, MESSAGE_TIME);
+	}
+	showTakebackButtons();
+}
+
+/**
+ * @description Friend games: an accepted takeback, the pieces slide to the earlier position. Waits for a move in flight (the server refused it or it's being put back).
+ * A read right after the save can return the old board, so it reads again until it has the one the socket said
+ * @param  {[object]} read [the game when it's already been read, left out = reads it]
+ * @param  {[string]} board [the earlier position from the socket, already on it = this tab accepted]
+ * @param  {[number]} tries [reads so far]
+ */
+export async function loadTakeback(read, board, tries = 0) {
+	const again = function () { setTimeout(function () { loadTakeback(undefined, board, tries + 1); }, TAKEBACK_RETRY_TIME); };
+	if (game.gameOver || game.boardReset) { return; }
+	if (board && board == game.response?.game_board) { return; }
+	if (moveInFlight()) { setTimeout(function () { loadTakeback(undefined, board, tries); }, TAKEBACK_RETRY_TIME); return; }
+	const response = read || await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false);
+	if (game.gameOver || game.boardReset) { return; }
+	if (moveInFlight()) { setTimeout(function () { loadTakeback(undefined, board, tries); }, TAKEBACK_RETRY_TIME); return; }
+	if (response?.status != 200 || !response.game_board) {
+		if (tries < TAKEBACK_RETRIES) { return again(); }
+		console.log(response?.message || "Takeback failed to load: no answer from the server");
+		return showStatus("server", "The game couldn't be loaded. Reload the page to try again.");
+	}
+	if (board && response.game_board != board && tries < TAKEBACK_RETRIES) { return again(); } // NOT THERE YET, AFTER THE LAST TRY A NEW MOVE MOVED IT ON
+	clearTouch();
+	revertUnfinishedMove();
+	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE BACK FROM HERE
+	game.boardReset = true; // STOP DRAWING, THE BOARD STAYS ON SCREEN WHILE IT LOADS
+	game.refresh = false;
+	optBtn.style.display = "none";
+	await loadNewBoard(fromPieces, response);
+}
+
+/* ---------------------------------------------------------------- */
 // Draw Offers (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Sets the words on Offer Draw & shows Accept / Decline while the opponent's offer stands
+ * @description Sets the words & state on Offer Draw & shows Accept / Decline while the opponent's offer stands. Offered already: nothing to press until a move
  */
 function showDrawButtons() {
 	drawPrompt.hidden = !drawIncoming;
+	setUnavailable(optDrawBtn, drawSent && !drawIncoming && !drawLoading);
+	if (drawLoading) { setFill(optDrawBtn); }
+	else { stopFill(optDrawBtn); }
 	if (drawLoading) { optDrawBtn.innerText = "Offering"; }
 	else if (drawIncoming) { optDrawBtn.innerText = "Accept Draw"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
 	else { optDrawBtn.innerText = drawSent ? "Draw Offered" : "Offer Draw"; }
 }
 
 /**
- * @description Brings the draw offer up to date with a game from the server. A new board means a move was made, which ends any offer & gives both players theirs back.
+ * @description Brings the draw offer & the takeback request up to date with a game from the server. A new board means a move was made, which ends any offer & gives both players theirs back.
  * On the same board this only adds what it finds, a read can be from before the offer the socket just told about
  * @param  {[object]} response [game from the server]
  */
 export function syncDrawOffer(response) {
 	if (!response?.game_board) { return; }
 	optDrawBtn.parentElement.hidden = response.state != "OPEN";
+	syncTakeback(response);
+	syncAnalysis(response);
 	if (response.opponent_name) { drawOpponent = response.opponent_name; }
 	if (response.game_board != drawBoard) {
 		drawBoard = response.game_board;
@@ -309,21 +498,21 @@ export async function handleDeclineDraw(e) {
 // Restart Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description AI games: a game that's still going is forfeited, then a new game starts. The old board stays on screen
- * under the menu & Restart says Loading & fills up while it loads, then the pieces slide home (startRestartSlide).
- * Friend games: the same button is Forfeit, then Rematch once the game is over
+ * @description A game that's still going: the button is Forfeit (handleForfeit). Once it's over, friend games: Rematch. AI games: Restart, a new game starts.
+ * The old board stays on screen under the menu & Restart says Loading & fills up while it loads, then the pieces slide home (startRestartSlide)
  */
 export async function handleRestart(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (game.boardReset) { return; } // ALREADY LOADING A NEW BOARD (A SECOND PRESS, THE TV REMOTE'S ENTER)
-	if (!game.ai) { return await handleFriendBtn(); } // FORFEIT / REMATCH
+	if (game.boardReset || isBusy(optRestartBtn)) { return; } // ALREADY LOADING A NEW BOARD OR WAITING ON THE SERVER (A SECOND PRESS, THE TV REMOTE'S ENTER)
+	if (!game.gameOver) { return await handleForfeit(); }
+	if (!game.ai) { return await handleRematch(); }
 	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
 	game.boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN UNDER THE MENU WHILE THE NEW ONE LOADS
 	game.refresh = false;
 	optBtn.style.display = "none"
 	setRestartLoading(0.15); // "Loading" & THE FILL
-	const restartResponse = await restartGame(game.GAME_URL, game.GAME_ID); // FORFEITS IF STILL GOING, THEN A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
+	const restartResponse = await restartGame(game.GAME_URL, game.GAME_ID); // A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
 	if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME (THE MENU STAYS OPEN)
 		game.boardReset = false;
 		setRestartLoading(false);
@@ -341,25 +530,29 @@ export async function handleRestart(e) {
 }
 
 /**
- * @description Loads GAME_ID's board in place (restart & rematch), the canvas, listeners & render loop stay the same.
+ * @description Loads GAME_ID's board in place (restart, rematch & takeback), the canvas, listeners & render loop stay the same.
  * The old board stays on screen while it loads, then the menu closes & the pieces slide home (startRestartSlide)
  * @param  {[array]} fromPieces [where the old game's pieces were, getRestartPieces(true)]
+ * @param  {[object]} loaded [a takeback: the game from its answer, setInitialData doesn't read it again & Restart doesn't fill]
  */
-async function loadNewBoard(fromPieces) {
+async function loadNewBoard(fromPieces, loaded) {
 	clearStatus("move"); // ABOUT THE OLD GAME
 	clearStatus("server");
 	clearStatus("ai");
 	game.gameOver = false;
 	game.drawScreen = function () { return }; // DRAW NOTHING UNTIL THE NEW BOARD IS IN (THE OLD ONE STAYS ON THE CANVAS)
-	await setInitialData(); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
+	await setInitialData(loaded); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
 	handleInitialData(); // NEW drawScreen FOR THE (MAYBE NEW) PLAYER COLOR
-	setRestartLoading(1); // FULL
-	await new Promise(function (resolve) { setTimeout(resolve, 200); }); // THE FILL REACHES THE END
-	menu.style.display = "none"
-	optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
+	if (!loaded) {
+		setRestartLoading(1); // FULL
+		await new Promise(function (resolve) { setTimeout(resolve, 200); }); // THE FILL REACHES THE END
+	}
+	nav.toggleNav(false, true); // THE NEW BOARD IS IN
+	optResumeBtn.parentElement.hidden = false; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
+	placeEndGroup(false);
 	resultDisplay.innerText = "Chess"
 	resultReason.hidden = true;
-	game.menuToggled = false;
+	resultAnnouncement.textContent = "";
 	await refreshData(game.response);
 	game.opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
 	startRestartSlide(fromPieces);
@@ -375,50 +568,56 @@ async function loadNewBoard(fromPieces) {
  */
 export function setRestartLoading(load) {
 	if (load === false) { // DONE OR FAILED
-		optRestartBtn.classList.remove("loading");
-		optRestartBtn.style.removeProperty("--load");
-		optRestartBtn.innerHTML = game.ai ? "Restart" : "Forfeit";
+		stopFill(optRestartBtn);
+		optRestartBtn.innerHTML = game.ai && game.gameOver ? "Restart" : "Forfeit"; // RESTART FAILED: THE GAME IS STILL OVER
 		return;
 	}
-	if (!optRestartBtn.classList.contains("loading")) { // FIRST CALL
-		optRestartBtn.innerHTML = "Loading";
-		optRestartBtn.classList.add("loading");
-		setTimeout(function () { if (game.boardReset) { setRestartLoading(load); } }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)
-		return;
-	}
-	if (load > (Number(optRestartBtn.style.getPropertyValue("--load")) || 0)) { optRestartBtn.style.setProperty("--load", load); }
+	optRestartBtn.innerHTML = "Loading";
+	setFill(optRestartBtn, load);
 }
 
 /* ---------------------------------------------------------------- */
-// Forfeit / Rematch Button (Menu, friend games)
+// Forfeit Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Game going: Forfeit -> "Are you sure?" -> forfeits. Game over: Rematch, starts when both players press it within 5 minutes
+ * @description Forfeit -> "Are you sure?" -> forfeits & opens the game over screen. In an AI game it waits for a move in flight, the AI's move
+ * could otherwise save or slide in after the game ended. Its timer stops so the AI isn't asked while the forfeit saves, & starts again if it fails
  */
-async function handleFriendBtn() {
-	if (!game.gameOver) {
-		if (!confirmForfeit) { // FIRST PRESS ASKS, THE QUESTION GOES AWAY AFTER 5 SECONDS
-			confirmForfeit = true;
-			optRestartBtn.innerHTML = "Are you sure?";
-			setTimeout(function () { if (confirmForfeit && !game.gameOver) { confirmForfeit = false; optRestartBtn.innerHTML = "Forfeit"; } }, 5000);
-			return;
-		}
-		confirmForfeit = false;
-		const forfeitResponse = await forfeitGame(game.GAME_URL, game.GAME_ID);
-		if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
-		optRestartBtn.innerHTML = "Forfeit"; // FORFEIT FAILED, KEEP PLAYING
-		console.log(forfeitResponse?.message || "Forfeit failed: no answer from the server");
-		showStatus("action", "The forfeit didn't go through. Try again.", MESSAGE_TIME);
-		return;
+async function handleForfeit() {
+	if (!confirmPress(optRestartBtn)) { return; } // FIRST PRESS ASKS
+	if (game.ai && (game.aiTurn || moveInFlight())) { return showStatus("action", "Wait for the AI's move to finish.", MESSAGE_TIME); }
+	if (game.ai) { clearTimeout(game.aiTimer); }
+	setFill(optRestartBtn);
+	const forfeitResponse = await forfeitGame(game.GAME_URL, game.GAME_ID);
+	if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
+	if (!game.gameOver) { stopFill(optRestartBtn); } // showGameOver ALREADY TOOK IT OFF, THE BUTTON MAY BE BUSY WITH A REMATCH
+	if (game.ai && !game.gameOver && chessInst.turn() != game.playerColor) { // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE
+		game.aiTurn = true;
+		game.refresh = true;
 	}
+	console.log(forfeitResponse?.message || "Forfeit failed: no answer from the server");
+	showStatus("action", "The forfeit didn't go through. Try again.", MESSAGE_TIME);
+}
+
+/* ---------------------------------------------------------------- */
+// Rematch Button (Menu, friend games)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Game over: Rematch, starts when both players press it within 5 minutes
+ */
+async function handleRematch() {
 	if (rematchWaiting) { return; } // ALREADY ASKED, STILL WAITING
+	setFill(optRestartBtn);
 	const rematchResponse = await rematchGame(game.GAME_URL, game.GAME_ID);
+	if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING, THE FILL GOES ON WHILE IT LOADS
+	if (game.boardReset) { return; } // THE SOCKET'S "rematch" LANDED FIRST, THE FILL IS THE NEW BOARD'S
+	stopFill(optRestartBtn);
 	if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME, OR THE REMATCH EXPIRED
-	if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
 	if (rematchResponse?.waiting) { // WAIT FOR THE OPPONENT UNTIL THE REQUEST RUNS OUT
 		clearTimeout(rematchWaiting);
 		rematchOpponent = rematchResponse.opponent_name || "your opponent";
 		optRestartBtn.innerText = `Waiting for ${rematchOpponent}`; // innerText, THE NAME IS NEVER READ AS HTML
+		setUnavailable(optRestartBtn, true); // ONLY CANCEL CAN ACT UNTIL THE OPPONENT ANSWERS
 		optCancelRematchBtn.parentElement.hidden = false;
 		rematchWaiting = setTimeout(function () {
 			endRematchWait();
@@ -439,6 +638,7 @@ function endRematchWait() {
 	clearTimeout(rematchWaiting);
 	rematchWaiting = false;
 	rematchOpponent = null;
+	setUnavailable(optRestartBtn, false);
 	optCancelRematchBtn.parentElement.hidden = true;
 	clearStatus("rematch");
 }
@@ -456,8 +656,10 @@ function showOpponentLeft() {
 export async function handleCancelRematch(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (!rematchWaiting) { return; }
+	if (!rematchWaiting || isBusy(optCancelRematchBtn)) { return; }
+	setFill(optCancelRematchBtn);
 	const response = await cancelRematch(game.GAME_URL, game.GAME_ID);
+	stopFill(optCancelRematchBtn);
 	if (!rematchWaiting) { return; } // IT STARTED OR RAN OUT MEANWHILE
 	if (response?.cancelled) {
 		endRematchWait();
@@ -473,28 +675,52 @@ export async function handleCancelRematch(e) {
 // Game Over
 /* ---------------------------------------------------------------- */
 /**
+ * @description Forfeit, Restart or Rematch's group: at the top under the result when the game is over, otherwise above Home.
+ * It's moved in the page, not with CSS, so the Tab key & screen readers follow the order on screen. Moving a button takes its focus away, so it's given back
+ * @param  {[boolean]} top [true: under the result]
+ */
+function placeEndGroup(top) {
+	const group = optRestartBtn.closest("ul");
+	const focused = document.activeElement;
+	if (top) { group.parentElement.prepend(group); }
+	else { group.parentElement.insertBefore(group, optHomepageBtn.closest("ul")); }
+	if (group.contains(focused)) { focused.focus(); }
+}
+
+/**
  * @description Locks the board & opens the menu with the server's result. AI games offer Restart, friend games offer Rematch
  * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
  */
 export function showGameOver(result) {
 	if (game.gameOver) { return; } // ALREADY SHOWN
 	game.gameOver = true;
+	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
+	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY
 	openMenu();
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
-	optResumeBtn.parentElement.style.display = 'none';
+	optResumeBtn.parentElement.hidden = true;
+	placeEndGroup(true);
 	optDrawBtn.parentElement.hidden = true;
+	optTakebackBtn.parentElement.hidden = true;
+	syncAnalysis({ ...game.response, state: "CLOSED" }); // A FORFEIT COMES OVER THE SOCKET WITHOUT A GAME
 	drawSent = false;
 	drawIncoming = false;
 	clearStatus("draw");
 	showDrawButtons();
+	takebackSent = false;
+	takebackIncoming = false;
+	clearStatus("takeback");
+	showTakebackButtons();
 	if (result?.reason == "forfeit") { resultDisplay.innerText = result.winner == 'w' ? "Black Forfeits" : "White Forfeits" } // THE TITLE ONLY FITS ONE LINE
 	else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
 	else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }
 	else { resultDisplay.innerText = "Draw" }
 	resultReason.innerText = RESULT_REASONS[result?.reason] || "";
 	resultReason.hidden = !resultReason.innerText;
-	if (!game.ai) { optRestartBtn.innerHTML = "Rematch"; } // FRIEND GAME
+	optRestartBtn.innerHTML = game.ai ? "Restart" : "Rematch";
 	handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
+	if (!game.TV_BOOL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS
+	resultAnnouncement.textContent = `${resultDisplay.innerText} ${resultReason.innerText}`.trim(); // AFTER THE FOCUS MOVES, A SCREEN READER READS THE BUTTON THEN THIS
 }
 
 /* ---------------------------------------------------------------- */
@@ -521,35 +747,46 @@ async function loadRematch(newGameId) {
 }
 
 /* ---------------------------------------------------------------- */
-// Homepage Button (Menu)
+// Home & Settings Links (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Goes to Home (/). Stops the render loop & leaves the friend game's socket room first,
- * the page load clears everything else (listeners, canvas). Home says Loading & fills up like the buttons into a game,
- * then the game stays on screen until Home is drawn & fades into it (home.html, showPage in pages/utils)
+ * @description Goes to the link's page. Stops the render loop & leaves the friend game's socket room first,
+ * the page load clears everything else (listeners, canvas). It says Loading & fills up like the buttons into a game,
+ * then the game stays on screen until the page is drawn & fades into it (home.html, showPage in pages/utils).
+ * A click that opens a new tab leaves the game running, the menu's listener closes the menu (createNav in pages/utils/nav.js)
  */
-export function handleHomepage(e) {
+export function handleLeave(e) {
+	if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { return; } // THIS PAGE STAYS
 	e.preventDefault();
 	e.stopPropagation();
+	const link = e.currentTarget;
+	if (isBusy(link)) { return; } // .loading ONLY STOPS CLICKS, A KEYBOARD CAN STILL PRESS IT
 
 	stopFrames(); // STOP THE RENDER LOOP
 	leaveGame();
 	if (rematchWaiting) { cancelRematch(game.GAME_URL, game.GAME_ID); } // THE REQUEST ONLY STANDS WHILE THEY'RE HERE, A LATE PRESS WOULD START A GAME WITHOUT THEM
-	optHomepageBtn.innerText = "Loading";
-	optHomepageBtn.classList.add("loading"); // THE FILL (.loading IN nav.css), ONE PRESS
-	setTimeout(function () { optHomepageBtn.style.setProperty("--load", 1); }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)
-	setTimeout(function () { window.location.href = "/"; }, 250); // HOME ONCE IT'S FULL (server/routes/pageRoutes.js)
+	fillThenGo(link, link.href); // THE PAGE ONCE IT'S FULL (server/routes/pageRoutes.js)
 }
 
 /* ---------------------------------------------------------------- */
 // Exit Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Exits game: a signed in player logs out, a guest logs in (the server's auth routes, server/routes/api/authRoutes.js)
+ * @description Exits game: a guest logs in, a signed in player logs out after a second press (the server's auth routes, server/routes/api/authRoutes.js).
+ * One logout per press. A waiting rematch is cancelled first, the cancel needs the session & a late press would start a game without them
  */
-export function handleExit(e) {
+export async function handleExit(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (game.SIGNED_IN) { return new InternalAuth().logout(); }
-	new InternalAuth().login();
+	if (!game.SIGNED_IN) {
+		optExitBtn.innerText = "Loading";
+		setFill(optExitBtn, 1);
+		return new InternalAuth().login();
+	}
+	if (optExitBtn.disabled || !confirmPress(optExitBtn)) { return; } // FIRST PRESS ASKS (THE TV REMOTE'S ENTER ISN'T STOPPED BY disabled)
+	optExitBtn.disabled = true;
+	optExitBtn.innerText = "Logging Out";
+	setFill(optExitBtn);
+	if (rematchWaiting) { await cancelRematch(game.GAME_URL, game.GAME_ID); }
+	await new InternalAuth().logout();
 }

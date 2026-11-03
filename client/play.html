@@ -36,31 +36,55 @@
 		<div id="resultDisplay">Chess</div>
 		<p id="resultReason" hidden></p>
 		<p id="ratingDisplay" hidden></p>
-		<ul id="menuButtonList">
-			<li><button class="menuButton" id="optResume">Resume</button></li>
-			<li><button class="menuButton" id="optSound">Turn Sound: Off</button></li>
-			<li><button class="menuButton" id="optFlip">Flip Board</button></li>
-			<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
-			<li><button class="menuButton" id="optPgn">Download PGN</button></li>
-			<li hidden><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
-			<li><button class="menuButton" id="optRestart">Restart</button></li>
-			<li hidden><button class="menuButton" id="optCancelRematch">Cancel</button></li>
-			<li><button class="menuButton" id="optSettings">Home</button></li>
-			<li><button class="menuButton" id="optExit">Exit</button></li>
-		</ul>
+		<div id="menuButtonList">
+			<ul role="group" aria-label="Current game">
+				<li><button class="menuButton" id="optResume">Resume</button></li>
+			</ul>
+			<ul role="group" aria-label="Game actions">
+				<li hidden><button class="menuButton" id="optHint">Hint</button></li> <!-- AI GAMES WHILE THEY'RE GOING -->
+				<li hidden><button class="menuButton" id="optTakeback">Takeback</button></li> <!-- WHILE THE GAME IS GOING, FRIEND GAMES WITH TAKEBACKS LEFT -->
+				<li hidden><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
+				<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
+			</ul>
+			<ul role="group" aria-label="View">
+				<li><button class="menuButton" id="optSound">Turn Sound: Off</button></li>
+				<li><button class="menuButton" id="optFlip">Flip Board</button></li>
+				<li hidden><button class="menuButton" id="optEvalBar">Turn Eval Bar: On</button></li> <!-- AI GAMES & FINISHED GAMES -->
+				<li><button class="menuButton" id="optPgn">Download PGN</button></li>
+			</ul>
+			<ul role="group" aria-label="End the game">
+				<li><button class="menuButton" id="optRestart">Restart</button></li>
+				<li hidden><button class="menuButton" id="optCancelRematch">Cancel</button></li>
+			</ul>
+			<ul role="group" aria-label="Navigation">
+				<li><a class="menuButton" id="optHome" href="/">Home</a></li>
+				<li hidden><a class="menuButton" id="optSettings" href="/settings">Settings</a></li> <!-- SIGNED IN PLAYERS -->
+			</ul>
+			<ul role="group" aria-label="Account">
+				<li><button class="menuButton" id="optExit">Exit</button></li>
+			</ul>
+		</div>
 	</nav>
 
 	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
+	<p id="resultAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE RESULT WHEN A GAME ENDS (gameplay/menu/index.js) -->
 
 	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
 		<button id="drawAccept" type="button">Accept Draw</button>
 		<button id="drawDecline" type="button">Decline Draw</button>
 	</div>
 
+	<div id="takebackPrompt" role="group" aria-label="Takeback request" hidden> <!-- THE OPPONENT'S REQUEST, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
+		<button id="takebackAccept" type="button">Accept Takeback</button>
+		<button id="takebackDecline" type="button">Decline Takeback</button>
+	</div>
+
 	<div id="gameInfo"> <!-- BOTTOM LEFT, THE MOVE LIST STAYS CLEAR OF IT -->
 		<p id="openingDisplay" hidden></p> <!-- "B90 Sicilian Defense: Najdorf Variation" (gameplay/movelist/index.js) -->
 		<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
 	</div>
+
+	<div id="evalBar" role="img" aria-label="Evaluation" hidden><div id="evalBarFill"></div></div> <!-- BESIDE THE BOARD, TURNED ON FROM THE MENU (gameplay/analysis/index.js) -->
 
 	<section id="moveList" aria-label="Moves" hidden> <!-- THE GAME'S MOVES, PLACED NEXT TO THE BOARD (gameplay/movelist/index.js) -->
 		<button id="moveListToggle" type="button" aria-controls="moveListRows" aria-expanded="true">Moves</button>

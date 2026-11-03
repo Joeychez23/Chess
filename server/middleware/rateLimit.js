@@ -34,6 +34,10 @@ const AI_MOVE_LIMITS = { // /ai-move ASKS THE ENGINE, A PLAYER NEEDS ONE PER MOV
 	aiMoveSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER OR A GUEST: 20 AT ONCE, THEN 1 A SECOND
 	aiMoveIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
 };
+const ANALYSIS_LIMITS = { // /analysis ASKS THE ENGINE, A HINT PER MOVE PLUS THE BAR'S TWO. ITS OWN COUNTS, SO HINTS NEVER STOP THE AI MOVING
+	analysisSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER OR A GUEST: 20 AT ONCE, THEN 1 A SECOND
+	analysisIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
+};
 const CLIENT_ERROR_LIMITS = { // BROWSER ERROR REPORTS BECOME LOG LINES, SO A LOOP CAN'T FILL THE LOGS (#194)
 	clientErrorIp: { burst: 10, refillMs: 30 * 1000 }, // AN IP (IPv6: ITS /64): 10 AT ONCE, THEN 1 EVERY 30 SECONDS
 	clientErrorSite: { burst: 60, refillMs: 2 * 1000 }, // EVERYONE: 60 AT ONCE, THEN 1 EVERY 2 SECONDS
@@ -53,156 +57,83 @@ const LOG_EVERY = 60 * 1000; // A KEY THAT KEEPS HITTING ITS LIMIT IS LOGGED ONC
 let buckets = {}; // LIMIT NAME -> KEY -> { tokens, at (ms), loggedAt (ms) }
 
 /* ---------------------------------------------------------------- */
-// Limit New Games
+// Limiter
 /* ---------------------------------------------------------------- */
 /**
- * @description Middleware for the routes that make a game (new game, restart, invite). Runs after optionalAuth / requireAuth
- * & before the route, so a refused request never forfeits or saves anything. Answers 429 with Retry-After when a limit is hit
+ * @description Builds a limit's middleware, every 429 is answered here. It runs before the route, so a refused request does nothing
+ * @param  {[object]} limits [the buckets to take from, e.g. LOGIN_LIMITS]
+ * @param  {[string]} logLabel [starts the log line: "<logLabel> limit (...)"]
+ * @param  {[string]} refused [ends the player's message: "Too many <refused>, try again in ..."]
+ * @param  {[function]} keysFor [req -> { limit name: bucket key }, a limit without a key isn't checked]
+ * @return {[function]} middleware
  */
-function limitNewGames(req, res, next) {
+function limiter(limits, logLabel, refused, keysFor) {
+	return (req, res, next) => {
+		const keys = keysFor(req);
+		const result = takeTokens(keys, Date.now(), limits);
+		if (result.ok) { return next(); }
+
+		const seconds = Math.ceil(result.retryMs / 1000);
+		if (result.log) { console.log(`${logLabel} limit (${result.limit}: ${logKey(keys[result.limit])}) ${req.method} ${req.originalUrl.split("?")[0]}, retry in ${seconds}s`); } // NO QUERY, A SEARCH'S TEXT STAYS OUT OF THE LOGS
+		res.set("Retry-After", String(seconds));
+		return res.status(429).json({ status: 429, message: `Too many ${refused}, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
+	};
+}
+
+/**
+ * @description A bucket key for a log line. Anything but plain ids & addresses (an email is free text) is escaped & quoted, so it can't add a fake line that sets off an alarm
+ */
+function logKey(key) {
+	return /^[\w:./-]+$/.test(key) ? key : JSON.stringify(key);
+}
+
+/**
+ * @description The bucket key for a signed in player or a guest. The same from game to game. A guest's first game (no cookie yet), or a bot that drops it, has none, so only the IP & site limits apply
+ */
+function sessionKey(req) {
+	if (req.user) { return `user:${req.user.user_id}`; }
 	const guest = readGuestCookie(req);
-	const keys = { ip: ipKey(req.ip), site: "all" };
-	if (req.user) { keys.session = `user:${req.user.user_id}`; }
-	else if (guest) { keys.session = `guest:${guest.session}`; } // THE SAME FROM GAME TO GAME. A GUEST'S FIRST GAME (NO COOKIE YET), OR A BOT THAT DROPS IT, ONLY HAS THE IP & SITE LIMITS
-
-	const result = takeTokens(keys, Date.now());
-	if (result.ok) { return next(); }
-
-	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`New game limit (${result.limit}: ${keys[result.limit]}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
-	res.set("Retry-After", String(seconds));
-	return res.status(429).json({ status: 429, message: `Too many new games, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
+	return guest ? `guest:${guest.session}` : undefined;
 }
 
 /* ---------------------------------------------------------------- */
-// Limit Logins
+// Limits
 /* ---------------------------------------------------------------- */
-/**
- * @description Middleware for POST /api/auth/login. Runs after checkLogin (so the email is a string) & before Auth0 is asked,
- * with its own buckets so logins never use up new games. Answers 429 with Retry-After when a limit is hit
- */
-function limitLogins(req, res, next) {
-	const keys = { loginIp: ipKey(req.ip), loginEmail: req.body.email.toLowerCase() };
-	const result = takeTokens(keys, Date.now(), LOGIN_LIMITS);
-	if (result.ok) { return next(); }
-	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`Login limit (${result.limit}: ${JSON.stringify(keys[result.limit])}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
-	res.set("Retry-After", String(seconds));
-	return res.status(429).json({ status: 429, message: `Too many logins, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
-}
+// THE ROUTES THAT MAKE A GAME (NEW GAME, RESTART, INVITE). AFTER optionalAuth / requireAuth
+const limitNewGames = limiter(LIMITS, "New game", "new games", (req) => ({ session: sessionKey(req), ip: ipKey(req.ip), site: "all" }));
 
-/* ---------------------------------------------------------------- */
-// Limit Signups
-/* ---------------------------------------------------------------- */
-/**
- * @description Middleware for POST /api/auth/signup. Runs after checkSignup (so the email is a string) & before Auth0 is asked,
- * with its own buckets so signups never use up logins. Answers 429 with Retry-After when a limit is hit
- */
-function limitSignups(req, res, next) {
-	const keys = { signupIp: ipKey(req.ip), signupEmail: req.body.email.trim().toLowerCase() };
-	const result = takeTokens(keys, Date.now(), SIGNUP_LIMITS);
-	if (result.ok) { return next(); }
-	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`Signup limit (${result.limit}: ${JSON.stringify(keys[result.limit])}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
-	res.set("Retry-After", String(seconds));
-	return res.status(429).json({ status: 429, message: `Too many sign ups, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
-}
+// POST /api/auth/login. AFTER checkLogin (SO THE EMAIL IS A STRING) & BEFORE AUTH0 IS ASKED
+const limitLogins = limiter(LOGIN_LIMITS, "Login", "logins", (req) => ({ loginIp: ipKey(req.ip), loginEmail: req.body.email.toLowerCase() }));
 
-/* ---------------------------------------------------------------- */
-// Limit Password Resets
-/* ---------------------------------------------------------------- */
-/**
- * @description Middleware for POST /api/auth/forgot. Runs after checkForgot (so the email is a string) & before Auth0 is asked,
- * with its own buckets so resets never use up logins. Answers 429 with Retry-After when a limit is hit, for any email, so it doesn't say whether one has an account
- */
-function limitForgot(req, res, next) {
-	const keys = { forgotIp: ipKey(req.ip), forgotEmail: req.body.email.trim().toLowerCase() };
-	const result = takeTokens(keys, Date.now(), FORGOT_LIMITS);
-	if (result.ok) { return next(); }
-	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`Password reset limit (${result.limit}: ${JSON.stringify(keys[result.limit])}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
-	res.set("Retry-After", String(seconds));
-	return res.status(429).json({ status: 429, message: `Too many reset requests, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
-}
+// POST /api/auth/signup. AFTER checkSignup (SO THE EMAIL IS A STRING) & BEFORE AUTH0 IS ASKED
+const limitSignups = limiter(SIGNUP_LIMITS, "Signup", "sign ups", (req) => ({ signupIp: ipKey(req.ip), signupEmail: req.body.email.trim().toLowerCase() }));
 
-/* ---------------------------------------------------------------- */
-// Limit AI Moves
-/* ---------------------------------------------------------------- */
-/**
- * @description Middleware for POST /api/chess/game/:gameId/ai-move. Runs after optionalAuth & before the engine is asked,
- * with its own buckets so AI moves never use up new games. Answers 429 with Retry-After when a limit is hit
- */
-function limitAiMoves(req, res, next) {
-	const guest = readGuestCookie(req);
-	const keys = { aiMoveIp: ipKey(req.ip) };
-	if (req.user) { keys.aiMoveSession = `user:${req.user.user_id}`; }
-	else if (guest) { keys.aiMoveSession = `guest:${guest.session}`; }
+// POST /api/auth/forgot. AFTER checkForgot (SO THE EMAIL IS A STRING) & BEFORE AUTH0 IS ASKED. REFUSES ANY EMAIL THE SAME WAY, SO IT DOESN'T SAY WHETHER ONE HAS AN ACCOUNT
+const limitForgot = limiter(FORGOT_LIMITS, "Password reset", "reset requests", (req) => ({ forgotIp: ipKey(req.ip), forgotEmail: req.body.email.trim().toLowerCase() }));
 
-	const result = takeTokens(keys, Date.now(), AI_MOVE_LIMITS);
-	if (result.ok) { return next(); }
-	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`AI move limit (${result.limit}: ${keys[result.limit]}) ${req.method} ${req.originalUrl}, retry in ${seconds}s`); }
-	res.set("Retry-After", String(seconds));
-	return res.status(429).json({ status: 429, message: `Too many AI move requests, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
-}
+// POST /api/chess/game/:gameId/ai-move. AFTER optionalAuth & BEFORE THE ENGINE IS ASKED
+const limitAiMoves = limiter(AI_MOVE_LIMITS, "AI move", "AI move requests", (req) => ({ aiMoveSession: sessionKey(req), aiMoveIp: ipKey(req.ip) }));
 
-/* ---------------------------------------------------------------- */
-// Limit Browser Error Reports
-/* ---------------------------------------------------------------- */
-/**
- * @description Middleware for POST /api/client-errors, with its own buckets. Answers 429 with Retry-After when a limit is hit
- */
-function limitClientErrors(req, res, next) {
-	const keys = { clientErrorIp: ipKey(req.ip), clientErrorSite: "all" };
-	const result = takeTokens(keys, Date.now(), CLIENT_ERROR_LIMITS);
-	if (result.ok) { return next(); }
-	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`Browser error report limit (${result.limit}: ${keys[result.limit]}), retry in ${seconds}s`); }
-	res.set("Retry-After", String(seconds));
-	return res.status(429).json({ status: 429, message: `Too many error reports, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
-}
+// POST /api/chess/game/:gameId/analysis. AFTER optionalAuth & BEFORE THE ENGINE IS ASKED
+const limitAnalysis = limiter(ANALYSIS_LIMITS, "Analysis", "hint requests", (req) => ({ analysisSession: sessionKey(req), analysisIp: ipKey(req.ip) }));
 
-/* ---------------------------------------------------------------- */
-// Limit Player Search
-/* ---------------------------------------------------------------- */
-/**
- * @description Middleware for GET /api/user/search. Runs after requireAuth, with its own buckets so searches never use up new games.
- * Answers 429 with Retry-After when a limit is hit
- */
-function limitPlayerSearch(req, res, next) {
-	const keys = { searchSession: `user:${req.user.user_id}`, searchIp: ipKey(req.ip), searchSite: "all" };
-	const result = takeTokens(keys, Date.now(), SEARCH_LIMITS);
-	if (result.ok) { return next(); }
-	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`Player search limit (${result.limit}: ${keys[result.limit]}), retry in ${seconds}s`); }
-	res.set("Retry-After", String(seconds));
-	return res.status(429).json({ status: 429, message: `Too many searches, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
-}
+// POST /api/client-errors
+const limitClientErrors = limiter(CLIENT_ERROR_LIMITS, "Browser error report", "error reports", (req) => ({ clientErrorIp: ipKey(req.ip), clientErrorSite: "all" }));
 
-/* ---------------------------------------------------------------- */
-// Limit Friend Actions
-/* ---------------------------------------------------------------- */
-/**
- * @description Middleware for POST /api/user/friends/<action>. Runs after requireAuth, with its own buckets. Answers 429 with Retry-After when a limit is hit
- */
-function limitFriends(req, res, next) {
-	const keys = { friendSession: `user:${req.user.user_id}`, friendIp: ipKey(req.ip) };
-	const result = takeTokens(keys, Date.now(), FRIEND_LIMITS);
-	if (result.ok) { return next(); }
-	const seconds = Math.ceil(result.retryMs / 1000);
-	if (result.log) { console.log(`Friend action limit (${result.limit}: ${keys[result.limit]}), retry in ${seconds}s`); }
-	res.set("Retry-After", String(seconds));
-	return res.status(429).json({ status: 429, message: `Too many friend requests, try again in ${seconds} second${seconds == 1 ? "" : "s"}` });
-}
+// GET /api/user/search. AFTER requireAuth
+const limitPlayerSearch = limiter(SEARCH_LIMITS, "Player search", "searches", (req) => ({ searchSession: `user:${req.user.user_id}`, searchIp: ipKey(req.ip), searchSite: "all" }));
+
+// POST /api/user/friends/<action>. AFTER requireAuth
+const limitFriends = limiter(FRIEND_LIMITS, "Friend action", "friend requests", (req) => ({ friendSession: `user:${req.user.user_id}`, friendIp: ipKey(req.ip) }));
 
 /* ---------------------------------------------------------------- */
 // Take Tokens
 /* ---------------------------------------------------------------- */
 /**
  * @description Takes one token from each key's bucket, or none if any of them is empty (so a refused request costs nothing)
- * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail }, { forgotIp, forgotEmail }, { aiMoveSession (optional), aiMoveIp }, { searchSession, searchIp, searchSite } or { friendSession, friendIp }]
+ * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail }, { forgotIp, forgotEmail }, { aiMoveSession (optional), aiMoveIp }, { analysisSession (optional), analysisIp }, { searchSession, searchIp, searchSite } or { friendSession, friendIp }]
  * @param  {[number]} now [epoch ms]
- * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS or FRIEND_LIMITS]
+ * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS or FRIEND_LIMITS]
  * @return {[object]} result [{ ok: true } | { ok: false, limit (the empty one), retryMs (until it has a token), log (first refusal this minute) }]
  */
 function takeTokens(keys, now, limits = LIMITS) {
@@ -242,7 +173,7 @@ function refill(limit, key, now, limits) {
  * @description Drops the buckets that have filled up again (the same as a new one), then the oldest if a limit still has too many
  */
 function sweep(now) {
-	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS]) {
+	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS]) {
 		for (const limit of Object.keys(limits)) {
 			const map = buckets[limit];
 			if (!map) { continue; }
@@ -286,4 +217,4 @@ function resetLimits() {
 }
 
 
-module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitClientErrors, limitPlayerSearch, limitFriends, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS };
+module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitAnalysis, limitClientErrors, limitPlayerSearch, limitFriends, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS };

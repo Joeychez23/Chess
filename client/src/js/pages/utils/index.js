@@ -13,6 +13,10 @@
 const { drawBoardPicture } = require("./boardPicture.js");
 const { getLevels } = require("../../gameplay/validate/index.js");
 const { imageProgress } = require("../../gameplay/images/index.js");
+const { confirmPress } = require("./confirm.js"); // LOGOUT IN THE MENU NEEDS A SECOND PRESS
+const { setFill } = require("./menuItem.js"); // LOGOUT IN THE MENU FILLS WHILE IT WAITS
+
+export { startNav } from "./nav.js"; // THE MENU BUTTON, pages/utils/nav.js
 
 let loadingBtn = null; // THE BUTTON OR LINK THAT SAYS LOADING (ONE AT A TIME), stopLoading() PUTS IT BACK
 let loadingText; // ITS TEXT BEFORE IT SAID LOADING
@@ -20,40 +24,11 @@ let loadingCheck; // FILLS IT AS THE GAME'S IMAGES LOAD
 let loadingStartTime; // WHEN IT STARTED, goToPage() GOES ANYWAY 8 SECONDS AFTER THIS
 
 /* ---------------------------------------------------------------- */
-// Start Nav
-/* ---------------------------------------------------------------- */
-/**
- * @description The menu button (3 lines, top right) opens & closes the menu. A click outside it, a link in it or Escape closes it.
- * The play page's game does this itself (handleMenuBtn in gameplay/menu/index.js), so only pages without the game call this
- * @return {[function]} toggleNav [toggleNav(true) opens the menu, toggleNav(false) closes it]
- */
-export function startNav() {
-	const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES)
-	const menu = document.getElementById("menuContainer");
-
-	function toggleNav(open) { // TRUE OPENS THE MENU, FALSE CLOSES IT
-		menu.style.display = open ? "flex" : "none";
-		optBtn.setAttribute("aria-expanded", open);
-	}
-
-	optBtn.setAttribute("aria-expanded", false);
-	optBtn.addEventListener("click", function (e) {
-		e.preventDefault();
-		e.stopPropagation();
-		toggleNav(menu.style.display != "flex");
-	});
-	menu.addEventListener("click", function (e) { if (e.target.closest("a")) { toggleNav(false); } }); // A LINK ON THIS PAGE (#games) CLOSES IT TOO
-	document.addEventListener("click", function (e) { if (!menu.contains(e.target)) { toggleNav(false); } }); // CLICK OUTSIDE
-	document.addEventListener("keydown", function (e) { if (e.key == "Escape") { toggleNav(false); } });
-	return toggleNav;
-}
-
-/* ---------------------------------------------------------------- */
 // Logout Buttons
 /* ---------------------------------------------------------------- */
 /**
  * @description Logout & Sign out (Home & Settings) end the session with a POST (auth.logout()), a link's GET is refused (#297, #332).
- * The button is turned off so a second press doesn't send a second logout
+ * Logout in the menu asks "Are you sure?" first (confirm.js), Sign out is on the Settings page itself. The button is turned off so another press doesn't send a second logout
  * @param  {[object]} auth [the page's InternalAuth]
  */
 export function startLogoutButtons(auth) {
@@ -61,7 +36,12 @@ export function startLogoutButtons(auth) {
 		btn.addEventListener("click", function (e) {
 			e.preventDefault();
 			if (btn.disabled) { return; }
+			if (btn.closest("#menuContainer") && !confirmPress(btn)) { return; } // FIRST PRESS ASKS
 			btn.disabled = true;
+			if (btn.closest("#menuContainer")) {
+				btn.innerText = "Logging Out";
+				setFill(btn);
+			}
 			auth.logout(); // POST /api/auth/logout, THEN THE GUEST PAGE
 		});
 	});
@@ -144,12 +124,13 @@ export async function loadLevels(gameUrl, select) {
 /**
  * @description How a game's start settings read on Home: the picture's caption, Invites & Your games
  * @param  {[string]} playerColor ["w" or "b", the player's side in this game]
- * @param  {[object]} startParams [the game's start settings, { color: "random" | "w" | "b", fen (a set position) }]
- * @return {[string]} text ["You play white", "You play white (random)" when it was drawn, then " // Set position" for a game from a FEN]
+ * @param  {[object]} startParams [the game's start settings, { color: "alternate" | "random" | "w" | "b", fen (a set position) }]
+ * @return {[string]} text ["You play white", "You play white (random)" when it was drawn, "You play white (alternating)", then " // Set position" for a game from a FEN]
  */
 export function colorText(playerColor, startParams) {
 	const position = startParams?.fen ? " // Set position" : ""; // STARTED FROM THE START POSITION BOX
-	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : ""}${position}`;
+	const takebacks = startParams?.takebacks === 0 ? " // No takebacks" : ""; // THE INVITE'S SETTING
+	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : startParams?.color == "alternate" ? " (alternating)" : ""}${position}${takebacks}`;
 }
 
 /* ---------------------------------------------------------------- */

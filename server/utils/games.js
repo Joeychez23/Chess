@@ -106,38 +106,54 @@ function turnColor(gameData) {
 /* ---------------------------------------------------------------- */
 // Start Settings
 /* ---------------------------------------------------------------- */
+const MAX_TAKEBACKS = 3; // ACCEPTED TAKEBACKS PER FRIEND GAME
+
 /**
- * @description A new game's start settings: the color the player picked & a set position. Restart & Rematch reuse them
- * @param  {[string]} color ["w", "b" or "random", anything else is random]
+ * @description A new game's start settings: the color the player picked, a set position & friend games' takeback setting. Restart & Rematch reuse them
+ * @param  {[string]} color ["w", "b", "random" or "alternate", anything else is random]
  * @param  {[string]} fen [the checked set position (checkStartFen), false for the standard position]
- * @return {[object]} params [{ color, fen (only for a set position) }]
+ * @param  {[number]} takebacks [0 turns friend game takebacks off, anything else leaves the limit (MAX_TAKEBACKS)]
+ * @return {[object]} params [{ color, fen (only for a set position), takebacks (only when off: 0) }]
  */
-function newStartParams(color, fen) {
-	let params = { color: color == "w" || color == "b" ? color : "random" };
+function newStartParams(color, fen, takebacks) {
+	let params = { color: isColor(color) ? color : "random" };
 	if (fen) { params.fen = fen; }
+	if (takebacks === 0) { params.takebacks = 0; }
 	return params;
 }
 
 /**
  * @description A game's saved start settings, games from before start_params are random from the standard position
  * @param  {[object]} gameData [game item]
- * @return {[object]} params [{ color, fen }]
+ * @return {[object]} params [{ color, fen, takebacks }]
  */
 function startParams(gameData) {
 	let params = {};
 	try { params = JSON.parse(gameData.start_params?.S || "{}"); } catch { }
-	return newStartParams(params.color, params.fen || false);
+	return newStartParams(params.color, params.fen || false, params.takebacks);
 }
 
 /**
- * @description Who plays white & black. The host's pick decides, random flips a coin
+ * @description How many takebacks a friend game has left, between both players
+ * @param  {[object]} gameData [game item, takeback_count is how many were accepted]
+ * @return {[number]} left [0 when the invite turned them off]
+ */
+function takebacksLeft(gameData) {
+	if (startParams(gameData).takebacks === 0) { return 0; }
+	return Math.max(0, MAX_TAKEBACKS - Number(gameData.takeback_count?.N || 0));
+}
+
+/**
+ * @description Who plays white & black. The host's pick decides, random flips a coin, alternate is the opposite of the host's last game (their first game flips a coin)
  * @param  {[object]} params [start settings, color is the host's pick]
  * @param  {[string]} hostId [the player whose pick it is: the AI game's player, or the inviter]
  * @param  {[string]} otherId ["CHESS_AI", or the invited player]
+ * @param  {[string]} lastColor [alternate: the host's side in their last game, "w" or "b", left out = no last game]
  * @return {[object]} sides [{ white, black }]
  */
-function pickSides(params, hostId, otherId) {
+function pickSides(params, hostId, otherId, lastColor) {
 	let hostColor = params.color;
+	if (hostColor == "alternate") { hostColor = lastColor == "w" ? "b" : lastColor == "b" ? "w" : "random"; }
 	if (hostColor == "random") { hostColor = Math.random() < 0.5 ? "w" : "b"; }
 	return hostColor == "w" ? { white: hostId, black: otherId } : { white: otherId, black: hostId };
 }
@@ -147,11 +163,11 @@ function pickSides(params, hostId, otherId) {
 /* ---------------------------------------------------------------- */
 /**
  * @description True for a color a player can pick
- * @param  {[string]} value ["w", "b" or "random"]
+ * @param  {[string]} value ["w", "b", "random" or "alternate"]
  * @return {[boolean]} ok
  */
 function isColor(value) {
-	return value == "w" || value == "b" || value == "random";
+	return value == "w" || value == "b" || value == "random" || value == "alternate";
 }
 
 /**
@@ -182,4 +198,4 @@ function newGameId() {
 	return crypto.randomBytes(16).toString("base64url");
 }
 
-module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isColor, isId, newGameId, DEFAULT_LEVEL };
+module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isColor, isId, newGameId, DEFAULT_LEVEL };

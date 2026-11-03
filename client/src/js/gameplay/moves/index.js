@@ -14,13 +14,9 @@ const { game, chessInst, validateState, fillTiles } = require("../state/index.js
 const { validate } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
 const { setTiles, countStartPieces, lastMoveBy } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH, A SIDE'S LAST MOVE
-const { handleRemoteMenuEnter } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON
-const { showGameOver, openMenu, syncDrawOffer } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), OPENS THE MENU, THE DRAW OFFER'S BUTTONS
+const { showGameOver, syncDrawOffer, loadTakeback } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), THE DRAW OFFER'S BUTTONS
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { setMoves, addMove, showOpening } = require("../movelist/index.js"); // THE MOVE LIST PANEL & THE OPENING UNDER IT
-const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
-const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
-const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const OPPONENT_RETRY_TIME = 5000; // ASKS FOR A FRIEND'S MOVE AGAIN AFTER THIS WHEN THE SERVER DIDN'T ANSWER (ms)
 let opponentRetry = null; // THE TIMER FOR THAT
 
@@ -30,16 +26,17 @@ let opponentRetry = null; // THE TIMER FOR THAT
 /**
  * @description Sets initial data. Gets the game from the server & sets the player's color & the board.
  * Guests get a new AI game first if they don't have one. If it's the AI's turn its move is asked for here & slid in by renderLoop()
+ * @param  {[object]} loaded [the game when a takeback's answer already has it: a read right after the save could return the old board. Left out = gets it from the server]
  * @return {[boolean]} false [the game couldn't be loaded]
  */
-export async function setInitialData() {
-	if (game.PLAYER_ID === game.GAME_ID && game.PLAYER_ID && game.GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
+export async function setInitialData(loaded) {
+	if (!loaded && game.PLAYER_ID === game.GAME_ID && game.PLAYER_ID && game.GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
 		game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false);
 		if (!game.response?.game_board) { game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, 'b'); } // NO GAME YET: NEW GAME VS THE AI
 	}
-	game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
+	game.response = loaded || await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
 	game.playerColor = game.response?.player_color || null;
-	game.viewColor = game.playerColor; // A NEW GAME STARTS FROM THE PLAYER'S SIDE
+	if (!loaded) { game.viewColor = game.playerColor; } // A NEW GAME STARTS FROM THE PLAYER'S SIDE, A TAKEBACK STAYS FLIPPED
 	game.flipPending = false;
 	setMoves(game.response?.moves, game.response?.start_params?.fen); // A NEW GAME (RESTART & REMATCH) STARTS THE LIST OVER
 	showOpening(game.response?.opening);
@@ -50,6 +47,7 @@ export async function setInitialData() {
 		setLastOpponentMove();
 		syncDrawOffer(game.response);
 		game.annotations = []; // A NEW GAME (RESTART & REMATCH) STARTS WITHOUT THE OLD ONE'S MARKS & ARROWS
+		game.hint = null; // & ITS HINT
 		if (game.response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 			game.ai = game.response.ai;
 			showGameOver(game.response);
@@ -109,16 +107,9 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 		const updatedResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
 		if (updatedResponse?.status != 200) { return opponentMoveFailed(updatedResponse); }
 		clearStatus("server");
+		if (updatedResponse.takebacks_left < game.revert.takebacks_left) { return await loadTakeback(updatedResponse); } // A RECONNECT MISSED AN ACCEPTED TAKEBACK. ONLY GOES DOWN ON ONE, AN OLD READ HAS A HIGHER COUNT
 		syncDrawOffer(updatedResponse); // THEIR MOVE ENDS ANY OFFER, A RECONNECT CATCHES UP ON ONE
 		if (updatedResponse.game_board != game.revert.game_board && game.opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
-			if (chessInst.isGameOver()) { // THIS BOARD WAS ALREADY OVER
-				openMenu();
-				optResumeBtn.parentElement.style.display = 'none';
-				if (game.playerColor == 'w') { resultDisplay.innerText = "White Wins!" }
-				else if (game.playerColor == 'b') { resultDisplay.innerText = "Black Wins!" }
-				handleRemoteMenuEnter(optRestartBtn);
-			}
-
 			validateState.load(updatedResponse.game_board);
 			const serverPiece = validateState.get(updatedResponse.prev_move[1]) // PIECE RETURNED FROM THE SERVER GAME BOARD
 
@@ -214,6 +205,7 @@ export async function validateMove() {
 		game.opposingMove = true; // LOCK THE BOARD
 		const playedMove = chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
 		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
+		game.hint = null; // & THE HINT
 		if (game.playerColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP UNTIL THE SERVER'S COMES BACK
 			for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
 				if (game.moveObj.from == JSON.parse(game.response.w_knight)[n].to) {
@@ -281,7 +273,10 @@ export async function validateMove() {
 		}
 
 
-		const moveResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, [game.moveObj.from, game.moveObj.to], game.moveObj.promotion, false); // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
+		let moveResponse;
+		game.moveSaving = true; // game.response STILL HAS THE OLD BOARD, FLIP BOARD WAITS (handleFlip)
+		try { moveResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, [game.moveObj.from, game.moveObj.to], game.moveObj.promotion, false); } // SEND THE MOVE (PUT), THE SERVER CHECKS & SAVES IT
+		finally { game.moveSaving = false; game.refresh = true; } // THE NEXT FRAME DOES A FLIP THAT WAITED (flipWhenDone)
 		if (moveResponse?.status != 200) { return moveFailed(moveResponse); } // TURNED DOWN OR NO ANSWER: BACK TO THE OLD BOARD
 
 		chessInst.load(moveResponse.game_board); // THE SERVER'S BOARD
@@ -298,7 +293,7 @@ export async function validateMove() {
 		if (game.ai) {
 			game.tiles = await setTiles();
 			game.refresh = true;
-			setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
+			game.aiTimer = setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
 			return;
 		}
 		else { return refreshData(game.response); } // FRIEND GAME: THE SOCKET SAYS WHEN THEY MOVE
@@ -340,66 +335,34 @@ export async function updateOpponentStateSlide(index) {
 		const playedMove = chessInst.move(game.moveObj); // LOCAL BOARD
 		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
 
-		if (game.opponentColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
-			for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
-				if (game.moveObj.from == JSON.parse(game.response.w_knight)[n].to) {
-					let w_knight = JSON.parse(game.response.w_knight)
-					w_knight[n].from = game.moveObj.from;
-					w_knight[n].to = game.moveObj.to;
-					game.response.w_knight = JSON.stringify(w_knight);
+		const color = game.opponentColor;
+		if (color) { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
+			const { from, to, promotion } = game.moveObj;
+			const rank = color == 'w' ? '1' : '8';
+			const knights = JSON.parse(game.response[`${color}_knight`]);
+			const pieces = JSON.parse(game.response[`${color}_piece`]);
+			for (const knight of knights) {
+				if (knight.to == from) {
+					knight.from = from;
+					knight.to = to;
 				}
 			}
-			for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
-				if (game.moveObj.from == JSON.parse(game.response.w_piece)[n].to) {
-					let w_piece = JSON.parse(game.response.w_piece)
-					if (game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { w_piece[n].from = game.moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
-					w_piece[n].to = game.moveObj.to;
-					game.response.w_piece = JSON.stringify(w_piece);
+			for (const piece of pieces) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
+				if (piece.to == from) {
+					if (from[1] != to[1]) { piece.from = from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
+					piece.to = to;
 				}
 			}
 			// !NOTE: THE OLD ROOK SQUARE STAYS UNTIL THE SERVER'S LIST COMES BACK. THE MOVE LANDS HALFWAY THROUGH DRAWING A FRAME
 			// & THE REST OF THAT FRAME STILL DRAWS THE OLD BOARD, SO THE ROOK WOULD DISAPPEAR FOR A FRAME IF ITS SQUARE WAS GONE
-			if (chessInst.get(game.moveObj.to).type == 'k' && game.moveObj.from == 'e1' && (game.moveObj.to == 'g1' || game.moveObj.to == 'c1')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
-				for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
-					let w_piece = JSON.parse(game.response.w_piece)
-					if (game.moveObj.to == 'g1' && w_piece[n].to == 'h1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'f1' }; game.response.w_piece = JSON.stringify(w_piece); break; } // KING SIDE
-					else if (game.moveObj.to == 'c1' && w_piece[n].to == 'a1') { w_piece[w_piece.length] = { from: w_piece[n].from, to: 'd1' }; game.response.w_piece = JSON.stringify(w_piece); break; } // QUEEN SIDE
-				}
+			if (chessInst.get(to).type == 'k' && from == `e${rank}` && (to == `g${rank}` || to == `c${rank}`)) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
+				const [rookFrom, rookTo] = to == `g${rank}` ? [`h${rank}`, `f${rank}`] : [`a${rank}`, `d${rank}`]; // KING SIDE : QUEEN SIDE
+				const rook = pieces.find((piece) => piece.to == rookFrom);
+				if (rook) { pieces.push({ from: rook.from, to: rookTo }); }
 			}
-			if (game.moveObj.promotion && game.moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
-				let w_piece = JSON.parse(game.response.w_piece)
-				w_piece[w_piece.length] = { from: game.moveObj.from, to: game.moveObj.to };
-				game.response.w_piece = JSON.stringify(w_piece);
-			}
-		} else if (game.opponentColor == 'b') {
-			for (let n = 0; n < JSON.parse(game.response.b_knight).length; n++) {
-				if (game.moveObj.from == JSON.parse(game.response.b_knight)[n].to) {
-					let b_knight = JSON.parse(game.response.b_knight)
-					b_knight[n].from = game.moveObj.from;
-					b_knight[n].to = game.moveObj.to;
-					game.response.b_knight = JSON.stringify(b_knight);
-				}
-			}
-			for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
-				if (game.moveObj.from == JSON.parse(game.response.b_piece)[n].to) {
-					let b_piece = JSON.parse(game.response.b_piece)
-					if (game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { b_piece[n].from = game.moveObj.from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
-					b_piece[n].to = game.moveObj.to;
-					game.response.b_piece = JSON.stringify(b_piece);
-				}
-			}
-			if (chessInst.get(game.moveObj.to).type == 'k' && game.moveObj.from == 'e8' && (game.moveObj.to == 'g8' || game.moveObj.to == 'c8')) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
-				for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
-					let b_piece = JSON.parse(game.response.b_piece)
-					if (game.moveObj.to == 'g8' && b_piece[n].to == 'h8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'f8' }; game.response.b_piece = JSON.stringify(b_piece); break; } // KING SIDE
-					else if (game.moveObj.to == 'c8' && b_piece[n].to == 'a8') { b_piece[b_piece.length] = { from: b_piece[n].from, to: 'd8' }; game.response.b_piece = JSON.stringify(b_piece); break; } // QUEEN SIDE
-				}
-			}
-			if (game.moveObj.promotion && game.moveObj.promotion != 'n') { // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
-				let b_piece = JSON.parse(game.response.b_piece)
-				b_piece[b_piece.length] = { from: game.moveObj.from, to: game.moveObj.to };
-				game.response.b_piece = JSON.stringify(b_piece);
-			}
+			if (promotion && promotion != 'n') { pieces.push({ from, to }); } // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
+			game.response[`${color}_knight`] = JSON.stringify(knights);
+			game.response[`${color}_piece`] = JSON.stringify(pieces);
 		}
 
 		game.revert = game.response;

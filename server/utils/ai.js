@@ -33,6 +33,9 @@ const LEVELS = [
 ];
 const DEFAULT_LEVEL = 3;
 const DRAW_CHECK = { depth: 12, time: 1000 }; // A DRAW OFFER IS JUDGED AT FULL STRENGTH WHATEVER THE LEVEL (A SKILL LEVEL'S WEAKER PICK COMES WITHOUT A SCORE)
+const ANALYSIS = { depth: 12, time: 800 }; // HINTS & THE EVALUATION BAR: LOW, ONLY 2 ENGINES RUN & OTHER PLAYERS' AI MOVES WAIT BEHIND THESE
+const MAX_ANALYSES = 5000; // POSITIONS KEPT, THE ONE UNUSED THE LONGEST IS DROPPED FIRST
+const analyses = new Map(); // FEN -> THE ANSWER (A PROMISE), THE SAME POSITION NEVER ASKS THE ENGINE TWICE
 
 /* ---------------------------------------------------------------- */
 // Levels
@@ -134,6 +137,53 @@ async function aiAcceptsDraw(fen, aiColor) {
 	}
 }
 
+/* ---------------------------------------------------------------- */
+// Analysis
+/* ---------------------------------------------------------------- */
+/**
+ * @description The best move & the evaluation for a board at full strength, for hints & the evaluation bar. Cached by FEN, failures aren't kept. Throws when the engine can't answer
+ * @param  {[string]} fen [game board]
+ * @return {[object]} analysis [{ from, to, eval, mate, winChance } from White's side, from & to are null when the game can't go on]
+ */
+function analyzePosition(fen) {
+	let answer = analyses.get(fen);
+	if (answer) {
+		analyses.delete(fen); // USED: IT GOES TO THE END, THE MAP KEEPS THE ORDER KEYS WERE ADDED
+	} else {
+		answer = askAnalysis(fen);
+		answer.catch(() => analyses.delete(fen));
+		if (analyses.size >= MAX_ANALYSES) { analyses.delete(analyses.keys().next().value); }
+	}
+	analyses.set(fen, answer);
+	return answer;
+}
+
+/**
+ * @description Asks the engine about a board. A checkmate or stalemate has nothing to search
+ * @param  {[string]} fen [game board]
+ * @return {[object]} analysis [see analyzePosition]
+ */
+async function askAnalysis(fen) {
+	const board = new Chess(fen);
+	if (board.isCheckmate()) {
+		const whiteLost = board.turn() == "w";
+		return { from: null, to: null, eval: whiteLost ? -100 : 100, mate: 0, winChance: whiteLost ? 0 : 100 };
+	}
+	if (board.isStalemate()) { return { from: null, to: null, eval: 0, mate: null, winChance: 50 }; }
+
+	const data = await askEngine(fen, ANALYSIS);
+	if (typeof data.winChance != "number") { throw new Error("Engine sent no win chance"); }
+	if (!board.moves({ verbose: true }).some((move) => move.from == data.from && move.to == data.to)) { throw new Error(`Engine sent an illegal move: ${data.from}-${data.to}`); }
+	return { from: data.from, to: data.to, eval: data.eval ?? null, mate: data.mate ?? null, winChance: data.winChance };
+}
+
+/**
+ * @description Forgets the cached positions (between tests)
+ */
+function clearAnalyses() {
+	analyses.clear();
+}
+
 /**
  * @description The health check (utils/health.js): a real search of the start position, so a running API with a broken Stockfish fails it.
  * Throws when the engine can't answer, the same answers that make aiMove fall back to js-chess-engine
@@ -155,4 +205,4 @@ function backupMove(fen) {
 }
 
 
-module.exports = { levelList, readLevel, aiMove, aiAcceptsDraw, checkEngine }
+module.exports = { levelList, readLevel, aiMove, aiAcceptsDraw, analyzePosition, clearAnalyses, checkEngine }

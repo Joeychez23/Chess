@@ -182,6 +182,49 @@ describe("a signed-in player's AI games", () => {
 		assert.equal(old.reason, "forfeit");
 	});
 
+	test("forfeiting closes the game without starting a new one, then Restart starts one at the same level", async () => {
+		const alice = player("alice");
+		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 6 } });
+
+		const forfeit = await call("POST", `/api/chess/game/${game.game_id}/forfeit`, { as: alice });
+		assert.equal(forfeit.state, "CLOSED");
+		assert.equal(forfeit.winner, "b");
+		assert.equal(forfeit.reason, "forfeit");
+		assert.equal((await call("GET", "/api/chess/user/alice", { as: alice })).ai_game_id, null);
+
+		const again = await call("POST", `/api/chess/game/${game.game_id}/forfeit`, { as: alice });
+		assert.equal(again.status, 500); // ALREADY OVER
+
+		const restarted = await call("POST", `/api/chess/game/${game.game_id}/restart`, { as: alice });
+		assert.equal(restarted.status, 200);
+		assert.notEqual(restarted.game_id, game.game_id);
+		assert.equal(restarted.ai_level, 6);
+	});
+
+	test("a guest can forfeit their AI game & restart it, but not a game that isn't theirs", async () => {
+		await call("POST", "/api/chess/game", { body: { game_id: "guest1", start_color: "w" } });
+		const stranger = await call("POST", "/api/chess/game/guest1/forfeit", { guest: "other" });
+		assert.equal(stranger.http, 401);
+
+		const forfeit = await call("POST", "/api/chess/game/guest1/forfeit");
+		assert.equal(forfeit.state, "CLOSED");
+		assert.equal(forfeit.winner, "b");
+
+		const restarted = await call("POST", "/api/chess/game/guest1/restart");
+		assert.equal(restarted.status, 200);
+		assert.equal(restarted.state, "OPEN");
+	});
+
+	test("a guest can't forfeit a friend game", async () => {
+		const alice = player("alice");
+		const bob = player("bob");
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob });
+		const response = await call("POST", `/api/chess/game/${invite.game_id}/forfeit`);
+		assert.equal(response.http, 401);
+		assert.equal(response.message, "NOT SIGNED IN");
+	});
+
 	test("a guest can't open a signed-in player's game", async () => {
 		const alice = player("alice");
 		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });

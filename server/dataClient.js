@@ -170,6 +170,18 @@ const saveMove = (gameId, move, promotion) => call("POST", `/games/${id(gameId)}
 const saveAiMove = (gameId, move) => call("POST", `/games/${id(gameId)}/ai-move`, { from: move.from, to: move.to, promotion: move.promotion || undefined });
 
 /**
+ * @description AI games: takes back the requester's last move & the AI's reply to it, if it made one. Friend games: a press of Takeback, the requester's request or accepts the opponent's
+ * @return {[object]} response [{ status, game_data, message } | { status, requested: true, message }, 409 when it's refused or a move landed first]
+ */
+const takeback = (gameId) => call("POST", `/games/${id(gameId)}/takeback`);
+
+/**
+ * @description The asked player turns a takeback down (friend games)
+ * @return {[object]} response [{ status, declined: true, message }, 409 when the request already ended]
+ */
+const declineTakeback = (gameId) => call("POST", `/games/${id(gameId)}/takeback/decline`);
+
+/**
  * @description The opening of the position a move just saved, only saved while that's still the game's board
  * @param  {[string]} board [the position's FEN]
  * @param  {[object]} opening [{ eco, name } from utils/openings.js]
@@ -220,7 +232,7 @@ const newGuestGame = (settings) => call("POST", "/games/guest", settings);
 
 /**
  * @description The requester invites a friend, a PENDING game. The names come from the usernames, else the screennames
- * @param  {[object]} details [{ opponent_id, opponent_screenname, color, start_fen }], the data service makes the game id
+ * @param  {[object]} details [{ opponent_id, opponent_screenname, color, start_fen, takebacks }], the data service makes the game id
  */
 const invite = (details) => call("POST", "/games/invite", details);
 
@@ -333,4 +345,4 @@ const changeFriend = (action, username) => call("POST", `/users/me/friends/${act
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

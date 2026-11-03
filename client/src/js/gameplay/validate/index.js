@@ -60,7 +60,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
  * @description New game vs the AI with the start settings from the dropdowns, the server picks the sides (POST /game).
  * Home & the guest page use it, a guest's game_id is overwritten with the new game (their New game)
  * @param  {[string]} gameId [a guest's saved id, left out = the server makes a new one (always for signed in players)]
- * @param  {[string]} startColor [the player's color: "random" | "w" | "b", Restart keeps it]
+ * @param  {[string]} startColor [the player's color: "alternate" | "random" | "w" | "b", Restart keeps it]
  * @param  {[number]} aiLevel [the AI's level, Restart keeps it too]
  * @param  {[boolean]} replaceCurrent [signed in: true forfeits the player's open AI game first (one at a time), left out = the server answers 409 while one is open]
  * @param  {[string]} startFen [a set position to start from (the Start position box), blank = the standard position, Restart keeps it]
@@ -132,11 +132,12 @@ export async function getRatings(gameUrl, gameId) {
 /**
  * @description Invites a friend, the server finds them by username or email (an @ means email, usernames can't have one) & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
  * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the server answers 409 while one is open]
- * @param  {[string]} startColor [the inviter's color: "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
+ * @param  {[string]} startColor [the inviter's color: "alternate" | "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position, rematches keep it]
+ * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game, rematches keep it]
  * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
  */
-export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent, startColor, startFen) {
+export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent, startColor, startFen, takebacks) {
 	let options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -145,7 +146,8 @@ export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent
 			...(opponent.includes("@") ? { opponent_email: opponent } : { opponent_username: opponent }),
 			replace_current: replaceCurrent,
 			start_color: startColor,
-			start_fen: startFen
+			start_fen: startFen,
+			takebacks
 		})
 	};
 	try {
@@ -204,7 +206,7 @@ export async function restartGame(gameUrl, gameId) {
 }
 
 /**
- * @description Friend games: forfeits, the other side wins (POST /game/:gameId/forfeit)
+ * @description Forfeits, the other side wins (POST /game/:gameId/forfeit)
  * @return {[object]} response [{ status, state, winner, reason, ... }]
  */
 export async function forfeitGame(gameUrl, gameId) {
@@ -288,6 +290,51 @@ export async function aiMove(gameUrl, gameId) {
 	};
 	try {
 		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/ai-move`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description AI games & finished games: the engine's best move & evaluation of the saved board (POST /game/:gameId/analysis)
+ * @return {[object]} response [{ status, game_board, from, to, eval, mate, winChance } | { status: 403, message } a friend game | { status: 409, message } | { status: 503, message } the engine didn't answer]
+ */
+export async function getAnalysis(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/analysis`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description AI games: takes back the player's last move & the AI's reply to it, if it made one. Friend games: asks the opponent, or accepts their request (POST /game/:gameId/takeback)
+ * @return {[object]} response [the game, same as GET /game/:gameId | { status, requested: true, opponent_name } friend games, waiting | { status: 409, message } when it was refused]
+ */
+export async function takeback(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/takeback`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Friend games: turns down the opponent's takeback request (POST /game/:gameId/takeback/decline)
+ * @return {[object]} response [{ status, declined: true, message } | { status: 409, message } when it already ended]
+ */
+export async function declineTakeback(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/takeback/decline`, options)
 	} catch {
 		return
 	}
