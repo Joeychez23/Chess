@@ -22,7 +22,7 @@ const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (serv
 
 const soloBox = document.getElementById("soloBox"); // PLAY THE AI
 const aiLevelSelect = document.getElementById("aiLevel"); // FILLED FROM THE SERVER'S LEVELS
-const aiColorSelect = document.getElementById("aiColor"); // RANDOM, WHITE OR BLACK, RESTART KEEPS IT
+const aiColorSelect = document.getElementById("aiColor"); // ALTERNATE, RANDOM, WHITE OR BLACK, RESTART KEEPS IT
 const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BLANK = THE STANDARD POSITION, RESTART KEEPS IT
 const soloNote = document.getElementById("soloNote"); // WHY A START POSITION CAN'T BE PLAYED
 const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY AI, OR NEW GAME WHILE THE GUEST'S GAME IS OPEN

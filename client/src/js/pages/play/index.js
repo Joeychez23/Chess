@@ -106,7 +106,7 @@ function guestGameId() {
 
 
 /**
- * @description No game for the guest's id yet (a bare /play, or their game expired): a new game vs the AI with a random color
+ * @description No game for the guest's id yet (a bare /play, or their game expired): a new game vs the AI with the Alternate color (the first one is random)
  * at the default level, made before the game starts. Otherwise setInitialData (gameplay/moves/index.js) makes it & the guest is always white.
  * The server only lets the browser with the game's guest_game cookie play it, another guest's id (or one from before the cookie) gets a new id
  * @param  {[string]} gameId [the guest's saved game id, also their player id (null = none, the server makes one)]
@@ -117,7 +117,7 @@ async function newGuestGame(gameId) {
 		const response = await validate(CHESS_URL, gameId, gameId, false, false, false); // GET THE GAME
 		if (response?.game_board) { return gameId; } // THEIR GAME IS THERE (OPEN OR OVER)
 	}
-	const created = await newAiGame(CHESS_URL, gameId || undefined, "random"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
+	const created = await newAiGame(CHESS_URL, gameId || undefined, "alternate"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
 	if (!created?.game_id) { return gameId; }
 	try { localStorage.setItem("GUEST_GAME_ID", created.game_id); } catch { } // NOT SAVED (PRIVATE MODE) -> A NEW GAME EACH LOAD
 	return created.game_id;

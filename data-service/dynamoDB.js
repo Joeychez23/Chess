@@ -942,6 +942,35 @@ async function changeUserGames(userId, change) {
 }
 
 /* ---------------------------------------------------------------- */
+// Last color (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves the side a player just started a game on, the Alternate color's next game is the opposite. AI & friend games alternate apart.
+ * Its own attribute, so the game list saves never touch it. A failed save only repeats a color, the game has started so it's logged & not thrown
+ * @param  {[string]} userId [auth0 user id without "auth0|", their row is there: the game was just added to their lists]
+ * @param  {[boolean]} ai [true = their AI games, false = their friend games]
+ * @param  {[string]} color ["w" or "b"]
+ */
+async function saveLastColor(userId, ai, color) {
+	const params = {
+		TableName: USER_TABLE,
+		Key: {
+			user_id: { S: userId }
+		},
+		UpdateExpression: `SET ${ai ? "last_ai_color" : "last_friend_color"} = :color`,
+		ConditionExpression: 'attribute_exists(user_id)', // NEVER MAKES A ROW WITHOUT ITS GAME LISTS
+		ExpressionAttributeValues: {
+			':color': { S: color }
+		}
+	}
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		console.log(`Last color not saved: ${userId}: ${err.message}`);
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Update user settings (PUT)
 /* ---------------------------------------------------------------- */
 /**
@@ -1508,4 +1537,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { pruneClosedGames, expireFinishedAiGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { pruneClosedGames, expireFinishedAiGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, saveLastColor, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

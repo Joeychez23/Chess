@@ -16,7 +16,7 @@ const { checkStartFen } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove, aiAcceptsDraw, analyzePosition } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
-const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft } = require("../utils/games.js");
+const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft, isColor } = require("../utils/games.js");
 const { buildPgn } = require("../utils/pgn.js");
 const { findOpening, latestOpening } = require("../utils/openings.js");
 const config = require("../config.js");
@@ -65,7 +65,7 @@ function playerGame(response, playerId) {
 		game_board: gameData.game_board.S,
 		ai: isAiGame(gameData),
 		ai_level: aiLevel(gameData),
-		start_params: startParams(gameData), // { color: "random" | "w" | "b", fen (a set position) }, WHAT RESTART & REMATCH REUSE
+		start_params: startParams(gameData), // { color: "alternate" | "random" | "w" | "b", fen (a set position) }, WHAT RESTART & REMATCH REUSE
 		player_color: playerColor,
 		opponent_color: opponentColor,
 		opponent_name: playerName(gameData, opponentColor), // FRIEND GAMES: HOME'S "vs Bob"
@@ -113,7 +113,7 @@ async function getPgn(req, res) {
  * @description Creates a game vs the AI, or a guest's New game: their game_id is overwritten with a new board (signed in users restart with /restart).
  * Signed in players have one AI game open at a time: while one is open this answers 409, unless replace_current forfeits it first.
  * A guest gets a guest_game cookie for the game, and a new game_id when theirs belongs to another browser (the response has the id used)
- * @param  {[object]} req.body [{ game_id (guests only: their saved id, left out = a new one. Signed in players' ids are made by the data service), start_color ("random" | "w" | "b", the requester's color from Home & the guest page,
+ * @param  {[object]} req.body [{ game_id (guests only: their saved id, left out = a new one. Signed in players' ids are made by the data service), start_color ("alternate" | "random" | "w" | "b", the requester's color from Home & the guest page,
  * the server picks the sides, the play page also sends random for a guest's missing game) OR player_id_1 (white) & player_id_2 (black) (gameplay's fallback for a guest's first game, one side is "CHESS_AI", the other side is always the requester),
  * ai_level (optional, the level dropdown), start_fen (optional, a set position to start from, the Start position box), replace_current (optional, true = forfeit the open AI game & start this one) }]
  * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, w_knight, b_knight, w_piece, b_piece, message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)
@@ -186,7 +186,7 @@ async function moveGame(req, res) {
 /* ---------------------------------------------------------------- */
 /**
  * @description AI games: a new game starts with a new id, a game that's still going is forfeited first
- * (the old one stays closed) with the same start settings: the level & the player's color (Random draws again). Guests only have one game, so theirs is overwritten
+ * (the old one stays closed) with the same start settings: the level & the player's color (Random draws again, Alternate switches). Guests only have one game, so theirs is overwritten
  * @param  {[string]} req.params.gameId [current game id]
  * @return {[object]} response [{ status, game_id (the new game), ai, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
  */
@@ -544,7 +544,7 @@ async function savedDraw(gameId, playerId) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Friend games that are over: the first press waits 5 minutes for the other player. If they press
- * in time a new game starts with the same start settings (the inviter's color, Random draws again), and both boards load it
+ * in time a new game starts with the same start settings (the inviter's color, Random draws again, Alternate switches), and both boards load it
  * @param  {[string]} req.params.gameId [closed game id]
  * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in, opponent_name, opponent_here (still on the game page) } while waiting]
  */
@@ -621,7 +621,7 @@ async function savedRematch(gameId, playerId) {
  * @description Invites a friend by email: looks up their Auth0 account & creates a PENDING game, they accept or decline it on Home.
  * The challenger (signed in user) picks their color, the sides are drawn now so the invite shows them. One sent invite at a time: a new one deletes the last one.
  * Signed in players have one friend game open at a time: while one is open this answers 409, unless replace_current forfeits it first
- * @param  {[object]} req.body [{ opponent_email, start_color ("random" | "w" | "b", the challenger's color, left out = Random),
+ * @param  {[object]} req.body [{ opponent_email, start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random),
  * start_fen (optional, a set position to start from), takebacks (optional, 0 = off, left out = up to 3 per game), replace_current (optional, true = forfeit the open friend game & invite) }]
  * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)]
  */
@@ -958,12 +958,12 @@ function savedAiMove(response) {
 
 /**
  * @description The start settings a request asks for (Home & the guest page's dropdowns & Start position box, the invite form)
- * @param  {[object]} body [req.body, { start_color: "random" | "w" | "b", takebacks (the invite form): 0 = off }]
+ * @param  {[object]} body [req.body, { start_color: "alternate" | "random" | "w" | "b", takebacks (the invite form): 0 = off }]
  * @param  {[string]} fen [the set position from checkStartFen(body.start_fen), false = the standard position]
  * @return {[object]} params [{ color, fen (only for a set position), takebacks (only when off: 0) }, any other color is Random (the default)]
  */
 function readStartParams(body, fen) {
-	const color = body?.start_color == "w" || body?.start_color == "b" ? body.start_color : "random";
+	const color = isColor(body?.start_color) ? body.start_color : "random";
 	let params = { color };
 	if (fen) { params.fen = fen; } // REPLAYING moves (THREEFOLD, PGN, TAKEBACKS, REPLAYS) HAS TO START FROM THIS, NOT THE STANDARD POSITION
 	if (body?.takebacks === 0) { params.takebacks = 0; }
@@ -973,7 +973,7 @@ function readStartParams(body, fen) {
 /**
  * @description The settings a request saves (the settings page's Default start settings)
  * @param  {[object]} body [req.body, { ai_level, ai_color, friend_color }]
- * @return {[object]} settings [{ ai_level (1 - 8, anything else is the default level), ai_color, friend_color ("random" | "w" | "b", anything else is Random) }]
+ * @return {[object]} settings [{ ai_level (1 - 8, anything else is the default level), ai_color, friend_color ("alternate" | "random" | "w" | "b", anything else is Alternate) }]
  */
 function readSettings(body) {
 	return { ai_level: readLevel(body?.ai_level), ai_color: readColor(body?.ai_color), friend_color: readColor(body?.friend_color) };
@@ -990,7 +990,7 @@ function userSettings(userData) {
 	return readSettings(saved);
 }
 
-function readColor(value) { return value == "w" || value == "b" ? value : "random"; } // RANDOM IS THE DEFAULT
+function readColor(value) { return isColor(value) ? value : "alternate"; } // ALTERNATE IS THE DEFAULT
 
 /**
  * @description One game for Your games or Finished games on Home
