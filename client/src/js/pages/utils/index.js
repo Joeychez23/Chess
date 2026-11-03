@@ -149,7 +149,8 @@ export async function loadLevels(gameUrl, select) {
  */
 export function colorText(playerColor, startParams) {
 	const position = startParams?.fen ? " // Set position" : ""; // STARTED FROM THE START POSITION BOX
-	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : ""}${position}`;
+	const takebacks = startParams?.takebacks === 0 ? " // No takebacks" : ""; // THE INVITE'S SETTING
+	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : ""}${position}${takebacks}`;
 }
 
 /* ---------------------------------------------------------------- */

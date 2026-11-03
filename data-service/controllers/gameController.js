@@ -11,9 +11,9 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, offerDraw, endDrawOffer, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
-const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
-const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
+const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { validateMove, undoMoves, gameResult, checkStartFen } = require("../utils/validate.js");
+const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
 const { guestToken } = require("../utils/tokens.js");
 
@@ -132,6 +132,90 @@ function readMove(body) {
 }
 
 /* ---------------------------------------------------------------- */
+// Takeback (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description AI games: takes back the requester's last move. On their turn that's two moves (the AI's reply & theirs), on the AI's turn one (it hasn't replied).
+ * It's always their turn after. Saved only if the board hasn't changed since it was read, so an undo & a move can't both land. Takes the saved opening off too.
+ * Friend games: a request the opponent has to accept (friendTakeback)
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, game_data (the game as saved), message } | { status, requested: true, message } friend games, waiting. 409 when there's no move of theirs to take back or a move saved first]
+ */
+async function takebackGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE LATEST BOARD
+	if (!response.game_data) { return res.json(response); } // GAME NOT FOUND
+	const gameData = response.game_data;
+	if (!playerInGame(req.player, gameData)) { return refuse(req, res, 403, "Player is not in this game"); }
+	if (gamePending(gameData)) { return refuse(req, res, 409, "Invite not accepted yet"); }
+	if (!gameOpen(gameData)) { return refuse(req, res, 409, "Game is over"); }
+	if (!isAiGame(gameData)) { return friendTakeback(req, res, gameData, playerInGame(req.player, gameData)); }
+
+	const count = turnColor(gameData) == playerColor("CHESS_AI", gameData) ? 1 : 2;
+	if (gameData.moves.S.length < count) { return refuse(req, res, 409, "No moves to take back"); } // THE AI'S FIRST MOVE ALONE ISN'T THEIRS
+
+	const prevBoard = gameData.game_board.S;
+	const undone = undoMoves(gameData, count);
+	if (undone.status != 200) { return refuse(req, res, 409, undone.message); }
+
+	const saved = await updateGame(undone.game_data, prevBoard, undefined, true);
+	if (saved.status != 200) { return refuse(req, res, 409, "Board changed before the takeback saved"); } // A MOVE SAVED FIRST
+	return res.json(saved);
+}
+
+/**
+ * @description How many moves take back a player's last move: one if they just moved, two if the opponent already replied
+ * @param  {[object]} gameData [game item]
+ * @param  {[string]} playerId [the player asking]
+ * @return {[number]} count [moves to undo]
+ */
+function takebackCount(gameData, playerId) {
+	return turnColor(gameData) == playerColor(playerId, gameData) ? 2 : 1;
+}
+
+/**
+ * @description A press of Takeback in a friend game. With the opponent's request standing it accepts it & runs the undo. Otherwise it's the player's request, one per move
+ * between both players. Pressing while their own request stands changes nothing, so a press that timed out can be repeated. Any new move ends a request (updateGame)
+ * @param  {[object]} gameData [the open friend game, as read]
+ * @param  {[string]} playerId [the player pressing]
+ * @return {[object]} response [{ status, game_data (the game as saved), message } when accepted | { status, requested: true, message }, 409 when it's refused]
+ */
+async function friendTakeback(req, res, gameData, playerId) {
+	const requestedBy = gameData.takeback_player_id?.S;
+	if (requestedBy == playerId) { return res.json({ status: 200, requested: true, message: "Takeback requested" }); }
+
+	if (requestedBy) {
+		const prevBoard = gameData.game_board.S;
+		const undone = undoMoves(gameData, takebackCount(gameData, requestedBy));
+		if (undone.status != 200) { return refuse(req, res, 409, undone.message); }
+		const saved = await updateGame(undone.game_data, prevBoard, undefined, true, requestedBy);
+		if (saved.status != 200) { return refuse(req, res, 409, "That takeback request ended"); } // A MOVE LANDED FIRST
+		return res.json(saved);
+	}
+
+	if (startParams(gameData).takebacks === 0) { return refuse(req, res, 409, "Takebacks are off in this game"); }
+	if (takebacksLeft(gameData) <= 0) { return refuse(req, res, 409, "No takebacks left in this game"); }
+	if (gameData.moves.S.length < takebackCount(gameData, playerId)) { return refuse(req, res, 409, "No moves to take back"); }
+	if (Number(gameData.takeback_move?.N) == gameData.moves.S.length) { return refuse(req, res, 409, "A takeback was already asked for this move"); }
+	if (!await requestTakeback(gameData, playerId)) { return refuse(req, res, 409, "The takeback request didn't save, try again"); } // A MOVE OR THE OPPONENT'S REQUEST LANDED FIRST
+	return res.json({ status: 200, requested: true, message: "Takeback requested" });
+}
+
+/**
+ * @description The asked player turns the takeback down. The game goes on
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, declined: true, message }, 409 when there's no request of the opponent's]
+ */
+async function declineTakebackGame(req, res) {
+	const found = await openDrawGame(req, res);
+	if (!found) { return; }
+	const { gameData, playerId } = found;
+	const requestedBy = gameData.takeback_player_id?.S;
+	if (!requestedBy || requestedBy == playerId) { return refuse(req, res, 409, "No takeback request to decline"); }
+	if (!await endTakeback(gameData.game_id.S, requestedBy)) { return refuse(req, res, 409, "That takeback request ended"); }
+	return res.json({ status: 200, declined: true, message: "Takeback declined" });
+}
+
+/* ---------------------------------------------------------------- */
 // Opening (POST)
 /* ---------------------------------------------------------------- */
 /**
@@ -178,7 +262,7 @@ async function forfeitGame(req, res) {
 // Draw Offers (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description The open game a draw route acts on, for a player in it. Answers the request itself when it's refused
+ * @description The open game a draw or takeback decline route acts on, for a player in it. Answers the request itself when it's refused
  * @param  {[string]} req.params.gameId [game id]
  * @return {[object]} found [{ gameData, playerId }, null when it answered]
  */
@@ -362,19 +446,20 @@ function readStartFen(value) {
  * @description A signed in player invites a friend: a PENDING game with the requester as the inviter. The chess server found the friend
  * in Auth0 (opponent_id) & answers the rules around it (one sent invite, their invite to you, one friend game at a time) before this.
  * The names are each player's username, or their Auth0 screenname until they pick one (the requester's comes from their token)
- * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional) }]. The game id is made here
+ * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3) }]. The game id is made here
  * @return {[object]} response [initalizeGame's { status, game_data (PENDING, game_id is the new id), message }]
  */
 async function inviteGame(req, res) {
 	if (req.player.guest) { return refuse(req, res, 403, "Guests can't invite"); }
-	const { opponent_id, opponent_screenname, color, start_fen } = req.body || {};
+	const { opponent_id, opponent_screenname, color, start_fen, takebacks } = req.body || {};
 	if (!isId(opponent_id)) { return refuse(req, res, 400, "Invalid opponent"); }
+	if (takebacks !== undefined && takebacks !== 0 && takebacks !== 3) { return refuse(req, res, 400, "Invalid takebacks"); }
 	if (opponent_id == req.player.id) { return refuse(req, res, 400, "That's your own id"); }
 	if (opponent_screenname !== undefined && (typeof opponent_screenname != "string" || opponent_screenname.length > NAME_LENGTH)) { return refuse(req, res, 400, "Invalid screenname"); }
 	const position = readStartFen(start_fen);
 	if (position.message) { return refuse(req, res, 400, position.message); }
 
-	const params = newStartParams(color, position.fen);
+	const params = newStartParams(color, position.fen, takebacks);
 	const sides = pickSides(params, req.player.id, opponent_id); // RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
 	const names = {
 		[req.player.id]: (await username(req.player.id)) || req.player.user.user_metadata?.screenname,
@@ -581,4 +666,4 @@ async function username(playerId) {
 }
 
 
-module.exports = { getGame, moveGame, aiMoveGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };
+module.exports = { getGame, moveGame, aiMoveGame, takebackGame, declineTakebackGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };
