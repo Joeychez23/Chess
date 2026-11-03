@@ -10,7 +10,7 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game } = require("../state/index.js"); // THE GAME'S SHARED STATE
+const { game, EVAL_BAR_ROOM } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE SPACE THE EVALUATION BAR TAKES NEXT TO THE BOARD
 const { trayNudge } = require("../animate/index.js"); // HOW FAR THE BOTTOM TRAY SITS DOWN
 const panel = document.getElementById("moveList"); // THE PANEL
 const toggleBtn = document.getElementById("moveListToggle"); // COLLAPSES & OPENS IT
@@ -166,7 +166,7 @@ function findSpot(xBoardStart, yBoardStart, boardHeight) {
 
 	const sideTop = Math.max(game.widthGreater ? yBoardStart : topTrayEnd, STATUS_HEIGHT);
 	const sideBottom = Math.min(game.widthGreater ? yBoardStart + boardHeight : bottomTrayStart, pageBottom);
-	const side = { left, top: sideTop, width: xBoardStart - GAP - left, maxHeight: sideBottom - sideTop, below: false };
+	const side = { left, top: sideTop, width: xBoardStart - GAP - left - (game.evalBarShown ? EVAL_BAR_ROOM : 0), maxHeight: sideBottom - sideTop, below: false };
 	const below = { left, top: bottomTrayEnd, width: game.cw - left * 2, maxHeight: pageBottom - bottomTrayEnd, below: true };
 
 	const spots = game.portraitBoard ? [below, side] : [side, below];
@@ -185,7 +185,7 @@ function findSpot(xBoardStart, yBoardStart, boardHeight) {
  * @param  {[number]} boardHeight [height of the board image]
  */
 export function placeMoveList(xBoardStart, yBoardStart, boardHeight) {
-	const size = `${game.cw},${game.ch},${xBoardStart},${boardHeight}`;
+	const size = `${game.cw},${game.ch},${xBoardStart},${boardHeight},${game.evalBarShown}`;
 	if (size == placedFor) { return; }
 	placedFor = size;
 	const spot = findSpot(xBoardStart, yBoardStart, boardHeight);

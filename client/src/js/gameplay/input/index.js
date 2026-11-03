@@ -14,16 +14,20 @@ const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { tileToSquare, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION, ADDS OR REMOVES A MARK OR ARROW
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { handleMenuBtn, handleResume, handleSound, handleFlip, handleTakeback, handleOfferDraw, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
+const { handleMenuBtn, handleResume, handleSound, handleFlip, handleHint, handleTakeback, handleOfferDraw, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optFlipBtn = document.getElementById("optFlip"); // MENU: FLIP BOARD
+const optHintBtn = document.getElementById("optHint"); // MENU: HINT, ONLY AI GAMES THAT ARE GOING
+const optEvalBarBtn = document.getElementById("optEvalBar"); // MENU: EVALUATION BAR, AI GAMES & FINISHED GAMES
 const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, ONLY GAMES THAT ARE GOING
 const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, HIDDEN ONCE THE GAME IS OVER
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
+
+const { handleEvalBar } = require("../analysis/index.js"); // THE TV REMOTE PRESSES THE EVALUATION BAR'S BUTTON TOO
 
 const firstShown = (...buttons) => buttons.find((button) => !button.parentElement.hidden); // THE NEXT MENU BUTTON THE TV REMOTE CAN REACH, THE LAST ONE IS ALWAYS SHOWN
 
@@ -122,9 +126,11 @@ export async function handleKeyPress(e) {
 			else if (game.menuToggled) {
 				if (remoteNavBox.menuBtn == optExitBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 6 -> 5
 				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 5 -> 4
-				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(firstShown(optDrawBtn, optTakebackBtn, optFlipBtn)) } // 4 -> OFFER DRAW -> TAKEBACK -> 3
-				else if (remoteNavBox.menuBtn == optDrawBtn) { handleRemoteNavBtnHover(firstShown(optTakebackBtn, optFlipBtn)) }
-				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleRemoteNavBtnHover(optFlipBtn) }
+				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(firstShown(optDrawBtn, optTakebackBtn, optEvalBarBtn, optHintBtn, optFlipBtn)) } // 4 -> OFFER DRAW -> TAKEBACK -> EVALUATION BAR -> HINT -> 3
+				else if (remoteNavBox.menuBtn == optDrawBtn) { handleRemoteNavBtnHover(firstShown(optTakebackBtn, optEvalBarBtn, optHintBtn, optFlipBtn)) }
+				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleRemoteNavBtnHover(firstShown(optEvalBarBtn, optHintBtn, optFlipBtn)) }
+				else if (remoteNavBox.menuBtn == optEvalBarBtn) { handleRemoteNavBtnHover(firstShown(optHintBtn, optFlipBtn)) }
+				else if (remoteNavBox.menuBtn == optHintBtn) { handleRemoteNavBtnHover(optFlipBtn) }
 				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 3 -> 2
 				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optResumeBtn) } // 2 -> 1
 			}
@@ -136,7 +142,9 @@ export async function handleKeyPress(e) {
 			else if (game.menuToggled) {
 				if (remoteNavBox.menuBtn == optResumeBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 1 -> 2
 				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optFlipBtn) } // 2 -> 3
-				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(firstShown(optTakebackBtn, optDrawBtn, optRestartBtn)) } // 3 -> TAKEBACK -> OFFER DRAW -> 4
+				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(firstShown(optHintBtn, optEvalBarBtn, optTakebackBtn, optDrawBtn, optRestartBtn)) } // 3 -> HINT -> EVALUATION BAR -> TAKEBACK -> OFFER DRAW -> 4
+				else if (remoteNavBox.menuBtn == optHintBtn) { handleRemoteNavBtnHover(firstShown(optEvalBarBtn, optTakebackBtn, optDrawBtn, optRestartBtn)) }
+				else if (remoteNavBox.menuBtn == optEvalBarBtn) { handleRemoteNavBtnHover(firstShown(optTakebackBtn, optDrawBtn, optRestartBtn)) }
 				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleRemoteNavBtnHover(firstShown(optDrawBtn, optRestartBtn)) }
 				else if (remoteNavBox.menuBtn == optDrawBtn) { handleRemoteNavBtnHover(optRestartBtn) }
 				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 4 -> 5
@@ -151,9 +159,11 @@ export async function handleKeyPress(e) {
 			else if (game.menuToggled && remoteNavBox.menuBtn == optSoundBtn) { handleSound(e); } // THE MENU STAYS OPEN & SOUND STAYS SELECTED
 			else if (game.menuToggled && remoteNavBox.menuBtn == optFlipBtn) { handleFlip(e); } // THE MENU STAYS OPEN & FLIP BOARD STAYS SELECTED
 			else if (game.menuToggled && remoteNavBox.menuBtn == optDrawBtn) { handleOfferDraw(e); } // THE MENU STAYS OPEN & OFFER DRAW STAYS SELECTED
+			else if (game.menuToggled && remoteNavBox.menuBtn == optEvalBarBtn) { handleEvalBar(e); } // THE MENU STAYS OPEN & THE EVALUATION BAR STAYS SELECTED
 			else if (game.menuToggled && remoteNavBox.menuBtn) { // PRESS THE SELECTED MENU BUTTON, THEN THE SELECT BOX GOES BACK TO THE TOP RIGHT
 				remoteNavBox.menuBtn.style.backgroundColor = "#CD853F"
 				if (remoteNavBox.menuBtn == optResumeBtn) { handleResume(e); }
+				else if (remoteNavBox.menuBtn == optHintBtn) { handleHint(e); }
 				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleTakeback(e); }
 				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRestart(e); }
 				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleHomepage(e) }

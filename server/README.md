@@ -51,6 +51,7 @@ engine are answered from test data.
 | --- | --- |
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
 | `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
+| `analysis.test.js` | The analysis route: the engine's move and evaluation, AI and finished games only, the cache by FEN, one request at a time per game, finished boards without the engine, the engine failing, and the limit |
 | `draw.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
 | `openings.test.js` | Opening names (`utils/openings.js`, the data in `data/openings/`): the lookup, other move orders, the name getting more specific and staying once the game leaves the book, player and AI moves, a move that ends the game, a failed save, a new game, and Home's rows |
 | `takeback.test.js` | The takeback route: two moves or one, guests, set positions, the opening going back, and each refusal changing nothing. Friend games: request, accept and decline, once per move, a move cancelling, the limit and the invite's setting |
@@ -130,6 +131,9 @@ move or missing game is HTTP 200 with `status: 500`.
   per session (then 1 a second) or 60 per IP or IPv6 /64 (then 4 a second), with
   its own counts. Requests for one game while its AI move is being picked wait for
   that move instead of asking the engine again.
+- **Analysis limits:** `/analysis` answers `429` with `Retry-After` past 20 at once
+  per session (then 1 a second) or 60 per IP or IPv6 /64 (then 4 a second), with
+  its own counts, so hints can't stop the AI moving.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |
@@ -138,6 +142,7 @@ move or missing game is HTTP 200 with `status: 500`.
 | `POST /api/chess/game` | `{ game_id, start_color, ai_level, start_fen, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). `start_color` is your color, `random` (the default, anything else counts as it), `w` or `b`, and the server picks the sides (Home, the guest page, and the play page with `random` when a guest has no game yet). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (gameplay's fallback if that request failed, saved as Random). `game_id` is only for guests (their saved id): the data service makes every new id (random, not guessable) and the response has it. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't name or overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first. `start_fen` (optional) starts from a set position, saved in `start_params.fen`; one that can't be played returns `{ status: 400, message }` (HTTP 400) before anything is saved or forfeited |
 | `PUT /api/chess/game/:gameId` | `{ move: [from, to], promotion }` | Your move. Validates it against the stored board and saves it. Closes the game on checkmate or a draw. Refused while the game is `PENDING` or once it's closed, and refused if the board changed first (two moves at once). A position in the opening data set saves `opening` |
 | `POST /api/chess/game/:gameId/ai-move` | | AI games, on the AI's turn. The server picks the AI's move at the game's level, saves it, and returns the game with `ai_move: { from, to, promotion }`. After the AI moved, it returns that saved move instead of a new one. Saves `opening` like a player's move |
+| `POST /api/chess/game/:gameId/analysis` | | AI games and finished games, guests too. The engine's best move and evaluation of the saved board, for the Hint button and the evaluation bar: `{ status, game_board, from, to, eval, mate, winChance }`, `eval`, `mate` and `winChance` from White's side. Searches at depth 12 for at most 800 ms, cached by FEN (the last 5000 positions). `from` and `to` are `null` on a checkmate or stalemate, which don't ask the engine. `{ status: 403 }` in a friend game that's going or pending, `{ status: 409 }` while another board of this game is being analyzed (the same board shares the answer), `{ status: 503 }` when the engine doesn't answer, `429` past the analysis limits. Saves nothing |
 | `POST /api/chess/game/:gameId/takeback` | | AI games, guests too. Takes back your last move and the AI's reply, or only your move if the AI hasn't replied. No request step and no limit per game (AI games aren't rated). Returns the whole game like `GET /game/:gameId`, with the board, moves, piece facing and `opening` as they were. `{ status: 409 }` while the AI's move is being picked, or with no move of yours to take back. Friend games, signed in: the first press saves the request and emits `takeback` (`{ requested, opponent_name }`), once per move (`409` after that) and the next move ends it. The opponent's press accepts: one move goes back if the player who asked just moved, two if the opponent already replied, up to 3 per game (`409` when off or used up, set by the invite's `takebacks`). Returns the whole game and emits `takeback` |
 | `POST /api/chess/game/:gameId/takeback/decline` | | Signed in, friend games. Turns down the opponent's request (`{ declined: true }`) and emits `takeback`. `409` when it already ended |
 | `POST /api/chess/game/:gameId/restart` | | AI games. Forfeits the game if it's still going, then starts a new game with a new id and the same start settings: the level, your color (Random draws again) and the set position, if any. Guests' one game is overwritten instead |
@@ -325,7 +330,7 @@ server/
   middleware/logServerErrors.js  A log line for each 5xx answer, an alarm counts them
   utils/auth0.js             Auth0 requests: login/logout urls, code exchange, getAuth0User
   utils/health.js            Checks DynamoDB & the engine for GET /api/health, keeps the answer for 15 seconds
-  utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down)
+  utils/ai.js                AI levels, the AI's move from the Stockfish engine API (js-chess-engine if it's down), hints & evaluations
   utils/validate.js          Move rules (was the lambda's validate/validate.js)
   utils/rating.js            Elo ratings: the math & which games are rated
   utils/games.js             Game checks: game state, who's in a game & start settings (the same file as data-service/utils/games.js)

@@ -169,6 +169,47 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 }
 
 /* ---------------------------------------------------------------- */
+/* Evaluation Bar (gameplay/analysis/index.js) */
+/* ---------------------------------------------------------------- */
+
+#evalBar { /* left, top & height COME FROM THE BOARD. UNDER THE MENU, CLICKS GO THROUGH */
+	position: fixed;
+	z-index: 17;
+	box-sizing: border-box;
+	width: 14px;
+	overflow: hidden;
+	border: 1px solid rgba(201, 163, 90, 0.35);
+	border-radius: 7px;
+	background-color: var(--walnut);
+	pointer-events: none;
+}
+
+#evalBar[hidden] {
+	display: none;
+}
+
+#evalBarFill { /* WHITE'S SHARE, FROM WHITE'S SIDE OF THE BOARD */
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	height: 50%;
+	background-color: var(--maple);
+	transition: height 300ms ease-out;
+}
+
+#evalBar.flipped #evalBarFill { /* BLACK IS AT THE BOTTOM */
+	top: 0;
+	bottom: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	#evalBarFill {
+		transition: none;
+	}
+}
+
+/* ---------------------------------------------------------------- */
 /* Move List (gameplay/movelist/index.js) */
 /* ---------------------------------------------------------------- */
 

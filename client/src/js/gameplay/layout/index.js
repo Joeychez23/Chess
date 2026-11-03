@@ -14,6 +14,7 @@ const { game, canvas, ctx } = require("../state/index.js"); // THE GAME'S SHARED
 const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
 const { tableShdw, boardImg, boardShdw, rawBoardImg } = require("../sprites/index.js"); // IMAGE NUMBERS
 const { placeMoveList } = require("../movelist/index.js"); // MOVES THE MOVE LIST PANEL TO THE FREE SPACE NEXT TO THE BOARD
+const { placeEvalBar } = require("../analysis/index.js"); // PUTS THE EVALUATION BAR BESIDE THE BOARD
 
 const xBoardShadowRatio = 0.985; // NUDGES THE SQUARES RIGHT A LITTLE TO LINE UP WITH THE BOARD IMAGE
 const COORD_BORDER_RATIO = 0.285; // SQUARES FROM THE BOARD'S EDGE TO THE MIDDLE OF THE BAND BETWEEN THE BORDER'S GOLD LINES
@@ -113,6 +114,7 @@ export function renderBoard() {
 	game.xPieceOffset = bw / 5.75; // PIECE IMAGES ARE A SQUARE PLUS THIS, CENTERED ON THE SQUARE
 	game.yPieceOffset = bh / 4.25;
 	placeMoveList(xBoardStart, yBoardStart, boardHeight);
+	placeEvalBar(xBoardStart, yBoardStart, boardHeight);
 
 	let clickX = game.tileX * game.tileWidth; // SQUARE UNDER THE MOUSE IN PIXELS
 	let clickY = game.tileY * game.tileHeight;

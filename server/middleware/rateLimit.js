@@ -34,6 +34,10 @@ const AI_MOVE_LIMITS = { // /ai-move ASKS THE ENGINE, A PLAYER NEEDS ONE PER MOV
 	aiMoveSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER OR A GUEST: 20 AT ONCE, THEN 1 A SECOND
 	aiMoveIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
 };
+const ANALYSIS_LIMITS = { // /analysis ASKS THE ENGINE, A HINT PER MOVE PLUS THE BAR'S TWO. ITS OWN COUNTS, SO HINTS NEVER STOP THE AI MOVING
+	analysisSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER OR A GUEST: 20 AT ONCE, THEN 1 A SECOND
+	analysisIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
+};
 const CLIENT_ERROR_LIMITS = { // BROWSER ERROR REPORTS BECOME LOG LINES, SO A LOOP CAN'T FILL THE LOGS (#194)
 	clientErrorIp: { burst: 10, refillMs: 30 * 1000 }, // AN IP (IPv6: ITS /64): 10 AT ONCE, THEN 1 EVERY 30 SECONDS
 	clientErrorSite: { burst: 60, refillMs: 2 * 1000 }, // EVERYONE: 60 AT ONCE, THEN 1 EVERY 2 SECONDS
@@ -110,6 +114,9 @@ const limitForgot = limiter(FORGOT_LIMITS, "Password reset", "reset requests", (
 // POST /api/chess/game/:gameId/ai-move. AFTER optionalAuth & BEFORE THE ENGINE IS ASKED
 const limitAiMoves = limiter(AI_MOVE_LIMITS, "AI move", "AI move requests", (req) => ({ aiMoveSession: sessionKey(req), aiMoveIp: ipKey(req.ip) }));
 
+// POST /api/chess/game/:gameId/analysis. AFTER optionalAuth & BEFORE THE ENGINE IS ASKED
+const limitAnalysis = limiter(ANALYSIS_LIMITS, "Analysis", "hint requests", (req) => ({ analysisSession: sessionKey(req), analysisIp: ipKey(req.ip) }));
+
 // POST /api/client-errors
 const limitClientErrors = limiter(CLIENT_ERROR_LIMITS, "Browser error report", "error reports", (req) => ({ clientErrorIp: ipKey(req.ip), clientErrorSite: "all" }));
 
@@ -124,9 +131,9 @@ const limitFriends = limiter(FRIEND_LIMITS, "Friend action", "friend requests", 
 /* ---------------------------------------------------------------- */
 /**
  * @description Takes one token from each key's bucket, or none if any of them is empty (so a refused request costs nothing)
- * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail }, { forgotIp, forgotEmail }, { aiMoveSession (optional), aiMoveIp }, { searchSession, searchIp, searchSite } or { friendSession, friendIp }]
+ * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail }, { forgotIp, forgotEmail }, { aiMoveSession (optional), aiMoveIp }, { analysisSession (optional), analysisIp }, { searchSession, searchIp, searchSite } or { friendSession, friendIp }]
  * @param  {[number]} now [epoch ms]
- * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS or FRIEND_LIMITS]
+ * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS or FRIEND_LIMITS]
  * @return {[object]} result [{ ok: true } | { ok: false, limit (the empty one), retryMs (until it has a token), log (first refusal this minute) }]
  */
 function takeTokens(keys, now, limits = LIMITS) {
@@ -166,7 +173,7 @@ function refill(limit, key, now, limits) {
  * @description Drops the buckets that have filled up again (the same as a new one), then the oldest if a limit still has too many
  */
 function sweep(now) {
-	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS]) {
+	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS]) {
 		for (const limit of Object.keys(limits)) {
 			const map = buckets[limit];
 			if (!map) { continue; }
@@ -210,4 +217,4 @@ function resetLimits() {
 }
 
 
-module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitClientErrors, limitPlayerSearch, limitFriends, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS };
+module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitAnalysis, limitClientErrors, limitPlayerSearch, limitFriends, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS };

@@ -47,6 +47,7 @@ export async function setInitialData(loaded) {
 		setLastOpponentMove();
 		syncDrawOffer(game.response);
 		game.annotations = []; // A NEW GAME (RESTART & REMATCH) STARTS WITHOUT THE OLD ONE'S MARKS & ARROWS
+		game.hint = null; // & ITS HINT
 		if (game.response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 			game.ai = game.response.ai;
 			showGameOver(game.response);
@@ -204,6 +205,7 @@ export async function validateMove() {
 		game.opposingMove = true; // LOCK THE BOARD
 		const playedMove = chessInst.move(game.moveObj); // LOCAL BOARD FIRST SO IT DRAWS RIGHT AWAY (THROWS IF IT'S NOT LEGAL)
 		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
+		game.hint = null; // & THE HINT
 		if (game.playerColor == 'w') { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP UNTIL THE SERVER'S COMES BACK
 			for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
 				if (game.moveObj.from == JSON.parse(game.response.w_knight)[n].to) {
