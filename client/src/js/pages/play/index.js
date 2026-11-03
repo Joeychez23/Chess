@@ -2,7 +2,7 @@
  *  index.js  --  chess frontend
  *	Play Page (/play, /play/:gameId)
  *	Starts the game on the canvas. The server picks this page (server/controllers/pageController.js), the game id
- *	comes from the url (signed in) or localStorage (guest). Home & Exit leave the page, so nothing has to be torn down.
+ *	comes from the url (signed in) or localStorage (guest). Home, Settings & Exit leave the page, so nothing has to be torn down.
  *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (createNav in gameplay/menu/index.js)
  *
  */
@@ -18,7 +18,7 @@ const { renderCanvas } = require("../../gameplay/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
-const { startNav, startLogoutButtons, showTable, showPage, startLoading, goToPage } = require("../utils/index.js");
+const { startNav, startLogoutButtons, showTable, showPage } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
 const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD OF THE MOUSE
@@ -32,7 +32,7 @@ const optFlipBtn = document.getElementById("optFlip");
 const optTypeMoveBtn = document.getElementById("optTypeMove");
 const optPgnBtn = document.getElementById("optPgn");
 const optRestartBtn = document.getElementById("optRestart");
-const optHomepageBtn = document.getElementById("optSettings");
+const optSettingsBtn = document.getElementById("optSettings");
 const optExitBtn = document.getElementById("optExit");
 
 const auth = new InternalAuth;
@@ -53,6 +53,7 @@ window.addEventListener("load", async function () {
 	const sessionUser = await sessionCheck;
 	if (gameId && !sessionUser) { return auth.login(window.location.pathname); } // SIGNED OUT ON A GAME LINK: LOGIN, THEN BACK HERE (THE SERVER USUALLY CATCHES THIS FIRST)
 	if (!gameId && sessionUser) { return window.location.replace("/"); } // SIGNED IN PLAYERS PICK THEIR GAME ON HOME
+	optSettingsBtn.parentElement.hidden = !sessionUser; // BEFORE THE GAME CHECK, "Game not found" OFFERS IT TOO
 
 	let playerData;
 	if (sessionUser) {
@@ -70,7 +71,7 @@ window.addEventListener("load", async function () {
 	playerData.TV_BOOL = TV_DEV; // TV CONDITIONAL
 	playerData.SIGNED_IN = !!sessionUser; // EXIT: LOGOUT OR LOGIN, A NEW GAME ID GOES IN THE URL
 
-	optExitBtn.innerHTML = sessionUser ? "Logout" : "Sign in"; // HOME IS FOR EVERYONE, GUESTS HAVE A HOMEPAGE TOO
+	optExitBtn.innerHTML = sessionUser ? "Logout" : "Login/Signup"; // HOME IS FOR EVERYONE, GUESTS HAVE A HOMEPAGE TOO
 
 	renderCanvas(playerData);
 }, false);
@@ -144,7 +145,6 @@ function gameNotFound() {
 	optPgnBtn.parentElement.hidden = true;
 	optRestartBtn.parentElement.hidden = true;
 	optExitBtn.innerHTML = "Logout";
-	optHomepageBtn.addEventListener("click", function () { startLoading(optHomepageBtn); goToPage("/"); }); // LOADING, THEN HOME (LIKE THE GAME'S HOME BUTTON)
 	optExitBtn.classList.add("logoutBtn");
 	startLogoutButtons(auth); // THE SAME SECOND PRESS AS HOME & SETTINGS
 	const toggleNav = startNav();

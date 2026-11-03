@@ -93,7 +93,7 @@ different ones per page load. 4xx answers are left out because they're normal, a
 ## Socket.IO
 
 The client side is `client/src/js/socket/index.js`. `renderCanvas()` calls
-`joinGame()` for friend games (also when a rematch loads), and the Home button calls `leaveGame()`. Home opens its own socket
+`joinGame()` for friend games (also when a rematch loads), and the Home and Settings links call `leaveGame()`. Home opens its own socket
 with `watchGames()`. If
 the server turns the socket away because the access token expired, the client
 re-ups the session once and reconnects. While a friend game's socket is down, the play page's message area says so
@@ -122,12 +122,12 @@ leaveGame();
 
 ```text
 client/
-  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Finished games, Friends, menu (Home / Invites, Your games, Finished games, Friends / Settings / Logout)
-  settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings / Logout)
-  login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home / Login/Signup)
-  signup.html                Signup markup: Create account, link to login, menu (Home / Login/Signup), shares the login bundle
-  guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home / Play the AI / Login/Signup)
-  play.html                  Game menu markup, in groups (Resume / Hint, Takeback, Offer Draw, Type a Move / Sound, Flip Board, Eval Bar, Download PGN / Forfeit or Restart or Rematch, Cancel / Home / Exit). At game over the Restart group moves under the result
+  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Finished games, Friends, menu (Invites, Your games, Finished games, Friends / Settings / Logout)
+  settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home / Logout)
+  login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home)
+  signup.html                Signup markup: Create account, link to login, menu (Home), shares the login bundle
+  guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Play the AI / Login/Signup)
+  play.html                  Game menu markup, in groups (Resume / Hint, Takeback, Offer Draw, Type a Move / Sound, Flip Board, Eval Bar, Download PGN / Forfeit or Restart or Rematch, Cancel / Home, Settings / Exit). At game over the Restart group moves under the result
   webpack.config.js          One entry + HTML page each (home, guest, play, settings, login; signup shares login's entry), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles

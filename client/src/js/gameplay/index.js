@@ -23,7 +23,7 @@ const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // D
 const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & TV REMOTE HANDLERS (ADDED IN startGame)
 const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
-const { addMenuListeners, handleResume, handleSound, loadSound, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
+const { addMenuListeners, handleResume, handleSound, loadSound, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
@@ -36,7 +36,8 @@ const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optFlipBtn = document.getElementById("optFlip"); // MENU: FLIP BOARD
 const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
 const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
-const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
+const optHomepageBtn = document.getElementById("optHome"); // MENU: HOMEPAGE
+const optSettingsBtn = document.getElementById("optSettings"); // MENU: SETTINGS
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
 let aiThinking = false; // TRUE WHILE THE SERVER PICKS THE AI'S MOVE
 const AI_RETRY_TIME = 5000; // ASKS FOR THE AI'S MOVE AGAIN AFTER THIS WHEN IT DIDN'T ANSWER (ms)
@@ -159,7 +160,8 @@ async function startGame() {
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("drawDecline").addEventListener("click", handleDeclineDraw); }
 	optRestartBtn.addEventListener("click", handleRestart);
 	document.getElementById("optCancelRematch").addEventListener("click", handleCancelRematch);
-	optHomepageBtn.addEventListener("click", handleHomepage);
+	optHomepageBtn.addEventListener("click", handleLeave);
+	optSettingsBtn.addEventListener("click", handleLeave);
 	optExitBtn.addEventListener("click", handleExit);
 	if (!game.TV_BOOL || OVERRIDE_TV) { addMoveListListeners(); } // THE TOGGLE & ITS KEYS
 	addMoveBoxListeners(); // ON IN TV MODE TOO, A KEYBOARD CAN STILL TYPE. THE TV REMOTE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE

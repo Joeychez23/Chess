@@ -28,8 +28,8 @@ const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
-const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
-const optExitBtn = document.getElementById("optExit"); // MENU: LOGOUT (SIGNED IN) / SIGN IN (GUESTS)
+const optHomepageBtn = document.getElementById("optHome"); // MENU: HOMEPAGE
+const optExitBtn = document.getElementById("optExit"); // MENU: LOGOUT (SIGNED IN) / LOGIN/SIGNUP (GUESTS)
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
 const resultAnnouncement = document.getElementById("resultAnnouncement"); // SCREEN READERS ARE TOLD THE RESULT HERE
@@ -747,21 +747,25 @@ async function loadRematch(newGameId) {
 }
 
 /* ---------------------------------------------------------------- */
-// Homepage Button (Menu)
+// Home & Settings Links (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Goes to Home (/). Stops the render loop & leaves the friend game's socket room first,
- * the page load clears everything else (listeners, canvas). Home says Loading & fills up like the buttons into a game,
- * then the game stays on screen until Home is drawn & fades into it (home.html, showPage in pages/utils)
+ * @description Goes to the link's page. Stops the render loop & leaves the friend game's socket room first,
+ * the page load clears everything else (listeners, canvas). It says Loading & fills up like the buttons into a game,
+ * then the game stays on screen until the page is drawn & fades into it (home.html, showPage in pages/utils).
+ * A click that opens a new tab leaves the game running, the menu's listener closes the menu (createNav in pages/utils/nav.js)
  */
-export function handleHomepage(e) {
+export function handleLeave(e) {
+	if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { return; } // THIS PAGE STAYS
 	e.preventDefault();
 	e.stopPropagation();
+	const link = e.currentTarget;
+	if (isBusy(link)) { return; } // .loading ONLY STOPS CLICKS, A KEYBOARD CAN STILL PRESS IT
 
 	stopFrames(); // STOP THE RENDER LOOP
 	leaveGame();
 	if (rematchWaiting) { cancelRematch(game.GAME_URL, game.GAME_ID); } // THE REQUEST ONLY STANDS WHILE THEY'RE HERE, A LATE PRESS WOULD START A GAME WITHOUT THEM
-	fillThenGo(optHomepageBtn, "/"); // HOME ONCE IT'S FULL (server/routes/pageRoutes.js)
+	fillThenGo(link, link.href); // THE PAGE ONCE IT'S FULL (server/routes/pageRoutes.js)
 }
 
 /* ---------------------------------------------------------------- */

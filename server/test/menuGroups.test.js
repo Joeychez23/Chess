@@ -28,37 +28,66 @@ describe("the menus' groups", () => {
 			["Game actions", ["Hint", "Takeback", "Offer Draw", "Type a Move"]],
 			["View", ["Turn Sound: Off", "Flip Board", "Turn Eval Bar: On", "Download PGN"]],
 			["End the game", ["Restart", "Cancel"]],
-			["Navigation", ["Home"]],
+			["Navigation", ["Home", "Settings"]],
 			["Account", ["Exit"]],
 		],
 		home: [
-			["Current page", ["Home"]],
 			["On this page", ["Invites", "Your games", "Finished games", "Friends"]],
 			["Navigation", ["Settings"]],
 			["Account", ["Logout"]],
 		],
 		guest: [
-			["Current page", ["Home"]],
 			["On this page", ["Play the AI"]],
 			["Account", ["Login/Signup"]],
 		],
 		settings: [
-			["Navigation", ["Home", "Settings"]],
+			["Navigation", ["Home"]],
 			["Account", ["Logout"]],
 		],
 		login: [
 			["Navigation", ["Home"]],
-			["Account", ["Login/Signup"]],
 		],
 		signup: [
 			["Navigation", ["Home"]],
-			["Account", ["Login/Signup"]],
 		],
 	};
 
 	for (const [page, groups] of Object.entries(expected)) {
 		test(`${page} has its groups in order`, () => {
 			assert.deepEqual(menuGroups(page), groups);
+		});
+	}
+});
+
+describe("the menus' labels & link types", () => {
+	const read = (file) => fs.readFileSync(path.join(client, file), "utf8");
+
+	test("Play's Home & Settings are links, Settings starts hidden", () => {
+		const play = read("play.html");
+		assert.match(play, /<li><a class="menuButton" id="optHome" href="\/">Home<\/a><\/li>/);
+		assert.match(play, /<li hidden><a class="menuButton" id="optSettings" href="\/settings">Settings<\/a><\/li>/);
+	});
+
+	test("Play shows Settings to signed in players & says Login/Signup to guests", () => {
+		const page = read("src/js/pages/play/index.js");
+		assert.match(page, /optSettingsBtn\.parentElement\.hidden = !sessionUser/);
+		assert.match(page, /sessionUser \? "Logout" : "Login\/Signup"/);
+	});
+
+	test("Home & Settings leave the game the same way, a new tab leaves it running", () => {
+		assert.match(read("src/js/gameplay/index.js"), /optHomepageBtn\.addEventListener\("click", handleLeave\);\s+optSettingsBtn\.addEventListener\("click", handleLeave\);/);
+		const handler = read("src/js/gameplay/menu/index.js").match(/export function handleLeave[\s\S]*?\n}/)[0];
+		assert.ok(handler.indexOf("e.metaKey") < handler.indexOf("e.preventDefault"));
+		assert.ok(handler.indexOf("e.metaKey") < handler.indexOf("stopFrames"));
+		assert.match(handler, /stopFrames\(\);[\s\S]*leaveGame\(\);[\s\S]*cancelRematch[\s\S]*fillThenGo\(link, link\.href\)/);
+	});
+
+	const titles = { play: "Chess", home: "Home", guest: "Home", settings: "Settings", login: "Login/Signup", signup: "Login/Signup" };
+	for (const [page, title] of Object.entries(titles)) {
+		test(`${page}'s menu is titled ${title} & has no item for the page it's on`, () => {
+			const html = read(`${page}.html`);
+			assert.equal(html.match(/<div id="resultDisplay">([^<]*)</)[1], title);
+			assert.doesNotMatch(html, /aria-current/);
 		});
 	}
 });
