@@ -100,6 +100,25 @@
 	background-color: currentColor; /* THE TV REMOTE COLORS THE BUTTON, THE LINES FOLLOW */
 }
 
+@media (prefers-reduced-motion: no-preference) {
+	#optBtn span {
+		transition: transform 200ms ease-out, opacity 200ms ease-out;
+	}
+}
+
+/* THE MENU IS OPEN: THE 3 LINES ARE AN X (A LINE'S 2PX + THE 5PX GAP = 7PX TO THE MIDDLE) */
+#optBtn[aria-expanded="true"] span:nth-child(1) {
+	transform: translateY(7px) rotate(45deg);
+}
+
+#optBtn[aria-expanded="true"] span:nth-child(2) {
+	opacity: 0;
+}
+
+#optBtn[aria-expanded="true"] span:nth-child(3) {
+	transform: translateY(-7px) rotate(-45deg);
+}
+
 @media (hover: hover) {
 	#optBtn:hover {
 		color: var(--gold);

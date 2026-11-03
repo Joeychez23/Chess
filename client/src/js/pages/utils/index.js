@@ -13,42 +13,14 @@
 const { drawBoardPicture } = require("./boardPicture.js");
 const { getLevels } = require("../../gameplay/validate/index.js");
 const { imageProgress } = require("../../gameplay/images/index.js");
-const { confirmPress, disarmConfirm } = require("./confirm.js"); // LOGOUT IN THE MENU NEEDS A SECOND PRESS
+const { confirmPress } = require("./confirm.js"); // LOGOUT IN THE MENU NEEDS A SECOND PRESS
+
+export { startNav } from "./nav.js"; // THE MENU BUTTON, pages/utils/nav.js
 
 let loadingBtn = null; // THE BUTTON OR LINK THAT SAYS LOADING (ONE AT A TIME), stopLoading() PUTS IT BACK
 let loadingText; // ITS TEXT BEFORE IT SAID LOADING
 let loadingCheck; // FILLS IT AS THE GAME'S IMAGES LOAD
 let loadingStartTime; // WHEN IT STARTED, goToPage() GOES ANYWAY 8 SECONDS AFTER THIS
-
-/* ---------------------------------------------------------------- */
-// Start Nav
-/* ---------------------------------------------------------------- */
-/**
- * @description The menu button (3 lines, top right) opens & closes the menu. A click outside it, a link in it or Escape closes it.
- * The play page's game does this itself (handleMenuBtn in gameplay/menu/index.js), so only pages without the game call this
- * @return {[function]} toggleNav [toggleNav(true) opens the menu, toggleNav(false) closes it]
- */
-export function startNav() {
-	const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES)
-	const menu = document.getElementById("menuContainer");
-
-	function toggleNav(open) { // TRUE OPENS THE MENU, FALSE CLOSES IT
-		menu.style.display = open ? "flex" : "none";
-		optBtn.setAttribute("aria-expanded", open);
-		if (!open) { disarmConfirm(); }
-	}
-
-	optBtn.setAttribute("aria-expanded", false);
-	optBtn.addEventListener("click", function (e) {
-		e.preventDefault();
-		e.stopPropagation();
-		toggleNav(menu.style.display != "flex");
-	});
-	menu.addEventListener("click", function (e) { if (e.target.closest("a")) { toggleNav(false); } }); // A LINK ON THIS PAGE (#games) CLOSES IT TOO
-	document.addEventListener("click", function (e) { if (!menu.contains(e.target)) { toggleNav(false); } }); // CLICK OUTSIDE
-	document.addEventListener("keydown", function (e) { if (e.key == "Escape") { toggleNav(false); } });
-	return toggleNav;
-}
 
 /* ---------------------------------------------------------------- */
 // Logout Buttons

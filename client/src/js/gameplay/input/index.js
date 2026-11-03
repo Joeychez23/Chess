@@ -14,7 +14,7 @@ const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { tileToSquare, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION, ADDS OR REMOVES A MARK OR ARROW
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { handleMenuBtn, handleResume, handleSound, handleFlip, handleHint, handleTakeback, handleOfferDraw, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
+const { openMenu, handleResume, handleSound, handleFlip, handleHint, handleTakeback, handleOfferDraw, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
@@ -155,7 +155,7 @@ export async function handleKeyPress(e) {
 		}
 		if (e.keyCode == 13) { // ENTER
 			if (!remoteNavBox.menuHover && !game.menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
-			else if (remoteNavBox.menuHover && !game.menuToggled) { handleMenuBtn(e); handleRemoteMenuEnter(optResumeBtn); } // OPEN THE MENU ON RESUME
+			else if (remoteNavBox.menuHover && !game.menuToggled) { openMenu(); handleRemoteMenuEnter(optResumeBtn); } // OPEN THE MENU ON RESUME
 			else if (game.menuToggled && remoteNavBox.menuBtn == optSoundBtn) { handleSound(e); } // THE MENU STAYS OPEN & SOUND STAYS SELECTED
 			else if (game.menuToggled && remoteNavBox.menuBtn == optFlipBtn) { handleFlip(e); } // THE MENU STAYS OPEN & FLIP BOARD STAYS SELECTED
 			else if (game.menuToggled && remoteNavBox.menuBtn == optDrawBtn) { handleOfferDraw(e); } // THE MENU STAYS OPEN & OFFER DRAW STAYS SELECTED

@@ -3,7 +3,7 @@
  *	Play Page (/play, /play/:gameId)
  *	Starts the game on the canvas. The server picks this page (server/controllers/pageController.js), the game id
  *	comes from the url (signed in) or localStorage (guest). Home & Exit leave the page, so nothing has to be torn down.
- *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (handleMenuBtn in gameplay/menu/index.js)
+ *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (createNav in gameplay/menu/index.js)
  *
  */
 

@@ -116,7 +116,7 @@ export function loadMoveList() {
 }
 
 /**
- * @description Collapses or opens the panel & saves it. The click is stopped so the menu stays as it is (handleClickAway)
+ * @description Collapses or opens the panel & saves it. The click is stopped so the menu stays as it is (a click away closes it, pages/utils/nav.js)
  */
 export function handleMoveListToggle(e) {
 	e.stopPropagation();

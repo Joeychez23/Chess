@@ -14,7 +14,7 @@ Chess should be playable by as many people as possible, including people who use
 - Every form field and dropdown has a label: the AI level, your color and your friend's username or email.
 - The picture of the board on the homepage has a text description, and each board preview ("The board of your current AI game") is labelled.
 - Messages about invites and errors are announced by screen readers as they appear. On the play page that includes a refused move, a lost connection and the server or AI not answering.
-- The menu button is labelled "Menu", says whether the menu is open or closed, and Escape closes the menu. In a game, clicking or tapping away from the menu closes it too, and Resume does the same for keyboard players.
+- The menu button is labelled "Menu", says whether the menu is open or closed, and its three lines turn into an X while the menu is open. The button, clicking or tapping away and Escape close every menu; a game's menu only stays open while a new board loads. In a game, Resume closes it too for keyboard players.
 - Buttons and links show a gold outline when you move to them with the keyboard.
 - You can zoom the page; zoom isn't blocked on phones.
 

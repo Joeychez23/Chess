@@ -21,8 +21,8 @@ const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAME
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
+const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
-const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
@@ -76,54 +76,33 @@ export const socketHandlers = { // SOCKET EVENT -> HANDLER
 /* ---------------------------------------------------------------- */
 // Open & Close
 /* ---------------------------------------------------------------- */
-/**
- * @description Every way the menu opens comes through here. A move that isn't finished goes back (revertUnfinishedMove) &
- * no piece stays hovered, so pieces can't be touched until the menu closes
- */
-export function openMenu() {
-	clearTouch();
-	revertUnfinishedMove();
-	for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isHovering = false; }
-	game.menuToggled = true;
-	game.refresh = true;
-	menu.style.display = "flex";
-}
+const nav = createNav({
+	/**
+	 * @description Every way the menu opens comes through here. A move that isn't finished goes back (revertUnfinishedMove) &
+	 * no piece stays hovered, so pieces can't be touched until the menu closes
+	 */
+	onOpen() {
+		clearTouch();
+		revertUnfinishedMove();
+		for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isHovering = false; }
+		game.menuToggled = true;
+		game.refresh = true;
+	},
+	onClose() { game.menuToggled = false; },
+	canClose() { return !game.boardReset; }, // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS, THE OLD BOARD UNDER IT IS LOCKED
+});
 
 /**
- * @description Back to the game (Resume or a click away from the menu). The menu stays open while a new board loads
- * (the old board under it is locked) & when the game is over (Resume is hidden, there's no game to go back to)
+ * @description Turns on the menu button, a click away & Escape. Clicks on the board are handled by handleCanvasClick (input/index.js), it stops them before they get to the page
  */
-export function closeMenu() {
-	if (game.boardReset || optResumeBtn.parentElement.style.display == "none") { return; }
-	game.menuToggled = false;
-	menu.style.display = "none";
-	disarmConfirm();
-}
+export const addMenuListeners = nav.addListeners;
+
+export function openMenu() { nav.toggleNav(true); }
 
 /**
- * @description A click outside the board, the menu & the menu button closes the menu. Clicks on the board are handled by
- * handleCanvasClick (input/index.js), it stops them before they get here
+ * @description Back to the game or, when it's over, a look at the final position (reopening the menu still shows the result)
  */
-export function handleClickAway(e) {
-	if (!game.menuToggled || menu.contains(e.target) || optBtn.contains(e.target)) { return; }
-	closeMenu();
-}
-
-/* ---------------------------------------------------------------- */
-// Options (Menu) Button
-/* ---------------------------------------------------------------- */
-/**
- * @description Toggles menu based on menu state. The menu button (3 lines) opens or closes the menu
- */
-export function handleMenuBtn(e) {
-	e.preventDefault();
-	e.stopPropagation();
-	if (game.menuToggled) {
-		game.menuToggled = false;
-		menu.style.display = "none";
-		disarmConfirm();
-	} else { openMenu(); }
-}
+export function closeMenu() { nav.toggleNav(false); }
 
 /* ---------------------------------------------------------------- */
 // Resume Button (Menu)
@@ -215,7 +194,7 @@ export async function handleDownloadPgn(e) {
 	if (response?.status != 200) { return showStatus("action", "Couldn't download the PGN. Try again.", MESSAGE_TIME); }
 
 	const url = URL.createObjectURL(new Blob([response.pgn], { type: "application/x-chess-pgn" }));
-	const link = document.createElement("a"); // NOT ADDED TO THE PAGE, ITS CLICK WOULD REACH handleClickAway & CLOSE THE MENU
+	const link = document.createElement("a"); // NOT ADDED TO THE PAGE, ITS CLICK WOULD REACH THE PAGE & CLOSE THE MENU
 	link.href = url;
 	link.download = response.filename;
 	link.click();
@@ -549,12 +528,10 @@ async function loadNewBoard(fromPieces, loaded) {
 		setRestartLoading(1); // FULL
 		await new Promise(function (resolve) { setTimeout(resolve, 200); }); // THE FILL REACHES THE END
 	}
-	menu.style.display = "none"
-	disarmConfirm();
+	nav.toggleNav(false, true); // THE NEW BOARD IS IN
 	optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 	resultDisplay.innerText = "Chess"
 	resultReason.hidden = true;
-	game.menuToggled = false;
 	await refreshData(game.response);
 	game.opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
 	startRestartSlide(fromPieces);

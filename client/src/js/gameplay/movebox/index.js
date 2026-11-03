@@ -201,7 +201,7 @@ function handleDragMove(e) {
 }
 
 /**
- * @description The click that comes with letting go of a drag, stopped so it doesn't close the menu (handleClickAway)
+ * @description The click that comes with letting go of a drag, stopped so it doesn't close the menu (a click away closes it, pages/utils/nav.js)
  */
 function stopDragClick(e) {
 	e.stopPropagation();
@@ -404,7 +404,7 @@ function handleTypeMoveBtn(e) {
 }
 
 /**
- * @description The X closes the box, stopped so the menu stays as it is (handleClickAway)
+ * @description The X closes the box, stopped so the menu stays as it is (a click away closes it, pages/utils/nav.js)
  */
 function handleCloseBtn(e) {
 	e.stopPropagation();
@@ -412,7 +412,7 @@ function handleCloseBtn(e) {
 }
 
 /**
- * @description The menu button was pressed, the menu has already opened or closed (handleMenuBtn). Opening it leaves the box as it was,
+ * @description The menu button was pressed, the menu has already opened or closed (pages/utils/nav.js). Opening it leaves the box as it was,
  * where it was, without the keyboard so a move can't be played under the menu
  */
 function handleMenuToggle() {

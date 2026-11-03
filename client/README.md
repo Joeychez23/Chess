@@ -137,7 +137,8 @@ client/
     guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board, Play AI / New game
     settings/index.js        Username (first pick goes Home), account info, saves the Default start settings, Delete my data (two presses, then logout)
     play/index.js            Finds the player + game (url or guest localStorage, a missing guest game is made as Random), starts renderCanvas()
-    utils/index.js           startNav() (the menu on pages without the game), table background, showCurrentGame() / hideCurrentGame(), loadLevels(), colorText()
+    utils/nav.js             createNav() (opens & closes every page's menu, the game passes hooks), startNav() (pages without the game)
+    utils/index.js           table background, showCurrentGame() / hideCurrentGame(), loadLevels(), colorText()
     utils/boardPicture.js    drawBoardPicture(): a still of a game's board, drawn like the play page
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
   src/js/socket/index.js     joinGame() / leaveGame(): friend game socket, watchGames(): Home's socket
