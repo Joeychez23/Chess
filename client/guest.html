@@ -31,11 +31,17 @@
 	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
 	<nav id="menuContainer" aria-label="Menu">
 		<div id="resultDisplay">Chess</div>
-		<ul id="menuButtonList">
-			<li><a class="menuButton" href="/" aria-current="page">Home</a></li>
-			<li><a class="menuButton" href="#soloBox">Play the AI</a></li>
-			<li><a class="menuButton" href="/login">Login/Signup</a></li>
-		</ul>
+		<div id="menuButtonList">
+			<ul role="group" aria-label="Current page">
+				<li><a class="menuButton" href="/" aria-current="page">Home</a></li>
+			</ul>
+			<ul role="group" aria-label="On this page">
+				<li><a class="menuButton" href="#soloBox">Play the AI</a></li>
+			</ul>
+			<ul role="group" aria-label="Account">
+				<li><a class="menuButton" href="/login">Login/Signup</a></li>
+			</ul>
+		</div>
 	</nav>
 
 	<main class="page">

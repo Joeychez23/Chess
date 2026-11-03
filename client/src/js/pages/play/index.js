@@ -135,10 +135,10 @@ function gameNotFound() {
 	showPage(); // NO BOARD TO WAIT FOR, SHOW THE MENU
 	showTable();
 	resultDisplay.innerHTML = "Game not found";
-	optResumeBtn.parentElement.style.display = "none";
-	optSoundBtn.parentElement.style.display = "none";
-	optFlipBtn.parentElement.style.display = "none";
-	optRestartBtn.parentElement.style.display = "none";
+	optResumeBtn.parentElement.hidden = true;
+	optSoundBtn.parentElement.hidden = true;
+	optFlipBtn.parentElement.hidden = true;
+	optRestartBtn.parentElement.hidden = true;
 	optExitBtn.innerHTML = "Logout";
 	optHomepageBtn.addEventListener("click", function () { startLoading(optHomepageBtn); goToPage("/"); }); // LOADING, THEN HOME (LIKE THE GAME'S HOME BUTTON)
 	optExitBtn.classList.add("logoutBtn");

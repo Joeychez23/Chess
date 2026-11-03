@@ -122,12 +122,12 @@ leaveGame();
 
 ```text
 client/
-  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Finished games, Friends, menu (Home, Invites, Your games, Finished games, Friends, Settings, Logout)
-  settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings, Logout)
-  login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home, Login/Signup)
-  signup.html                Signup markup: Create account, link to login, menu (Home, Login/Signup), shares the login bundle
-  guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home, Play the AI, Login/Signup)
-  play.html                  Game menu markup (Resume, Sound, Flip Board, Download PGN, Offer Draw, Forfeit / Restart / Rematch, Home, Exit)
+  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Finished games, Friends, menu (Home / Invites, Your games, Finished games, Friends / Settings / Logout)
+  settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home, Settings / Logout)
+  login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home / Login/Signup)
+  signup.html                Signup markup: Create account, link to login, menu (Home / Login/Signup), shares the login bundle
+  guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Home / Play the AI / Login/Signup)
+  play.html                  Game menu markup, in groups (Resume / Hint, Takeback, Offer Draw, Type a Move / Sound, Flip Board, Eval Bar, Download PGN / Forfeit or Restart or Rematch, Cancel / Home / Exit). At game over the Restart group moves under the result
   webpack.config.js          One entry + HTML page each (home, guest, play, settings, login; signup shares login's entry), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles

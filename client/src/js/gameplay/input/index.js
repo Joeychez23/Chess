@@ -29,7 +29,7 @@ const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
 
 const { handleEvalBar } = require("../analysis/index.js"); // THE TV REMOTE PRESSES THE EVALUATION BAR'S BUTTON TOO
 
-const firstShown = (...buttons) => buttons.find((button) => !button.parentElement.hidden); // THE NEXT MENU BUTTON THE TV REMOTE CAN REACH, THE LAST ONE IS ALWAYS SHOWN
+const remoteButtons = [optResumeBtn, optHintBtn, optTakebackBtn, optDrawBtn, optSoundBtn, optFlipBtn, optEvalBarBtn, optRestartBtn, optHomepageBtn, optExitBtn]; // THE MENU BUTTONS THE TV REMOTE CAN PRESS
 
 let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
 let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
@@ -43,17 +43,26 @@ let annotationStart = null; // SQUARE THE RIGHT BUTTON WENT DOWN ON, null WHEN I
 /* ---------------------------------------------------------------- */
 /**
  * @description Changes current button effect when keydown is handled. TV remote: moves the menu highlight from the
- * selected button to btn, hidden buttons are skipped
+ * selected button to btn
  * @param  {[object]} btn [menu button element]
  */
 function handleRemoteNavBtnHover(btn) {
-	if (btn.parentElement.style.display != "none") { // SKIP HIDDEN BUTTONS (RESUME IS HIDDEN WHEN THE GAME IS OVER)
-		remoteNavBox.menuBtn.style.transition = "ease-out 375ms";
-		remoteNavBox.menuBtn.style.backgroundColor = "#CD853F";
-		remoteNavBox.menuBtn = btn;
-		remoteNavBox.menuBtn.style.transition = "ease-in 375ms"
-		remoteNavBox.menuBtn.style.backgroundColor = "burlywood"
-	}
+	remoteNavBox.menuBtn.style.transition = "ease-out 375ms";
+	remoteNavBox.menuBtn.style.backgroundColor = "#CD853F";
+	remoteNavBox.menuBtn = btn;
+	remoteNavBox.menuBtn.style.transition = "ease-in 375ms"
+	remoteNavBox.menuBtn.style.backgroundColor = "burlywood"
+}
+
+/**
+ * @description TV remote: up or down the menu in the order on screen, hidden buttons are skipped. Restart's group moves to the top at game over, this follows it
+ * @param  {[number]} step [-1 up, 1 down]
+ */
+function moveRemoteSelection(step) {
+	if (!remoteNavBox.menuBtn) { return; }
+	const shown = [...document.querySelectorAll("#menuButtonList button")].filter((button) => remoteButtons.includes(button) && !button.parentElement.hidden);
+	const next = shown[shown.indexOf(remoteNavBox.menuBtn) + step];
+	if (next) { handleRemoteNavBtnHover(next); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -124,15 +133,7 @@ export async function handleKeyPress(e) {
 		if (e.keyCode == 38) { // UP
 			if (remoteNavBox.y > 0 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y -= 1; game.refresh = true; }
 			else if (game.menuToggled) {
-				if (remoteNavBox.menuBtn == optExitBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 6 -> 5
-				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 5 -> 4
-				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(firstShown(optDrawBtn, optTakebackBtn, optEvalBarBtn, optHintBtn, optFlipBtn)) } // 4 -> OFFER DRAW -> TAKEBACK -> EVALUATION BAR -> HINT -> 3
-				else if (remoteNavBox.menuBtn == optDrawBtn) { handleRemoteNavBtnHover(firstShown(optTakebackBtn, optEvalBarBtn, optHintBtn, optFlipBtn)) }
-				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleRemoteNavBtnHover(firstShown(optEvalBarBtn, optHintBtn, optFlipBtn)) }
-				else if (remoteNavBox.menuBtn == optEvalBarBtn) { handleRemoteNavBtnHover(firstShown(optHintBtn, optFlipBtn)) }
-				else if (remoteNavBox.menuBtn == optHintBtn) { handleRemoteNavBtnHover(optFlipBtn) }
-				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 3 -> 2
-				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optResumeBtn) } // 2 -> 1
+				moveRemoteSelection(-1);
 			}
 			else { game.refresh = true; }
 			checkBoxOverPiece();
@@ -140,15 +141,7 @@ export async function handleKeyPress(e) {
 		if (e.keyCode == 40) { // DOWN
 			if (remoteNavBox.y < 7 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y += 1; game.refresh = true; }
 			else if (game.menuToggled) {
-				if (remoteNavBox.menuBtn == optResumeBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 1 -> 2
-				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optFlipBtn) } // 2 -> 3
-				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(firstShown(optHintBtn, optEvalBarBtn, optTakebackBtn, optDrawBtn, optRestartBtn)) } // 3 -> HINT -> EVALUATION BAR -> TAKEBACK -> OFFER DRAW -> 4
-				else if (remoteNavBox.menuBtn == optHintBtn) { handleRemoteNavBtnHover(firstShown(optEvalBarBtn, optTakebackBtn, optDrawBtn, optRestartBtn)) }
-				else if (remoteNavBox.menuBtn == optEvalBarBtn) { handleRemoteNavBtnHover(firstShown(optTakebackBtn, optDrawBtn, optRestartBtn)) }
-				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleRemoteNavBtnHover(firstShown(optDrawBtn, optRestartBtn)) }
-				else if (remoteNavBox.menuBtn == optDrawBtn) { handleRemoteNavBtnHover(optRestartBtn) }
-				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 4 -> 5
-				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optExitBtn) } // 5 -> 6
+				moveRemoteSelection(1);
 			}
 			else { game.refresh = true; }
 			checkBoxOverPiece();

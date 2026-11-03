@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Hint, Takeback, Offer Draw, Forfeit / Restart / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Hint, Takeback, Offer Draw, Type a Move, Sound, Flip Board, Eval Bar, Download PGN, Forfeit / Restart / Rematch, Home & Exit), loading a new board in place
  *	for Restart, Rematch & Takeback (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
  *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer, a takeback or a rematch), startGame & loadRematch join with them
  *
@@ -529,7 +529,8 @@ async function loadNewBoard(fromPieces, loaded) {
 		await new Promise(function (resolve) { setTimeout(resolve, 200); }); // THE FILL REACHES THE END
 	}
 	nav.toggleNav(false, true); // THE NEW BOARD IS IN
-	optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
+	optResumeBtn.parentElement.hidden = false; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
+	placeEndGroup(false);
 	resultDisplay.innerText = "Chess"
 	resultReason.hidden = true;
 	await refreshData(game.response);
@@ -651,6 +652,19 @@ export async function handleCancelRematch(e) {
 // Game Over
 /* ---------------------------------------------------------------- */
 /**
+ * @description Forfeit, Restart or Rematch's group: at the top under the result when the game is over, otherwise above Home.
+ * It's moved in the page, not with CSS, so the Tab key & screen readers follow the order on screen. Moving a button takes its focus away, so it's given back
+ * @param  {[boolean]} top [true: under the result]
+ */
+function placeEndGroup(top) {
+	const group = optRestartBtn.closest("ul");
+	const focused = document.activeElement;
+	if (top) { group.parentElement.prepend(group); }
+	else { group.parentElement.insertBefore(group, optHomepageBtn.closest("ul")); }
+	if (group.contains(focused)) { focused.focus(); }
+}
+
+/**
  * @description Locks the board & opens the menu with the server's result. AI games offer Restart, friend games offer Rematch
  * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
  */
@@ -660,7 +674,8 @@ export function showGameOver(result) {
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	openMenu();
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
-	optResumeBtn.parentElement.style.display = 'none';
+	optResumeBtn.parentElement.hidden = true;
+	placeEndGroup(true);
 	optDrawBtn.parentElement.hidden = true;
 	optTakebackBtn.parentElement.hidden = true;
 	syncAnalysis({ ...game.response, state: "CLOSED" }); // A FORFEIT COMES OVER THE SOCKET WITHOUT A GAME
