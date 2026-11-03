@@ -259,6 +259,12 @@
 	color: var(--walnut);
 }
 
+#menuContainer .menuButton[aria-disabled="true"] { /* CAN'T ACT RIGHT NOW (pages/utils/menuItem.js), IT STILL GETS FOCUS SO THE WORDS CAN BE READ */
+	background-color: var(--walnut-2);
+	opacity: 0.55;
+	cursor: default;
+}
+
 /* SHORT SCREENS: THE GROUPS FLOW INTO COLUMNS. THE PLAY MENU HAS 6 GROUPS & NEEDS ABOUT 850PX IN ONE COLUMN, HOME HAS 4 & ONLY NEEDS IT ON A PHONE ON ITS SIDE */
 @media (max-height: 860px) {
 	#menuContainer:has(ul:nth-child(6)) {
@@ -336,6 +342,10 @@
 .btnLine.loading::after,
 #menuContainer .menuButton.loading::after {
 	background-color: rgba(236, 217, 180, 0.18); /* LIGHTER ON THE LINE BUTTON (NEW GAME) & THE MENU'S WALNUT */
+}
+
+#menuContainer .menuButton[aria-current="page"].loading::after {
+	background-color: rgba(35, 22, 14, 0.2); /* DARKER ON THE CREAM PLATE */
 }
 
 .btn.loading:disabled {

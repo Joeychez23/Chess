@@ -14,6 +14,7 @@ const { drawBoardPicture } = require("./boardPicture.js");
 const { getLevels } = require("../../gameplay/validate/index.js");
 const { imageProgress } = require("../../gameplay/images/index.js");
 const { confirmPress } = require("./confirm.js"); // LOGOUT IN THE MENU NEEDS A SECOND PRESS
+const { setFill } = require("./menuItem.js"); // LOGOUT IN THE MENU FILLS WHILE IT WAITS
 
 export { startNav } from "./nav.js"; // THE MENU BUTTON, pages/utils/nav.js
 
@@ -37,6 +38,10 @@ export function startLogoutButtons(auth) {
 			if (btn.disabled) { return; }
 			if (btn.closest("#menuContainer") && !confirmPress(btn)) { return; } // FIRST PRESS ASKS
 			btn.disabled = true;
+			if (btn.closest("#menuContainer")) {
+				btn.innerText = "Logging Out";
+				setFill(btn);
+			}
 			auth.logout(); // POST /api/auth/logout, THEN THE GUEST PAGE
 		});
 	});

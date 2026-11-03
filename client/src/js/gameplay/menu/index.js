@@ -22,8 +22,10 @@ const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js");
 const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
+const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
+const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
@@ -189,8 +191,12 @@ export async function handleDownloadPgn(e) {
 	e.stopPropagation();
 	if (pgnLoading) { return; }
 	pgnLoading = true;
+	optPgnBtn.innerText = "Downloading";
+	setFill(optPgnBtn);
 	const response = await getPgn(game.GAME_URL, game.GAME_ID);
 	pgnLoading = false;
+	optPgnBtn.innerText = "Download PGN";
+	stopFill(optPgnBtn);
 	if (response?.status != 200) { return showStatus("action", "Couldn't download the PGN. Try again.", MESSAGE_TIME); }
 
 	const url = URL.createObjectURL(new Blob([response.pgn], { type: "application/x-chess-pgn" }));
@@ -232,8 +238,10 @@ export async function handleTakeback(e) {
 	game.boardReset = true; // STOP DRAWING, THE BOARD STAYS ON SCREEN UNDER THE MENU
 	game.refresh = false;
 	optBtn.style.display = "none";
-	optTakebackBtn.innerText = "Taking Back";
+	takebackLoading = true;
+	showTakebackButtons();
 	const response = await takeback(game.GAME_URL, game.GAME_ID);
+	takebackLoading = false;
 	if (response?.status == 409 && !game.ai) { // THE REQUEST ENDED, A MOVE LANDED FIRST
 		takebackIncoming = false;
 		clearStatus("takeback");
@@ -292,11 +300,14 @@ export async function handleDeclineTakeback(e) {
 }
 
 /**
- * @description Sets the words on Takeback & shows Accept / Decline while the opponent's request stands
+ * @description Sets the words & state on Takeback & shows Accept / Decline while the opponent's request stands. Asked already: nothing to press until a move
  */
 function showTakebackButtons() {
 	takebackPrompt.hidden = !takebackIncoming;
-	if (takebackLoading) { optTakebackBtn.innerText = "Asking"; }
+	setUnavailable(optTakebackBtn, takebackSent && !takebackIncoming && !takebackLoading);
+	if (takebackLoading) { setFill(optTakebackBtn); }
+	else { stopFill(optTakebackBtn); }
+	if (takebackLoading) { optTakebackBtn.innerText = game.ai || takebackIncoming ? "Taking Back" : "Asking"; }
 	else if (takebackIncoming) { optTakebackBtn.innerText = "Accept Takeback"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
 	else if (takebackSent) { optTakebackBtn.innerText = "Takeback Asked"; }
 	else { optTakebackBtn.innerText = takebacksLeft === null ? "Takeback" : `Takeback (${takebacksLeft} left)`; }
@@ -379,10 +390,13 @@ export async function loadTakeback(read, board, tries = 0) {
 // Draw Offers (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Sets the words on Offer Draw & shows Accept / Decline while the opponent's offer stands
+ * @description Sets the words & state on Offer Draw & shows Accept / Decline while the opponent's offer stands. Offered already: nothing to press until a move
  */
 function showDrawButtons() {
 	drawPrompt.hidden = !drawIncoming;
+	setUnavailable(optDrawBtn, drawSent && !drawIncoming && !drawLoading);
+	if (drawLoading) { setFill(optDrawBtn); }
+	else { stopFill(optDrawBtn); }
 	if (drawLoading) { optDrawBtn.innerText = "Offering"; }
 	else if (drawIncoming) { optDrawBtn.innerText = "Accept Draw"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
 	else { optDrawBtn.innerText = drawSent ? "Draw Offered" : "Offer Draw"; }
@@ -485,7 +499,7 @@ export async function handleDeclineDraw(e) {
 export async function handleRestart(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (game.boardReset) { return; } // ALREADY LOADING A NEW BOARD (A SECOND PRESS, THE TV REMOTE'S ENTER)
+	if (game.boardReset || isBusy(optRestartBtn)) { return; } // ALREADY LOADING A NEW BOARD OR WAITING ON THE SERVER (A SECOND PRESS, THE TV REMOTE'S ENTER)
 	if (!game.gameOver) { return await handleForfeit(); }
 	if (!game.ai) { return await handleRematch(); }
 	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
@@ -548,18 +562,12 @@ async function loadNewBoard(fromPieces, loaded) {
  */
 export function setRestartLoading(load) {
 	if (load === false) { // DONE OR FAILED
-		optRestartBtn.classList.remove("loading");
-		optRestartBtn.style.removeProperty("--load");
+		stopFill(optRestartBtn);
 		optRestartBtn.innerHTML = game.ai && game.gameOver ? "Restart" : "Forfeit"; // RESTART FAILED: THE GAME IS STILL OVER
 		return;
 	}
-	if (!optRestartBtn.classList.contains("loading")) { // FIRST CALL
-		optRestartBtn.innerHTML = "Loading";
-		optRestartBtn.classList.add("loading");
-		setTimeout(function () { if (game.boardReset) { setRestartLoading(load); } }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)
-		return;
-	}
-	if (load > (Number(optRestartBtn.style.getPropertyValue("--load")) || 0)) { optRestartBtn.style.setProperty("--load", load); }
+	optRestartBtn.innerHTML = "Loading";
+	setFill(optRestartBtn, load);
 }
 
 /* ---------------------------------------------------------------- */
@@ -573,8 +581,10 @@ async function handleForfeit() {
 	if (!confirmPress(optRestartBtn)) { return; } // FIRST PRESS ASKS
 	if (game.ai && (game.aiTurn || moveInFlight())) { return showStatus("action", "Wait for the AI's move to finish.", MESSAGE_TIME); }
 	if (game.ai) { clearTimeout(game.aiTimer); }
+	setFill(optRestartBtn);
 	const forfeitResponse = await forfeitGame(game.GAME_URL, game.GAME_ID);
 	if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
+	if (!game.gameOver) { stopFill(optRestartBtn); } // showGameOver ALREADY TOOK IT OFF, THE BUTTON MAY BE BUSY WITH A REMATCH
 	if (game.ai && !game.gameOver && chessInst.turn() != game.playerColor) { // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE
 		game.aiTurn = true;
 		game.refresh = true;
@@ -591,13 +601,17 @@ async function handleForfeit() {
  */
 async function handleRematch() {
 	if (rematchWaiting) { return; } // ALREADY ASKED, STILL WAITING
+	setFill(optRestartBtn);
 	const rematchResponse = await rematchGame(game.GAME_URL, game.GAME_ID);
+	if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING, THE FILL GOES ON WHILE IT LOADS
+	if (game.boardReset) { return; } // THE SOCKET'S "rematch" LANDED FIRST, THE FILL IS THE NEW BOARD'S
+	stopFill(optRestartBtn);
 	if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME, OR THE REMATCH EXPIRED
-	if (rematchResponse?.new_game_id) { return await loadRematch(rematchResponse.new_game_id); } // OPPONENT WAS ALREADY WAITING
 	if (rematchResponse?.waiting) { // WAIT FOR THE OPPONENT UNTIL THE REQUEST RUNS OUT
 		clearTimeout(rematchWaiting);
 		rematchOpponent = rematchResponse.opponent_name || "your opponent";
 		optRestartBtn.innerText = `Waiting for ${rematchOpponent}`; // innerText, THE NAME IS NEVER READ AS HTML
+		setUnavailable(optRestartBtn, true); // ONLY CANCEL CAN ACT UNTIL THE OPPONENT ANSWERS
 		optCancelRematchBtn.parentElement.hidden = false;
 		rematchWaiting = setTimeout(function () {
 			endRematchWait();
@@ -618,6 +632,7 @@ function endRematchWait() {
 	clearTimeout(rematchWaiting);
 	rematchWaiting = false;
 	rematchOpponent = null;
+	setUnavailable(optRestartBtn, false);
 	optCancelRematchBtn.parentElement.hidden = true;
 	clearStatus("rematch");
 }
@@ -635,8 +650,10 @@ function showOpponentLeft() {
 export async function handleCancelRematch(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (!rematchWaiting) { return; }
+	if (!rematchWaiting || isBusy(optCancelRematchBtn)) { return; }
+	setFill(optCancelRematchBtn);
 	const response = await cancelRematch(game.GAME_URL, game.GAME_ID);
+	stopFill(optCancelRematchBtn);
 	if (!rematchWaiting) { return; } // IT STARTED OR RAN OUT MEANWHILE
 	if (response?.cancelled) {
 		endRematchWait();
@@ -672,6 +689,7 @@ export function showGameOver(result) {
 	if (game.gameOver) { return; } // ALREADY SHOWN
 	game.gameOver = true;
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
+	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY
 	openMenu();
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
 	optResumeBtn.parentElement.hidden = true;
@@ -735,10 +753,7 @@ export function handleHomepage(e) {
 	stopFrames(); // STOP THE RENDER LOOP
 	leaveGame();
 	if (rematchWaiting) { cancelRematch(game.GAME_URL, game.GAME_ID); } // THE REQUEST ONLY STANDS WHILE THEY'RE HERE, A LATE PRESS WOULD START A GAME WITHOUT THEM
-	optHomepageBtn.innerText = "Loading";
-	optHomepageBtn.classList.add("loading"); // THE FILL (.loading IN nav.css), ONE PRESS
-	setTimeout(function () { optHomepageBtn.style.setProperty("--load", 1); }, 50); // FROM EMPTY (THE FILL IS DRAWN FIRST)
-	setTimeout(function () { window.location.href = "/"; }, 250); // HOME ONCE IT'S FULL (server/routes/pageRoutes.js)
+	fillThenGo(optHomepageBtn, "/"); // HOME ONCE IT'S FULL (server/routes/pageRoutes.js)
 }
 
 /* ---------------------------------------------------------------- */
@@ -751,9 +766,15 @@ export function handleHomepage(e) {
 export async function handleExit(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (!game.SIGNED_IN) { return new InternalAuth().login(); }
+	if (!game.SIGNED_IN) {
+		optExitBtn.innerText = "Loading";
+		setFill(optExitBtn, 1);
+		return new InternalAuth().login();
+	}
 	if (optExitBtn.disabled || !confirmPress(optExitBtn)) { return; } // FIRST PRESS ASKS (THE TV REMOTE'S ENTER ISN'T STOPPED BY disabled)
 	optExitBtn.disabled = true;
+	optExitBtn.innerText = "Logging Out";
+	setFill(optExitBtn);
 	if (rematchWaiting) { await cancelRematch(game.GAME_URL, game.GAME_ID); }
 	await new InternalAuth().logout();
 }

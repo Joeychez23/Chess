@@ -29,6 +29,8 @@ const opponentDisplay = document.getElementById("opponentDisplay"); // FRIEND GA
 const optResumeBtn = document.getElementById("optResume");
 const optSoundBtn = document.getElementById("optSound");
 const optFlipBtn = document.getElementById("optFlip");
+const optTypeMoveBtn = document.getElementById("optTypeMove");
+const optPgnBtn = document.getElementById("optPgn");
 const optRestartBtn = document.getElementById("optRestart");
 const optHomepageBtn = document.getElementById("optSettings");
 const optExitBtn = document.getElementById("optExit");
@@ -138,6 +140,8 @@ function gameNotFound() {
 	optResumeBtn.parentElement.hidden = true;
 	optSoundBtn.parentElement.hidden = true;
 	optFlipBtn.parentElement.hidden = true;
+	optTypeMoveBtn.parentElement.hidden = true; // NO GAME: THEIR LISTENERS ARE ADDED WHEN IT STARTS
+	optPgnBtn.parentElement.hidden = true;
 	optRestartBtn.parentElement.hidden = true;
 	optExitBtn.innerHTML = "Logout";
 	optHomepageBtn.addEventListener("click", function () { startLoading(optHomepageBtn); goToPage("/"); }); // LOADING, THEN HOME (LIKE THE GAME'S HOME BUTTON)

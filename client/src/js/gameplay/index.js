@@ -148,6 +148,7 @@ async function startGame() {
 	if (!game.TV_BOOL || OVERRIDE_TV) { optSoundBtn.addEventListener("click", handleSound); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optFlipBtn.addEventListener("click", handleFlip); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { optPgnBtn.addEventListener("click", handleDownloadPgn); } // THE TV REMOTE CAN'T REACH IT, A TV HAS NOWHERE TO SAVE A FILE
+	else { optPgnBtn.parentElement.hidden = true; }
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optHint").addEventListener("click", handleHint); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optEvalBar").addEventListener("click", handleEvalBar); }
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optTakeback").addEventListener("click", handleTakeback); }

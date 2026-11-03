@@ -4,7 +4,7 @@
  *
  */
 
-const { test, describe, beforeEach } = require("node:test");
+const { test, describe, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
 const { createNav, startNav } = require("../../client/src/js/pages/utils/nav.js");
 
@@ -18,6 +18,27 @@ function fakeElement() {
 		fire(type, e = {}) { listeners[type]({ preventDefault() { }, stopPropagation() { }, ...e }); },
 		contains(target) { return target == this || target?.inside == this; },
 	};
+}
+
+function linkTarget(href) { // A CLICK ON A LINK IN THE MENU
+	const classes = new Set();
+	const props = {};
+	const link = {
+		href,
+		innerText: "Settings",
+		getAttribute() { return href; },
+		classList: {
+			add(name) { classes.add(name); },
+			contains(name) { return classes.has(name); },
+			remove(name) { classes.delete(name); },
+		},
+		style: {
+			getPropertyValue(name) { return props[name] ?? ""; },
+			setProperty(name, value) { props[name] = String(value); },
+			removeProperty(name) { delete props[name]; },
+		},
+	};
+	return { link, closest() { return link; } };
 }
 
 describe("the menu's controller", () => {
@@ -59,11 +80,42 @@ describe("the menu's controller", () => {
 		page.fire("click", { target: inside });
 		menu.fire("click", { target: inside });
 		assert.ok(isOpen());
-		menu.fire("click", { target: { inside: menu, closest() { return {}; } } });
+		menu.fire("click", { target: linkTarget("#games") });
 		assert.ok(isClosed());
 		startNav()(true);
 		page.fire("click", { target: {} });
 		assert.ok(isClosed());
+	});
+
+	test("a link that leaves the page stays open & fills up, one press", () => {
+		const timers = mock.timers;
+		timers.enable({ apis: ["setTimeout"] });
+		global.window = { location: { href: "/" }, addEventListener() { } };
+		startNav()(true);
+		const target = linkTarget("/settings");
+		let prevented = 0;
+		menu.fire("click", { target, preventDefault() { prevented++; } });
+		assert.ok(isOpen());
+		assert.equal(prevented, 1);
+		assert.equal(target.link.innerText, "Loading");
+		assert.ok(target.link.classList.contains("loading"));
+		target.link.innerText = "Pressed again";
+		menu.fire("click", { target });
+		assert.equal(target.link.innerText, "Pressed again");
+		timers.tick(250);
+		assert.equal(global.window.location.href, "/settings");
+		timers.reset();
+		delete global.window;
+	});
+
+	test("a press that opens a new tab closes it without the fill", () => {
+		startNav()(true);
+		const target = linkTarget("/settings");
+		let prevented = 0;
+		menu.fire("click", { target, metaKey: true, preventDefault() { prevented++; } });
+		assert.ok(isClosed());
+		assert.equal(prevented, 0);
+		assert.ok(!target.link.classList.contains("loading"));
 	});
 
 	test("the hooks run & canClose keeps it open from every way of closing", () => {
