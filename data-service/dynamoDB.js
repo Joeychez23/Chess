@@ -39,7 +39,7 @@ const BATCH_READ_DELAY = 50; // MS BEFORE THE FIRST RETRY, DOUBLED EACH TRY
 /* ---------------------------------------------------------------- */
 // Expire Time
 /* ---------------------------------------------------------------- */
-const DRAW_ATTRIBUTES = ["draw_offer_player_id", "draw_offered_w", "draw_offered_b"]; // A DRAW OFFER: WHO OFFERED, WHICH COLORS USED THEIR OFFER THIS MOVE. A MOVE OR THE GAME CLOSING REMOVES THEM
+const OFFER_ATTRIBUTES = ["draw_offer_player_id", "draw_offered_w", "draw_offered_b", "takeback_player_id"]; // A DRAW OFFER: WHO OFFERED, WHICH COLORS USED THEIR OFFER THIS MOVE. A TAKEBACK REQUEST: WHO ASKED. A MOVE OR THE GAME CLOSING REMOVES THEM
 
 /**
  * @description Builds the expireAt value DynamoDB TTL reads on chess_db
@@ -204,16 +204,17 @@ function gameItem(item) {
  * @param  {[string]} prevBoard [board the move was made on, the save fails if the board changed since (two requests at once)]
  * @param  {[object]} result [gameResult's { winner, reason } when the move ends the game]
  * @param  {[boolean]} clearOpening [true for an undo: the saved opening may be from a position that's gone, the chess server saves the right one after]
+ * @param  {[string]} takebackBy [an accepted friend game takeback: the player who asked, their request has to be standing. It's counted & they can ask again from the earlier move]
  * @return {[object]} response [{ status, game_data (the game as saved), message }]
  */
-async function updateGame(gameData, prevBoard, result, clearOpening) { // ANY MOVE ENDS A DRAW OFFER & GIVES BOTH PLAYERS THEIR OFFER BACK (DRAW_ATTRIBUTES)
+async function updateGame(gameData, prevBoard, result, clearOpening, takebackBy) { // ANY MOVE ENDS A DRAW OFFER & A TAKEBACK REQUEST, & GIVES BOTH PLAYERS THEIR DRAW OFFER BACK (OFFER_ATTRIBUTES)
 	const keepForever = result && keepsFinished(gameData); // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameData.game_id.S }
 		},
-		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""} REMOVE ${DRAW_ATTRIBUTES.join(", ")}${clearOpening ? ", opening" : ""}${keepForever ? ", expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""}${takebackBy ? ", takeback_count = :takeback_count" : ""} REMOVE ${OFFER_ATTRIBUTES.join(", ")}${takebackBy ? ", takeback_move" : ""}${clearOpening ? ", opening" : ""}${keepForever ? ", expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
 		ConditionExpression: '(attribute_not_exists(#state) OR #state = :open)', // GAMES FROM BEFORE state ARE OPEN
 		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
@@ -233,6 +234,10 @@ async function updateGame(gameData, prevBoard, result, clearOpening) { // ANY MO
 		params.ExpressionAttributeValues[":prev_board"] = { S: prevBoard };
 	}
 	if (!keepForever) { params.ExpressionAttributeValues[":expireAt"] = { N: expireTime() }; } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
+	if (takebackBy) {
+		params.ConditionExpression = `takeback_player_id = :takeback_by AND ${params.ConditionExpression}`;
+		Object.assign(params.ExpressionAttributeValues, { ":takeback_by": { S: takebackBy }, ":takeback_count": { N: `${Number(gameData.takeback_count?.N || 0) + 1}` } });
+	}
 	if (result) {
 		Object.assign(params.ExpressionAttributeNames, { "#winner": "winner", "#reason": "reason" });
 		Object.assign(params.ExpressionAttributeValues, { ":closed": { S: "CLOSED" }, ":winner": { S: result.winner }, ":reason": { S: result.reason } });
@@ -310,7 +315,7 @@ async function closeGame(gameData, winner, reason, offeredBy) {
 		Key: {
 			game_id: { S: gameId }
 		},
-		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason REMOVE ${DRAW_ATTRIBUTES.join(", ")}${keepForever ? ", expireAt" : ""}`, // NO expireAt = TTL NEVER DELETES IT
+		UpdateExpression: `SET #state = :closed, #winner = :winner, #reason = :reason REMOVE ${OFFER_ATTRIBUTES.join(", ")}${keepForever ? ", expireAt" : ""}`, // NO expireAt = TTL NEVER DELETES IT
 		ConditionExpression: 'attribute_not_exists(#state) OR #state <> :closed', // ONLY ONE CLOSE WINS (FORFEIT & CHECKMATE AT THE SAME TIME)
 		ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: {
@@ -337,7 +342,7 @@ async function closeGame(gameData, winner, reason, offeredBy) {
 	gameData.state = { S: "CLOSED" };
 	gameData.winner = { S: winner };
 	gameData.reason = { S: reason };
-	for (const attribute of DRAW_ATTRIBUTES) { delete gameData[attribute]; }
+	for (const attribute of OFFER_ATTRIBUTES) { delete gameData[attribute]; }
 	if (keepForever) { delete gameData.expireAt; }
 	return {
 		status: 200,
@@ -602,6 +607,69 @@ async function endDrawOffer(gameId, offeredBy) {
 		ConditionExpression: 'draw_offer_player_id = :offered_by',
 		ExpressionAttributeValues: {
 			":offered_by": { S: offeredBy }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Takeback Requests (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A friend game takeback request: saves who asked & the move it was asked at. Only on the board it was checked on, updateGame runs the undo when it's accepted
+ * @param  {[object]} gameData [the open game, as read]
+ * @param  {[string]} playerId [player asking]
+ * @return {[boolean]} saved [false when the game moved or closed, a request is standing or one was already made at this move]
+ */
+async function requestTakeback(gameData, playerId) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameData.game_id.S }
+		},
+		UpdateExpression: 'SET takeback_player_id = :player_id, takeback_move = :move',
+		ConditionExpression: 'game_board = :board AND (attribute_not_exists(#state) OR #state = :open) AND attribute_not_exists(takeback_player_id) AND (attribute_not_exists(takeback_move) OR takeback_move <> :move)',
+		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
+		ExpressionAttributeValues: {
+			":player_id": { S: playerId },
+			":move": { N: `${gameData.moves.S.length}` },
+			":board": { S: gameData.game_board.S },
+			":open": { S: "OPEN" }
+		}
+	}
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+		return true;
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return false; }
+		throw err;
+	}
+}
+
+/**
+ * @description Takes a declined request off the game. takeback_move stays, nobody can ask again until the next move
+ * @param  {[string]} gameId [game id]
+ * @param  {[string]} requestedBy [the player whose request was declined]
+ * @return {[boolean]} saved [false when that request already ended]
+ */
+async function endTakeback(gameId, requestedBy) {
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: 'REMOVE takeback_player_id',
+		ConditionExpression: 'takeback_player_id = :requested_by',
+		ExpressionAttributeValues: {
+			":requested_by": { S: requestedBy }
 		}
 	}
 
@@ -1440,4 +1508,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { pruneClosedGames, expireFinishedAiGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { pruneClosedGames, expireFinishedAiGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

@@ -3,7 +3,7 @@
  *	Menu
  *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Takeback, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
  *	for Restart, Rematch & Takeback (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
- *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer or a rematch), startGame & loadRematch join with them
+ *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer, a takeback or a rematch), startGame & loadRematch join with them
  *
  */
 
@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, chessInst, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
-const { restartGame, forfeitGame, takeback, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { validate, restartGame, forfeitGame, takeback, declineTakeback, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
@@ -28,9 +28,10 @@ const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
 const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
-const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, AI GAMES WHILE THE GAME IS GOING
+const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, WHILE THE GAME IS GOING
 const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHILE THE GAME IS GOING
 const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
+const takebackPrompt = document.getElementById("takebackPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S TAKEBACK REQUEST STANDS
 
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
 const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A FORFEIT IS ALREADY IN THE TITLE
@@ -50,10 +51,18 @@ let drawSent = false; // THIS PLAYER USED THEIR OFFER FOR THIS MOVE
 let drawIncoming = false; // THE OPPONENT'S OFFER IS STANDING
 let drawLoading = false; // THE AI CAN TAKE A FEW SECONDS TO ANSWER
 let drawOpponent = "Your opponent"; // THE NAME THE MESSAGES USE
+let takebackBoard = null; // THE BOARD takebackSent & takebackIncoming ARE ABOUT, A MOVE ENDS THEM
+let takebackSent = false; // FRIEND GAMES: THIS PLAYER ASKED FOR THIS MOVE
+let takebackIncoming = false; // THE OPPONENT'S REQUEST IS STANDING
+let takebackLoading = false; // THE REQUEST IS SAVING
+let takebacksLeft = null; // FRIEND GAMES' TAKEBACKS LEFT, AI GAMES HAVE NO LIMIT: null
+const TAKEBACK_RETRY_TIME = 500; // LOADS THE EARLIER BOARD AGAIN AFTER THIS WHEN IT WASN'T READY (ms)
+const TAKEBACK_RETRIES = 6;
 export const socketHandlers = { // SOCKET EVENT -> HANDLER
 	move: checkOpponentMove,
 	gameOver: showGameOver,
 	drawOffer: handleDrawEvent,
+	takeback: handleTakebackEvent,
 	rematch: loadRematch,
 	opponentLeft: showOpponentLeft,
 	opponentBack: function () { clearStatus("rematch"); },
@@ -210,18 +219,19 @@ export async function handleDownloadPgn(e) {
 }
 
 /* ---------------------------------------------------------------- */
-// Takeback Button (Menu, AI games)
+// Takeback Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Takes back the player's last move & the AI's reply, the server works out how many. Refused while the AI's move is in
- * flight (asked for or sliding in). The old board stays on screen until the answer, then the pieces slide to the earlier position.
- * Between the player's move & asking for the AI's there's no request yet, so its timer is stopped & started again if this fails
+ * @description AI games: takes back the player's last move & the AI's reply, the server works out how many. Friend games: asks the opponent (askTakeback), or
+ * accepts their request. Refused while a move is in flight (asked for or sliding in). The old board stays on screen until the answer, then the pieces slide to the
+ * earlier position. Between the player's move & asking for the AI's there's no request yet, so its timer is stopped & started again if this fails
  */
 export async function handleTakeback(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	if (game.boardReset || game.gameOver) { return; }
-	if (game.aiTurn || moveInFlight()) { return showStatus("action", "Wait for the AI's move to finish.", MESSAGE_TIME); }
+	if (!game.ai && !takebackIncoming) { return await askTakeback(); }
+	if (game.aiTurn || moveInFlight()) { return showStatus("action", game.ai ? "Wait for the AI's move to finish." : "Wait for the move to finish.", MESSAGE_TIME); }
 	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE BACK FROM HERE
 	clearTimeout(game.aiTimer);
 	game.boardReset = true; // STOP DRAWING, THE BOARD STAYS ON SCREEN UNDER THE MENU
@@ -229,16 +239,144 @@ export async function handleTakeback(e) {
 	optBtn.style.display = "none";
 	optTakebackBtn.innerText = "Taking Back";
 	const response = await takeback(game.GAME_URL, game.GAME_ID);
-	optTakebackBtn.innerText = "Takeback";
+	if (response?.status == 409 && !game.ai) { // THE REQUEST ENDED, A MOVE LANDED FIRST
+		takebackIncoming = false;
+		clearStatus("takeback");
+	}
+	showTakebackButtons();
 	if (response?.status != 200 || !response.game_board) { // THE GAME GOES ON AS IT WAS (THE MENU STAYS OPEN)
 		game.boardReset = false;
 		optBtn.style.display = "flex";
 		game.refresh = true;
-		if (chessInst.turn() != game.playerColor) { game.aiTurn = true; } // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE
+		if (game.ai && chessInst.turn() != game.playerColor) { game.aiTurn = true; } // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE
 		console.log(response?.message || "Takeback failed: no answer from the server");
 		showStatus("action", response?.status == 409 ? response.message : "The takeback didn't go through. Try again.", MESSAGE_TIME);
 		return;
 	}
+	await loadNewBoard(fromPieces, response);
+}
+
+/**
+ * @description Friend games: asks the opponent for a takeback, the menu stays open. Their answer comes over the socket. The server refuses a second request at the same move
+ */
+async function askTakeback() {
+	if (takebackLoading || takebackSent) { return; }
+	if (moveInFlight()) { return showStatus("action", "Wait for the move to finish.", MESSAGE_TIME); }
+	takebackLoading = true;
+	showTakebackButtons();
+	const response = await takeback(game.GAME_URL, game.GAME_ID);
+	takebackLoading = false;
+	if (response?.game_board) { return await loadTakeback(response); } // THE OPPONENT'S REQUEST LANDED FIRST, THIS PRESS ACCEPTED IT
+	if (response?.requested) {
+		takebackSent = true;
+		showTakebackButtons();
+		showStatus("takeback", `Takeback asked of ${response.opponent_name || drawOpponent}.`, MESSAGE_TIME);
+		return;
+	}
+	showTakebackButtons();
+	console.log(response?.message || "Takeback request failed: no answer from the server");
+	showStatus("action", response?.status == 409 ? response.message : "The takeback request didn't go through. Try again.", MESSAGE_TIME);
+}
+
+/**
+ * @description Decline: the game goes on & the opponent is told. When it fails the request stands, a move turns it down too
+ */
+export async function handleDeclineTakeback(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (!takebackIncoming) { return; }
+	const response = await declineTakeback(game.GAME_URL, game.GAME_ID);
+	if (response?.status == 200 || response?.status == 409) { // 409: IT ALREADY ENDED
+		takebackIncoming = false;
+		clearStatus("takeback");
+		showTakebackButtons();
+		return;
+	}
+	console.log(response?.message || "Takeback decline failed: no answer from the server");
+	showStatus("action", "The takeback couldn't be declined. Try again.", MESSAGE_TIME);
+}
+
+/**
+ * @description Sets the words on Takeback & shows Accept / Decline while the opponent's request stands
+ */
+function showTakebackButtons() {
+	takebackPrompt.hidden = !takebackIncoming;
+	if (takebackLoading) { optTakebackBtn.innerText = "Asking"; }
+	else if (takebackIncoming) { optTakebackBtn.innerText = "Accept Takeback"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
+	else if (takebackSent) { optTakebackBtn.innerText = "Takeback Asked"; }
+	else { optTakebackBtn.innerText = takebacksLeft === null ? "Takeback" : `Takeback (${takebacksLeft} left)`; }
+}
+
+/**
+ * @description Brings the takeback request up to date with a game from the server. A new board means a move or a takeback, which ends any request.
+ * On the same board this only adds what it finds, a read can be from before the request the socket just told about
+ * @param  {[object]} response [game from the server]
+ */
+function syncTakeback(response) {
+	takebacksLeft = response.ai ? null : response.takebacks_left ?? null;
+	optTakebackBtn.parentElement.hidden = response.state != "OPEN" || takebacksLeft === 0;
+	if (response.game_board != takebackBoard) {
+		takebackBoard = response.game_board;
+		takebackSent = false;
+		takebackIncoming = false;
+		clearStatus("takeback");
+	}
+	if (response.takeback_request == game.playerColor) { takebackSent = true; }
+	else if (response.takeback_request) { showIncomingTakeback(); }
+	showTakebackButtons();
+}
+
+/**
+ * @description The opponent's request is standing, the message area reads it out
+ */
+function showIncomingTakeback() {
+	takebackIncoming = true;
+	showStatus("takeback", `${drawOpponent} asks for a takeback`);
+}
+
+/**
+ * @description The socket's "takeback", another tab of this player's counts too
+ * @param  {[object]} event [{ state: "requested" | "declined" | "accepted", mine: this player did it, board: the earlier position when accepted }]
+ */
+function handleTakebackEvent({ state, mine, board }) {
+	if (state == "accepted") { return loadTakeback(undefined, board); }
+	if (state == "requested" && mine) { takebackSent = true; }
+	else if (state == "requested") { showIncomingTakeback(); }
+	else if (mine) { takebackIncoming = false; clearStatus("takeback"); }
+	else {
+		takebackSent = true;
+		showStatus("takeback", `${drawOpponent} declined the takeback.`, MESSAGE_TIME);
+	}
+	showTakebackButtons();
+}
+
+/**
+ * @description Friend games: an accepted takeback, the pieces slide to the earlier position. Waits for a move in flight (the server refused it or it's being put back).
+ * A read right after the save can return the old board, so it reads again until it has the one the socket said
+ * @param  {[object]} read [the game when it's already been read, left out = reads it]
+ * @param  {[string]} board [the earlier position from the socket, already on it = this tab accepted]
+ * @param  {[number]} tries [reads so far]
+ */
+export async function loadTakeback(read, board, tries = 0) {
+	const again = function () { setTimeout(function () { loadTakeback(undefined, board, tries + 1); }, TAKEBACK_RETRY_TIME); };
+	if (game.gameOver || game.boardReset) { return; }
+	if (board && board == game.response?.game_board) { return; }
+	if (moveInFlight()) { setTimeout(function () { loadTakeback(undefined, board, tries); }, TAKEBACK_RETRY_TIME); return; }
+	const response = read || await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false);
+	if (game.gameOver || game.boardReset) { return; }
+	if (moveInFlight()) { setTimeout(function () { loadTakeback(undefined, board, tries); }, TAKEBACK_RETRY_TIME); return; }
+	if (response?.status != 200 || !response.game_board) {
+		if (tries < TAKEBACK_RETRIES) { return again(); }
+		console.log(response?.message || "Takeback failed to load: no answer from the server");
+		return showStatus("server", "The game couldn't be loaded. Reload the page to try again.");
+	}
+	if (board && response.game_board != board && tries < TAKEBACK_RETRIES) { return again(); } // NOT THERE YET, AFTER THE LAST TRY A NEW MOVE MOVED IT ON
+	clearTouch();
+	revertUnfinishedMove();
+	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE BACK FROM HERE
+	game.boardReset = true; // STOP DRAWING, THE BOARD STAYS ON SCREEN WHILE IT LOADS
+	game.refresh = false;
+	optBtn.style.display = "none";
 	await loadNewBoard(fromPieces, response);
 }
 
@@ -256,14 +394,14 @@ function showDrawButtons() {
 }
 
 /**
- * @description Brings the draw offer up to date with a game from the server. A new board means a move was made, which ends any offer & gives both players theirs back.
+ * @description Brings the draw offer & the takeback request up to date with a game from the server. A new board means a move was made, which ends any offer & gives both players theirs back.
  * On the same board this only adds what it finds, a read can be from before the offer the socket just told about
  * @param  {[object]} response [game from the server]
  */
 export function syncDrawOffer(response) {
 	if (!response?.game_board) { return; }
 	optDrawBtn.parentElement.hidden = response.state != "OPEN";
-	optTakebackBtn.parentElement.hidden = response.state != "OPEN" || !response.ai;
+	syncTakeback(response);
 	if (response.opponent_name) { drawOpponent = response.opponent_name; }
 	if (response.game_board != drawBoard) {
 		drawBoard = response.game_board;
@@ -527,6 +665,10 @@ export function showGameOver(result) {
 	drawIncoming = false;
 	clearStatus("draw");
 	showDrawButtons();
+	takebackSent = false;
+	takebackIncoming = false;
+	clearStatus("takeback");
+	showTakebackButtons();
 	if (result?.reason == "forfeit") { resultDisplay.innerText = result.winner == 'w' ? "Black Forfeits" : "White Forfeits" } // THE TITLE ONLY FITS ONE LINE
 	else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
 	else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }

@@ -1,7 +1,7 @@
 /*
  *  socket/index.js  --  chess frontend
  *	Friend Game Socket
- *  The server pushes "move" when a friend game's board changes, "game-over" when the opponent forfeits or accepts a draw, "draw-offer" when a draw is offered or declined,
+ *  The server pushes "move" when a friend game's board changes, "game-over" when the opponent forfeits or accepts a draw, "draw-offer" when a draw is offered or declined, "takeback" when a takeback is asked for, declined or accepted,
  *  "rematch" when both players asked for one & "player-left" / "player-back" when the opponent leaves or returns to the game page (server/socket.js).
  *  The socket is only open while a friend game is on screen. Guests & AI games never open one.
  *  Home opens its own (watchGames) & gets "games" when an invite or friend game changes, "friends" when a friend request or friend does.
@@ -20,7 +20,7 @@ let homeSocket = null; // HOME'S SOCKET (watchGames)
  * @description Opens the socket & joins a friend game's room. After a reconnect it joins again & catches up on anything missed
  * @param  {[string]} gameId [game id]
  * @param  {[string]} playerId [this player, their own moves & forfeits already came back from the request so they're skipped]
- * @param  {[object]} handlers [{ move() opponent moved, gameOver(result) opponent forfeited or accepted a draw, drawOffer({ state, mine }) a draw was offered or declined, rematch(newGameId) both asked for a rematch,
+ * @param  {[object]} handlers [{ move() opponent moved, gameOver(result) opponent forfeited or accepted a draw, drawOffer({ state, mine }) a draw was offered or declined, takeback({ state, mine, board }) a takeback was asked for, declined or accepted, rematch(newGameId) both asked for a rematch,
  * opponentLeft() the opponent left the game page, opponentBack() they returned, connectionLost() trying to reconnect, reconnected() back in the room, connectionFailed() it won't come back without a reload }]
  */
 export function joinGame(gameId, playerId, handlers) {
@@ -63,6 +63,10 @@ export function joinGame(gameId, playerId, handlers) {
 
 	gameSocket.on("draw-offer", (data) => {
 		if (data?.game_id == `${gameId}`) { handlers.drawOffer({ state: data.state, mine: data.player_id == playerId }); } // ANOTHER OF THIS PLAYER'S TABS STAYS IN STEP
+	});
+
+	gameSocket.on("takeback", (data) => {
+		if (data?.game_id == `${gameId}`) { handlers.takeback({ state: data.state, mine: data.player_id == playerId, board: data.game_board }); } // ANOTHER OF THIS PLAYER'S TABS STAYS IN STEP
 	});
 
 	gameSocket.on("rematch", (data) => {

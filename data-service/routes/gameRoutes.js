@@ -8,15 +8,16 @@
 const router = require('express').Router()
 const { requirePlayer } = require('../middleware/player.js')
 const { onlyFields } = require('../middleware/fields.js')
-const { getGame, moveGame, aiMoveGame, takebackGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame } = require('../controllers/gameController.js')
+const { getGame, moveGame, aiMoveGame, takebackGame, declineTakebackGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame } = require('../controllers/gameController.js')
 // EVERY ROUTE ACTS FOR req.player (middleware/player.js) & NAMES THE BODY FIELDS IT TAKES, A BODY WITH ANYTHING ELSE IS REFUSED (400)
 router.route('/ai').post(requirePlayer, onlyFields(["color", "level", "start_fen"]), newAiGame);                     // POST /games/ai              -> A SIGNED IN PLAYER'S NEW GAME VS THE AI (A NEW ID ONLY)
 router.route('/guest').post(onlyFields(["game_id", "color", "side", "level", "start_fen"]), newGuestGame);                               // POST /games/guest           -> A GUEST'S GAME VS THE AI, OVERWRITES ONLY THEIR OWN (NO PLAYER = A NEW GUEST)
-router.route('/invite').post(requirePlayer, onlyFields(["opponent_id", "opponent_screenname", "color", "start_fen"]), inviteGame); // POST /games/invite -> A PENDING FRIEND GAME, THE REQUESTER IS THE INVITER
+router.route('/invite').post(requirePlayer, onlyFields(["opponent_id", "opponent_screenname", "color", "start_fen", "takebacks"]), inviteGame); // POST /games/invite -> A PENDING FRIEND GAME, THE REQUESTER IS THE INVITER
 router.route('/:gameId').get(onlyFields([]), getGame);                                   // GET /games/:gameId          -> THE GAME, ONLY FOR A PLAYER IN IT (A MISSING GAME SAYS SO TO ANYONE, ?consistent=true SEES A SAVE THAT JUST HAPPENED)
 router.route('/:gameId/move').post(requirePlayer, onlyFields(["from", "to", "promotion"]), moveGame);     // POST /games/:gameId/move    -> THE REQUESTER'S MOVE ON THE STORED BOARD, CLOSES THE GAME ON MATE OR A DRAW
 router.route('/:gameId/ai-move').post(requirePlayer, onlyFields(["from", "to", "promotion"]), aiMoveGame); // POST /games/:gameId/ai-move -> AI GAMES: THE AI'S MOVE (FROM THE ENGINE), ONLY ON ITS TURN
 router.route('/:gameId/takeback').post(requirePlayer, onlyFields([]), takebackGame);                     // POST /games/:gameId/takeback -> AI GAMES: THE REQUESTER'S LAST MOVE & THE AI'S REPLY, IF IT MADE ONE
+router.route('/:gameId/takeback/decline').post(requirePlayer, onlyFields([]), declineTakebackGame);      // POST /games/:gameId/takeback/decline -> FRIEND GAMES: THE ASKED PLAYER TURNS IT DOWN
 router.route('/:gameId/opening').post(requirePlayer, onlyFields(["board", "eco", "name"]), openingGame); // POST /games/:gameId/opening -> THE OPENING THE CHESS SERVER FOUND FOR THE BOARD A MOVE SAVED, ONLY WHILE IT'S STILL THE GAME'S BOARD
 router.route('/:gameId/forfeit').post(requirePlayer, onlyFields([]), forfeitGame);                       // POST /games/:gameId/forfeit -> THE REQUESTER GIVES UP AN OPEN GAME, THE OTHER SIDE WINS
 router.route('/:gameId/draw').post(requirePlayer, onlyFields([]), drawGame);                             // POST /games/:gameId/draw    -> THE REQUESTER'S DRAW OFFER (ONE PER PLAYER PER MOVE), OR ACCEPTS THE OPPONENT'S

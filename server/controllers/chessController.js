@@ -16,13 +16,13 @@ const { checkStartFen } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove, aiAcceptsDraw } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
-const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams } = require("../utils/games.js");
+const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft } = require("../utils/games.js");
 const { buildPgn } = require("../utils/pgn.js");
 const { findOpening, latestOpening } = require("../utils/openings.js");
 const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, takeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
 const { emitToGame, emitToPlayer, isInGameRoom } = require("../socket.js");
 
 const AI_DRAW_FREE_MOVES = 2; // UNTIL BOTH SIDES HAVE MADE THEIR FIRST MOVE THE AI TAKES ANY DRAW, WITHOUT ASKING THE ENGINE
@@ -271,9 +271,10 @@ async function playAiTurn(gameId, gameData) {
 /**
  * @description AI games: takes back the player's last move & the AI's reply, or just the player's move if the AI hasn't replied. No request step
  * & no limit, AI games aren't rated. Guests too. The data service works out how many on the stored board. Refused while the AI's move is being
- * picked here: it could save onto the earlier board. The opening goes back too, the latest one the remaining moves reached
+ * picked here: it could save onto the earlier board. The opening goes back too, the latest one the remaining moves reached.
+ * Friend games: a request the opponent has to accept (friendTakeback)
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [the whole game, same as getGame | { status: 409, message } the AI is moving, nothing to take back or a move landed first]
+ * @return {[object]} response [the whole game, same as getGame | { status, requested: true, opponent_name, message } friend games, waiting | { status: 409, message } the AI is moving, nothing to take back or a move landed first]
  */
 async function takebackGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE LATEST BOARD
@@ -284,8 +285,9 @@ async function takebackGame(req, res) {
 	const gameId = gameData.game_id.S;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (!isAiGame(gameData)) { return res.json({ status: 500, message: "Only AI games can take back moves" }); }
+	if (gamePending(gameData)) { return res.json({ status: 500, message: "Invite not accepted yet" }); }
 	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is over" }); }
+	if (!isAiGame(gameData)) { return res.json(await friendTakeback(gameData, playerId)); }
 	if (aiTurns.has(gameId)) { return res.json({ status: 409, message: "Wait for the AI's move to finish." }); }
 
 	const board = gameData.game_board.S;
@@ -296,6 +298,55 @@ async function takebackGame(req, res) {
 	if (saved.status != 200) { return res.json({ status: saved.status, message: saved.message }); }
 	await recordOpening(saved, latestOpening(saved.game_data.moves.S, startParams(saved.game_data).fen));
 	return res.json(playerGame(saved, playerId));
+}
+
+/**
+ * @description A press of Takeback in a friend game. The first press saves the request & the opponent is told, one per move, any new move ends it. The opponent's press
+ * accepts it: one move goes back if the player who asked just moved, two if the opponent already replied, up to 3 per game, & both boards load the earlier position
+ * @param  {[object]} gameData [the open friend game, as read]
+ * @param  {[string]} playerId [the player pressing]
+ * @return {[object]} response [the whole game when accepted | { status, requested: true, opponent_name, message } | { status: 409, message }]
+ */
+async function friendTakeback(gameData, playerId) {
+	const gameId = gameData.game_id.S;
+	const pressed = await ifSaved(() => takeback(gameId), async () => { // TOO SLOW: SAVED IF THEIR REQUEST STANDS, OR THE TAKEBACK WAS COUNTED
+		const latest = await retrieveGame(gameId, true);
+		if (!latest.game_data) { return null; }
+		if (latest.game_data.takeback_player_id?.S == playerId) { return { status: 200, requested: true, message: "Takeback requested" }; }
+		return Number(latest.game_data.takeback_count?.N || 0) > Number(gameData.takeback_count?.N || 0) ? latest : null;
+	});
+	if (pressed.status != 200) { return { status: pressed.status, message: pressed.message }; }
+	if (!pressed.game_data) { // WAITING ON THE OPPONENT
+		emitToGame(gameId, "takeback", { game_id: gameId, player_id: playerId, state: "requested" });
+		return { status: 200, requested: true, opponent_name: playerName(gameData, playerId == gameData.white_player_id.S ? "b" : "w"), message: pressed.message };
+	}
+	await recordOpening(pressed, latestOpening(pressed.game_data.moves.S, startParams(pressed.game_data).fen)); // BEFORE THE OPPONENT & HOME ARE TOLD, THEY LOAD THE GAME
+	emitToGame(gameId, "takeback", { game_id: gameId, player_id: playerId, state: "accepted", game_board: pressed.game_data.game_board.S }); // BOTH BOARDS LOAD THE EARLIER POSITION
+	notifyHome(pressed.game_data); // THE GAME'S PICTURE ON HOME
+	return playerGame(pressed, playerId);
+}
+
+/**
+ * @description The asked player turns the takeback down (friend games), the game goes on & the player who asked is told
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, declined: true, message } | { status: 409, message } when the request already ended]
+ */
+async function declineTakebackGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true);
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameId = response.game_data.game_id.S;
+	const playerId = playerInGame(req, response.game_data);
+	if (!playerId) { return notInGame(req, res); }
+
+	const declined = await ifSaved(() => declineTakeback(gameId), async () => { // TOO SLOW: SAVED IF THE REQUEST IS GONE
+		const latest = await retrieveGame(gameId, true);
+		return latest.game_data && !latest.game_data.takeback_player_id ? { status: 200, declined: true, message: "Takeback declined" } : null;
+	});
+	if (declined.status != 200) { return res.json({ status: declined.status, message: declined.message }); }
+	emitToGame(gameId, "takeback", { game_id: gameId, player_id: playerId, state: "declined" });
+	return res.json({ status: 200, declined: true, message: declined.message });
 }
 
 
@@ -536,7 +587,7 @@ async function savedRematch(gameId, playerId) {
  * The challenger (signed in user) picks their color, the sides are drawn now so the invite shows them. One sent invite at a time: a new one deletes the last one.
  * Signed in players have one friend game open at a time: while one is open this answers 409, unless replace_current forfeits it first
  * @param  {[object]} req.body [{ opponent_email, start_color ("random" | "w" | "b", the challenger's color, left out = Random),
- * start_fen (optional, a set position to start from), replace_current (optional, true = forfeit the open friend game & invite) }]
+ * start_fen (optional, a set position to start from), takebacks (optional, 0 = off, left out = up to 3 per game), replace_current (optional, true = forfeit the open friend game & invite) }]
  * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)]
  */
 async function inviteGame(req, res) {
@@ -562,7 +613,7 @@ async function inviteGame(req, res) {
 
 	const params = readStartParams(req.body, position.fen);
 	const screenname = opponent.screenname; // THEIR NAME UNTIL THEY PICK A USERNAME (THE CHALLENGER'S IS IN THEIR TOKEN)
-	const response = await invite({ opponent_id: opponentId, opponent_screenname: typeof screenname == "string" ? screenname.slice(0, 50) : undefined, color: params.color, start_fen: params.fen }); // CREATE NEW GAME (THE DATA SERVICE MAKES THE ID), PENDING UNTIL THEY ACCEPT. RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
+	const response = await invite({ opponent_id: opponentId, opponent_screenname: typeof screenname == "string" ? screenname.slice(0, 50) : undefined, color: params.color, start_fen: params.fen, takebacks: params.takebacks }); // CREATE NEW GAME (THE DATA SERVICE MAKES THE ID), PENDING UNTIL THEY ACCEPT. RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
 	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); }
 
 	notifyHome(response.game_data); // THEIR HOME SHOWS THE INVITE
@@ -872,14 +923,15 @@ function savedAiMove(response) {
 
 /**
  * @description The start settings a request asks for (Home & the guest page's dropdowns & Start position box, the invite form)
- * @param  {[object]} body [req.body, { start_color: "random" | "w" | "b" }]
+ * @param  {[object]} body [req.body, { start_color: "random" | "w" | "b", takebacks (the invite form): 0 = off }]
  * @param  {[string]} fen [the set position from checkStartFen(body.start_fen), false = the standard position]
- * @return {[object]} params [{ color, fen (only for a set position) }, any other color is Random (the default)]
+ * @return {[object]} params [{ color, fen (only for a set position), takebacks (only when off: 0) }, any other color is Random (the default)]
  */
 function readStartParams(body, fen) {
 	const color = body?.start_color == "w" || body?.start_color == "b" ? body.start_color : "random";
 	let params = { color };
 	if (fen) { params.fen = fen; } // REPLAYING moves (THREEFOLD, PGN, TAKEBACKS, REPLAYS) HAS TO START FROM THIS, NOT THE STANDARD POSITION
+	if (body?.takebacks === 0) { params.takebacks = 0; }
 	return params;
 }
 
@@ -927,15 +979,19 @@ function gameSummary(gameData, playerId) {
 /**
  * @description The game's result fields, sent with every game response
  * @param  {[object]} gameData [game item]
- * @return {[object]} result [{ state: "PENDING" | "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason, draw_offer: the color with a standing draw offer | null }]
+ * @return {[object]} result [{ state: "PENDING" | "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason, draw_offer: the color with a standing draw offer | null,
+ * takeback_request: the color with a standing takeback request | null, takebacks_left: friend games' takebacks left, AI games have no limit: null }]
  */
 function gameState(gameData) {
 	const drawOffer = gameData.draw_offer_player_id?.S;
+	const takebackRequest = gameData.takeback_player_id?.S;
 	return {
 		state: gameData.state?.S || "OPEN",
 		winner: gameData.winner?.S || null,
 		reason: gameData.reason?.S || null,
 		draw_offer: drawOffer ? (drawOffer == gameData.white_player_id.S ? "w" : "b") : null,
+		takeback_request: takebackRequest ? (takebackRequest == gameData.white_player_id.S ? "w" : "b") : null,
+		takebacks_left: isAiGame(gameData) ? null : takebacksLeft(gameData),
 	};
 }
 
@@ -984,4 +1040,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, takebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };

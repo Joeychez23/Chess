@@ -42,7 +42,7 @@
 			<li><button class="menuButton" id="optFlip">Flip Board</button></li>
 			<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
 			<li><button class="menuButton" id="optPgn">Download PGN</button></li>
-			<li hidden><button class="menuButton" id="optTakeback">Takeback</button></li> <!-- AI GAMES, WHILE THE GAME IS GOING -->
+			<li hidden><button class="menuButton" id="optTakeback">Takeback</button></li> <!-- WHILE THE GAME IS GOING, FRIEND GAMES WITH TAKEBACKS LEFT -->
 			<li hidden><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
 			<li><button class="menuButton" id="optRestart">Restart</button></li>
 			<li hidden><button class="menuButton" id="optCancelRematch">Cancel</button></li>
@@ -56,6 +56,11 @@
 	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
 		<button id="drawAccept" type="button">Accept Draw</button>
 		<button id="drawDecline" type="button">Decline Draw</button>
+	</div>
+
+	<div id="takebackPrompt" role="group" aria-label="Takeback request" hidden> <!-- THE OPPONENT'S REQUEST, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
+		<button id="takebackAccept" type="button">Accept Takeback</button>
+		<button id="takebackDecline" type="button">Decline Takeback</button>
 	</div>
 
 	<div id="gameInfo"> <!-- BOTTOM LEFT, THE MOVE LIST STAYS CLEAR OF IT -->

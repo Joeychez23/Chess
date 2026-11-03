@@ -60,7 +60,8 @@ request is for comes from a token only the data service can sign
 | `GET /games/:gameId` | The requester is in the game (`?consistent=true` for a strongly consistent read) |
 | `POST /games/:gameId/move` `{ from, to, promotion }` | In the game, open, their turn, a legal move on the stored board. Checkmate or a draw closes the game and rates a friend game |
 | `POST /games/:gameId/ai-move` `{ from, to, promotion }` | AI games: the requester is in it, it's the AI's turn, and the move is legal |
-| `POST /games/:gameId/takeback` | AI games: the requester is in it and it's open. Undoes two moves on their turn, one on the AI's (`409` with no move of theirs to take back). Saved only if the board hasn't changed. Removes the saved opening, the chess server saves the right one after |
+| `POST /games/:gameId/takeback` | AI games: the requester is in it and it's open. Undoes two moves on their turn, one on the AI's (`409` with no move of theirs to take back). Saved only if the board hasn't changed. Removes the saved opening, the chess server saves the right one after. Friend games: saves who asked and the move (`takeback_player_id`, `takeback_move`), `409` at the same move again or when takebacks are off or used up. The opponent's press undoes one move if the player who asked just moved, two if they've been replied to, and counts it (`takeback_count`). Any move ends a request |
+| `POST /games/:gameId/takeback/decline` | Friend games, the asked player. Ends the request; nobody can ask again until the next move |
 | `POST /games/:gameId/opening` `{ board, eco, name }` | In the game, and `board` is still the stored board (`409` if not), a closed game too. The chess server has the data set, so the name is only checked for its shape |
 | `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
 | `POST /games/:gameId/draw` | In the game and it's open. The opponent's standing offer is accepted and the game closes as a draw (`agreement`). Otherwise saves the requester's offer, one per player per move (`409` after that). Repeating a standing offer changes nothing |
@@ -69,7 +70,7 @@ request is for comes from a token only the data service can sign
 | `GET /games/:gameId/ratings` | In the game. Both players' ratings |
 | `POST /games/ai` `{ color, level, start_fen }` | A signed-in player vs `CHESS_AI`, at a level from 1 to 8 (3 if left out), from a playable position. The data service makes every new game id (16 random bytes, base64url, `newGameId` in `utils/games.js`) and answers with it in `game_data.game_id`; a body can't name one. The game is still saved only if the id is free (`attribute_not_exists`). Invites and rematches too |
 | `POST /games/guest` `{ game_id, color, side, level, start_fen }` | Needs no player. `side` fixes this game's side while `color` is what Restart uses (the play page's first guest game). The guest's own game (their cookie) is reset and keeps its level, only while the stored game is still theirs; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched. Answers with `guest_token`, the guest's cookie for the game it saved |
-| `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
+| `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, takebacks }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
 | `POST /games/:gameId/accept` `{ replace_current }` | Pending, only the invited player. In this order: their own open friend game answers `{ status: 409, game_id }` unless `replace_current`; the inviter in another friend game is refused; then the invite is accepted (a conditional write: one declined or cancelled since is refused and nothing changes), and only then their friend game is forfeited (`forfeited`) and their sent invite cancelled (`dropped_invites`) |
 | `POST /games/:gameId/decline` | Pending, either player. The answer includes the invite, so the chess server can tell both Homes |
 | `POST /games/:gameId/rematch/cancel` | The player who pressed Rematch takes it back, safe to repeat. `{ cancelled: false }` once the other press has claimed the rematch |
@@ -186,7 +187,7 @@ signed out, and guests start a new game.
 **Stored data** (details in `data-service/dynamoDB.js`):
 
 - **`opening`** (JSON `{ eco, name }`) is the latest named position the game reached. Games that haven't reached one don't have it.
-- **`start_params`** (JSON `{ color, fen }`) is what Restart and Rematch reuse. `moves`
+- **`start_params`** (JSON `{ color, fen, takebacks }`, `takebacks: 0` turns friend game takebacks off) is what Restart and Rematch reuse. `moves`
   only has the moves played, so anything that replays them (threefold
   repetition, PGN, takebacks) starts from `start_params.fen` when it's there.
 - **Facing lists** (`w_knight`, `b_knight`, `w_piece`, `b_piece`) start from the

@@ -87,7 +87,7 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	}
 }
 
-#drawPrompt { /* THE OPPONENT'S DRAW OFFER, UNDER THE MESSAGE AREA THAT SAYS WHO */
+#drawPrompt, #takebackPrompt { /* THE OPPONENT'S DRAW OFFER & TAKEBACK REQUEST, UNDER THE MESSAGE AREA THAT SAYS WHO */
 	position: fixed;
 	z-index: 21;
 	top: calc(env(safe-area-inset-top, 0px) + 64px);
@@ -96,11 +96,15 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	gap: 8px;
 }
 
-#drawPrompt[hidden] {
+#drawPrompt:not([hidden]) ~ #takebackPrompt { /* BOTH STANDING: ONE ROW EACH */
+	top: calc(env(safe-area-inset-top, 0px) + 116px);
+}
+
+#drawPrompt[hidden], #takebackPrompt[hidden] {
 	display: none;
 }
 
-#drawPrompt button {
+#drawPrompt button, #takebackPrompt button {
 	min-height: 44px;
 	padding: 8px 14px;
 	border: 1px solid rgba(201, 163, 90, 0.45);
@@ -113,14 +117,18 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
-#drawPrompt button:focus-visible {
+#drawPrompt button:focus-visible, #takebackPrompt button:focus-visible {
 	outline: 2px solid var(--maple);
 	outline-offset: 2px;
 }
 
 @media (max-width: 640px) {
-	body:has(#moveBox:not([hidden])) #drawPrompt { /* THE MESSAGE AREA MOVED UNDER THE OPEN MOVE BOX, THIS STAYS UNDER IT */
+	body:has(#moveBox:not([hidden])) #drawPrompt, body:has(#moveBox:not([hidden])) #takebackPrompt { /* THE MESSAGE AREA MOVED UNDER THE OPEN MOVE BOX, THESE STAY UNDER IT */
 		top: calc(env(safe-area-inset-top, 0px) + 126px);
+	}
+
+	body:has(#moveBox:not([hidden])) #drawPrompt:not([hidden]) ~ #takebackPrompt {
+		top: calc(env(safe-area-inset-top, 0px) + 178px);
 	}
 }
 
