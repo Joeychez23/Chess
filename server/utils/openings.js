@@ -40,6 +40,22 @@ function findOpening(fen) {
 	return openings.get(positionKey(fen)) || null;
 }
 
+/**
+ * @description The latest opening a game's moves reached, what's saved on a game after those moves (a takeback rebuilds it)
+ * @param  {[array]} moves [the game's SAN moves]
+ * @param  {[string]} startFen [the set position they start from, left out = the standard position]
+ * @return {[object]} opening [{ eco, name }, null when none of the positions are in the data set]
+ */
+function latestOpening(moves, startFen) {
+	const chess = new Chess(startFen || undefined);
+	let opening = null;
+	for (const san of moves) {
+		chess.move(san);
+		opening = findOpening(chess.fen()) || opening;
+	}
+	return opening;
+}
+
 /* ---------------------------------------------------------------- */
 // Load
 /* ---------------------------------------------------------------- */
@@ -62,4 +78,4 @@ function loadOpenings() {
 }
 
 
-module.exports = { findOpening };
+module.exports = { findOpening, latestOpening };

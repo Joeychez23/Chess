@@ -294,6 +294,21 @@ export async function aiMove(gameUrl, gameId) {
 }
 
 /**
+ * @description AI games: takes back the player's last move & the AI's reply to it, if it made one (POST /game/:gameId/takeback)
+ * @return {[object]} response [the game, same as GET /game/:gameId | { status: 409, message } when it was refused]
+ */
+export async function takeback(gameUrl, gameId) {
+	const options = {
+		method: "POST"
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/takeback`, options)
+	} catch {
+		return
+	}
+}
+
+/**
  * @description AI levels & their approx Elo for Home's dropdown (GET /levels)
  * @return {[object]} response [{ status, levels: [{ level, elo }], default_level }]
  */

@@ -14,15 +14,18 @@ const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { tileToSquare, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION, ADDS OR REMOVES A MARK OR ARROW
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { handleMenuBtn, handleResume, handleSound, handleFlip, handleOfferDraw, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
+const { handleMenuBtn, handleResume, handleSound, handleFlip, handleTakeback, handleOfferDraw, handleRestart, handleHomepage, handleExit, closeMenu } = require("../menu/index.js"); // THE MENU BUTTONS (THE TV REMOTE PRESSES THEM), A CLICK ON THE BOARD CLOSES THE MENU
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optFlipBtn = document.getElementById("optFlip"); // MENU: FLIP BOARD
+const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, ONLY AI GAMES THAT ARE GOING
 const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, HIDDEN ONCE THE GAME IS OVER
 const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
+
+const firstShown = (...buttons) => buttons.find((button) => !button.parentElement.hidden); // THE NEXT MENU BUTTON THE TV REMOTE CAN REACH, THE LAST ONE IS ALWAYS SHOWN
 
 let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
 let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
@@ -119,8 +122,9 @@ export async function handleKeyPress(e) {
 			else if (game.menuToggled) {
 				if (remoteNavBox.menuBtn == optExitBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 6 -> 5
 				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optRestartBtn) } // 5 -> 4
-				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optDrawBtn.parentElement.hidden ? optFlipBtn : optDrawBtn) } // 4 -> OFFER DRAW -> 3
-				else if (remoteNavBox.menuBtn == optDrawBtn) { handleRemoteNavBtnHover(optFlipBtn) }
+				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(firstShown(optDrawBtn, optTakebackBtn, optFlipBtn)) } // 4 -> OFFER DRAW -> TAKEBACK -> 3
+				else if (remoteNavBox.menuBtn == optDrawBtn) { handleRemoteNavBtnHover(firstShown(optTakebackBtn, optFlipBtn)) }
+				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleRemoteNavBtnHover(optFlipBtn) }
 				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 3 -> 2
 				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optResumeBtn) } // 2 -> 1
 			}
@@ -132,7 +136,8 @@ export async function handleKeyPress(e) {
 			else if (game.menuToggled) {
 				if (remoteNavBox.menuBtn == optResumeBtn) { handleRemoteNavBtnHover(optSoundBtn) } // 1 -> 2
 				else if (remoteNavBox.menuBtn == optSoundBtn) { handleRemoteNavBtnHover(optFlipBtn) } // 2 -> 3
-				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(optDrawBtn.parentElement.hidden ? optRestartBtn : optDrawBtn) } // 3 -> OFFER DRAW -> 4
+				else if (remoteNavBox.menuBtn == optFlipBtn) { handleRemoteNavBtnHover(firstShown(optTakebackBtn, optDrawBtn, optRestartBtn)) } // 3 -> TAKEBACK -> OFFER DRAW -> 4
+				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleRemoteNavBtnHover(firstShown(optDrawBtn, optRestartBtn)) }
 				else if (remoteNavBox.menuBtn == optDrawBtn) { handleRemoteNavBtnHover(optRestartBtn) }
 				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRemoteNavBtnHover(optHomepageBtn) } // 4 -> 5
 				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleRemoteNavBtnHover(optExitBtn) } // 5 -> 6
@@ -149,6 +154,7 @@ export async function handleKeyPress(e) {
 			else if (game.menuToggled && remoteNavBox.menuBtn) { // PRESS THE SELECTED MENU BUTTON, THEN THE SELECT BOX GOES BACK TO THE TOP RIGHT
 				remoteNavBox.menuBtn.style.backgroundColor = "#CD853F"
 				if (remoteNavBox.menuBtn == optResumeBtn) { handleResume(e); }
+				else if (remoteNavBox.menuBtn == optTakebackBtn) { handleTakeback(e); }
 				else if (remoteNavBox.menuBtn == optRestartBtn) { handleRestart(e); }
 				else if (remoteNavBox.menuBtn == optHomepageBtn) { handleHomepage(e) }
 				else if (remoteNavBox.menuBtn == optExitBtn) { handleExit(e) }

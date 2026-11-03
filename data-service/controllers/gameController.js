@@ -12,7 +12,7 @@
 /* ---------------------------------------------------------------- */
 
 const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, offerDraw, endDrawOffer, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
-const { validateMove, gameResult, checkStartFen } = require("../utils/validate.js");
+const { validateMove, undoMoves, gameResult, checkStartFen } = require("../utils/validate.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
 const { guestToken } = require("../utils/tokens.js");
@@ -129,6 +129,35 @@ function readMove(body) {
 	if (typeof from != "string" || typeof to != "string" || !SQUARE.test(from) || !SQUARE.test(to)) { return null; }
 	if (promotion != undefined && !PROMOTIONS.includes(promotion)) { return null; }
 	return { from, to, promotion: promotion || undefined };
+}
+
+/* ---------------------------------------------------------------- */
+// Takeback (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description AI games: takes back the requester's last move. On their turn that's two moves (the AI's reply & theirs), on the AI's turn one (it hasn't replied).
+ * It's always their turn after. Saved only if the board hasn't changed since it was read, so an undo & a move can't both land. Takes the saved opening off too
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [{ status, game_data (the game as saved), message }, 409 when there's no move of theirs to take back or a move saved first]
+ */
+async function takebackGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE LATEST BOARD
+	if (!response.game_data) { return res.json(response); } // GAME NOT FOUND
+	const gameData = response.game_data;
+	if (!playerInGame(req.player, gameData)) { return refuse(req, res, 403, "Player is not in this game"); }
+	if (!isAiGame(gameData)) { return refuse(req, res, 409, "Only AI games can take back moves"); }
+	if (!gameOpen(gameData)) { return refuse(req, res, 409, "Game is over"); }
+
+	const count = turnColor(gameData) == playerColor("CHESS_AI", gameData) ? 1 : 2;
+	if (gameData.moves.S.length < count) { return refuse(req, res, 409, "No moves to take back"); } // THE AI'S FIRST MOVE ALONE ISN'T THEIRS
+
+	const prevBoard = gameData.game_board.S;
+	const undone = undoMoves(gameData, count);
+	if (undone.status != 200) { return refuse(req, res, 409, undone.message); }
+
+	const saved = await updateGame(undone.game_data, prevBoard, undefined, true);
+	if (saved.status != 200) { return refuse(req, res, 409, "Board changed before the takeback saved"); } // A MOVE SAVED FIRST
+	return res.json(saved);
 }
 
 /* ---------------------------------------------------------------- */
@@ -581,4 +610,4 @@ async function username(playerId) {
 }
 
 
-module.exports = { getGame, moveGame, aiMoveGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };
+module.exports = { getGame, moveGame, aiMoveGame, takebackGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };

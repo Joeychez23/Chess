@@ -1,8 +1,8 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
- *	for Restart & Rematch (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
+ *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Takeback, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
+ *	for Restart, Rematch & Takeback (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
  *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer or a rematch), startGame & loadRematch join with them
  *
  */
@@ -10,8 +10,8 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
-const { restartGame, forfeitGame, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { game, chessInst, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
+const { restartGame, forfeitGame, takeback, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
@@ -28,6 +28,7 @@ const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
 const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
+const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, AI GAMES WHILE THE GAME IS GOING
 const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHILE THE GAME IS GOING
 const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
 
@@ -209,6 +210,39 @@ export async function handleDownloadPgn(e) {
 }
 
 /* ---------------------------------------------------------------- */
+// Takeback Button (Menu, AI games)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Takes back the player's last move & the AI's reply, the server works out how many. Refused while the AI's move is in
+ * flight (asked for or sliding in). The old board stays on screen until the answer, then the pieces slide to the earlier position.
+ * Between the player's move & asking for the AI's there's no request yet, so its timer is stopped & started again if this fails
+ */
+export async function handleTakeback(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (game.boardReset || game.gameOver) { return; }
+	if (game.aiTurn || moveInFlight()) { return showStatus("action", "Wait for the AI's move to finish.", MESSAGE_TIME); }
+	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE BACK FROM HERE
+	clearTimeout(game.aiTimer);
+	game.boardReset = true; // STOP DRAWING, THE BOARD STAYS ON SCREEN UNDER THE MENU
+	game.refresh = false;
+	optBtn.style.display = "none";
+	optTakebackBtn.innerText = "Taking Back";
+	const response = await takeback(game.GAME_URL, game.GAME_ID);
+	optTakebackBtn.innerText = "Takeback";
+	if (response?.status != 200 || !response.game_board) { // THE GAME GOES ON AS IT WAS (THE MENU STAYS OPEN)
+		game.boardReset = false;
+		optBtn.style.display = "flex";
+		game.refresh = true;
+		if (chessInst.turn() != game.playerColor) { game.aiTurn = true; } // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE
+		console.log(response?.message || "Takeback failed: no answer from the server");
+		showStatus("action", response?.status == 409 ? response.message : "The takeback didn't go through. Try again.", MESSAGE_TIME);
+		return;
+	}
+	await loadNewBoard(fromPieces, response);
+}
+
+/* ---------------------------------------------------------------- */
 // Draw Offers (Menu)
 /* ---------------------------------------------------------------- */
 /**
@@ -229,6 +263,7 @@ function showDrawButtons() {
 export function syncDrawOffer(response) {
 	if (!response?.game_board) { return; }
 	optDrawBtn.parentElement.hidden = response.state != "OPEN";
+	optTakebackBtn.parentElement.hidden = response.state != "OPEN" || !response.ai;
 	if (response.opponent_name) { drawOpponent = response.opponent_name; }
 	if (response.game_board != drawBoard) {
 		drawBoard = response.game_board;
@@ -342,20 +377,23 @@ export async function handleRestart(e) {
 }
 
 /**
- * @description Loads GAME_ID's board in place (restart & rematch), the canvas, listeners & render loop stay the same.
+ * @description Loads GAME_ID's board in place (restart, rematch & takeback), the canvas, listeners & render loop stay the same.
  * The old board stays on screen while it loads, then the menu closes & the pieces slide home (startRestartSlide)
  * @param  {[array]} fromPieces [where the old game's pieces were, getRestartPieces(true)]
+ * @param  {[object]} loaded [a takeback: the game from its answer, setInitialData doesn't read it again & Restart doesn't fill]
  */
-async function loadNewBoard(fromPieces) {
+async function loadNewBoard(fromPieces, loaded) {
 	clearStatus("move"); // ABOUT THE OLD GAME
 	clearStatus("server");
 	clearStatus("ai");
 	game.gameOver = false;
 	game.drawScreen = function () { return }; // DRAW NOTHING UNTIL THE NEW BOARD IS IN (THE OLD ONE STAYS ON THE CANVAS)
-	await setInitialData(); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
+	await setInitialData(loaded); // GETS THE NEW BOARD & PLAYER COLOR FROM THE DATABASE
 	handleInitialData(); // NEW drawScreen FOR THE (MAYBE NEW) PLAYER COLOR
-	setRestartLoading(1); // FULL
-	await new Promise(function (resolve) { setTimeout(resolve, 200); }); // THE FILL REACHES THE END
+	if (!loaded) {
+		setRestartLoading(1); // FULL
+		await new Promise(function (resolve) { setTimeout(resolve, 200); }); // THE FILL REACHES THE END
+	}
 	menu.style.display = "none"
 	optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 	resultDisplay.innerText = "Chess"
@@ -484,6 +522,7 @@ export function showGameOver(result) {
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
 	optResumeBtn.parentElement.style.display = 'none';
 	optDrawBtn.parentElement.hidden = true;
+	optTakebackBtn.parentElement.hidden = true;
 	drawSent = false;
 	drawIncoming = false;
 	clearStatus("draw");

@@ -60,6 +60,7 @@ request is for comes from a token only the data service can sign
 | `GET /games/:gameId` | The requester is in the game (`?consistent=true` for a strongly consistent read) |
 | `POST /games/:gameId/move` `{ from, to, promotion }` | In the game, open, their turn, a legal move on the stored board. Checkmate or a draw closes the game and rates a friend game |
 | `POST /games/:gameId/ai-move` `{ from, to, promotion }` | AI games: the requester is in it, it's the AI's turn, and the move is legal |
+| `POST /games/:gameId/takeback` | AI games: the requester is in it and it's open. Undoes two moves on their turn, one on the AI's (`409` with no move of theirs to take back). Saved only if the board hasn't changed. Removes the saved opening, the chess server saves the right one after |
 | `POST /games/:gameId/opening` `{ board, eco, name }` | In the game, and `board` is still the stored board (`409` if not), a closed game too. The chess server has the data set, so the name is only checked for its shape |
 | `POST /games/:gameId/forfeit` | In the game and it's open. The other side wins |
 | `POST /games/:gameId/draw` | In the game and it's open. The opponent's standing offer is accepted and the game closes as a draw (`agreement`). Otherwise saves the requester's offer, one per player per move (`409` after that). Repeating a standing offer changes nothing |

@@ -340,3 +340,72 @@ describe("ratings", () => {
 		await refused("game1", "GET", "/games/game1/ratings", { as: mallory }, 403);
 	});
 });
+
+/* ---------------------------------------------------------------- */
+// Takeback
+/* ---------------------------------------------------------------- */
+
+describe("takeback", () => {
+	const saved = (gameId) => JSON.parse(peek("chess_db", gameId).moves.S);
+	const move = (path, from, to) => call("POST", `/games/game1/${path}`, { as: alice, body: { from, to } });
+
+	test("on the player's turn takes back the AI's reply and their move", async () => {
+		await aiGame("game1", "alice");
+		await move("move", "e2", "e4");
+		await move("ai-move", "e7", "e5");
+		const after = board("game1");
+		await move("move", "g1", "f3");
+		await move("ai-move", "b8", "c6");
+
+		const response = await call("POST", "/games/game1/takeback", { as: alice });
+		assert.equal(response.status, 200, response.message);
+		assert.deepEqual(saved("game1"), ["e4", "e5"]);
+		assert.equal(board("game1"), after);
+	});
+
+	test("on the AI's turn takes back only the player's move", async () => {
+		await aiGame("game1", "alice");
+		const start = board("game1");
+		await move("move", "e2", "e4");
+
+		assert.equal((await call("POST", "/games/game1/takeback", { as: alice })).status, 200);
+		assert.deepEqual(saved("game1"), []);
+		assert.equal(board("game1"), start);
+	});
+
+	test("takes the saved opening off and gives the draw offer back", async () => {
+		await aiGame("game1", "alice");
+		await move("move", "e2", "e4");
+		await db.saveOpening("game1", board("game1"), { eco: "B00", name: "King's Pawn Game" });
+		await call("POST", "/games/game1/draw", { as: alice });
+
+		assert.equal((await call("POST", "/games/game1/takeback", { as: alice })).status, 200);
+		const stored = peek("chess_db", "game1");
+		assert.equal(stored.opening, undefined);
+		assert.equal(stored.draw_offer_player_id, undefined);
+		assert.equal(stored.draw_offered_w, undefined);
+	});
+
+	test("refused with nothing of the player's to take back", async () => {
+		await aiGame("game1", "alice");
+		await refused("game1", "POST", "/games/game1/takeback", { as: alice }, 409);
+
+		await aiGame("game2", "alice", "b"); // THE AI GOES FIRST
+		await call("POST", "/games/game2/ai-move", { as: alice, body: { from: "e2", to: "e4" } });
+		await refused("game2", "POST", "/games/game2/takeback", { as: alice }, 409);
+	});
+
+	test("refused for another player, a friend game, a closed game and a body", async () => {
+		await aiGame("game1", "alice");
+		await move("move", "e2", "e4");
+		await refused("game1", "POST", "/games/game1/takeback", { as: mallory }, 403);
+		await refused("game1", "POST", "/games/game1/takeback", { as: alice, body: { count: 5 } }, 400);
+
+		await friendGame("game2", "alice", "bob");
+		await call("POST", "/games/game2/move", { as: alice, body: { from: "e2", to: "e4" } });
+		await refused("game2", "POST", "/games/game2/takeback", { as: alice }, 409);
+
+		await call("POST", "/games/game1/forfeit", { as: alice });
+		await refused("game1", "POST", "/games/game1/takeback", { as: alice }, 409);
+	});
+});

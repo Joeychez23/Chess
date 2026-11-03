@@ -82,6 +82,7 @@ export const game = {
 	opponentColor: undefined, // 'w' OR 'b'
 	ai: undefined, // TRUE IN AI GAMES
 	aiTurn: false, // TRUE WHEN THE RENDER LOOP SHOULD ASK THE SERVER FOR THE AI'S MOVE
+	aiTimer: null, // THE TIMER THAT SETS aiTurn, A TAKEBACK STOPS IT
 	moveObj: [null, null], // MOVE BEING PLAYED { from, to, promotion }, THE AI'S ALSO HAS response
 	lastOpponentMove: null, // [from, to] OF THE OPPONENT'S LAST MOVE, HIGHLIGHTED BY drawLastMove(), null UNTIL THEY'VE MOVED
 	annotations: [], // THE PLAYER'S RIGHT-CLICK MARKS & ARROWS { from, to } IN BOARD SQUARES (from == to IS A MARK), DRAWN BY drawAnnotations()

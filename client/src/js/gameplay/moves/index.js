@@ -26,16 +26,17 @@ let opponentRetry = null; // THE TIMER FOR THAT
 /**
  * @description Sets initial data. Gets the game from the server & sets the player's color & the board.
  * Guests get a new AI game first if they don't have one. If it's the AI's turn its move is asked for here & slid in by renderLoop()
+ * @param  {[object]} loaded [the game when a takeback's answer already has it: a read right after the save could return the old board. Left out = gets it from the server]
  * @return {[boolean]} false [the game couldn't be loaded]
  */
-export async function setInitialData() {
-	if (game.PLAYER_ID === game.GAME_ID && game.PLAYER_ID && game.GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
+export async function setInitialData(loaded) {
+	if (!loaded && game.PLAYER_ID === game.GAME_ID && game.PLAYER_ID && game.GAME_ID) { // GUEST (A GUEST'S PLAYER ID IS THEIR GAME ID)
 		game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false);
 		if (!game.response?.game_board) { game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, 'b'); } // NO GAME YET: NEW GAME VS THE AI
 	}
-	game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
+	game.response = loaded || await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
 	game.playerColor = game.response?.player_color || null;
-	game.viewColor = game.playerColor; // A NEW GAME STARTS FROM THE PLAYER'S SIDE
+	if (!loaded) { game.viewColor = game.playerColor; } // A NEW GAME STARTS FROM THE PLAYER'S SIDE, A TAKEBACK STAYS FLIPPED
 	game.flipPending = false;
 	setMoves(game.response?.moves, game.response?.start_params?.fen); // A NEW GAME (RESTART & REMATCH) STARTS THE LIST OVER
 	showOpening(game.response?.opening);
@@ -289,7 +290,7 @@ export async function validateMove() {
 		if (game.ai) {
 			game.tiles = await setTiles();
 			game.refresh = true;
-			setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
+			game.aiTimer = setTimeout(function () { game.aiTurn = true; game.refresh = true; }, 500); // THE AI MOVES HALF A SECOND LATER (renderLoop)
 			return;
 		}
 		else { return refreshData(game.response); } // FRIEND GAME: THE SOCKET SAYS WHEN THEY MOVE

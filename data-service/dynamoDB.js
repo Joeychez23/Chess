@@ -203,16 +203,17 @@ function gameItem(item) {
  * @param  {[object]} gameData [Validated server data, modified by a successful client request]
  * @param  {[string]} prevBoard [board the move was made on, the save fails if the board changed since (two requests at once)]
  * @param  {[object]} result [gameResult's { winner, reason } when the move ends the game]
+ * @param  {[boolean]} clearOpening [true for an undo: the saved opening may be from a position that's gone, the chess server saves the right one after]
  * @return {[object]} response [{ status, game_data (the game as saved), message }]
  */
-async function updateGame(gameData, prevBoard, result) { // ANY MOVE ENDS A DRAW OFFER & GIVES BOTH PLAYERS THEIR OFFER BACK (DRAW_ATTRIBUTES)
+async function updateGame(gameData, prevBoard, result, clearOpening) { // ANY MOVE ENDS A DRAW OFFER & GIVES BOTH PLAYERS THEIR OFFER BACK (DRAW_ATTRIBUTES)
 	const keepForever = result && keepsFinished(gameData); // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameData.game_id.S }
 		},
-		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""} REMOVE ${DRAW_ATTRIBUTES.join(", ")}${keepForever ? ", expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""} REMOVE ${DRAW_ATTRIBUTES.join(", ")}${clearOpening ? ", opening" : ""}${keepForever ? ", expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
 		ConditionExpression: '(attribute_not_exists(#state) OR #state = :open)', // GAMES FROM BEFORE state ARE OPEN
 		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES

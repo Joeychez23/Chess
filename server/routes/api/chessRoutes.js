@@ -1,14 +1,14 @@
 /*
  *  chessRoutes.js  --  chess server
  *	Chess Routes
- *	New games, moves, the AI's moves, draw offers, invites, rematches & ratings (controllers/chessController.js)
+ *	New games, moves, the AI's moves, takebacks, draw offers, invites, rematches & ratings (controllers/chessController.js)
  *
  */
 
 const router = require('express').Router()
 const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
 const { limitNewGames, limitAiMoves } = require('../../middleware/rateLimit.js')
-const { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
+const { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, takebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
 
 // THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME (THE ONE IN THEIR guest_game COOKIE)
 // limitNewGames: THE ROUTES THAT MAKE A GAME ANSWER 429 WHEN A SESSION, AN IP OR THE SITE MAKES TOO MANY
@@ -24,6 +24,8 @@ router.route('/game/:gameId').put(optionalAuth, moveGame);          // /api/ches
 router.route('/game/:gameId/restart').post(optionalAuth, limitNewGames, restartGame); // /api/chess/game/:gameId/restart  -> AI GAMES: FORFEITS IF STILL GOING, THEN A NEW GAME AT THE SAME LEVEL & COLOR
 
 router.route('/game/:gameId/ai-move').post(optionalAuth, limitAiMoves, aiMoveGame);   // /api/chess/game/:gameId/ai-move  -> AI GAMES: THE SERVER PICKS & SAVES THE AI'S MOVE AT THE GAME'S LEVEL. ONE ENGINE REQUEST AT A TIME PER GAME, 429 PAST THE AI MOVE LIMITS
+
+router.route('/game/:gameId/takeback').post(optionalAuth, takebackGame);   // /api/chess/game/:gameId/takeback  -> AI GAMES: TAKES BACK THE PLAYER'S LAST MOVE & THE AI'S REPLY, 409 WHILE THE AI'S MOVE IS BEING PICKED
 
 router.route('/game/:gameId/forfeit').post(requireAuth, forfeitGame);   // /api/chess/game/:gameId/forfeit  -> FRIEND GAMES: CLOSES THE GAME, THE OTHER SIDE WINS
 

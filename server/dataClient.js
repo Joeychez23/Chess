@@ -170,6 +170,12 @@ const saveMove = (gameId, move, promotion) => call("POST", `/games/${id(gameId)}
 const saveAiMove = (gameId, move) => call("POST", `/games/${id(gameId)}/ai-move`, { from: move.from, to: move.to, promotion: move.promotion || undefined });
 
 /**
+ * @description AI games: takes back the requester's last move & the AI's reply to it, if it made one
+ * @return {[object]} response [{ status, game_data, message }, 409 when there's nothing to take back or a move landed first]
+ */
+const takeback = (gameId) => call("POST", `/games/${id(gameId)}/takeback`);
+
+/**
  * @description The opening of the position a move just saved, only saved while that's still the game's board
  * @param  {[string]} board [the position's FEN]
  * @param  {[object]} opening [{ eco, name } from utils/openings.js]
@@ -333,4 +339,4 @@ const changeFriend = (action, username) => call("POST", `/users/me/friends/${act
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, takeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

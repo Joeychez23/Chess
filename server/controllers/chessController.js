@@ -18,11 +18,11 @@ const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
 const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams } = require("../utils/games.js");
 const { buildPgn } = require("../utils/pgn.js");
-const { findOpening } = require("../utils/openings.js");
+const { findOpening, latestOpening } = require("../utils/openings.js");
 const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, takeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
 const { emitToGame, emitToPlayer, isInGameRoom } = require("../socket.js");
 
 const AI_DRAW_FREE_MOVES = 2; // UNTIL BOTH SIDES HAVE MADE THEIR FIRST MOVE THE AI TAKES ANY DRAW, WITHOUT ASKING THE ENGINE
@@ -41,14 +41,24 @@ async function getGame(req, res) {
 	if (notYours(response)) { return notInGame(req, res); } // THE DATA SERVICE ONLY SHOWS A GAME TO A PLAYER IN IT
 	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
 
-	const gameData = response.game_data;
-	const playerId = playerInGame(req, gameData); // PICKS THE COLOR
+	const playerId = playerInGame(req, response.game_data); // PICKS THE COLOR
 	if (!playerId) { return notInGame(req, res); }
 
+	return res.json(playerGame(response, playerId));
+}
+
+/**
+ * @description The whole game as one player sees it, what the client loads a board from (a load & a takeback)
+ * @param  {[object]} response [{ status, game_data, message }]
+ * @param  {[string]} playerId [the requester, playerInGame]
+ * @return {[object]} body [see getGame]
+ */
+function playerGame(response, playerId) {
+	const gameData = response.game_data;
 	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
 	const opponentColor = playerColor == "w" ? "b" : "w";
 
-	return res.json({
+	return {
 		status: response.status,
 		game_id: gameData.game_id.S,
 		game_board: gameData.game_board.S,
@@ -67,7 +77,7 @@ async function getGame(req, res) {
 		b_piece: gameData.b_piece.S,
 		...gameState(gameData),
 		message: response.message,
-	});
+	};
 }
 
 /* ---------------------------------------------------------------- */
@@ -252,6 +262,40 @@ async function playAiTurn(gameId, gameData) {
 	response.message = "AI moved";
 	await recordOpening(response);
 	return { ...gameResponse(response), ai_move: move };
+}
+
+
+/* ---------------------------------------------------------------- */
+// Takeback (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description AI games: takes back the player's last move & the AI's reply, or just the player's move if the AI hasn't replied. No request step
+ * & no limit, AI games aren't rated. Guests too. The data service works out how many on the stored board. Refused while the AI's move is being
+ * picked here: it could save onto the earlier board. The opening goes back too, the latest one the remaining moves reached
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [the whole game, same as getGame | { status: 409, message } the AI is moving, nothing to take back or a move landed first]
+ */
+async function takebackGame(req, res) {
+	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE LATEST BOARD
+	if (notYours(response)) { return notInGame(req, res); }
+	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+
+	const gameData = response.game_data;
+	const gameId = gameData.game_id.S;
+	const playerId = playerInGame(req, gameData);
+	if (!playerId) { return notInGame(req, res); }
+	if (!isAiGame(gameData)) { return res.json({ status: 500, message: "Only AI games can take back moves" }); }
+	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is over" }); }
+	if (aiTurns.has(gameId)) { return res.json({ status: 409, message: "Wait for the AI's move to finish." }); }
+
+	const board = gameData.game_board.S;
+	const saved = await ifSaved(() => takeback(gameId), async () => { // TOO SLOW: SAVED IF THE BOARD CHANGED
+		const latest = await retrieveGame(gameId, true);
+		return latest.game_data && latest.game_data.game_board.S != board ? latest : null;
+	});
+	if (saved.status != 200) { return res.json({ status: saved.status, message: saved.message }); }
+	await recordOpening(saved, latestOpening(saved.game_data.moves.S, startParams(saved.game_data).fen));
+	return res.json(playerGame(saved, playerId));
 }
 
 
@@ -781,10 +825,10 @@ function gameResponse(response) {
  * @description Saves the opening of the position a move just saved. The latest match stays once the game leaves the book. The move is already saved,
  * so a failed save only logs: the next position in the book saves its own name
  * @param  {[object]} response [the saved move's { game_data }, its opening is updated when this saves one]
+ * @param  {[object]} opening [the opening to save, left out = the board's]
  */
-async function recordOpening(response) {
+async function recordOpening(response, opening = findOpening(response.game_data.game_board.S)) {
 	const gameData = response.game_data;
-	const opening = findOpening(gameData.game_board.S);
 	const saved = readOpening(gameData);
 	if (!opening || (opening.eco == saved?.eco && opening.name == saved?.name)) { return; }
 	try {
@@ -940,4 +984,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, takebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
