@@ -29,12 +29,15 @@
 <body id="body">
 	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
 	<nav id="menuContainer" aria-label="Menu">
-		<div id="resultDisplay">Chess</div>
-		<ul id="menuButtonList">
-			<li><a class="menuButton" href="/">Home</a></li>
-			<li><a class="menuButton" href="/settings" aria-current="page">Settings</a></li>
-			<li><button class="menuButton logoutBtn" type="button">Logout</button></li>
-		</ul>
+		<div id="resultDisplay">Settings</div>
+		<div id="menuButtonList">
+			<ul role="group" aria-label="Navigation">
+				<li><a class="menuButton" href="/">Home</a></li>
+			</ul>
+			<ul role="group" aria-label="Account">
+				<li><button class="menuButton logoutBtn" type="button">Logout</button></li>
+			</ul>
+		</div>
 	</nav>
 
 	<main class="page">
@@ -72,12 +75,14 @@
 				<div class="field fieldStack boxBottom">
 					<select id="aiLevel" aria-label="AI level"></select>
 					<select id="aiColor" aria-label="Your color against the AI">
-						<option value="random" selected>Vs the AI: Random color</option>
+						<option value="alternate" selected>Vs the AI: Alternate colors</option>
+						<option value="random">Vs the AI: Random color</option>
 						<option value="w">Vs the AI: Play white</option>
 						<option value="b">Vs the AI: Play black</option>
 					</select>
 					<select id="friendColor" aria-label="Your color against a friend">
-						<option value="random" selected>Vs a friend: Random color</option>
+						<option value="alternate" selected>Vs a friend: Alternate colors</option>
+						<option value="random">Vs a friend: Random color</option>
 						<option value="w">Vs a friend: Play white</option>
 						<option value="b">Vs a friend: Play black</option>
 					</select>

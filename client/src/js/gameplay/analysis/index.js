@@ -13,6 +13,7 @@
 const { game, EVAL_BAR_ROOM } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE SPACE THE BAR TAKES NEXT TO THE BOARD
 const { getAnalysis } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { setFill, stopFill } = require("../../pages/utils/menuItem.js"); // THE FILL WHILE THE SERVER THINKS
 const optHintBtn = document.getElementById("optHint"); // MENU: HINT
 const optEvalBarBtn = document.getElementById("optEvalBar"); // MENU: EVALUATION BAR ON / OFF
 const evalBar = document.getElementById("evalBar"); // THE BAR
@@ -81,10 +82,12 @@ export async function showHint() {
 	}
 	hintLoading = true;
 	optHintBtn.innerText = "Thinking";
+	setFill(optHintBtn);
 	const asked = board;
 	const response = await analyze(asked);
 	hintLoading = false;
 	optHintBtn.innerText = "Hint";
+	stopFill(optHintBtn);
 	if (board != asked) { return false; } // A TAKEBACK OR RESTART LANDED FIRST
 	if (response?.status != 200 || response.game_board != asked || !response.from) {
 		console.log(response?.message || "Hint failed: no answer from the server");

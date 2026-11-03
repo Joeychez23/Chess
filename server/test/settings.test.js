@@ -49,7 +49,7 @@ describe("default start settings", () => {
 	test("anything that isn't a level or a color gets the default", async () => {
 		const alice = player("alice");
 		const saved = await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 42, ai_color: "purple" } });
-		assert.deepEqual(saved.settings, { ai_level: 3, ai_color: "random", friend_color: "random" });
+		assert.deepEqual(saved.settings, { ai_level: 3, ai_color: "alternate", friend_color: "alternate" });
 	});
 
 	test("a player who hasn't played yet gets a full row, so their first game still finds its lists", async () => {
@@ -125,6 +125,6 @@ describe("delete my data", () => {
 		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
 		assert.equal(game.status, 200);
 		const home = await call("GET", "/api/chess/user/alice", { as: alice });
-		assert.deepEqual(home.settings, { ai_level: 3, ai_color: "random", friend_color: "random" }); // THE OLD SETTINGS WENT WITH THE ROW
+		assert.deepEqual(home.settings, { ai_level: 3, ai_color: "alternate", friend_color: "alternate" }); // THE OLD SETTINGS WENT WITH THE ROW
 	});
 });

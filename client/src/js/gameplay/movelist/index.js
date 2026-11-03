@@ -3,7 +3,8 @@
  *	Move List
  *	The panel of the game's moves (#moveList on the play page), numbered in pairs & scrolled to the newest. It starts from the
  *	saved moves when a game loads (setMoves) & gets each new one as it's played (addMove), only GET /game/:gameId sends the whole list.
- *	renderBoard() places it (placeMoveList) in the free space next to the board or under the bottom tray, it's HTML over the canvas
+ *	renderBoard() places it (placeMoveList) in the free space next to the board or under the bottom tray, it's HTML over the canvas.
+ *	Keyboard: opening it with a key moves focus to the newest move, Up, Down, Home & End move between the rows, Up or Down past the ends goes back to the toggle, Escape closes it & gives focus to the toggle, Left & Right leave the panel (pages/utils/nav.js)
  *
  */
 
@@ -12,6 +13,7 @@
 /* ---------------------------------------------------------------- */
 const { game, EVAL_BAR_ROOM } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE SPACE THE EVALUATION BAR TAKES NEXT TO THE BOARD
 const { trayNudge } = require("../animate/index.js"); // HOW FAR THE BOTTOM TRAY SITS DOWN
+const { itemForKey } = require("../../pages/utils/nav.js"); // THE MENU'S ARROW KEYS, THE ROWS MOVE THE SAME WAY
 const panel = document.getElementById("moveList"); // THE PANEL
 const toggleBtn = document.getElementById("moveListToggle"); // COLLAPSES & OPENS IT
 const rowList = document.getElementById("moveListRows"); // THE NUMBERED ROWS, THIS PART SCROLLS
@@ -25,6 +27,7 @@ const GAP = 8; // SPACE BETWEEN THE PANEL & WHAT'S NEXT TO IT (PX)
 const STATUS_HEIGHT = 72; // THE PANEL STARTS UNDER THE MESSAGE AREA ON THE SIDE (PX)
 const MIN_WIDTH = 96; // ROOM FOR A NUMBER & TWO SHORT MOVES (PX)
 const MIN_HEIGHT = 68; // ROOM FOR THE TOGGLE & A ROW (PX)
+const MOVE_KEYS = ["ArrowUp", "ArrowDown", "Home", "End"]; // THE KEYS THAT MOVE BETWEEN THE ROWS
 
 let moves = []; // THE GAME'S SAN MOVES
 let startFen = null; // A SET POSITION'S FEN, null = THE STANDARD POSITION
@@ -61,8 +64,10 @@ function scrollToNewest() {
  * @description Draws the rows. textContent, a move from the server is never read as HTML
  */
 function renderRows() {
+	const focusedRow = [...rowList.children].indexOf(document.activeElement); // REPLACING THE ROWS WOULD DROP FOCUS TO THE PAGE
 	rowList.replaceChildren(...moveRows(moves, startFen).map(function (row) {
 		const item = document.createElement("li");
+		item.tabIndex = -1; // THE ARROW KEYS REACH IT, THE TAB KEY STILL SKIPS IT
 		[`${row.number}.`, row.white, row.black].forEach(function (text) {
 			const cell = document.createElement("span");
 			cell.textContent = text;
@@ -71,6 +76,7 @@ function renderRows() {
 		return item;
 	}));
 	scrollToNewest();
+	if (focusedRow != -1) { (rowList.children[focusedRow] || rowList.lastElementChild || toggleBtn).focus(); } // A NEW GAME HAS FEWER ROWS
 }
 
 /**
@@ -116,13 +122,46 @@ export function loadMoveList() {
 }
 
 /**
- * @description Collapses or opens the panel & saves it. The click is stopped so the menu stays as it is (handleClickAway)
+ * @description Collapses or opens the panel & saves it
+ * @param  {[boolean]} collapsed
  */
-export function handleMoveListToggle(e) {
-	e.stopPropagation();
-	const collapsed = !rowList.hidden;
+function saveCollapsed(collapsed) {
 	setCollapsed(collapsed);
 	try { localStorage.setItem(COLLAPSED_KEY, collapsed ? "closed" : "open"); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
+}
+
+/**
+ * @description The toggle. The click is stopped so the menu stays as it is (a click away closes it, pages/utils/nav.js). A key that opens it moves focus to the newest move
+ */
+function handleMoveListToggle(e) {
+	e.stopPropagation();
+	const collapsed = !rowList.hidden;
+	saveCollapsed(collapsed);
+	if (!collapsed && e.detail === 0) { rowList.lastElementChild?.focus(); } // A MOUSE OR FINGER'S CLICK COUNTS FROM 1
+}
+
+/**
+ * @description Escape closes the open panel & gives focus to the toggle, stopped so an open menu stays as it is. Up, Down, Home & End move between the rows
+ */
+function handlePanelKey(e) {
+	if (rowList.hidden) { return; }
+	if ((e.key == "ArrowLeft" || e.key == "ArrowRight") && rowList.contains(document.activeElement)) { toggleBtn.focus(); } // THE PANEL'S STOP IS ITS TOGGLE, THE PAGE'S KEYS MOVE ON FROM THERE
+	if (e.key == "Escape") {
+		e.stopPropagation();
+		toggleBtn.focus(); // BEFORE THE ROWS ARE HIDDEN, THAT WOULD DROP FOCUS TO THE PAGE
+		saveCollapsed(true);
+	} else if (MOVE_KEYS.includes(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+		e.preventDefault();
+		(itemForKey([...rowList.children], document.activeElement, e.key) || toggleBtn).focus(); // PAST EITHER END OF THE ROWS: BACK TO THE TOGGLE
+	}
+}
+
+/**
+ * @description Adds the panel's listeners, startGame (gameplay/index.js) calls this. A TV remote can't reach the panel
+ */
+export function addMoveListListeners() {
+	toggleBtn.addEventListener("click", handleMoveListToggle);
+	panel.addEventListener("keydown", handlePanelKey);
 }
 
 /* ---------------------------------------------------------------- */

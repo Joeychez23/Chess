@@ -2,8 +2,8 @@
  *  index.js  --  chess frontend
  *	Play Page (/play, /play/:gameId)
  *	Starts the game on the canvas. The server picks this page (server/controllers/pageController.js), the game id
- *	comes from the url (signed in) or localStorage (guest). Home & Exit leave the page, so nothing has to be torn down.
- *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (handleMenuBtn in gameplay/menu/index.js)
+ *	comes from the url (signed in) or localStorage (guest). Home, Settings & Exit leave the page, so nothing has to be torn down.
+ *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (createNav in gameplay/menu/index.js)
  *
  */
 
@@ -18,7 +18,7 @@ const { renderCanvas } = require("../../gameplay/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
-const { startNav, showTable, showPage, startLoading, goToPage } = require("../utils/index.js");
+const { startNav, startLogoutButtons, showTable, showPage } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
 const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD OF THE MOUSE
@@ -29,8 +29,10 @@ const opponentDisplay = document.getElementById("opponentDisplay"); // FRIEND GA
 const optResumeBtn = document.getElementById("optResume");
 const optSoundBtn = document.getElementById("optSound");
 const optFlipBtn = document.getElementById("optFlip");
+const optTypeMoveBtn = document.getElementById("optTypeMove");
+const optPgnBtn = document.getElementById("optPgn");
 const optRestartBtn = document.getElementById("optRestart");
-const optHomepageBtn = document.getElementById("optSettings");
+const optSettingsBtn = document.getElementById("optSettings");
 const optExitBtn = document.getElementById("optExit");
 
 const auth = new InternalAuth;
@@ -51,6 +53,7 @@ window.addEventListener("load", async function () {
 	const sessionUser = await sessionCheck;
 	if (gameId && !sessionUser) { return auth.login(window.location.pathname); } // SIGNED OUT ON A GAME LINK: LOGIN, THEN BACK HERE (THE SERVER USUALLY CATCHES THIS FIRST)
 	if (!gameId && sessionUser) { return window.location.replace("/"); } // SIGNED IN PLAYERS PICK THEIR GAME ON HOME
+	optSettingsBtn.parentElement.hidden = !sessionUser; // BEFORE THE GAME CHECK, "Game not found" OFFERS IT TOO
 
 	let playerData;
 	if (sessionUser) {
@@ -68,7 +71,7 @@ window.addEventListener("load", async function () {
 	playerData.TV_BOOL = TV_DEV; // TV CONDITIONAL
 	playerData.SIGNED_IN = !!sessionUser; // EXIT: LOGOUT OR LOGIN, A NEW GAME ID GOES IN THE URL
 
-	optExitBtn.innerHTML = sessionUser ? "Logout" : "Sign in"; // HOME IS FOR EVERYONE, GUESTS HAVE A HOMEPAGE TOO
+	optExitBtn.innerHTML = sessionUser ? "Logout" : "Login/Signup"; // HOME IS FOR EVERYONE, GUESTS HAVE A HOMEPAGE TOO
 
 	renderCanvas(playerData);
 }, false);
@@ -106,7 +109,7 @@ function guestGameId() {
 
 
 /**
- * @description No game for the guest's id yet (a bare /play, or their game expired): a new game vs the AI with a random color
+ * @description No game for the guest's id yet (a bare /play, or their game expired): a new game vs the AI with the Alternate color (the first one is random)
  * at the default level, made before the game starts. Otherwise setInitialData (gameplay/moves/index.js) makes it & the guest is always white.
  * The server only lets the browser with the game's guest_game cookie play it, another guest's id (or one from before the cookie) gets a new id
  * @param  {[string]} gameId [the guest's saved game id, also their player id (null = none, the server makes one)]
@@ -117,7 +120,7 @@ async function newGuestGame(gameId) {
 		const response = await validate(CHESS_URL, gameId, gameId, false, false, false); // GET THE GAME
 		if (response?.game_board) { return gameId; } // THEIR GAME IS THERE (OPEN OR OVER)
 	}
-	const created = await newAiGame(CHESS_URL, gameId || undefined, "random"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
+	const created = await newAiGame(CHESS_URL, gameId || undefined, "alternate"); // IF THIS FAILS setInitialData STILL MAKES ONE (WHITE)
 	if (!created?.game_id) { return gameId; }
 	try { localStorage.setItem("GUEST_GAME_ID", created.game_id); } catch { } // NOT SAVED (PRIVATE MODE) -> A NEW GAME EACH LOAD
 	return created.game_id;
@@ -135,13 +138,17 @@ function gameNotFound() {
 	showPage(); // NO BOARD TO WAIT FOR, SHOW THE MENU
 	showTable();
 	resultDisplay.innerHTML = "Game not found";
-	optResumeBtn.parentElement.style.display = "none";
-	optSoundBtn.parentElement.style.display = "none";
-	optFlipBtn.parentElement.style.display = "none";
-	optRestartBtn.parentElement.style.display = "none";
+	optResumeBtn.parentElement.hidden = true;
+	optSoundBtn.parentElement.hidden = true;
+	optFlipBtn.parentElement.hidden = true;
+	optTypeMoveBtn.parentElement.hidden = true; // NO GAME: THEIR LISTENERS ARE ADDED WHEN IT STARTS
+	optPgnBtn.parentElement.hidden = true;
+	optRestartBtn.parentElement.hidden = true;
 	optExitBtn.innerHTML = "Logout";
-	optHomepageBtn.addEventListener("click", function () { startLoading(optHomepageBtn); goToPage("/"); }); // LOADING, THEN HOME (LIKE THE GAME'S HOME BUTTON)
-	optExitBtn.addEventListener("click", function () { auth.logout(); });
+	optExitBtn.classList.add("logoutBtn");
+	startLogoutButtons(auth); // THE SAME SECOND PRESS AS HOME & SETTINGS
 	const toggleNav = startNav();
 	toggleNav(true); // OPEN, THE TITLE SAYS WHAT HAPPENED
+	resultDisplay.tabIndex = -1; // A SCREEN READER READS IT FIRST, THE TAB KEY STILL SKIPS IT
+	resultDisplay.focus();
 }

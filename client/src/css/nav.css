@@ -100,6 +100,25 @@
 	background-color: currentColor; /* THE TV REMOTE COLORS THE BUTTON, THE LINES FOLLOW */
 }
 
+@media (prefers-reduced-motion: no-preference) {
+	#optBtn span {
+		transition: transform 200ms ease-out, opacity 200ms ease-out;
+	}
+}
+
+/* THE MENU IS OPEN: THE 3 LINES ARE AN X (A LINE'S 2PX + THE 5PX GAP = 7PX TO THE MIDDLE) */
+#optBtn[aria-expanded="true"] span:nth-child(1) {
+	transform: translateY(7px) rotate(45deg);
+}
+
+#optBtn[aria-expanded="true"] span:nth-child(2) {
+	opacity: 0;
+}
+
+#optBtn[aria-expanded="true"] span:nth-child(3) {
+	transform: translateY(-7px) rotate(-45deg);
+}
+
 @media (hover: hover) {
 	#optBtn:hover {
 		color: var(--gold);
@@ -118,6 +137,10 @@
 	outline-offset: 2px;
 }
 
+#menuContainer #resultDisplay:focus { /* "Game not found" TAKES FOCUS TO BE READ OUT, IT CAN'T BE PRESSED */
+	outline: none;
+}
+
 /* ---------------------------------------------------------------- */
 /* Menu */
 /* ---------------------------------------------------------------- */
@@ -130,6 +153,7 @@
 	width: min(300px, calc(100vw - 32px));
 	max-height: calc(100dvh - 88px);
 	overflow-y: auto;
+	overscroll-behavior: contain; /* SCROLLING THE MENU DOESN'T SCROLL THE PAGE BEHIND IT */
 	display: none; /* OPENED WITH menu.style.display = "flex" */
 	flex-direction: column;
 	gap: 14px;
@@ -171,25 +195,37 @@
 }
 
 #menuContainer #menuButtonList {
+	--group-space: 8px;
+	margin: -6px 0 calc(0px - var(--group-space)); /* EVERY GROUP STARTS WITH A RULE SO COLUMNS LINE UP, THE FIRST ONES SIT UNDER THE TITLE */
+	column-gap: 14px; /* COLUMNS ON SHORT SCREENS, BELOW */
+}
+
+#menuContainer #menuButtonList ul { /* ONE GROUP: CURRENT CONTEXT, PAGE ACTIONS, NAVIGATION, ACCOUNT */
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
+	margin-bottom: var(--group-space);
+	padding-top: var(--group-space);
+	border-top: 1px solid var(--line);
 	list-style: none;
-	counter-reset: nav;
+	break-inside: avoid;
+}
+
+#menuContainer #menuButtonList ul:not(:has(li:not([hidden]))) { /* NOTHING TO SHOW, NO RULE EITHER */
+	display: none;
 }
 
 #menuContainer #menuButtonList li {
-	display: flex; /* THE GAME HIDES RESUME WHEN A GAME IS OVER & SETS IT BACK TO flex */
+	display: flex;
 }
 
-#menuContainer #menuButtonList li[hidden] { /* CANCEL, ONLY WHILE A REMATCH REQUEST WAITS */
+#menuContainer #menuButtonList li[hidden] { /* BUTTONS THE GAME DOESN'T OFFER RIGHT NOW */
 	display: none;
 }
 
 #menuContainer .menuButton {
 	display: flex;
 	align-items: center;
-	gap: 12px;
 	width: 100%;
 	min-height: 46px;
 	padding: 0 14px;
@@ -211,16 +247,6 @@
 	transition: ease-out 125ms;
 }
 
-#menuContainer .menuButton::before { /* 01, 02, ... HIDDEN BUTTONS AREN'T COUNTED */
-	counter-increment: nav;
-	content: counter(nav, decimal-leading-zero);
-	font-family: var(--font-mono);
-	font-size: 10.5px;
-	font-weight: 600;
-	letter-spacing: 0.02em;
-	color: var(--muted);
-}
-
 @media (hover: hover) {
 	#menuContainer .menuButton:hover {
 		background-color: var(--walnut-3);
@@ -232,13 +258,62 @@
 	background-color: var(--walnut-3);
 }
 
-#menuContainer .menuButton[aria-current="page"] { /* THE PAGE YOU'RE ON, A CREAM PLATE */
-	background-color: var(--maple);
-	color: var(--walnut);
+#menuContainer .menuButton[aria-disabled="true"] { /* CAN'T ACT RIGHT NOW (pages/utils/menuItem.js), IT STILL GETS FOCUS SO THE WORDS CAN BE READ */
+	background-color: var(--walnut-2);
+	opacity: 0.55;
+	cursor: default;
 }
 
-#menuContainer .menuButton[aria-current="page"]::before {
-	color: #7a6648;
+/* SHORT SCREENS: THE GROUPS FLOW INTO COLUMNS. THE PLAY MENU HAS 6 GROUPS & NEEDS ABOUT 850PX IN ONE COLUMN, HOME HAS 3 & ONLY NEEDS IT ON A PHONE ON ITS SIDE */
+@media (max-height: 860px) {
+	#menuContainer:has(ul:nth-child(6)) {
+		width: min(560px, calc(100vw - 32px));
+	}
+
+	#menuContainer:has(ul:nth-child(6)) #menuButtonList {
+		column-count: 2;
+	}
+}
+
+@media (max-height: 500px) { /* A PHONE ON ITS SIDE: THE MENU STARTS BESIDE THE MENU BUTTON, NOT UNDER IT. body: style.css SETS THE PLAY MENU'S right */
+	body #menuContainer {
+		top: calc(env(safe-area-inset-top, 0px) + 14px);
+		right: calc(env(safe-area-inset-right, 0px) + 76px);
+		width: min(300px, calc(100vw - 92px));
+		max-height: calc(100dvh - 28px);
+		gap: 8px;
+		padding: 10px;
+	}
+
+	body #menuContainer:has(ul:nth-child(3)) {
+		width: min(560px, calc(100vw - 92px));
+	}
+
+	#menuContainer:has(ul:nth-child(3)) #menuButtonList {
+		column-count: 2;
+	}
+
+	#menuContainer:has(ul:nth-child(6)) #menuButtonList {
+		column-count: 3;
+	}
+
+	#menuContainer #menuButtonList {
+		--group-space: 4px;
+		margin-top: -4px;
+	}
+
+	#menuContainer #menuButtonList ul {
+		gap: 4px;
+	}
+
+	#menuContainer #resultDisplay {
+		font-size: 22px;
+	}
+
+	#menuContainer .menuButton {
+		min-height: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+		padding: 0 10px;
+	}
 }
 
 /* ---------------------------------------------------------------- */
@@ -252,7 +327,7 @@
 	pointer-events: none; /* ONE PRESS (LINKS CAN'T BE disabled) */
 }
 
-.loading::after { /* ::after, THE MENU BUTTONS' NUMBERS ARE ::before */
+.loading::after {
 	content: "";
 	position: absolute;
 	inset: 0;

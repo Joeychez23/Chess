@@ -31,7 +31,7 @@ const playerRating = document.getElementById("playerRating"); // "RATING // 1520
 const soloBox = document.getElementById("soloBox"); // PLAY THE AI
 const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY THE AI: PLAY AI, OR NEW GAME WHILE AN AI GAME IS OPEN
 const aiLevelSelect = document.getElementById("aiLevel"); // ABOVE PLAY AI, FILLED FROM THE SERVER'S LEVELS
-const aiColorSelect = document.getElementById("aiColor"); // RANDOM, WHITE OR BLACK, RESTART KEEPS IT
+const aiColorSelect = document.getElementById("aiColor"); // ALTERNATE, RANDOM, WHITE OR BLACK, RESTART KEEPS IT
 const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BLANK = THE STANDARD POSITION, RESTART KEEPS IT
 const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEITS YOUR CURRENT GAME"
 const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND

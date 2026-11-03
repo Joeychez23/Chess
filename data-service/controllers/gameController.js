@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, saveLastColor, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, undoMoves, gameResult, checkStartFen } = require("../utils/validate.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
@@ -365,7 +365,7 @@ async function getRatings(req, res) {
  * @description A signed in player's new game vs the AI: they're one side & CHESS_AI the other, at a real level, from the standard position
  * or a checked set position. The game id is always made here, the response has it (a signed in player's Restart is a forfeit & a new game).
  * One AI game at a time stays on the chess server, it forfeits the open one first
- * @param  {[object]} req.body [{ color ("w" | "b" | "random"), level (1 - 8, left out = 3), start_fen (optional) }]
+ * @param  {[object]} req.body [{ color ("w" | "b" | "random" | "alternate"), level (1 - 8, left out = 3), start_fen (optional) }]
  * @return {[object]} response [initalizeGame's { status, game_data (game_id is the new id), message }]
  */
 async function newAiGame(req, res) {
@@ -377,8 +377,10 @@ async function newAiGame(req, res) {
 	if (position.message) { return refuse(req, res, 400, position.message); }
 
 	const params = newStartParams(color, position.fen);
-	const sides = pickSides(params, req.player.id, "CHESS_AI"); // RANDOM IS DRAWN HERE
-	return created(req, res, await initalizeGame(false, sides.white, sides.black, aiLevel, { start_params: params }));
+	const sides = pickSides(params, req.player.id, "CHESS_AI", await lastColor(params, req.player.id, true)); // RANDOM IS DRAWN HERE
+	const response = await initalizeGame(false, sides.white, sides.black, aiLevel, { start_params: params });
+	if (response.game_data) { await saveLastColor(req.player.id, true, playerColor(req.player.id, response.game_data)); }
+	return created(req, res, response);
 }
 
 /* ---------------------------------------------------------------- */
@@ -410,7 +412,7 @@ async function newGuestGame(req, res) {
 
 	const aiLevel = level === undefined && existing ? readAiLevel(Number(existing.ai_level?.N)) || DEFAULT_LEVEL : readAiLevel(level); // A RESET KEEPS THE LEVEL
 	const params = newStartParams(color, position.fen);
-	const sides = pickSides(side ? { color: side } : params, gameId, "CHESS_AI"); // A GUEST'S PLAYER ID IS THEIR GAME ID
+	const sides = pickSides(side ? { color: side } : params, gameId, "CHESS_AI", existing ? playerColor(gameId, existing) : undefined); // A GUEST'S PLAYER ID IS THEIR GAME ID, THEIR LAST GAME IS THE ONE THIS RESETS
 	let response = await initalizeGame(gameId, sides.white, sides.black, aiLevel, { start_params: params, reset_player: existing ? gameId : undefined }); // A RESET ONLY REPLACES THEIR OWN GAME
 	if (response.status == 409) { // ANOTHER CREATE OF THIS ID SAVED SINCE THE READ: A NEW ID, LIKE ONE THAT ISN'T THEIRS
 		gameId = newGameId();
@@ -460,7 +462,7 @@ async function inviteGame(req, res) {
 	if (position.message) { return refuse(req, res, 400, position.message); }
 
 	const params = newStartParams(color, position.fen, takebacks);
-	const sides = pickSides(params, req.player.id, opponent_id); // RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
+	const sides = pickSides(params, req.player.id, opponent_id, await lastColor(params, req.player.id, false)); // RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
 	const names = {
 		[req.player.id]: (await username(req.player.id)) || req.player.user.user_metadata?.screenname,
 		[opponent_id]: (await username(opponent_id)) || opponent_screenname,
@@ -498,6 +500,7 @@ async function acceptGame(req, res) {
 
 	const accepted = await acceptInvite(gameData); // THE CONDITIONAL WRITE GOES FIRST: A LOST ACCEPT (DECLINED OR CANCELLED SINCE) CHANGES NOTHING
 	if (accepted.status != 200) { return res.json(accepted); }
+	await saveFriendColors(gameData); // ONLY NOW: AN INVITE THAT'S NEVER PLAYED DOESN'T COUNT AS A GAME
 	let forfeited = null;
 	if (current) { // ACCEPTING FORFEITS THE OPEN ONE, THE OTHER SIDE WINS
 		const closed = await closeGame(current, playerColor(playerId, current) == "w" ? "b" : "w", "forfeit");
@@ -602,11 +605,12 @@ async function finishRematch(req, res, gameData, rematchId) {
 		}
 		const params = startParams(gameData); // SIDES FOLLOW THE INVITER'S PICK
 		const inviter = inviterId(gameData);
-		const sides = pickSides(params, inviter, inviter == players[0] ? players[1] : players[0]);
+		const sides = pickSides(params, inviter, inviter == players[0] ? players[1] : players[0], playerColor(inviter, gameData)); // ALTERNATE: THE OPPOSITE OF THIS GAME
 		const names = { [players[0]]: (await username(players[0])) || playerName(gameData, "w"), [players[1]]: (await username(players[1])) || playerName(gameData, "b") }; // A NEW USERNAME SHOWS FROM THE REMATCH ON
 		const made = await initalizeGame(rematchId, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, start_params: params, inviter_id: inviter });
 		game = made.game_data || (await retrieveGame(rematchId, true)).game_data; // A 409: THE OTHER PRESS SAVED IT FIRST, ITS SIDES STAND
 		if (!game) { return res.json({ status: 500, message: "Rematch failed" }); }
+		if (made.game_data) { await saveFriendColors(game); }
 	}
 
 	const listError = await movePlayersGame(game, rematchId, "requested_games", "open_games"); // ADDS IT ONCE
@@ -623,6 +627,27 @@ async function finishRematch(req, res, gameData, rematchId) {
 /* ---------------------------------------------------------------- */
 // Players' Games
 /* ---------------------------------------------------------------- */
+/**
+ * @description The side a player's last game had, for the Alternate color. Only read when the pick needs it
+ * @param  {[object]} params [the new game's start settings]
+ * @param  {[string]} playerId [auth0 user id without "auth0|"]
+ * @param  {[boolean]} ai [true = their AI games, false = their friend games]
+ * @return {[string]} color ["w" or "b", undefined when it isn't needed or they have no last game]
+ */
+async function lastColor(params, playerId, ai) {
+	if (params.color != "alternate") { return undefined; }
+	const user = (await retrieveUser(playerId, true)).user_data;
+	return (ai ? user?.last_ai_color : user?.last_friend_color)?.S;
+}
+
+/**
+ * @description Saves both players' sides when a friend game starts
+ * @param  {[object]} gameData [friend game item]
+ */
+async function saveFriendColors(gameData) {
+	await Promise.all([saveLastColor(gameData.white_player_id.S, false, "w"), saveLastColor(gameData.black_player_id.S, false, "b")]);
+}
+
 /**
  * @description A signed in player's open AI game or friend game, they only have one of each at a time (expired games are pruned first)
  * @param  {[string]} playerId [auth0 user id without "auth0|"]

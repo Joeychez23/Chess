@@ -23,10 +23,10 @@ const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // D
 const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & TV REMOTE HANDLERS (ADDED IN startGame)
 const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
-const { handleMenuBtn, handleResume, handleClickAway, handleSound, loadSound, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
+const { addMenuListeners, handleResume, handleSound, loadSound, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
-const { loadMoveList, handleMoveListToggle } = require("./movelist/index.js"); // THE MOVE LIST PANEL
+const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
@@ -35,8 +35,9 @@ const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optFlipBtn = document.getElementById("optFlip"); // MENU: FLIP BOARD
 const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
-const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
-const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
+const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
+const optHomepageBtn = document.getElementById("optHome"); // MENU: HOMEPAGE
+const optSettingsBtn = document.getElementById("optSettings"); // MENU: SETTINGS
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
 let aiThinking = false; // TRUE WHILE THE SERVER PICKS THE AI'S MOVE
 const AI_RETRY_TIME = 5000; // ASKS FOR THE AI'S MOVE AGAIN AFTER THIS WHEN IT DIDN'T ANSWER (ms)
@@ -110,8 +111,8 @@ async function startGame() {
 	handleInitialData(); // HANDLES INITIAL DATA
 	if (!game.ai && game.response?.status == 200) { // FRIEND GAME
 		joinGame(game.GAME_ID, game.PLAYER_ID, socketHandlers); // THE SERVER PUSHES MOVES, FORFEITS & REMATCHES (server/socket.js)
-		if (!game.gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // RESTART IS FORFEIT IN FRIEND GAMES
 	}
+	if (!game.gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // play.html SAYS RESTART, WHAT A GAME THAT'S OVER OFFERS
 
 	
 	// JUST IN CASE
@@ -143,25 +144,26 @@ async function startGame() {
 		canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
 		canvas.addEventListener("touchcancel", handleTouchCancel, { passive: false });
 	}
-	if (!game.TV_BOOL || OVERRIDE_TV) { optBtn.addEventListener("click", handleMenuBtn); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optResumeBtn.addEventListener("click", handleResume); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.addEventListener("click", handleClickAway); } // THE REST OF THE PAGE CLOSES THE MENU (THE BOARD: handleCanvasClick)
-	if (!game.TV_BOOL || OVERRIDE_TV) { optSoundBtn.addEventListener("click", handleSound); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optFlipBtn.addEventListener("click", handleFlip); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { addMenuListeners(); } // THE MENU BUTTON, A CLICK AWAY (THE BOARD: handleCanvasClick) & ESCAPE
+	optResumeBtn.addEventListener("click", handleResume);
+	optSoundBtn.addEventListener("click", handleSound);
+	optFlipBtn.addEventListener("click", handleFlip);
 	if (!game.TV_BOOL || OVERRIDE_TV) { optPgnBtn.addEventListener("click", handleDownloadPgn); } // THE TV REMOTE CAN'T REACH IT, A TV HAS NOWHERE TO SAVE A FILE
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optHint").addEventListener("click", handleHint); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optEvalBar").addEventListener("click", handleEvalBar); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optTakeback").addEventListener("click", handleTakeback); }
+	else { optPgnBtn.parentElement.hidden = true; }
+	document.getElementById("optHint").addEventListener("click", handleHint);
+	document.getElementById("optEvalBar").addEventListener("click", handleEvalBar);
+	document.getElementById("optTakeback").addEventListener("click", handleTakeback);
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("takebackAccept").addEventListener("click", handleTakeback); } // THE SAME PRESS ACCEPTS
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("takebackDecline").addEventListener("click", handleDeclineTakeback); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optDraw").addEventListener("click", handleOfferDraw); }
+	document.getElementById("optDraw").addEventListener("click", handleOfferDraw);
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("drawAccept").addEventListener("click", handleOfferDraw); } // THE SAME PRESS ACCEPTS
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("drawDecline").addEventListener("click", handleDeclineDraw); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optCancelRematch").addEventListener("click", handleCancelRematch); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("moveListToggle").addEventListener("click", handleMoveListToggle); }
+	optRestartBtn.addEventListener("click", handleRestart);
+	document.getElementById("optCancelRematch").addEventListener("click", handleCancelRematch);
+	optHomepageBtn.addEventListener("click", handleLeave);
+	optSettingsBtn.addEventListener("click", handleLeave);
+	optExitBtn.addEventListener("click", handleExit);
+	if (!game.TV_BOOL || OVERRIDE_TV) { addMoveListListeners(); } // THE TOGGLE & ITS KEYS
 	addMoveBoxListeners(); // ON IN TV MODE TOO, A KEYBOARD CAN STILL TYPE. THE TV REMOTE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE
 }
 

@@ -60,7 +60,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
  * @description New game vs the AI with the start settings from the dropdowns, the server picks the sides (POST /game).
  * Home & the guest page use it, a guest's game_id is overwritten with the new game (their New game)
  * @param  {[string]} gameId [a guest's saved id, left out = the server makes a new one (always for signed in players)]
- * @param  {[string]} startColor [the player's color: "random" | "w" | "b", Restart keeps it]
+ * @param  {[string]} startColor [the player's color: "alternate" | "random" | "w" | "b", Restart keeps it]
  * @param  {[number]} aiLevel [the AI's level, Restart keeps it too]
  * @param  {[boolean]} replaceCurrent [signed in: true forfeits the player's open AI game first (one at a time), left out = the server answers 409 while one is open]
  * @param  {[string]} startFen [a set position to start from (the Start position box), blank = the standard position, Restart keeps it]
@@ -132,7 +132,7 @@ export async function getRatings(gameUrl, gameId) {
 /**
  * @description Invites a friend, the server finds them by username or email (an @ means email, usernames can't have one) & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
  * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the server answers 409 while one is open]
- * @param  {[string]} startColor [the inviter's color: "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
+ * @param  {[string]} startColor [the inviter's color: "alternate" | "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position, rematches keep it]
  * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game, rematches keep it]
  * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
@@ -206,7 +206,7 @@ export async function restartGame(gameUrl, gameId) {
 }
 
 /**
- * @description Friend games: forfeits, the other side wins (POST /game/:gameId/forfeit)
+ * @description Forfeits, the other side wins (POST /game/:gameId/forfeit)
  * @return {[object]} response [{ status, state, winner, reason, ... }]
  */
 export async function forfeitGame(gameUrl, gameId) {
