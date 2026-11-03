@@ -206,7 +206,7 @@ export async function restartGame(gameUrl, gameId) {
 }
 
 /**
- * @description Friend games: forfeits, the other side wins (POST /game/:gameId/forfeit)
+ * @description Forfeits, the other side wins (POST /game/:gameId/forfeit)
  * @return {[object]} response [{ status, state, winner, reason, ... }]
  */
 export async function forfeitGame(gameUrl, gameId) {

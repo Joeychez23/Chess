@@ -13,6 +13,7 @@
 const { drawBoardPicture } = require("./boardPicture.js");
 const { getLevels } = require("../../gameplay/validate/index.js");
 const { imageProgress } = require("../../gameplay/images/index.js");
+const { confirmPress, disarmConfirm } = require("./confirm.js"); // LOGOUT IN THE MENU NEEDS A SECOND PRESS
 
 let loadingBtn = null; // THE BUTTON OR LINK THAT SAYS LOADING (ONE AT A TIME), stopLoading() PUTS IT BACK
 let loadingText; // ITS TEXT BEFORE IT SAID LOADING
@@ -34,6 +35,7 @@ export function startNav() {
 	function toggleNav(open) { // TRUE OPENS THE MENU, FALSE CLOSES IT
 		menu.style.display = open ? "flex" : "none";
 		optBtn.setAttribute("aria-expanded", open);
+		if (!open) { disarmConfirm(); }
 	}
 
 	optBtn.setAttribute("aria-expanded", false);
@@ -53,7 +55,7 @@ export function startNav() {
 /* ---------------------------------------------------------------- */
 /**
  * @description Logout & Sign out (Home & Settings) end the session with a POST (auth.logout()), a link's GET is refused (#297, #332).
- * The button is turned off so a second press doesn't send a second logout
+ * Logout in the menu asks "Are you sure?" first (confirm.js), Sign out is on the Settings page itself. The button is turned off so another press doesn't send a second logout
  * @param  {[object]} auth [the page's InternalAuth]
  */
 export function startLogoutButtons(auth) {
@@ -61,6 +63,7 @@ export function startLogoutButtons(auth) {
 		btn.addEventListener("click", function (e) {
 			e.preventDefault();
 			if (btn.disabled) { return; }
+			if (btn.closest("#menuContainer") && !confirmPress(btn)) { return; } // FIRST PRESS ASKS
 			btn.disabled = true;
 			auth.logout(); // POST /api/auth/logout, THEN THE GUEST PAGE
 		});

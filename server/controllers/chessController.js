@@ -185,7 +185,7 @@ async function moveGame(req, res) {
 // Restart (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description AI games: restarting a game that's still going forfeits it, then a new game starts with a new id
+ * @description AI games: a new game starts with a new id, a game that's still going is forfeited first
  * (the old one stays closed) with the same start settings: the level & the player's color (Random draws again). Guests only have one game, so theirs is overwritten
  * @param  {[string]} req.params.gameId [current game id]
  * @return {[object]} response [{ status, game_id (the new game), ai, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
@@ -401,7 +401,7 @@ async function getLevels(req, res) {
 // Forfeit (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Friend games: closes the game & the other side wins. Both boards open the menu with Rematch
+ * @description Closes the game & the other side wins. The menu opens with Rematch on both boards (friend games) or Restart (AI games, guests too)
  * @param  {[string]} req.params.gameId [game id]
  * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }]
  */
@@ -413,22 +413,21 @@ async function forfeitGame(req, res) {
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (isAiGame(gameData)) { return res.json({ status: 500, message: "AI games restart instead" }); }
 	if (gamePending(gameData)) { return res.json({ status: 500, message: "Invite not accepted yet, decline it instead" }); }
 	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is already over" }); }
 
-	const closed = await forfeitFriendGame(gameData, playerId);
+	const closed = await forfeitOpenGame(gameData, playerId);
 	return res.json(gameResponse(closed));
 }
 
 /**
- * @description Closes a friend game, the other side wins. The opponent's board opens the menu & both Homes redraw.
+ * @description Closes a game, the other side wins. A friend's board opens the menu & the players' Homes redraw.
  * Also used when a new invite or an accept replaces the player's open friend game
- * @param  {[object]} gameData [open friend game item]
+ * @param  {[object]} gameData [open game item]
  * @param  {[string]} playerId [player forfeiting]
  * @return {[object]} response [the data service's forfeit answer, { status: 500 } when the game was already over]
  */
-async function forfeitFriendGame(gameData, playerId) {
+async function forfeitOpenGame(gameData, playerId) {
 	const closed = await ifSaved(() => forfeit(gameData.game_id.S), async () => { // THE OTHER SIDE WINS
 		const latest = await retrieveGame(gameData.game_id.S, true); // TOO SLOW: SAVED IF IT'S CLOSED NOW
 		return latest.game_data && !gameOpen(latest.game_data) ? latest : null;
@@ -644,7 +643,7 @@ async function inviteGame(req, res) {
 
 	const current = openGame(mine, false); // ONE FRIEND GAME AT A TIME
 	if (current && !replace_current) { return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
-	if (current) { await forfeitFriendGame(current, challengerId); } // A NEW INVITE FORFEITS THE OPEN ONE
+	if (current) { await forfeitOpenGame(current, challengerId); } // A NEW INVITE FORFEITS THE OPEN ONE
 	if (mine.user_data?.sent_invite) { await dropInvite(mine.user_data.sent_invite.game_id); } // ONE SENT INVITE AT A TIME
 
 	const params = readStartParams(req.body, position.fen);
@@ -866,7 +865,7 @@ async function dropInvite(gameId) {
 async function leaveAllGames(playerId) {
 	const mine = await myGames();
 	const friendGame = openGame(mine, false);
-	if (friendGame) { await forfeitFriendGame(friendGame, playerId); }
+	if (friendGame) { await forfeitOpenGame(friendGame, playerId); }
 	const aiGame = openGame(mine, true);
 	if (aiGame) { await forfeit(aiGame.game_id.S); }
 

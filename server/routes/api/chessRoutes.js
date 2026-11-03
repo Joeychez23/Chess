@@ -29,7 +29,7 @@ router.route('/game/:gameId/analysis').post(optionalAuth, limitAnalysis, analysi
 
 router.route('/game/:gameId/takeback').post(optionalAuth, takebackGame);   // /api/chess/game/:gameId/takeback  -> AI GAMES: TAKES BACK THE PLAYER'S LAST MOVE & THE AI'S REPLY, 409 WHILE THE AI'S MOVE IS BEING PICKED. FRIEND GAMES: ASKS THE OPPONENT OR ACCEPTS THEIR REQUEST
 
-router.route('/game/:gameId/forfeit').post(requireAuth, forfeitGame);   // /api/chess/game/:gameId/forfeit  -> FRIEND GAMES: CLOSES THE GAME, THE OTHER SIDE WINS
+router.route('/game/:gameId/forfeit').post(optionalAuth, forfeitGame);   // /api/chess/game/:gameId/forfeit  -> CLOSES THE GAME, THE OTHER SIDE WINS
 
 router.route('/game/:gameId/takeback/decline').post(requireAuth, declineTakebackGame);   // /api/chess/game/:gameId/takeback/decline  -> FRIEND GAMES: TURNS DOWN THE OPPONENT'S TAKEBACK REQUEST
 

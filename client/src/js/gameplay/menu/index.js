@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Hint, Takeback, Offer Draw, Restart / Forfeit / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Sound, Flip Board, Download PGN, Hint, Takeback, Offer Draw, Forfeit / Restart / Rematch, Home & Exit), loading a new board in place
  *	for Restart, Rematch & Takeback (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
  *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer, a takeback or a rematch), startGame & loadRematch join with them
  *
@@ -20,12 +20,14 @@ const { InternalAuth } = require("../../auth/index.js"); // LOGOUT IS A POST TO 
 const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
+const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const menu = document.getElementById("menuContainer"); // IN GAME MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
-const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
+const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
+const optExitBtn = document.getElementById("optExit"); // MENU: LOGOUT (SIGNED IN) / SIGN IN (GUESTS)
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
 const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
@@ -43,7 +45,6 @@ const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A 
 	"threefold repetition": "by threefold repetition",
 	"agreement": "by agreement",
 };
-let confirmForfeit = false; // FORFEIT NEEDS A SECOND PRESS
 let pgnLoading = false; // A SECOND PRESS WHILE THE PGN LOADS WOULD SAVE TWO FILES
 let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
 let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
@@ -96,6 +97,7 @@ export function closeMenu() {
 	if (game.boardReset || optResumeBtn.parentElement.style.display == "none") { return; }
 	game.menuToggled = false;
 	menu.style.display = "none";
+	disarmConfirm();
 }
 
 /**
@@ -119,6 +121,7 @@ export function handleMenuBtn(e) {
 	if (game.menuToggled) {
 		game.menuToggled = false;
 		menu.style.display = "none";
+		disarmConfirm();
 	} else { openMenu(); }
 }
 
@@ -497,21 +500,21 @@ export async function handleDeclineDraw(e) {
 // Restart Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description AI games: a game that's still going is forfeited, then a new game starts. The old board stays on screen
- * under the menu & Restart says Loading & fills up while it loads, then the pieces slide home (startRestartSlide).
- * Friend games: the same button is Forfeit, then Rematch once the game is over
+ * @description A game that's still going: the button is Forfeit (handleForfeit). Once it's over, friend games: Rematch. AI games: Restart, a new game starts.
+ * The old board stays on screen under the menu & Restart says Loading & fills up while it loads, then the pieces slide home (startRestartSlide)
  */
 export async function handleRestart(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	if (game.boardReset) { return; } // ALREADY LOADING A NEW BOARD (A SECOND PRESS, THE TV REMOTE'S ENTER)
-	if (!game.ai) { return await handleFriendBtn(); } // FORFEIT / REMATCH
+	if (!game.gameOver) { return await handleForfeit(); }
+	if (!game.ai) { return await handleRematch(); }
 	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
 	game.boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN UNDER THE MENU WHILE THE NEW ONE LOADS
 	game.refresh = false;
 	optBtn.style.display = "none"
 	setRestartLoading(0.15); // "Loading" & THE FILL
-	const restartResponse = await restartGame(game.GAME_URL, game.GAME_ID); // FORFEITS IF STILL GOING, THEN A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
+	const restartResponse = await restartGame(game.GAME_URL, game.GAME_ID); // A NEW GAME WITH THE SAME START SETTINGS (LEVEL & COLOR)
 	if (restartResponse?.status != 200 || !restartResponse?.game_board) { // RESET FAILED, KEEP THE CURRENT GAME (THE MENU STAYS OPEN)
 		game.boardReset = false;
 		setRestartLoading(false);
@@ -547,6 +550,7 @@ async function loadNewBoard(fromPieces, loaded) {
 		await new Promise(function (resolve) { setTimeout(resolve, 200); }); // THE FILL REACHES THE END
 	}
 	menu.style.display = "none"
+	disarmConfirm();
 	optResumeBtn.parentElement.style.display = 'flex'; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
 	resultDisplay.innerText = "Chess"
 	resultReason.hidden = true;
@@ -568,7 +572,7 @@ export function setRestartLoading(load) {
 	if (load === false) { // DONE OR FAILED
 		optRestartBtn.classList.remove("loading");
 		optRestartBtn.style.removeProperty("--load");
-		optRestartBtn.innerHTML = game.ai ? "Restart" : "Forfeit";
+		optRestartBtn.innerHTML = game.ai && game.gameOver ? "Restart" : "Forfeit"; // RESTART FAILED: THE GAME IS STILL OVER
 		return;
 	}
 	if (!optRestartBtn.classList.contains("loading")) { // FIRST CALL
@@ -581,27 +585,33 @@ export function setRestartLoading(load) {
 }
 
 /* ---------------------------------------------------------------- */
-// Forfeit / Rematch Button (Menu, friend games)
+// Forfeit Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Game going: Forfeit -> "Are you sure?" -> forfeits. Game over: Rematch, starts when both players press it within 5 minutes
+ * @description Forfeit -> "Are you sure?" -> forfeits & opens the game over screen. In an AI game it waits for a move in flight, the AI's move
+ * could otherwise save or slide in after the game ended. Its timer stops so the AI isn't asked while the forfeit saves, & starts again if it fails
  */
-async function handleFriendBtn() {
-	if (!game.gameOver) {
-		if (!confirmForfeit) { // FIRST PRESS ASKS, THE QUESTION GOES AWAY AFTER 5 SECONDS
-			confirmForfeit = true;
-			optRestartBtn.innerHTML = "Are you sure?";
-			setTimeout(function () { if (confirmForfeit && !game.gameOver) { confirmForfeit = false; optRestartBtn.innerHTML = "Forfeit"; } }, 5000);
-			return;
-		}
-		confirmForfeit = false;
-		const forfeitResponse = await forfeitGame(game.GAME_URL, game.GAME_ID);
-		if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
-		optRestartBtn.innerHTML = "Forfeit"; // FORFEIT FAILED, KEEP PLAYING
-		console.log(forfeitResponse?.message || "Forfeit failed: no answer from the server");
-		showStatus("action", "The forfeit didn't go through. Try again.", MESSAGE_TIME);
-		return;
+async function handleForfeit() {
+	if (!confirmPress(optRestartBtn)) { return; } // FIRST PRESS ASKS
+	if (game.ai && (game.aiTurn || moveInFlight())) { return showStatus("action", "Wait for the AI's move to finish.", MESSAGE_TIME); }
+	if (game.ai) { clearTimeout(game.aiTimer); }
+	const forfeitResponse = await forfeitGame(game.GAME_URL, game.GAME_ID);
+	if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
+	if (game.ai && !game.gameOver && chessInst.turn() != game.playerColor) { // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE
+		game.aiTurn = true;
+		game.refresh = true;
 	}
+	console.log(forfeitResponse?.message || "Forfeit failed: no answer from the server");
+	showStatus("action", "The forfeit didn't go through. Try again.", MESSAGE_TIME);
+}
+
+/* ---------------------------------------------------------------- */
+// Rematch Button (Menu, friend games)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Game over: Rematch, starts when both players press it within 5 minutes
+ */
+async function handleRematch() {
 	if (rematchWaiting) { return; } // ALREADY ASKED, STILL WAITING
 	const rematchResponse = await rematchGame(game.GAME_URL, game.GAME_ID);
 	if (rematchResponse?.status == 409) { return optRestartBtn.innerHTML = "Can't rematch"; } // ONE OF YOU IS IN ANOTHER FRIEND GAME, OR THE REMATCH EXPIRED
@@ -670,6 +680,7 @@ export async function handleCancelRematch(e) {
 export function showGameOver(result) {
 	if (game.gameOver) { return; } // ALREADY SHOWN
 	game.gameOver = true;
+	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	openMenu();
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
 	optResumeBtn.parentElement.style.display = 'none';
@@ -690,7 +701,7 @@ export function showGameOver(result) {
 	else { resultDisplay.innerText = "Draw" }
 	resultReason.innerText = RESULT_REASONS[result?.reason] || "";
 	resultReason.hidden = !resultReason.innerText;
-	if (!game.ai) { optRestartBtn.innerHTML = "Rematch"; } // FRIEND GAME
+	optRestartBtn.innerHTML = game.ai ? "Restart" : "Rematch";
 	handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
 }
 
@@ -742,11 +753,15 @@ export function handleHomepage(e) {
 // Exit Button (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description Exits game: a signed in player logs out, a guest logs in (the server's auth routes, server/routes/api/authRoutes.js)
+ * @description Exits game: a guest logs in, a signed in player logs out after a second press (the server's auth routes, server/routes/api/authRoutes.js).
+ * One logout per press. A waiting rematch is cancelled first, the cancel needs the session & a late press would start a game without them
  */
-export function handleExit(e) {
+export async function handleExit(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (game.SIGNED_IN) { return new InternalAuth().logout(); }
-	new InternalAuth().login();
+	if (!game.SIGNED_IN) { return new InternalAuth().login(); }
+	if (optExitBtn.disabled || !confirmPress(optExitBtn)) { return; } // FIRST PRESS ASKS (THE TV REMOTE'S ENTER ISN'T STOPPED BY disabled)
+	optExitBtn.disabled = true;
+	if (rematchWaiting) { await cancelRematch(game.GAME_URL, game.GAME_ID); }
+	await new InternalAuth().logout();
 }

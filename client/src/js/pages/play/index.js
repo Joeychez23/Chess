@@ -18,7 +18,7 @@ const { renderCanvas } = require("../../gameplay/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
-const { startNav, showTable, showPage, startLoading, goToPage } = require("../utils/index.js");
+const { startNav, startLogoutButtons, showTable, showPage, startLoading, goToPage } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
 const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD OF THE MOUSE
@@ -141,7 +141,8 @@ function gameNotFound() {
 	optRestartBtn.parentElement.style.display = "none";
 	optExitBtn.innerHTML = "Logout";
 	optHomepageBtn.addEventListener("click", function () { startLoading(optHomepageBtn); goToPage("/"); }); // LOADING, THEN HOME (LIKE THE GAME'S HOME BUTTON)
-	optExitBtn.addEventListener("click", function () { auth.logout(); });
+	optExitBtn.classList.add("logoutBtn");
+	startLogoutButtons(auth); // THE SAME SECOND PRESS AS HOME & SETTINGS
 	const toggleNav = startNav();
 	toggleNav(true); // OPEN, THE TITLE SAYS WHAT HAPPENED
 }

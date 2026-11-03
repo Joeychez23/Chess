@@ -23,7 +23,7 @@ const optHintBtn = document.getElementById("optHint"); // MENU: HINT, ONLY AI GA
 const optEvalBarBtn = document.getElementById("optEvalBar"); // MENU: EVALUATION BAR, AI GAMES & FINISHED GAMES
 const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, ONLY GAMES THAT ARE GOING
 const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, HIDDEN ONCE THE GAME IS OVER
-const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
+const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
 

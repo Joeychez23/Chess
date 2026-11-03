@@ -35,7 +35,7 @@ const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optFlipBtn = document.getElementById("optFlip"); // MENU: FLIP BOARD
 const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
-const optRestartBtn = document.getElementById("optRestart"); // MENU: RESTART (AI GAMES) / FORFEIT & REMATCH (FRIEND GAMES)
+const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: EXIT
 let aiThinking = false; // TRUE WHILE THE SERVER PICKS THE AI'S MOVE
@@ -110,8 +110,8 @@ async function startGame() {
 	handleInitialData(); // HANDLES INITIAL DATA
 	if (!game.ai && game.response?.status == 200) { // FRIEND GAME
 		joinGame(game.GAME_ID, game.PLAYER_ID, socketHandlers); // THE SERVER PUSHES MOVES, FORFEITS & REMATCHES (server/socket.js)
-		if (!game.gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // RESTART IS FORFEIT IN FRIEND GAMES
 	}
+	if (!game.gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // play.html SAYS RESTART, WHAT A GAME THAT'S OVER OFFERS
 
 	
 	// JUST IN CASE
