@@ -14,7 +14,7 @@ const { game, chessInst, stopFrames } = require("../state/index.js"); // THE GAM
 const { validate, restartGame, forfeitGame, takeback, declineTakeback, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
-const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
+const { handleRemoteMenuEnter, clearRemoteSelection, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
 const { setInitialData, checkOpponentMove, refreshData, revertUnfinishedMove } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD, TAKES BACK A MOVE THAT ISN'T FINISHED
 const { InternalAuth } = require("../../auth/index.js"); // LOGOUT IS A POST TO THE SERVER (#297)
 const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
@@ -32,6 +32,7 @@ const optHomepageBtn = document.getElementById("optSettings"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: LOGOUT (SIGNED IN) / SIGN IN (GUESTS)
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT, HOW THE GAME ENDED
+const resultAnnouncement = document.getElementById("resultAnnouncement"); // SCREEN READERS ARE TOLD THE RESULT HERE
 const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
 const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, WHILE THE GAME IS GOING
 const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHILE THE GAME IS GOING
@@ -90,8 +91,12 @@ const nav = createNav({
 		game.menuToggled = true;
 		game.refresh = true;
 	},
-	onClose() { game.menuToggled = false; },
+	onClose() { game.menuToggled = false; clearRemoteSelection(); },
 	canClose() { return !game.boardReset; }, // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS, THE OLD BOARD UNDER IT IS LOCKED
+	arrowStops() { // LEFT & RIGHT GO THAT WAY ON SCREEN (THE BOX CAN BE DRAGGED), THE ONES NOT ON SCREEN ARE SKIPPED
+		const stops = ["optBtn", "moveBoxInput", "moveListToggle"].map((id) => document.getElementById(id));
+		return stops.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+	},
 });
 
 /**
@@ -547,6 +552,7 @@ async function loadNewBoard(fromPieces, loaded) {
 	placeEndGroup(false);
 	resultDisplay.innerText = "Chess"
 	resultReason.hidden = true;
+	resultAnnouncement.textContent = "";
 	await refreshData(game.response);
 	game.opposingMove = true; // LOCKED WHILE THE PIECES SLIDE HOME (drawRestartSlide UNLOCKS IT)
 	startRestartSlide(fromPieces);
@@ -713,6 +719,8 @@ export function showGameOver(result) {
 	resultReason.hidden = !resultReason.innerText;
 	optRestartBtn.innerHTML = game.ai ? "Restart" : "Rematch";
 	handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
+	if (!game.TV_BOOL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS
+	resultAnnouncement.textContent = `${resultDisplay.innerText} ${resultReason.innerText}`.trim(); // AFTER THE FOCUS MOVES, A SCREEN READER READS THE BUTTON THEN THIS
 }
 
 /* ---------------------------------------------------------------- */

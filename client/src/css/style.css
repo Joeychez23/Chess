@@ -161,6 +161,16 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	display: none;
 }
 
+#resultAnnouncement { /* ONLY FOR SCREEN READERS, THE MENU'S TITLE SHOWS THE RESULT. NOT display: none, THEY WOULDN'T READ IT */
+	position: fixed;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
 #gameStatus:empty { /* NOT display: none, SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
 	padding: 0;
 	border: 0;
@@ -283,6 +293,11 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	touch-action: pan-y;
 	padding: 0 8px 4px;
 	list-style: none;
+}
+
+#moveListRows li:focus-visible {
+	outline: 2px solid var(--gold);
+	outline-offset: -2px;
 }
 
 #moveListRows li {

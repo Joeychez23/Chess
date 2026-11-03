@@ -149,4 +149,6 @@ function gameNotFound() {
 	startLogoutButtons(auth); // THE SAME SECOND PRESS AS HOME & SETTINGS
 	const toggleNav = startNav();
 	toggleNav(true); // OPEN, THE TITLE SAYS WHAT HAPPENED
+	resultDisplay.tabIndex = -1; // A SCREEN READER READS IT FIRST, THE TAB KEY STILL SKIPS IT
+	resultDisplay.focus();
 }

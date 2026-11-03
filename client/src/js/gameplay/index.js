@@ -26,7 +26,7 @@ const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM T
 const { addMenuListeners, handleResume, handleSound, loadSound, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleHomepage, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
-const { loadMoveList, handleMoveListToggle } = require("./movelist/index.js"); // THE MOVE LIST PANEL
+const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
@@ -144,24 +144,24 @@ async function startGame() {
 		canvas.addEventListener("touchcancel", handleTouchCancel, { passive: false });
 	}
 	if (!game.TV_BOOL || OVERRIDE_TV) { addMenuListeners(); } // THE MENU BUTTON, A CLICK AWAY (THE BOARD: handleCanvasClick) & ESCAPE
-	if (!game.TV_BOOL || OVERRIDE_TV) { optResumeBtn.addEventListener("click", handleResume); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optSoundBtn.addEventListener("click", handleSound); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optFlipBtn.addEventListener("click", handleFlip); }
+	optResumeBtn.addEventListener("click", handleResume);
+	optSoundBtn.addEventListener("click", handleSound);
+	optFlipBtn.addEventListener("click", handleFlip);
 	if (!game.TV_BOOL || OVERRIDE_TV) { optPgnBtn.addEventListener("click", handleDownloadPgn); } // THE TV REMOTE CAN'T REACH IT, A TV HAS NOWHERE TO SAVE A FILE
 	else { optPgnBtn.parentElement.hidden = true; }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optHint").addEventListener("click", handleHint); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optEvalBar").addEventListener("click", handleEvalBar); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optTakeback").addEventListener("click", handleTakeback); }
+	document.getElementById("optHint").addEventListener("click", handleHint);
+	document.getElementById("optEvalBar").addEventListener("click", handleEvalBar);
+	document.getElementById("optTakeback").addEventListener("click", handleTakeback);
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("takebackAccept").addEventListener("click", handleTakeback); } // THE SAME PRESS ACCEPTS
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("takebackDecline").addEventListener("click", handleDeclineTakeback); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optDraw").addEventListener("click", handleOfferDraw); }
+	document.getElementById("optDraw").addEventListener("click", handleOfferDraw);
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("drawAccept").addEventListener("click", handleOfferDraw); } // THE SAME PRESS ACCEPTS
 	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("drawDecline").addEventListener("click", handleDeclineDraw); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optRestartBtn.addEventListener("click", handleRestart) }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("optCancelRematch").addEventListener("click", handleCancelRematch); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optHomepageBtn.addEventListener("click", handleHomepage); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { optExitBtn.addEventListener("click", handleExit); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("moveListToggle").addEventListener("click", handleMoveListToggle); }
+	optRestartBtn.addEventListener("click", handleRestart);
+	document.getElementById("optCancelRematch").addEventListener("click", handleCancelRematch);
+	optHomepageBtn.addEventListener("click", handleHomepage);
+	optExitBtn.addEventListener("click", handleExit);
+	if (!game.TV_BOOL || OVERRIDE_TV) { addMoveListListeners(); } // THE TOGGLE & ITS KEYS
 	addMoveBoxListeners(); // ON IN TV MODE TOO, A KEYBOARD CAN STILL TYPE. THE TV REMOTE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE
 }
 

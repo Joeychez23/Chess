@@ -195,6 +195,7 @@ export function drawRestartSlide() {
 		game.restartSlide = null;
 		setRestartLoading(false);
 		optBtn.style.display = "flex";
+		if (document.activeElement == document.body) { optBtn.focus(); } // THE MENU CLOSED WHILE THE BUTTON WAS AWAY, THE FOCUS GOES BACK TO IT NOW
 		game.opposingMove = chessInst.turn() != game.playerColor; // LOCKED IF THE OPPONENT GOES FIRST
 		game.boardReset = false;
 		game.drawScreen(); // THE NEW GAME'S FIRST FRAME, IT ALSO PUTS THE SQUARES ON tiles SO AN AI MOVE FINDS ITS PIECE

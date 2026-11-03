@@ -137,6 +137,10 @@
 	outline-offset: 2px;
 }
 
+#menuContainer #resultDisplay:focus { /* "Game not found" TAKES FOCUS TO BE READ OUT, IT CAN'T BE PRESSED */
+	outline: none;
+}
+
 /* ---------------------------------------------------------------- */
 /* Menu */
 /* ---------------------------------------------------------------- */

@@ -137,7 +137,7 @@ client/
     guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board, Play AI / New game
     settings/index.js        Username (first pick goes Home), account info, saves the Default start settings, Delete my data (two presses, then logout)
     play/index.js            Finds the player + game (url or guest localStorage, a missing guest game is made as Random), starts renderCanvas()
-    utils/nav.js             createNav() (opens & closes every page's menu, the game passes hooks), startNav() (pages without the game)
+    utils/nav.js             createNav() (opens & closes every page's menu, its keyboard focus, arrow keys, Tab around the page & Left and Right between the page's elements, the game passes hooks), menuItems() (the visible items, the TV remote uses them too), startNav() (pages without the game)
     utils/index.js           table background, showCurrentGame() / hideCurrentGame(), loadLevels(), colorText()
     utils/boardPicture.js    drawBoardPicture(): a still of a game's board, drawn like the play page
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
@@ -154,8 +154,8 @@ client/
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
     menu/index.js            Menu buttons, draw offers, Forfeit / Restart / Rematch (loads the new board in place), game over, socketHandlers
     status/index.js          The play page's message area (#gameStatus): refused moves, lost connection, server or AI not answering
-    movelist/index.js        The move list panel (#moveList): numbered moves, where it fits next to the board, collapsing it. The opening's name (#openingDisplay)
-    movebox/index.js         The typed move box (#moveBox): the / key & the menu open it, the menu also closes it, chess.js reads the move, it slides like a clicked move, it lists the legal moves as the player types, it opens at the top right behind the menu button each time & a mouse or finger can drag it while it's open
+    movelist/index.js        The move list panel (#moveList): numbered moves, where it fits next to the board, collapsing it, its keyboard focus & arrow keys. The opening's name (#openingDisplay)
+    movebox/index.js         The typed move box (#moveBox): the / key & the menu open it, the menu also closes it, chess.js reads the move, it slides like a clicked move, it lists the legal moves as the player types, it opens at the top right behind the menu button each time, a mouse or finger can drag it while it's open, closing gives focus back & Left or Right leave it with the cursor at that end
     movebox/suggestions.js   What the list shows & when the player can move (no page state, the server tests run it)
     validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, player search, friends, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)

@@ -16,6 +16,11 @@ Chess should be playable by as many people as possible, including people who use
 - Messages about invites and errors are announced by screen readers as they appear. On the play page that includes a refused move, a lost connection and the server or AI not answering.
 - The menu button is labelled "Menu", says whether the menu is open or closed, and its three lines turn into an X while the menu is open. The button, clicking or tapping away and Escape close every menu; a game's menu only stays open while a new board loads. In a game, Resume closes it too for keyboard players.
 - Menu items are in named groups in the same order on every page: current context, page actions, navigation, account. When a game ends, Restart or Rematch moves to the top in the page itself, so the Tab key and screen readers follow the order on screen.
+- With a keyboard, opening a menu moves to its first item and closing it goes back to the menu button. Escape, Delete and Backspace close it. While it's open, Tab, Up, Down, Left, Right, Home and End stay in its items. Left and Right move between columns on short screens, and otherwise up and down the list. In a game, a TV remote's list is the same as the keyboard's, without Download PGN and Type a Move.
+- While a menu is closed, Tab goes around the page's elements and doesn't leave for the browser (use F6 or Ctrl/Cmd+L to reach the address bar). Left and Right move between the page's elements; in a game they move in that direction on screen between the Moves panel, the Type a Move box when it's open and the menu button. In a text box they leave once the cursor is at that end.
+- With a keyboard, opening the Moves panel moves to the newest move. Up, Down, Home and End move between the moves, Up or Down past either end goes back to the panel's button, and Escape closes the panel and goes back to its button.
+- With a keyboard, Escape closes the Type a Move box and goes back to where you were. Home and End jump through the list once a move in it is highlighted.
+- When a game ends, the result is announced by screen readers and focus moves to Restart or Rematch. "Game not found" is read out when the page opens.
 - Buttons and links show a gold outline when you move to them with the keyboard.
 - You can zoom the page; zoom isn't blocked on phones.
 
