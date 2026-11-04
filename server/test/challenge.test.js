@@ -12,7 +12,7 @@ const path = require("node:path");
 const express = require("express");
 const testServer = require("./helpers/server.js");
 const fakeDynamo = require("../../data-service/test/helpers/fakeDynamo.js");
-const { call, page, player, peek, listen } = testServer;
+const { call, page, player, named, peek, listen } = testServer;
 
 let server;
 let sentPage; // THE PAGE A ROUTE SENT, THE SERVER TESTS DON'T BUILD client/dist
@@ -98,7 +98,7 @@ describe("a challenge link", () => {
 		assert.equal(peek("chess_db", first.game_id), undefined);
 		assert.equal((await home(alice)).sent_invite.game_id, second.game_id);
 
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
 		assert.equal(peek("chess_db", second.game_id), undefined);
 		assert.equal((await home(alice)).sent_invite.open_seat, undefined);
 
@@ -119,7 +119,7 @@ describe("a challenge link", () => {
 
 	test("the joiner's open friend game: 409 keeps it, replace_current forfeits it & tells the board", async () => {
 		const [alice, bob, carol] = [player("alice"), player("bob"), player("carol")];
-		const invite = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob });
 		const link = await makeLink(alice);
 
@@ -139,7 +139,7 @@ describe("a challenge link", () => {
 
 	test("the creator's open friend game: making a link answers 409 until replace_current forfeits it", async () => {
 		const [alice, bob] = [player("alice"), player("bob")];
-		const invite = await call("POST", "/api/chess/invite", { as: bob, body: { opponent_email: alice.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: bob, body: { opponent_username: await named(alice) } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: alice });
 		const busy = await makeLink(alice);
 		assert.equal(busy.http, 409);
@@ -217,7 +217,7 @@ describe("the page a link opens", () => {
 
 	test("an ordinary invite still goes Home, and someone else's game is still the play page", async () => {
 		const [alice, bob, carol] = [player("alice"), player("bob"), player("carol")];
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
 		assert.equal((await page(`/play/${invite.game_id}`, { as: bob })).location, "/");
 		await page(`/play/${invite.game_id}`, { as: carol });
 		assert.equal(sentPage, "play.html");

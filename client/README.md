@@ -123,7 +123,7 @@ leaveGame();
 
 ```text
 client/
-  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Finished games, Friends, menu (Invites, Your games, Finished games, Friends / Settings / Logout)
+  home.html                  Home markup: Play the AI (level), Play a friend (username or challenge link), Invites, Your games, Finished games, Friends, menu (Invites, Your games, Finished games, Friends / Settings / Logout)
   settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my account, menu (Home / Logout)
   login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home)
   signup.html                Signup markup: Create account, link to login, menu (Home), shares the login bundle

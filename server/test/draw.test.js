@@ -10,7 +10,7 @@ const { test, describe, before, after, beforeEach, afterEach, mock } = require("
 const assert = require("node:assert/strict");
 const { aiAcceptsDraw } = require("../utils/ai.js");
 const testServer = require("./helpers/server.js");
-const { call, player, listen, engineWillPlay, engineWillScore, engineCalls, peek } = testServer;
+const { call, player, named, listen, engineWillPlay, engineWillScore, engineCalls, peek } = testServer;
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const realFetch = globalThis.fetch;
@@ -63,7 +63,7 @@ describe("draw routes", () => { // AFTER "aiAcceptsDraw": ITS afterEach PUTS BAC
 	async function friendGame() {
 		const alice = player("alice");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 		return { alice, bob, gameId: invite.game_id };
 	}
@@ -157,7 +157,7 @@ describe("draw routes", () => { // AFTER "aiAcceptsDraw": ITS afterEach PUTS BAC
 			assert.equal((await call("POST", `/api/chess/game/${gameId}/draw`, { as: alice })).message, "Game is already over");
 			assert.equal((await call("GET", `/api/chess/game/${gameId}`, { as: alice })).reason, "forfeit");
 
-			const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: carol.email, start_color: "w" } });
+			const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(carol), start_color: "w" } });
 			assert.equal((await call("POST", `/api/chess/game/${invite.game_id}/draw`, { as: alice })).message, "Invite not accepted yet");
 		});
 	});

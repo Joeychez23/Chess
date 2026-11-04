@@ -130,7 +130,7 @@ export async function getRatings(gameUrl, gameId) {
 }
 
 /**
- * @description Invites a friend, the server finds them by username or email (an @ means email, usernames can't have one) & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
+ * @description Invites a friend, the server finds them by username & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
  * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the server answers 409 while one is open]
  * @param  {[string]} startColor [the inviter's color: "alternate" | "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position, rematches keep it]
@@ -143,7 +143,7 @@ export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			challenger_id: _id,
-			...(opponent.includes("@") ? { opponent_email: opponent } : { opponent_username: opponent }),
+			opponent_username: opponent,
 			replace_current: replaceCurrent,
 			start_color: startColor,
 			start_fen: startFen,

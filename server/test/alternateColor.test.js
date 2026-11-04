@@ -10,7 +10,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, player, peek } = testServer;
+const { call, player, named, peek } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -68,7 +68,7 @@ describe("alternate color", () => {
 	test("friend games switch on a Rematch & the next invite, an unplayed invite doesn't count", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		const first = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "alternate" } });
+		const first = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "alternate" } });
 		const color = sideOf(first.game_id, "alice");
 		await call("POST", `/api/chess/game/${first.game_id}/accept`, { as: bob, body: {} });
 		await call("POST", `/api/chess/game/${first.game_id}/forfeit`, { as: alice });
@@ -79,7 +79,7 @@ describe("alternate color", () => {
 		assert.equal(JSON.parse(peek("chess_db", rematch.new_game_id).start_params.S).color, "alternate");
 		await call("POST", `/api/chess/game/${rematch.new_game_id}/forfeit`, { as: alice });
 
-		const next = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "alternate" } });
+		const next = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "alternate" } });
 		assert.equal(sideOf(next.game_id, "alice"), color);
 	});
 
@@ -87,7 +87,7 @@ describe("alternate color", () => {
 		const alice = player("alice");
 		const bob = player("bob");
 		await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 		assert.equal(peek("user_db", "alice").last_ai_color.S, "w");
 		assert.equal(peek("user_db", "alice").last_friend_color.S, "w");

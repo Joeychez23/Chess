@@ -15,7 +15,6 @@
 const { Chess } = require("chess.js");
 const { checkStartFen } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove, aiAcceptsDraw, analyzePosition } = require("../utils/ai.js");
-const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
 const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft, isColor, OPEN_SEAT } = require("../utils/games.js");
 const { buildPgn } = require("../utils/pgn.js");
@@ -621,24 +620,23 @@ async function savedRematch(gameId, playerId) {
 // Invite (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Invites a friend by email: looks up their Auth0 account & creates a PENDING game, they accept or decline it on Home.
+ * @description Invites a friend by username (never by email, so this can't tell anyone which emails have accounts) & creates a PENDING game, they accept or decline it on Home.
  * The challenger (signed in user) picks their color, the sides are drawn now so the invite shows them. One sent invite at a time: a new one deletes the last one.
  * Signed in players have one friend game open at a time: while one is open this answers 409, unless replace_current forfeits it first
- * @param  {[object]} req.body [{ opponent_email, start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random),
+ * @param  {[object]} req.body [{ opponent_username, start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random),
  * start_fen (optional, a set position to start from), takebacks (optional, 0 = off, left out = up to 3 per game), replace_current (optional, true = forfeit the open friend game & invite) }]
  * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)]
  */
 async function inviteGame(req, res) {
-	const { opponent_email, opponent_username, replace_current } = req.body || {};
-	if (!opponent_email && !opponent_username) { return res.status(400).json({ status: 500, message: "Missing opponent" }); }
+	const { opponent_username, replace_current } = req.body || {};
+	if (!opponent_username) { return res.status(400).json({ status: 500, message: "Missing opponent" }); }
 	const position = checkStartFen(req.body?.start_fen); // CHECKED BEFORE ANYTHING IS FORFEITED OR SAVED
 	if (position.message) { return res.status(400).json({ status: 400, message: position.message }); }
 	const challengerId = userPlayerId(req.user); // requireAuth SETS req.user
 
-	const opponent = await findOpponent(opponent_email, opponent_username);
-	if (!opponent) { return res.status(404).json({ status: 500, message: "Opponent not found" }); }
-	const opponentId = opponent.id;
-	if (opponentId == challengerId) { return res.status(400).json({ status: 500, message: opponent_username ? "That's your username" : "That's your email" }); }
+	const opponentId = await findOpponent(opponent_username);
+	if (!opponentId) { return res.status(404).json({ status: 500, message: "Opponent not found" }); }
+	if (opponentId == challengerId) { return res.status(400).json({ status: 500, message: "That's your username" }); }
 
 	const mine = await myGames();
 	const theirInvite = receivedInvites(mine).find((invite) => invite.player_id == opponentId);
@@ -650,8 +648,7 @@ async function inviteGame(req, res) {
 	if (mine.user_data?.sent_invite) { await dropInvite(mine.user_data.sent_invite.game_id); } // ONE SENT INVITE AT A TIME
 
 	const params = readStartParams(req.body, position.fen);
-	const screenname = opponent.screenname; // THEIR NAME UNTIL THEY PICK A USERNAME (THE CHALLENGER'S IS IN THEIR TOKEN)
-	const response = await invite({ opponent_id: opponentId, opponent_screenname: typeof screenname == "string" ? screenname.slice(0, 50) : undefined, color: params.color, start_fen: params.fen, takebacks: params.takebacks }); // CREATE NEW GAME (THE DATA SERVICE MAKES THE ID), PENDING UNTIL THEY ACCEPT. RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
+	const response = await invite({ opponent_id: opponentId, color: params.color, start_fen: params.fen, takebacks: params.takebacks }); // CREATE NEW GAME (THE DATA SERVICE MAKES THE ID), PENDING UNTIL THEY ACCEPT. RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
 	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); }
 
 	notifyHome(response.game_data); // THEIR HOME SHOWS THE INVITE
@@ -665,19 +662,14 @@ async function inviteGame(req, res) {
 
 
 /**
- * @description The player an invite is for, by username (the data service) or by email (Auth0)
- * @param  {[string]} email [opponent_email, used when there's no username]
+ * @description The player an invite is for
  * @param  {[string]} username [opponent_username]
- * @return {[object]} opponent [{ id, screenname (by email only, their name until they pick a username) }, null when nobody has it]
+ * @return {[string]} id [their player id, null when nobody has it]
  */
-async function findOpponent(email, username) {
-	if (username) {
-		const checked = checkUsername(username);
-		const found = checked.username ? await findUsername(checked.username) : null;
-		return found?.player_id ? { id: found.player_id } : null;
-	}
-	const user = await getAuth0User(email); // WAS auth0UserByEmail IN THE LAMBDA
-	return user ? { id: user.user_id.split("auth0|")[1], screenname: user.user_metadata?.screenname } : null; // PLAYER IDS DROP THE "auth0|", SAME AS THE CLIENT
+async function findOpponent(username) {
+	const checked = checkUsername(username);
+	const found = checked.username ? await findUsername(checked.username) : null;
+	return found?.player_id || null;
 }
 
 /* ---------------------------------------------------------------- */

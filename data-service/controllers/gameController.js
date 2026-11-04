@@ -447,7 +447,7 @@ function readStartFen(value) {
 /* ---------------------------------------------------------------- */
 /**
  * @description A signed in player invites a friend: a PENDING game with the requester as the inviter. The chess server found the friend
- * in Auth0 (opponent_id) & answers the rules around it (one sent invite, their invite to you, one friend game at a time) before this.
+ * (opponent_id) & answers the rules around it (one sent invite, their invite to you, one friend game at a time) before this.
  * The names are each player's username, or their Auth0 screenname until they pick one (the requester's comes from their token)
  * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3) }]. The game id is made here
  * @return {[object]} response [initalizeGame's { status, game_data (PENDING, game_id is the new id), message }]

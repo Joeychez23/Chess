@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Home Page (/, signed in)
- *	Six boxes: Play the AI (at a level & color), Play a friend (by username or email, with your color), Invites (sent & received), the player's open games, their finished games & Friends.
+ *	Six boxes: Play the AI (at a level & color), Play a friend (by username, with your color), Invites (sent & received), the player's open games, their finished games & Friends.
  *	A player has one AI game & one friend game open at a time: each box shows its game's board & Continue current game,
  *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites, a challenge link waits until someone opens it & joins,
  *	the socket redraws Play a friend & Invites when one changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
@@ -35,7 +35,7 @@ const aiColorSelect = document.getElementById("aiColor"); // ALTERNATE, RANDOM, 
 const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BLANK = THE STANDARD POSITION, RESTART KEEPS IT
 const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEITS YOUR CURRENT GAME"
 const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND
-const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: EMAIL & INVITE
+const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: USERNAME & INVITE
 const multiEmailInput = document.getElementById("enterMultiEmail");
 const playerResults = document.getElementById("playerResults"); // USERNAMES STARTING WITH WHAT WAS TYPED, PRESSING ONE FILLS THE FIELD
 const playerSearchNote = document.getElementById("playerSearchNote"); // NOBODY FOUND, OR WHY THE SEARCH FAILED
@@ -90,7 +90,7 @@ startLogoutButtons(auth); // LOGOUT IN THE MENU IS A POST (#332)
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
 startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
-muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE EMAIL FIELD
+muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE USERNAME FIELD
 multiEmailInput.addEventListener("input", handlePlayerSearch);
 createChallengeBtn.addEventListener("click", handleCreateChallenge);
 copyChallengeBtn.addEventListener("click", handleCopyChallenge);
@@ -325,18 +325,7 @@ async function loadFriendBox(gameData, friendGame) {
 }
 
 /**
- * @description Checks an email looks like an address before the invite is sent (the server checks the player exists)
- * @param  {[string]} email [what was typed]
- * @return {[array]} match [the match, null when it isn't an email]
- */
-function validateEmail(email) {
-	return String(email).toLowerCase().match(
-		/^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|.(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
-	);
-};
-
-/**
- * @description Searches for players as a username is typed, once the keys stop for SEARCH_DELAY. An email isn't searched
+ * @description Searches for players as a username is typed, once the keys stop for SEARCH_DELAY
  */
 function handlePlayerSearch() {
 	clearPlayerSearch();
@@ -403,7 +392,7 @@ function validateUsername(username) {
 }
 
 /**
- * @description Invites a friend by username or email with the picked color (Random is drawn now), they accept it on their Home. Stays here & the invite shows in Invites.
+ * @description Invites a friend by username with the picked color (Random is drawn now), they accept it on their Home. Stays here & the invite shows in Invites.
  * While a friend game is open the first press says it'll be forfeited, the second sends the invite (the server forfeits the open one)
  */
 async function handleMultiSubmit(e) {
@@ -411,7 +400,7 @@ async function handleMultiSubmit(e) {
 	e.stopPropagation();
 	clearPlayerSearch();
 	const opponent = multiEmailInput.value.trim();
-	if (!validateEmail(opponent) && !validateUsername(opponent)) { return multiNote.innerText = "Enter a username or email"; }
+	if (!validateUsername(opponent)) { return multiNote.innerText = "Enter a username"; }
 	if (FRIEND_GAME_ID && !confirmInvite) { // FIRST PRESS
 		confirmInvite = true;
 		multiEmailBtn.innerText = "Forfeit & invite";
@@ -483,8 +472,8 @@ async function handleCopyChallenge() {
  * @description Why an invite didn't go through, from the server's message
  */
 function inviteError(message) {
-	if (message == "Opponent not found") { return "No player has that username or email"; }
-	if (message == "That's your email" || message == "That's your username") { return `${message}, invite a friend`; }
+	if (message == "Opponent not found") { return "No player has that username"; }
+	if (message == "That's your username") { return `${message}, invite a friend`; }
 	if (message == "They already invited you") { return "They already invited you, accept it in Invites"; }
 	return "Couldn't send the invite, try again";
 }
