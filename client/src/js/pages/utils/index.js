@@ -15,6 +15,7 @@ const { getLevels } = require("../../gameplay/validate/index.js");
 const { imageProgress } = require("../../gameplay/images/index.js");
 const { confirmPress } = require("./confirm.js"); // LOGOUT IN THE MENU NEEDS A SECOND PRESS
 const { setFill } = require("./menuItem.js"); // LOGOUT IN THE MENU FILLS WHILE IT WAITS
+const { timeLeftText } = require("./timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 
 export { startNav } from "./nav.js"; // THE MENU BUTTON, pages/utils/nav.js
 
@@ -77,7 +78,7 @@ export async function showCurrentGame(box, game, href) {
 	const turn = game.game_board.split(" ")[1]; // FEN: w OR b TO MOVE
 	const opponent = game.ai ? `Level ${game.ai_level}` : `vs ${game.opponent_name || "Friend"}`;
 	const theirMove = game.ai ? "AI's move" : "Their move";
-	picture.querySelector("figcaption").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)} // ${turn == game.player_color ? "Your move" : theirMove}`;
+	picture.querySelector("figcaption").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)} // ${turn == game.player_color ? "Your move" : theirMove}${game.move_deadline ? ` // ${timeLeftText(game.move_deadline)}` : ""}`;
 	continueLink.href = href;
 	try {
 		await drawBoardPicture(picture.querySelector("canvas"), game);
@@ -125,12 +126,14 @@ export async function loadLevels(gameUrl, select) {
  * @description How a game's start settings read on Home: the picture's caption, Invites & Your games
  * @param  {[string]} playerColor ["w" or "b", the player's side in this game]
  * @param  {[object]} startParams [the game's start settings, { color: "alternate" | "random" | "w" | "b", fen (a set position) }]
- * @return {[string]} text ["You play white", "You play white (random)" when it was drawn, "You play white (alternating)", then " // Set position" for a game from a FEN]
+ * @return {[string]} text ["You play white", "You play white (random)" when it was drawn, "You play white (alternating)", then " // Set position" for a game from a FEN, " // No takebacks" & " // 3 days per move"]
  */
 export function colorText(playerColor, startParams) {
 	const position = startParams?.fen ? " // Set position" : ""; // STARTED FROM THE START POSITION BOX
 	const takebacks = startParams?.takebacks === 0 ? " // No takebacks" : ""; // THE INVITE'S SETTING
-	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : startParams?.color == "alternate" ? " (alternating)" : ""}${position}${takebacks}`;
+	const days = startParams?.days_per_move;
+	const timeLimit = days ? ` // ${days} day${days == 1 ? "" : "s"} per move` : ""; // THE INVITE'S SETTING
+	return `You play ${playerColor == "w" ? "white" : "black"}${startParams?.color == "random" ? " (random)" : startParams?.color == "alternate" ? " (alternating)" : ""}${position}${takebacks}${timeLimit}`;
 }
 
 /* ---------------------------------------------------------------- */

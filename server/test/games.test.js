@@ -9,7 +9,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, player, engineWillPlay, peek } = testServer;
+const { call, player, named, engineWillPlay, peek, auth0WillStall } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -221,7 +221,7 @@ describe("a signed-in player's AI games", () => {
 	test("a guest can't forfeit a friend game", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob });
 		const response = await call("POST", `/api/chess/game/${invite.game_id}/forfeit`);
 		assert.equal(response.http, 401);
@@ -245,7 +245,7 @@ describe("friend games", () => {
 		const alice = player("alice");
 		const bob = player("bob");
 
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 		assert.equal(invite.status, 200);
 		assert.equal(invite.state, "PENDING");
 		const gameId = invite.game_id;
@@ -283,7 +283,7 @@ describe("friend games", () => {
 	test("declining an invite deletes it", async () => {
 		const carol = player("carol");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_email: bob.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_username: await named(bob) } });
 
 		const declined = await call("POST", `/api/chess/game/${invite.game_id}/decline`, { as: bob });
 		assert.equal(declined.status, 200);
@@ -291,20 +291,20 @@ describe("friend games", () => {
 		assert.deepEqual((await call("GET", "/api/chess/user/bob", { as: bob })).received_invites, []);
 	});
 
-	test("an invite is refused for your own email, an unknown email, or a friend who already invited you", async () => {
+	test("an invite is refused for your own username, an unknown username, or a friend who already invited you", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: alice.email } })).message, "That's your email");
-		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: "nobody@test" } })).message, "Opponent not found");
+		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(alice) } })).message, "That's your username");
+		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: "nobody" } })).message, "Opponent not found");
 
-		await call("POST", "/api/chess/invite", { as: bob, body: { opponent_email: alice.email } });
-		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } })).message, "They already invited you");
+		await call("POST", "/api/chess/invite", { as: bob, body: { opponent_username: await named(alice) } });
+		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } })).message, "They already invited you");
 	});
 
 	test("a friend game has no AI move", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 		assert.equal((await call("POST", `/api/chess/game/${invite.game_id}/ai-move`, { as: alice })).message, "Friend games have no AI");
 	});
@@ -312,7 +312,7 @@ describe("friend games", () => {
 	test("the user_db lists follow the game: requested, then open, then closed", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
 		assert.deepEqual(list(peek("user_db", "bob"), "requested_games"), [invite.game_id]);
 
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
@@ -338,7 +338,7 @@ describe("sign-in checks", () => {
 	test("a player can't open a friend game they're not in", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
 		const response = await call("GET", `/api/chess/game/${invite.game_id}`, { as: player("carol") });
 		assert.equal(response.http, 403);
 	});
@@ -350,7 +350,7 @@ describe("sign-in checks", () => {
 	});
 
 	test("routes for signed-in players turn guests away", async () => {
-		const response = await call("POST", "/api/chess/invite", { body: { opponent_email: "bob@test" } });
+		const response = await call("POST", "/api/chess/invite", { body: { opponent_username: "Bob" } });
 		assert.equal(response.http, 401);
 		assert.equal(response.message, "NOT SIGNED IN");
 	});
@@ -396,18 +396,31 @@ describe("refusals answer their real HTTP status and keep the body", () => {
 		assert.equal(accept.message, "Invite not found");
 	});
 
+	test("an email gets the same answer whether or not it has an account, and Auth0 isn't asked", async () => {
+		const alice = player("alice");
+		const bob = player("bob");
+		auth0WillStall("/api/v2/users-by-email"); // ASKING WOULD ANSWER 503
+		const known = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		const unknown = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: "nobody@test" } });
+		assert.equal(known.http, 400);
+		assert.deepEqual(known, unknown);
+		const typed = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: bob.email } }); // AN EMAIL IN THE USERNAME FIELD
+		assert.equal(typed.http, 404);
+		assert.equal(typed.message, "Opponent not found");
+	});
+
 	test("a refused invite: 400 yourself or nobody named, 404 not found, 409 already invited or a game open", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
 		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: {} })).http, 400);
-		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: alice.email } })).http, 400);
+		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(alice) } })).http, 400);
 
-		const nobody = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: "nobody@test" } });
+		const nobody = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: "nobody" } });
 		assert.equal(nobody.http, 404);
 		assert.equal(nobody.status, 500); // THE CLIENT PICKS ITS MESSAGE FROM THE BODY
 
-		const invite = await call("POST", "/api/chess/invite", { as: bob, body: { opponent_email: alice.email } });
-		const already = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: bob, body: { opponent_username: await named(alice) } });
+		const already = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
 		assert.equal(already.http, 409);
 		assert.equal(already.status, 500);
 
@@ -421,13 +434,13 @@ describe("refusals answer their real HTTP status and keep the body", () => {
 	test("what a friend game can't do: 409", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 
 		assert.equal((await call("POST", `/api/chess/game/${invite.game_id}/restart`, { as: alice })).http, 409);
 		assert.equal((await call("POST", `/api/chess/game/${invite.game_id}/ai-move`, { as: alice })).http, 409);
 
-		const another = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: player("carol").email } });
+		const another = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(player("carol")) } });
 		assert.equal(another.http, 409);
 		assert.equal(another.status, 409);
 		assert.equal(another.game_id, invite.game_id);

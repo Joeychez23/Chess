@@ -12,7 +12,7 @@ const { Chess } = require("chess.js");
 const config = require("../config.js");
 const { buildPgn } = require("../utils/pgn.js");
 const testServer = require("./helpers/server.js");
-const { call, player, engineWillPlay } = testServer;
+const { call, player, named, engineWillPlay } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -31,7 +31,7 @@ function readPgn(pgn) {
 async function friendGame(moves) {
 	const alice = player("alice");
 	const bob = player("bob");
-	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 	await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 	for (let i = 0; i < moves.length; i++) { await call("PUT", `/api/chess/game/${invite.game_id}`, { as: i % 2 == 0 ? alice : bob, body: { move: moves[i] } }); }
 	return { gameId: invite.game_id, alice, bob };

@@ -9,7 +9,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, player, engineWillPlay, peek } = testServer;
+const { call, player, named, engineWillPlay, peek } = testServer;
 const { expectedScore, newRating, isRated, PROVISIONAL_GAMES } = require("../utils/rating.js");
 
 let server;
@@ -32,7 +32,7 @@ const friendGame = (moves, startParams) => ({
 async function friendGameBobForfeits(moves, startFen) {
 	const alice = player("alice");
 	const bob = player("bob");
-	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w", start_fen: startFen } });
+	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w", start_fen: startFen } });
 	await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 	for (let i = 0; i < moves.length; i++) {
 		const moved = await call("PUT", `/api/chess/game/${invite.game_id}`, { as: i % 2 == 0 ? alice : bob, body: { move: moves[i] } });
@@ -122,7 +122,7 @@ describe("a rated friend game", () => {
 	test("a game still going shows the ratings so far, with no change yet", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 		const ratings = await call("GET", `/api/chess/game/${invite.game_id}/ratings`, { as: bob });
 		assert.deepEqual([ratings.player_rating.rating, ratings.opponent_rating.rating, ratings.rating_change], [1500, 1500, null]);

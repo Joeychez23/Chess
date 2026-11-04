@@ -29,6 +29,7 @@ module.exports = (env, argv) => {
 			home: './src/js/pages/home/index.js',    // /              SIGNED IN
 			guest: './src/js/pages/guest/index.js',  // /              GUEST
 			play: './src/js/pages/play/index.js',    // /play          GUEST GAME, /play/:gameId SIGNED IN GAME
+			join: './src/js/pages/join/index.js',    // /play/:gameId  A CHALLENGE LINK, SIGNED IN
 			settings: './src/js/pages/settings/index.js', // /settings  SIGNED IN
 			login: './src/js/pages/login/index.js',  // /login, /signup SIGNED OUT
 			legal: './src/js/pages/legal/index.js'   // /privacy, /terms ANYONE
@@ -43,6 +44,7 @@ module.exports = (env, argv) => {
 			new HtmlWebpackPlugin({ template: './home.html', filename: 'home.html', chunks: ['home'] }),
 			new HtmlWebpackPlugin({ template: './guest.html', filename: 'guest.html', chunks: ['guest'] }),
 			new HtmlWebpackPlugin({ template: './play.html', filename: 'play.html', chunks: ['play'] }),
+			new HtmlWebpackPlugin({ template: './join.html', filename: 'join.html', chunks: ['join'] }),
 			new HtmlWebpackPlugin({ template: './settings.html', filename: 'settings.html', chunks: ['settings'] }),
 			new HtmlWebpackPlugin({ template: './login.html', filename: 'login.html', chunks: ['login'] }),
 			new HtmlWebpackPlugin({ template: './signup.html', filename: 'signup.html', chunks: ['login'] }),

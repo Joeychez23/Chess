@@ -11,7 +11,7 @@ const assert = require("node:assert/strict");
 const { Chess } = require("chess.js");
 const { checkStartFen, startPieces } = require("../utils/validate.js");
 const testServer = require("./helpers/server.js");
-const { call, player, engineWillPlay, peek } = testServer;
+const { call, player, named, engineWillPlay, peek } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -149,11 +149,11 @@ describe("friend games from a set position", () => {
 		const alice = player("alice");
 		const bob = player("bob");
 
-		const refused = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_fen: "P3k3/8/8/8/8/8/8/4K3 w - - 0 1" } });
+		const refused = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_fen: "P3k3/8/8/8/8/8/8/4K3 w - - 0 1" } });
 		assert.equal(refused.http, 400);
 		assert.equal(refused.status, 400);
 
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w", start_fen: ROOK_ENDING } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w", start_fen: ROOK_ENDING } });
 		const bobsHome = await call("GET", "/api/chess/user/bob", { as: bob });
 		assert.deepEqual(bobsHome.received_invites[0].start_params, { color: "w", fen: ROOK_ENDING });
 

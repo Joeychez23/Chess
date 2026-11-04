@@ -98,6 +98,16 @@ function peek(tableName, key) {
 }
 
 /**
+ * @description Changes a stored item directly, for a state only time can reach (a move deadline that passed)
+ * @param  {[string]} tableName [table]
+ * @param  {[string]} key [the same key as peek]
+ * @param  {[object]} changes [attributes as DynamoDB stores them]
+ */
+function poke(tableName, key, changes) {
+	Object.assign(table(tableName).get(key), structuredClone(changes));
+}
+
+/**
  * @description Signs a player in like a login does (startSession in dynamoDB.js): their row with empty game lists if they have none,
  * & the session id their test access tokens carry (helpers/keys.js, "test-sid"). A row that already has a session id keeps it
  * @param  {[string]} userId [user_id without "auth0|"]
@@ -329,4 +339,4 @@ function attributeName(name, names) {
 }
 
 
-module.exports = { install, reset, staleReads, throttleBatchReads, failBatchReads, failTransactionWrite, peek, signIn };
+module.exports = { install, reset, staleReads, throttleBatchReads, failBatchReads, failTransactionWrite, peek, poke, signIn };

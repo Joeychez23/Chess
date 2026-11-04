@@ -10,7 +10,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, send, player, listen } = testServer;
+const { call, send, player, named, listen } = testServer;
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 
@@ -100,7 +100,7 @@ describe("a rematch request & the other player", () => {
 	async function finishedGame() {
 		const alice = player("alice");
 		const bob = player("bob");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 		await call("POST", `/api/chess/game/${invite.game_id}/forfeit`, { as: bob });
 		return { alice, bob, gameId: invite.game_id };

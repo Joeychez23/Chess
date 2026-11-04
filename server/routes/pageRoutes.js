@@ -14,7 +14,7 @@ router.route('/').get(homePage);                // /              -> SIGNED IN -
 
 router.route('/play').get(playPage);            // /play          -> GUEST GAME (ITS ID STAYS IN localStorage), SIGNED IN -> HOME
 
-router.route('/play/:gameId').get(gamePage);    // /play/:gameId  -> A SIGNED IN PLAYER'S GAME, SIGNED OUT -> /api/auth/resume, THEN BACK HERE
+router.route('/play/:gameId').get(gamePage);    // /play/:gameId  -> A SIGNED IN PLAYER'S GAME, A CHALLENGE LINK -> join.html, SIGNED OUT -> /api/auth/resume, THEN BACK HERE
 
 router.route('/settings').get(settingsPage);     // /settings      -> SIGNED IN -> settings.html (USERNAME, ACCOUNT, DEFAULT START SETTINGS, DELETE MY ACCOUNT), SIGNED OUT -> /api/auth/resume, THEN BACK HERE
 

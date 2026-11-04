@@ -106,7 +106,7 @@ function reset() {
 // Players
 /* ---------------------------------------------------------------- */
 /**
- * @description A signed in player: their session user, and an Auth0 account so friends can invite them by email
+ * @description A signed in player: their session user, and their Auth0 account
  * @param  {[string]} name [e.g. "alice", also their player id]
  * @return {[object]} player [{ id, email, user }]
  */
@@ -116,6 +116,17 @@ function player(name) {
 	const password = `${name}-password`;
 	auth0Passwords.set(user.email, password);
 	return { id: name, email: user.email, password, user };
+}
+
+/**
+ * @description Gives a player a username (their screenname), so friends can invite them
+ * @param  {[object]} who [from player()]
+ * @return {[string]} username [what an invite finds them by]
+ */
+async function named(who) {
+	const username = who.user.user_metadata.screenname;
+	await call("PUT", "/api/user/username", { as: who, body: { username } });
+	return username;
 }
 
 const auth0WillRefuseDeletes = () => { auth0RefusesDeletes = true; };
@@ -407,4 +418,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, auth0WillRefuseDeletes, hasAuth0User, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, throttleBatchReads: fakeDynamo.throttleBatchReads };
+module.exports = { start, reset, player, named, call, send, page, auth0WillRefuseDeletes, hasAuth0User, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, poke: fakeDynamo.poke, throttleBatchReads: fakeDynamo.throttleBatchReads };

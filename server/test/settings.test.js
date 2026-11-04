@@ -10,7 +10,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, player, peek, auth0WillRefuseDeletes, hasAuth0User } = testServer;
+const { call, player, named, peek, auth0WillRefuseDeletes, hasAuth0User } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -23,7 +23,7 @@ const list = (item, name) => JSON.parse(item[name].S);
  * @description An open friend game: the inviter sends, the friend accepts
  */
 async function friendGame(inviter, friend) {
-	const invite = await call("POST", "/api/chess/invite", { as: inviter, body: { opponent_email: friend.email, start_color: "w" } });
+	const invite = await call("POST", "/api/chess/invite", { as: inviter, body: { opponent_username: await named(friend), start_color: "w" } });
 	await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: friend, body: {} });
 	return invite.game_id;
 }
@@ -88,7 +88,7 @@ describe("delete my data", () => {
 		const carol = player("carol");
 		const gameId = await friendGame(alice, bob); // ALICE IS WHITE
 		const aiGame = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
-		const carolsInvite = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_email: alice.email } });
+		const carolsInvite = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_username: await named(alice) } });
 
 		const deleted = await call("DELETE", "/api/user", { as: alice });
 		assert.equal(deleted.status, 200);
@@ -139,7 +139,7 @@ describe("delete my data", () => {
 	test("cancels the invite they sent", async () => {
 		const alice = player("alice");
 		const carol = player("carol");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: carol.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(carol) } });
 
 		await call("DELETE", "/api/user", { as: alice });
 		assert.equal(peek("chess_db", invite.game_id), undefined);

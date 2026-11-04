@@ -26,6 +26,29 @@ async function newGame() {
 	return created.game_data;
 }
 
+describe("move deadlines", () => {
+	const dailyGame = async () => (await db.initalizeGame("game1", "alice", "bob", false, { start_params: { color: "w", days_per_move: 1 }, inviter_id: "alice" })).game_data;
+
+	test("a timeout read from before the last move changes nothing", async () => {
+		const game = await dailyGame();
+		const closed = await db.closeGame({ ...game, move_deadline: { N: "1" } }, "b", "timeout");
+		assert.equal(closed.status, 500);
+		assert.equal(fakeDynamo.peek("chess_db", "game1").state.S, "OPEN");
+	});
+
+	test("an overdue game closes on the read that finds it, only that read says so", async () => {
+		await dailyGame();
+		fakeDynamo.poke("chess_db", "game1", { move_deadline: { N: "1" } });
+		const first = await db.retrieveGame("game1", true);
+		assert.equal(first.timed_out, true);
+		assert.equal(first.game_data.winner.S, "b");
+		assert.equal(first.game_data.reason.S, "timeout");
+		const second = await db.retrieveGame("game1", true);
+		assert.equal(second.timed_out, undefined);
+		assert.equal(second.game_data.state.S, "CLOSED");
+	});
+});
+
 describe("updateGame", () => {
 	test("saves a move made on the current board", async () => {
 		const gameData = await newGame();

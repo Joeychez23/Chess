@@ -13,7 +13,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("http");
 const testServer = require("./helpers/server.js");
-const { call, player, peek, listen, engineWillPlay, dataServiceWillAnswer, dataServiceWillStall } = testServer;
+const { call, player, named, peek, listen, engineWillPlay, dataServiceWillAnswer, dataServiceWillStall } = testServer;
 const { timeouts, withRequest, retrieveGame } = require("../dataClient.js");
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
@@ -102,7 +102,7 @@ async function withShortWrites(fn) {
  */
 async function friendGame() {
 	const [alice, bob] = ["alice", "bob"].map(player);
-	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 	await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 	return { alice, bob, gameId: invite.game_id };
 }
@@ -142,7 +142,7 @@ describe("a write that saves but answers too late", () => {
 
 	test("an accept: the player gets the open game and the inviter's Home is told", async () => {
 		const [alice, bob] = ["alice", "bob"].map(player);
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 		const alicesTab = await listen(alice);
 		dataServiceWillStall(`/games/${invite.game_id}/accept`);
 
@@ -207,8 +207,8 @@ describe("a write that saves but answers too late", () => {
 describe("accepting an invite", () => {
 	test("an inviter in another friend game: the invite is dropped and the player keeps their own game", async () => {
 		const [alice, bob, carol] = ["alice", "bob", "carol"].map(player);
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
-		const bobsGame = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
+		const bobsGame = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${bobsGame.game_id}/accept`, { as: bob, body: {} }); // BOB PLAYS CAROL (ALICE'S INVITE WAITS)
 		await db.initalizeGame("race1", "alice", "dave", false, { start_params: { color: "w" }, inviter_id: "dave" }); // ALICE STARTED ANOTHER FRIEND GAME A MOMENT AGO (ACCEPTING ONE CANCELS HER INVITE, SO ONLY A RACE GETS HERE)
 
@@ -220,8 +220,8 @@ describe("accepting an invite", () => {
 
 	test("with replace_current the open friend game is forfeited and the new one starts", async () => {
 		const [alice, bob, carol] = ["alice", "bob", "carol"].map(player);
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
-		const bobsGame = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_email: bob.email, start_color: "w" } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
+		const bobsGame = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${bobsGame.game_id}/accept`, { as: bob, body: {} });
 
 		const open = await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });

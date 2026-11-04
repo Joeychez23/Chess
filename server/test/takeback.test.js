@@ -11,7 +11,7 @@ const assert = require("node:assert/strict");
 const { Chess } = require("chess.js");
 const { latestOpening } = require("../utils/openings.js");
 const testServer = require("./helpers/server.js");
-const { call, player, peek, engineWillPlay, engineCalls, listen } = testServer;
+const { call, player, named, peek, engineWillPlay, engineCalls, listen } = testServer;
 
 const START = new Chess().fen();
 const alice = player("alice");
@@ -177,7 +177,7 @@ describe("friend game takebacks", () => {
 	 * @description An open friend game, Alice is white
 	 */
 	async function friendGame(body = {}) {
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w", ...body } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w", ...body } });
 		await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 		return invite.game_id;
 	}

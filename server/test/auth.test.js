@@ -105,31 +105,23 @@ describe("login", () => {
 // Auth0 Stalls (#365)
 /* ---------------------------------------------------------------- */
 
-test("with Auth0 not answering, a login & an invite say try again within about 5 seconds", async (t) => {
+test("with Auth0 not answering, a login says try again within about 5 seconds", async (t) => {
 	const alice = player("alice");
-	const bob = player("bob");
 	const errors = t.mock.method(console, "error", () => {});
 	auth0WillStall("/oauth/token", "http://auth0.com/oauth/grant-type/password-realm");
-	auth0WillStall("/api/v2/users-by-email");
 
 	const started = Date.now();
-	const [password, invite] = await Promise.all([
-		passwordLogin({ email: alice.email, password: alice.password }),
-		call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } })
-	]);
+	const password = await passwordLogin({ email: alice.email, password: alice.password });
 	const took = Date.now() - started;
 
 	assert.equal(password.http, 503);
 	assert.equal(password.body.message, "Try again in a moment");
-	assert.equal(invite.http, 503);
-	assert.equal(invite.message, "Try again in a moment");
 	assert.ok(took >= 4500 && took < 6000, `took ${took}ms`);
 	assert.equal(auth0Logins().length, 0); // THE STALLED LOGIN WASN'T TRIED AGAIN
 
 	const logged = errors.mock.calls.map((call) => String(call.arguments[0])).join("\n");
 	assert.match(logged, /Auth0: password login: no answer in 5 seconds/);
-	assert.match(logged, /Auth0: user search: no answer in 5 seconds/);
-	assert.ok(!logged.includes(alice.email) && !logged.includes(bob.email) && !logged.includes(alice.password));
+	assert.ok(!logged.includes(alice.email) && !logged.includes(alice.password));
 });
 
 /* ---------------------------------------------------------------- */
