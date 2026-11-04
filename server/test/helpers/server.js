@@ -418,4 +418,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, named, call, send, page, auth0WillRefuseDeletes, hasAuth0User, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, throttleBatchReads: fakeDynamo.throttleBatchReads };
+module.exports = { start, reset, player, named, call, send, page, auth0WillRefuseDeletes, hasAuth0User, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, poke: fakeDynamo.poke, throttleBatchReads: fakeDynamo.throttleBatchReads };

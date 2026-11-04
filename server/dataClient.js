@@ -232,7 +232,7 @@ const newGuestGame = (settings) => call("POST", "/games/guest", settings);
 
 /**
  * @description The requester invites a friend, a PENDING game. The names come from the usernames, else the screennames
- * @param  {[object]} details [{ opponent_id, color, start_fen, takebacks }], the data service makes the game id
+ * @param  {[object]} details [{ opponent_id, color, start_fen, takebacks, days_per_move }], the data service makes the game id
  */
 const invite = (details) => call("POST", "/games/invite", details);
 
@@ -244,7 +244,7 @@ const accept = (gameId, replaceCurrent) => call("POST", `/games/${id(gameId)}/ac
 
 /**
  * @description The requester makes a challenge link, a PENDING game with the other seat empty
- * @param  {[object]} details [{ color, start_fen, takebacks }], the data service makes the game id
+ * @param  {[object]} details [{ color, start_fen, takebacks, days_per_move }], the data service makes the game id
  */
 const challenge = (details) => call("POST", "/games/challenge", details);
 

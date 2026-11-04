@@ -171,6 +171,26 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	white-space: nowrap;
 }
 
+#moveDeadline { /* BOTTOM LEFT, CLICKS GO THROUGH TO THE BOARD */
+	position: fixed;
+	z-index: 21;
+	bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+	left: calc(env(safe-area-inset-left, 0px) + 16px);
+	margin: 0;
+	padding: 6px 12px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 14px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 14px;
+	pointer-events: none;
+}
+
+#moveDeadline:empty {
+	display: none;
+}
+
 #gameStatus:empty { /* NOT display: none, SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
 	padding: 0;
 	border: 0;

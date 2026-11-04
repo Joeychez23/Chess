@@ -13,7 +13,7 @@
 
 const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, takeOpenSeat, deleteInvite, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, saveLastColor, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, undoMoves, gameResult, checkStartFen } = require("../utils/validate.js");
-const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, openSeat, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL, OPEN_SEAT } = require("../utils/games.js");
+const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, openSeat, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL, DAYS_PER_MOVE, OPEN_SEAT } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
 const { guestToken } = require("../utils/tokens.js");
 
@@ -449,20 +449,21 @@ function readStartFen(value) {
  * @description A signed in player invites a friend: a PENDING game with the requester as the inviter. The chess server found the friend
  * (opponent_id) & answers the rules around it (one sent invite, their invite to you, one friend game at a time) before this.
  * The names are each player's username, or their Auth0 screenname until they pick one (the requester's comes from their token)
- * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3) }]. The game id is made here
+ * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3), days_per_move (optional, 1, 3 or 7, left out = no limit) }]. The game id is made here
  * @return {[object]} response [initalizeGame's { status, game_data (PENDING, game_id is the new id), message }]
  */
 async function inviteGame(req, res) {
 	if (req.player.guest) { return refuse(req, res, 403, "Guests can't invite"); }
-	const { opponent_id, opponent_screenname, color, start_fen, takebacks } = req.body || {};
+	const { opponent_id, opponent_screenname, color, start_fen, takebacks, days_per_move } = req.body || {};
 	if (!isId(opponent_id)) { return refuse(req, res, 400, "Invalid opponent"); }
 	if (takebacks !== undefined && takebacks !== 0 && takebacks !== 3) { return refuse(req, res, 400, "Invalid takebacks"); }
+	if (days_per_move !== undefined && !DAYS_PER_MOVE.includes(days_per_move)) { return refuse(req, res, 400, "Invalid days per move"); }
 	if (opponent_id == req.player.id) { return refuse(req, res, 400, "That's your own id"); }
 	if (opponent_screenname !== undefined && (typeof opponent_screenname != "string" || opponent_screenname.length > NAME_LENGTH)) { return refuse(req, res, 400, "Invalid screenname"); }
 	const position = readStartFen(start_fen);
 	if (position.message) { return refuse(req, res, 400, position.message); }
 
-	const params = newStartParams(color, position.fen, takebacks);
+	const params = newStartParams(color, position.fen, takebacks, days_per_move);
 	const sides = pickSides(params, req.player.id, opponent_id, await lastColor(params, req.player.id, false)); // RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
 	const names = {
 		[req.player.id]: (await username(req.player.id)) || req.player.user.user_metadata?.screenname,
@@ -477,17 +478,18 @@ async function inviteGame(req, res) {
 /**
  * @description A signed in player makes a challenge link: a PENDING game like an invite, with the other side's seat empty (OPEN_SEAT) & only on the requester's
  * requested_games. The chess server answers the rules around it (one sent invite, one friend game at a time) before this
- * @param  {[object]} req.body [{ color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3) }]. The game id is made here
+ * @param  {[object]} req.body [{ color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3), days_per_move (optional, 1, 3 or 7, left out = no limit) }]. The game id is made here
  * @return {[object]} response [initalizeGame's { status, game_data (PENDING, game_id is the new id), message }]
  */
 async function challengeGame(req, res) {
 	if (req.player.guest) { return refuse(req, res, 403, "Guests can't make a challenge link"); }
-	const { color, start_fen, takebacks } = req.body || {};
+	const { color, start_fen, takebacks, days_per_move } = req.body || {};
 	if (takebacks !== undefined && takebacks !== 0 && takebacks !== 3) { return refuse(req, res, 400, "Invalid takebacks"); }
+	if (days_per_move !== undefined && !DAYS_PER_MOVE.includes(days_per_move)) { return refuse(req, res, 400, "Invalid days per move"); }
 	const position = readStartFen(start_fen);
 	if (position.message) { return refuse(req, res, 400, position.message); }
 
-	const params = newStartParams(color, position.fen, takebacks);
+	const params = newStartParams(color, position.fen, takebacks, days_per_move);
 	const sides = pickSides(params, req.player.id, OPEN_SEAT, await lastColor(params, req.player.id, false)); // RANDOM IS DRAWN NOW, THE LINK SAYS "YOU PLAY BLACK (RANDOM)"
 	const name = (await username(req.player.id)) || req.player.user.user_metadata?.screenname;
 	const names = sides.white == req.player.id ? { w: name } : { b: name };

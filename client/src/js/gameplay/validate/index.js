@@ -135,9 +135,10 @@ export async function getRatings(gameUrl, gameId) {
  * @param  {[string]} startColor [the inviter's color: "alternate" | "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position, rematches keep it]
  * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game, rematches keep it]
+ * @param  {[number]} daysPerMove [1, 3 or 7 days for each move, left out = no limit, rematches keep it]
  * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
  */
-export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent, startColor, startFen, takebacks) {
+export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent, startColor, startFen, takebacks, daysPerMove) {
 	let options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -147,7 +148,8 @@ export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent
 			replace_current: replaceCurrent,
 			start_color: startColor,
 			start_fen: startFen,
-			takebacks
+			takebacks,
+			days_per_move: daysPerMove
 		})
 	};
 	try {
@@ -163,13 +165,14 @@ export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent
  * @param  {[string]} startColor [the player's color: "alternate" | "random" | "w" | "b"]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position]
  * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game]
+ * @param  {[number]} daysPerMove [1, 3 or 7 days for each move, left out = no limit]
  * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
  */
-export async function createChallenge(gameUrl, replaceCurrent, startColor, startFen, takebacks) {
+export async function createChallenge(gameUrl, replaceCurrent, startColor, startFen, takebacks, daysPerMove) {
 	const options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ replace_current: replaceCurrent, start_color: startColor, start_fen: startFen, takebacks })
+		body: JSON.stringify({ replace_current: replaceCurrent, start_color: startColor, start_fen: startFen, takebacks, days_per_move: daysPerMove })
 	};
 	try {
 		return await request(`${gameUrl}/challenge`, options)

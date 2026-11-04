@@ -70,8 +70,8 @@ request is for comes from a token only the data service can sign
 | `GET /games/:gameId/ratings` | In the game. Both players' ratings |
 | `POST /games/ai` `{ color, level, start_fen }` | A signed-in player vs `CHESS_AI`, at a level from 1 to 8 (3 if left out), from a playable position. The data service makes every new game id (16 random bytes, base64url, `newGameId` in `utils/games.js`) and answers with it in `game_data.game_id`; a body can't name one. The game is still saved only if the id is free (`attribute_not_exists`). Invites and rematches too |
 | `POST /games/guest` `{ game_id, color, side, level, start_fen }` | Needs no player. `side` fixes this game's side while `color` is what Restart uses (the play page's first guest game). The guest's own game (their cookie) is reset and keeps its level, only while the stored game is still theirs; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched. Answers with `guest_token`, the guest's cookie for the game it saved |
-| `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, takebacks }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
-| `POST /games/challenge` `{ color, start_fen, takebacks }` | A signed-in creator. A `PENDING` game with `challenge: true` and the other seat `OPEN_SEAT`, only on the creator's `requested_games` |
+| `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, takebacks, days_per_move }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
+| `POST /games/challenge` `{ color, start_fen, takebacks, days_per_move }` | A signed-in creator. A `PENDING` game with `challenge: true` and the other seat `OPEN_SEAT`, only on the creator's `requested_games` |
 | `GET /games/:gameId/challenge` | A signed-in player with the link: `{ open, name, player_color, start_params }`. Any other game answers "Game data not found" |
 | `POST /games/:gameId/join` `{ replace_current }` | A challenge link, not its creator. Same order as accept: their open friend game answers `{ status: 409, game_id }` unless `replace_current`; the creator in another friend game is refused; then a conditional write takes the seat (`409` "Game is taken"); only then the open game is forfeited and their sent invite cancelled |
 | `POST /games/:gameId/accept` `{ replace_current }` | Pending, only the invited player. In this order: their own open friend game answers `{ status: 409, game_id }` unless `replace_current`; the inviter in another friend game is refused; then the invite is accepted (a conditional write: one declined or cancelled since is refused and nothing changes), and only then their friend game is forfeited (`forfeited`) and their sent invite cancelled (`dropped_invites`) |
@@ -190,7 +190,8 @@ signed out, and guests start a new game.
 **Stored data** (details in `data-service/dynamoDB.js`):
 
 - **`opening`** (JSON `{ eco, name }`) is the latest named position the game reached. Games that haven't reached one don't have it.
-- **`start_params`** (JSON `{ color, fen, takebacks }`, `takebacks: 0` turns friend game takebacks off) is what Restart and Rematch reuse. `moves`
+- **`move_deadline`** (epoch seconds) is when the next move is due in a friend game with `days_per_move`, saved with every move and when the game starts. Any read of the game or its player's open games after it passes closes the game as `timeout` (`retrieveGame`, `pruneOpenGames`), with no timer, so a game nobody opens stays open until its TTL.
+- **`start_params`** (JSON `{ color, fen, takebacks, days_per_move }`, `takebacks: 0` turns friend game takebacks off) is what Restart and Rematch reuse. `moves`
   only has the moves played, so anything that replays them (threefold
   repetition, PGN, takebacks) starts from `start_params.fen` when it's there.
 - **Facing lists** (`w_knight`, `b_knight`, `w_piece`, `b_piece`) start from the

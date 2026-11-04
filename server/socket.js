@@ -4,7 +4,7 @@
  *  Friend games get the opponent's move pushed to them instead of asking the server every 2 seconds.
  *  Each game is a room ("game:<game_id>"). moveGame() emits "move" to the room after a move is saved,
  *  then the client loads the new board with GET /api/chess/game/:gameId.
- *  forfeitGame() & an accepted draw emit "game-over", drawGame() & declineDrawGame() emit "draw-offer" and rematchGame() emits "rematch" (the new game id) to the same room.
+ *  forfeitGame(), an accepted draw & a game closed on time (tellTimeout) emit "game-over", drawGame() & declineDrawGame() emit "draw-offer" and rematchGame() emits "rematch" (the new game id) to the same room.
  *  The room also hears "player-left" when a player's last tab leaves the game & "player-back" when they return (a rematch request's "left the game" note)
  *  Every socket is also in its player's room ("player:<player_id>"): Home gets "games" when an invite or friend game changes & "friends" when a friend request or friend changes
  *  The access token is only read in the handshake, so a socket is closed when that token runs out, & every socket of a player
@@ -106,6 +106,7 @@ async function joinGame(socket, gameId, ack) {
 
 	try {
 		const response = await withRequest(socket.request, () => retrieveGame(gameId)); // AS THE SOCKET'S PLAYER (ITS HANDSHAKE HAS THEIR COOKIES)
+		if (response.timed_out) { tellTimeout(response.game_data); }
 		if (response.status == 401 || response.status == 403) { return ack({ status: 403, message: "Player is not in this game" }); }
 		if (!response.game_data) { return ack({ status: response.status, message: response.message }); } // GAME NOT FOUND
 
@@ -186,6 +187,20 @@ function emitToPlayer(playerId, event, data) {
 }
 
 /* ---------------------------------------------------------------- */
+// Tell Timeout
+/* ---------------------------------------------------------------- */
+/**
+ * @description A read closed a friend game on time: both boards open the menu & both Homes redraw
+ * @param  {[object]} gameData [the closed game item]
+ */
+function tellTimeout(gameData) {
+	const gameId = gameData.game_id.S;
+	emitToGame(gameId, "game-over", { game_id: gameId, winner: gameData.winner.S, reason: gameData.reason.S });
+	emitToPlayer(gameData.white_player_id.S, "games", { game_id: gameId });
+	emitToPlayer(gameData.black_player_id.S, "games", { game_id: gameId });
+}
+
+/* ---------------------------------------------------------------- */
 // Is Online
 /* ---------------------------------------------------------------- */
 /**
@@ -209,4 +224,4 @@ function disconnectPlayer(playerId) {
 }
 
 
-module.exports = { initSocket, emitToGame, emitToPlayer, isOnline, isInGameRoom, disconnectPlayer };
+module.exports = { initSocket, emitToGame, emitToPlayer, tellTimeout, isOnline, isInGameRoom, disconnectPlayer };

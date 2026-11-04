@@ -428,5 +428,7 @@ describe("takeback", () => {
 		await friendGame("game3", "alice", "bob", true);
 		await refused("game3", "POST", "/games/game3/takeback", { as: alice }, 409);
 		assert.equal((await call("POST", "/games/invite", { as: alice, body: { opponent_id: "bob", takebacks: 2 } })).http, 400);
+		assert.equal((await call("POST", "/games/invite", { as: alice, body: { opponent_id: "bob", days_per_move: 2 } })).http, 400);
+		assert.equal((await call("POST", "/games/challenge", { as: alice, body: { days_per_move: "3" } })).http, 400);
 	});
 });

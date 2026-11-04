@@ -19,6 +19,7 @@ const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, initMultiplayerGame, searchPlayers, createChallenge, acceptInvite, declineInvite, getFriends, friendAction } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
+const { timeLeftText } = require("../utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT ON YOUR GAMES
 const { startNav, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
@@ -42,6 +43,7 @@ const playerSearchNote = document.getElementById("playerSearchNote"); // NOBODY 
 const multiEmailBtn = document.getElementById("enterMultiSubmit");
 const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
 const friendTakebacksSelect = document.getElementById("friendTakebacks"); // THE GAME'S TAKEBACK SETTING, REMATCHES KEEP IT
+const friendDaysSelect = document.getElementById("friendDays"); // THE GAME'S TIME PER MOVE, REMATCHES KEEP IT
 const friendFenInput = document.getElementById("friendFen"); // START POSITION (FEN) FOR THE INVITE, BLANK = THE STANDARD POSITION
 const createChallengeBtn = document.getElementById("createChallenge"); // A LINK ANYONE SIGNED IN CAN OPEN TO PLAY YOU, WITH THE SAME START SETTINGS
 const multiNote = document.getElementById("multiNote"); // WHY AN INVITE DIDN'T GO THROUGH, INVITE'S FORFEIT WARNING
@@ -217,7 +219,8 @@ function listGames(gameData) {
 		gameLink.href = `/play/${encodeURIComponent(openGames[i].game_id)}`;
 		gameLink.innerHTML = `<span class="label">Game ${i + 1}</span><span class="spec gameInfo"></span><span class="label gameOpen">Open</span>`;
 		const opening = openGames[i].opening ? ` // ${openGames[i].opening.eco} ${openGames[i].opening.name}` : "";
-		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(openGames[i].player_color, openGames[i].start_params)}${opening}`; // innerText, THE NAME IS NEVER READ AS HTML
+		const timeLeft = openGames[i].move_deadline ? ` // ${timeLeftText(openGames[i].move_deadline)}` : "";
+		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(openGames[i].player_color, openGames[i].start_params)}${opening}${timeLeft}`; // innerText, THE NAME IS NEVER READ AS HTML
 		listElement.append(gameLink);
 		rows.push(listElement);
 	}
@@ -409,7 +412,7 @@ async function handleMultiSubmit(e) {
 	multiNote.innerText = "";
 	multiEmailBtn.disabled = true; // ONE INVITE PER PRESS
 	try {
-		const response = await initMultiplayerGame(CHESS_URL, PLAYER_ID, opponent, confirmInvite, friendColorSelect.value, friendFenInput.value, Number(friendTakebacksSelect.value));
+		const response = await initMultiplayerGame(CHESS_URL, PLAYER_ID, opponent, confirmInvite, friendColorSelect.value, friendFenInput.value, Number(friendTakebacksSelect.value), Number(friendDaysSelect.value) || undefined);
 		if (response?.status == 200) {
 			multiEmailInput.value = "";
 			friendFenInput.value = "";
@@ -440,7 +443,7 @@ async function handleCreateChallenge(e) {
 	}
 	multiNote.innerText = "";
 	createChallengeBtn.disabled = true; // ONE LINK PER PRESS
-	const response = await createChallenge(CHESS_URL, confirmChallenge, friendColorSelect.value, friendFenInput.value, Number(friendTakebacksSelect.value));
+	const response = await createChallenge(CHESS_URL, confirmChallenge, friendColorSelect.value, friendFenInput.value, Number(friendTakebacksSelect.value), Number(friendDaysSelect.value) || undefined);
 	if (response?.status == 200) {
 		friendFenInput.value = "";
 		resetInviteBtn();

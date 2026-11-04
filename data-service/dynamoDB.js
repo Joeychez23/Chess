@@ -16,7 +16,7 @@ const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
 const { usernameKey, searchFields } = require("./utils/username.js");
-const { newGameId, OPEN_SEAT } = require("./utils/games.js");
+const { newGameId, moveDeadline, overdue, timeoutWinner, OPEN_SEAT } = require("./utils/games.js");
 const { unlinkFriends } = require("./utils/friends.js");
 const config = require("./config");
 
@@ -114,6 +114,8 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 	if (names?.b) { params.Item.black_name = { S: names.b }; }
 	if (inviter_id) { params.Item.inviter_id = { S: inviter_id }; } // FRIEND GAMES: SENT OR RECEIVED, & WHOSE COLOR start_params HOLDS (CARRIED OVER ON A REMATCH)
 	if (challenge) { params.Item.challenge = { BOOL: true }; }
+	const deadline = pending ? null : moveDeadline(params.Item); // A REMATCH STARTS RIGHT AWAY, AN INVITE'S CLOCK STARTS WHEN IT'S ACCEPTED
+	if (deadline) { params.Item.move_deadline = { N: deadline }; }
 
 	if (reset_player) { // A GUEST'S RESET: STILL THEIR GAME, ANOTHER CREATE OF THIS ID MAY HAVE SAVED SINCE THE READ
 		params.ConditionExpression = 'attribute_not_exists(game_id) OR white_player_id = :reset_player OR black_player_id = :reset_player';
@@ -157,11 +159,11 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 // Retrieve game (GET)
 /* ---------------------------------------------------------------- */
 /**
- * @description Gets a game by id, moves & prev_move come back parsed into arrays
+ * @description Gets a game by id, moves & prev_move come back parsed into arrays. A game whose player to move ran out of time is closed first (closeOverdueGame)
  * @param  {[string]} gameId [game id from the client]
  * @param  {[boolean]} consistent [true = a strongly consistent read that sees every finished save (twice the read capacity),
  * for reading what another request just saved. Left out, a read can briefly return the game from before the last save]
- * @return {[object]} response [{ status, game_data, message }]
+ * @return {[object]} response [{ status, game_data, message }, timed_out: true when this read closed the game]
  */
 async function retrieveGame(gameId, consistent) {
 	const params = {
@@ -175,9 +177,11 @@ async function retrieveGame(gameId, consistent) {
 	let response = await connection.getItem(params); // GET REQUEST TO DYNAMODB
 
 	if (response.Item) {
+		const gameData = gameItem(response.Item);
+		if (overdue(gameData)) { return closeOverdueGame(gameData); }
 		return {
 			status: 200,
-			game_data: gameItem(response.Item),
+			game_data: gameData,
 			message: `Retrieved game id: ${response.Item.game_id.S}`
 		}
 	} else {
@@ -186,6 +190,22 @@ async function retrieveGame(gameId, consistent) {
 			message: "Game data not found"
 		}
 	}
+}
+
+/**
+ * @description Closes a game on time. A move that saved since this read keeps the game going: closeGame only saves on the deadline that was read
+ * @param  {[object]} gameData [overdue game item, it may be from before the last save]
+ * @return {[object]} response [{ status, game_data, message, timed_out: true } when this closed it, otherwise the game as it is now]
+ */
+async function closeOverdueGame(gameData) {
+	const gameId = gameData.game_id.S;
+	try {
+		const closed = await closeGame(gameData, timeoutWinner(gameData), "timeout");
+		if (closed.status == 200) { return { ...closed, timed_out: true }; }
+	} catch (err) {
+		console.log(`Finishing timed out game failed: ${gameId}: ${err.message}`); // THE RESULT IS SAVED, THE READ STILL ANSWERS
+	}
+	return retrieveGame(gameId, true);
 }
 
 /**
@@ -212,12 +232,13 @@ function gameItem(item) {
  */
 async function updateGame(gameData, prevBoard, result, clearOpening, takebackBy) { // ANY MOVE ENDS A DRAW OFFER & A TAKEBACK REQUEST, & GIVES BOTH PLAYERS THEIR DRAW OFFER BACK (OFFER_ATTRIBUTES)
 	const keepForever = result && keepsFinished(gameData); // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
+	const deadline = result ? null : moveDeadline(gameData); // EVERY SAVE IS A NEW TURN, THE NEXT PLAYER GETS THE GAME'S FULL TIME
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameData.game_id.S }
 		},
-		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""}${takebackBy ? ", takeback_count = :takeback_count" : ""} REMOVE ${OFFER_ATTRIBUTES.join(", ")}${takebackBy ? ", takeback_move" : ""}${clearOpening ? ", opening" : ""}${keepForever ? ", expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
+		UpdateExpression: `SET moves = :moves, prev_move = :prev_move, game_board = :game_board, w_knight = :w_knight, b_knight = :b_knight, w_piece = :w_piece, b_piece = :b_piece${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""}${takebackBy ? ", takeback_count = :takeback_count" : ""}${deadline ? ", move_deadline = :move_deadline" : ""} REMOVE ${OFFER_ATTRIBUTES.join(", ")}${takebackBy ? ", takeback_move" : ""}${clearOpening ? ", opening" : ""}${keepForever ? ", expireAt" : ""}`, // WHAT IS BEING UPDATED, AND ASSOCIATED ATTRIBUTES TO WHAT THE DATA WILL BE
 		ConditionExpression: '(attribute_not_exists(#state) OR #state = :open)', // GAMES FROM BEFORE state ARE OPEN
 		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: { // ASSOCIATED ATTRIBUTES
@@ -237,6 +258,7 @@ async function updateGame(gameData, prevBoard, result, clearOpening, takebackBy)
 		params.ExpressionAttributeValues[":prev_board"] = { S: prevBoard };
 	}
 	if (!keepForever) { params.ExpressionAttributeValues[":expireAt"] = { N: expireTime() }; } // ACTIVE GAMES NEVER EXPIRE, ONLY ABANDONED ONES
+	if (deadline) { params.ExpressionAttributeValues[":move_deadline"] = { N: deadline }; }
 	if (takebackBy) {
 		params.ConditionExpression = `takeback_player_id = :takeback_by AND ${params.ConditionExpression}`;
 		Object.assign(params.ExpressionAttributeValues, { ":takeback_by": { S: takebackBy }, ":takeback_count": { N: `${Number(gameData.takeback_count?.N || 0) + 1}` } });
@@ -302,11 +324,11 @@ async function saveOpening(gameId, board, opening) {
 // Close game (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Ends a game without a move (a forfeit): saves the result, then finishClosedGame. A move that ends the game saves its result in updateGame.
+ * @description Ends a game without a move (a forfeit, a draw by agreement or running out of time): saves the result, then finishClosedGame. A move that ends the game saves its result in updateGame.
  * Signed-in players' finished games are kept forever (expireAt is removed, keepsFinished), guests' still expire 25 days after the last move
  * @param  {[object]} gameData [game item from retrieveGame]
  * @param  {[string]} winner ["w", "b" or "draw"]
- * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition", "forfeit" or "agreement"]
+ * @param  {[string]} reason ["checkmate", "stalemate", "insufficient material", "fifty-move rule", "threefold repetition", "forfeit", "agreement" or "timeout"]
  * @param  {[string]} offeredBy [a draw by agreement: the player whose offer was accepted, the close only saves while that offer stands (a move ends it)]
  * @return {[object]} response [{ status, game_data, message }]
  */
@@ -331,6 +353,10 @@ async function closeGame(gameData, winner, reason, offeredBy) {
 	if (offeredBy) {
 		params.ConditionExpression = `draw_offer_player_id = :offered_by AND (${params.ConditionExpression})`;
 		params.ExpressionAttributeValues[":offered_by"] = { S: offeredBy };
+	}
+	if (reason == "timeout") { // A MOVE SAVED SINCE THE READ PUSHED THE DEADLINE BACK
+		params.ConditionExpression = `move_deadline = :deadline AND (${params.ConditionExpression})`;
+		params.ExpressionAttributeValues[":deadline"] = gameData.move_deadline;
 	}
 
 	try {
@@ -456,12 +482,13 @@ async function rateGame(gameData, winner) {
  */
 async function acceptInvite(gameData) {
 	const gameId = gameData.game_id.S;
+	const deadline = moveDeadline(gameData); // THE FIRST MOVE'S TIME STARTS NOW
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameId }
 		},
-		UpdateExpression: 'SET #state = :open, expireAt = :expireAt', // THE 25 DAYS START FROM THE ACCEPT
+		UpdateExpression: `SET #state = :open, expireAt = :expireAt${deadline ? ", move_deadline = :move_deadline" : ""}`, // THE 25 DAYS START FROM THE ACCEPT
 		ConditionExpression: '#state = :pending', // ONLY ONE ACCEPT WINS, A DECLINE MAY HAVE GOTTEN THERE FIRST
 		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
 		ExpressionAttributeValues: {
@@ -470,6 +497,7 @@ async function acceptInvite(gameData) {
 			":expireAt": { N: expireTime() }
 		}
 	}
+	if (deadline) { params.ExpressionAttributeValues[":move_deadline"] = { N: deadline }; }
 
 	try {
 		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
@@ -482,6 +510,7 @@ async function acceptInvite(gameData) {
 	if (listError) { throw listError; }
 
 	gameData.state = { S: "OPEN" };
+	if (deadline) { gameData.move_deadline = { N: deadline }; }
 	return {
 		status: 200,
 		game_data: gameData,
@@ -503,12 +532,13 @@ async function acceptInvite(gameData) {
 async function takeOpenSeat(gameData, seat, playerId, name) {
 	const gameId = gameData.game_id.S;
 	const side = seat == "w" ? "white" : "black";
+	const deadline = moveDeadline(gameData); // THE FIRST MOVE'S TIME STARTS NOW
 	const params = {
 		TableName: CHESS_TABLE,
 		Key: {
 			game_id: { S: gameId }
 		},
-		UpdateExpression: `SET #state = :open, expireAt = :expireAt, ${side}_player_id = :player${name ? `, ${side}_name = :name` : ""}`, // THE 25 DAYS START FROM THE JOIN
+		UpdateExpression: `SET #state = :open, expireAt = :expireAt, ${side}_player_id = :player${name ? `, ${side}_name = :name` : ""}${deadline ? ", move_deadline = :move_deadline" : ""}`, // THE 25 DAYS START FROM THE JOIN
 		ConditionExpression: `#state = :pending AND ${side}_player_id = :seat`, // ONLY ONE PLAYER WINS THE SEAT, A CANCEL MAY HAVE GOTTEN THERE FIRST
 		ExpressionAttributeNames: { "#state": "state" },
 		ExpressionAttributeValues: {
@@ -520,6 +550,7 @@ async function takeOpenSeat(gameData, seat, playerId, name) {
 		}
 	}
 	if (name) { params.ExpressionAttributeValues[":name"] = { S: name }; }
+	if (deadline) { params.ExpressionAttributeValues[":move_deadline"] = { N: deadline }; }
 
 	try {
 		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
@@ -530,6 +561,7 @@ async function takeOpenSeat(gameData, seat, playerId, name) {
 
 	const game = { ...gameData, state: { S: "OPEN" }, [`${side}_player_id`]: { S: playerId } };
 	if (name) { game[`${side}_name`] = { S: name }; }
+	if (deadline) { game.move_deadline = { N: deadline }; }
 	const listError = await movePlayersGame(game, gameId, "requested_games", "open_games");
 	if (listError) { throw listError; }
 
@@ -1321,13 +1353,19 @@ async function endSession(userId, sid) {
  * AI game & friend game (a player has one of each open at a time, chessController.js newGame & inviteGame)
  * @param  {[object]} userData [user item from retrieveUser]
  * @return {[object]} userData [same item, open_games.S only lists games that still exist,
- * ai_game_id / friend_game_id = the newest open AI / friend game or null, open_game_list = the open game items (newest last) for Your games]
+ * ai_game_id / friend_game_id = the newest open AI / friend game or null, open_game_list = the open game items (newest last) for Your games,
+ * timed_out_games = the games this load closed on time, for the chess server to tell both players]
  */
 async function pruneOpenGames(userData) {
 	userData.ai_game_id = null;
 	userData.friend_game_id = null;
 
 	const games = await pruneGameList(userData, "open_games");
+	const timedOut = await closeOverdueGames(games);
+	if (timedOut.length) {
+		userData.timed_out_games = timedOut;
+		Object.assign(userData, (await retrieveUser(userData.user_id.S, true)).user_data); // THE GAME LISTS & THE RATING CHANGED
+	}
 	const openGames = games.filter((game) => (game.state?.S || "OPEN") == "OPEN"); // A FINISHED GAME LEFT IN open_games IS NEVER THE OPEN ONE
 	userData.open_game_list = openGames;
 	for (let i = 0; i < openGames.length; i++) { // NEWEST IS LAST IN open_games
@@ -1335,6 +1373,23 @@ async function pruneOpenGames(userData) {
 		else { userData.friend_game_id = openGames[i].game_id.S; }
 	}
 	return userData;
+}
+
+/**
+ * @description Closes the games in a list whose player to move ran out of time, a game that does is updated in the list
+ * @param  {[array]} games [game items, pruneGameList's projection is enough]
+ * @return {[array]} timedOut [the closed game items this call closed]
+ */
+async function closeOverdueGames(games) {
+	const timedOut = [];
+	for (const game of games) {
+		if (!overdue(game)) { continue; }
+		const response = await retrieveGame(game.game_id.S, true); // THE WHOLE GAME, THE READ CLOSES IT
+		if (!response.game_data) { continue; }
+		Object.assign(game, { state: response.game_data.state, winner: response.game_data.winner, reason: response.game_data.reason, move_deadline: response.game_data.move_deadline });
+		if (response.timed_out) { timedOut.push(response.game_data); }
+	}
+	return timedOut;
 }
 
 /* ---------------------------------------------------------------- */
@@ -1455,7 +1510,7 @@ async function batchReadGames(gameIds, listName) {
 			RequestItems: {
 				[CHESS_TABLE]: {
 					Keys: keys,
-					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, #winner, #reason, ai_level, start_params, inviter_id, opening", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME, HOW IT STARTED, HOW IT ENDED & ITS OPENING (YOUR GAMES, FINISHED GAMES & INVITES)
+					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, #winner, #reason, ai_level, start_params, inviter_id, opening, move_deadline", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME, HOW IT STARTED, HOW IT ENDED, ITS OPENING & WHEN THE NEXT MOVE IS DUE (YOUR GAMES, FINISHED GAMES & INVITES)
 					ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }
 				}
 			}

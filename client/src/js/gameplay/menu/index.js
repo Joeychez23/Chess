@@ -23,6 +23,7 @@ const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT,
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
+const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
@@ -47,7 +48,11 @@ const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A 
 	"fifty-move rule": "by the fifty-move rule",
 	"threefold repetition": "by threefold repetition",
 	"agreement": "by agreement",
+	"timeout": "on time",
 };
+const DEADLINE_TICK = 30 * 1000; // HOW OFTEN THE TIME LEFT IS REDRAWN (ms)
+const moveDeadlineText = document.getElementById("moveDeadline");
+let deadlineTimer = null; // REDRAWS THE TIME LEFT WHILE A GAME WITH A TIME LIMIT IS GOING
 let pgnLoading = false; // A SECOND PRESS WHILE THE PGN LOADS WOULD SAVE TWO FILES
 let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
 let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
@@ -319,11 +324,32 @@ function showTakebackButtons() {
 }
 
 /**
+ * @description Shows the time left in a friend game with a time limit, redrawn while the game goes on. Once it runs out, loading the game
+ * closes it on the server, & the socket's "game-over" opens the menu on both boards
+ * @param  {[object]} response [game from the server, null when the game ended]
+ */
+function syncDeadline(response) {
+	clearInterval(deadlineTimer);
+	deadlineTimer = null;
+	moveDeadlineText.textContent = "";
+	const deadline = response?.state == "OPEN" ? response.move_deadline : null;
+	if (!deadline) { return; }
+	const whose = response.game_board.split(" ")[1] == game.playerColor ? "Your move" : "Their move";
+	const draw = () => { moveDeadlineText.textContent = `${whose} // ${timeLeftText(deadline)}`; };
+	draw();
+	deadlineTimer = setInterval(() => { // ONLY ON A TICK: THIS LOAD SYNCS AGAIN, A CLOCK AHEAD OF THE SERVER WOULD ASK NON-STOP
+		draw();
+		if (deadline * 1000 <= Date.now()) { checkOpponentMove(); }
+	}, DEADLINE_TICK);
+}
+
+/**
  * @description Brings the takeback request up to date with a game from the server. A new board means a move or a takeback, which ends any request.
  * On the same board this only adds what it finds, a read can be from before the request the socket just told about
  * @param  {[object]} response [game from the server]
  */
 function syncTakeback(response) {
+	syncDeadline(response);
 	takebacksLeft = response.ai ? null : response.takebacks_left ?? null;
 	optTakebackBtn.parentElement.hidden = response.state != "OPEN" || takebacksLeft === 0;
 	if (response.game_board != takebackBoard) {
@@ -694,6 +720,7 @@ function placeEndGroup(top) {
 export function showGameOver(result) {
 	if (game.gameOver) { return; } // ALREADY SHOWN
 	game.gameOver = true;
+	syncDeadline(null);
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY
 	openMenu();
