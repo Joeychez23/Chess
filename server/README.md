@@ -112,8 +112,11 @@ device within 15 minutes.
 ## Chess API
 
 Routes are under `/api/chess`, called from `client/src/js/gameplay/validate/index.js`.
-Responses keep the old chess lambda's `{ status, ..., message }` body: a refused
-move or missing game is HTTP 200 with `status: 500`.
+Responses keep the old chess lambda's `{ status, ..., message }` body, and the
+HTTP status is the real one: 400 bad input, 403 not allowed, 404 not found, 409
+conflict, not your turn or game over, 422 illegal move. A refusal's body can still
+say `status: 500` under a 4xx, so `message` and the HTTP status are what tell them
+apart. A real 5xx is the server breaking.
 
 - **Who's playing** comes from the session cookie, never from player ids the
   client sends. Nobody can move for the AI except `/ai-move`.
@@ -182,8 +185,8 @@ curl -s -c jar -b jar -X POST $API/game/$GAME/ai-move
 curl -s -c jar -b jar $API/game/$GAME
 ```
 
-A refused move still answers HTTP 200: check `status` and `message` in the
-body.
+A refused move answers a 4xx (`422` illegal, `409` not your turn or game over),
+with `status` and `message` in the body.
 
 ## CSRF
 

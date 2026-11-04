@@ -9,7 +9,7 @@
 /* ---------------------------------------------------------------- */
 
 const { retrieveUser, updateUserSettings, claimUsername, searchUsernames, retrieveFriends, changeFriend, deleteUser } = require("../dataClient.js");
-const { leaveAllGames, readSettings, userPlayerId } = require("./chessController.js");
+const { leaveAllGames, readSettings, userPlayerId, httpStatus } = require("./chessController.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { disconnectPlayer, emitToPlayer, isOnline } = require("../socket.js");
 
@@ -37,7 +37,7 @@ async function getUser(req, res) {
 async function saveSettings(req, res) {
 	const settings = readSettings(req.body);
 	const response = await updateUserSettings(settings); // THE REQUESTER'S ROW
-	return res.json({ status: response.status, settings, message: response.message });
+	return res.status(httpStatus(response)).json({ status: response.status, settings, message: response.message });
 }
 
 /* ---------------------------------------------------------------- */
@@ -119,7 +119,7 @@ async function deleteUserData(req, res) {
 	const response = await deleteUser(); // THE DATA SERVICE REFUSES IT WHILE A GAME OR INVITE IS LEFT
 	for (const friendId of response.friend_ids || []) { emitToPlayer(friendId, "friends", {}); }
 	if (response.status == 200) { disconnectPlayer(playerId); } // THEIR SESSION IS OVER, THEIR OPEN SOCKETS ON EVERY DEVICE ARE CLOSED (#298)
-	return res.json({ status: response.status, message: response.message });
+	return res.status(httpStatus(response)).json({ status: response.status, message: response.message });
 }
 
 

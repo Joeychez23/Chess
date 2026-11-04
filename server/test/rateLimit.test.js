@@ -176,7 +176,7 @@ describe("player search limits", () => {
 		assert.equal(limited.http, 429);
 		assert.match(limited.message, /^Too many searches, try again in \d+ seconds?$/);
 		assert.ok(Number(limited.retry_after) > 0);
-		assert.equal((await call("POST", "/api/chess/game", { as: alice })).http, 200);
+		assert.equal((await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } })).http, 200);
 	});
 });
 

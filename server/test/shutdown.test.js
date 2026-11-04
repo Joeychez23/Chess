@@ -51,7 +51,7 @@ describe("SIGTERM", () => {
 
 		dataService.release();
 		const res = await running;
-		assert.equal(res.status, 200);
+		assert.equal(res.status, 404);
 		assert.equal((await res.json()).message, "No such game");
 		assert.deepEqual(await service.exited, { code: 0, signal: null });
 	});
