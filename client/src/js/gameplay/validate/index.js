@@ -441,7 +441,7 @@ export async function friendAction(userUrl, action, username) {
 }
 
 /**
- * @description Delete my data (DELETE /api/user): the server forfeits the open games, cancels & declines the invites, then deletes the user_db row
+ * @description Delete my account (DELETE /api/user): the server deletes the Auth0 login, forfeits the open games, cancels & declines the invites, then deletes the user_db row
  * @param  {[string]} userUrl [user api, "/api/user"]
  * @return {[object]} response [{ status, message }]
  */
@@ -467,6 +467,6 @@ async function request(url, options) {
 		if (refresh.ok) { res = await fetch(url, options); }
 	}
 	const body = await res.json();
-	if (res.status >= 500) { body.serverError = true; } // THE SERVER BROKE. A REFUSED MOVE IS AN HTTP 200 WITH status: 500 IN THE BODY (chessController.js)
+	if (res.status >= 500) { body.serverError = true; } // THE SERVER BROKE. A REFUSED MOVE IS AN HTTP 4XX WITH status: 500 IN THE BODY (chessController.js)
 	return body;
 }

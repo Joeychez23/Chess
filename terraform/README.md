@@ -31,11 +31,14 @@
   us-east-1, see [Moving the tables](#moving-the-tables-to-us-west-2)): `chess_db` (key `game_id`,
   TTL on `expireAt`: open games and guests' finished games are deleted 25 days
   after the last move, signed-in players' finished games are kept) and `user_db` (key
-  `user_id`). Both have point-in-time recovery on, so either can be put back
+  `user_id`). Both are on-demand (`PAY_PER_REQUEST`, #361), so there's no fixed read or
+  write budget to run out of, but nothing caps the bill: the rate limits in
+  `server/middleware/rateLimit.js` and the [spend budget](#monitoring) stand in for that.
+  Both have point-in-time recovery on, so either can be put back
   the way it was at any second in the last 35 days
   ([Restoring a table](#restoring-a-table)).
 - **Monitoring** (`modules/monitoring`, us-west-2 and us-east-1): the uptime check,
-  the chess server's log group, the alarms and the emails they send ([Monitoring](#monitoring)).
+  the chess server's log group, the alarms and the emails they send, and the DynamoDB spend budget ([Monitoring](#monitoring)).
 - **Data service** (`modules/data_service`, us-west-2): the private instance the
   data service runs on (#245), in its own subnet next to `Chess-Stockfish`
   (`usw2-az2`, `us-west-2a` in this account), with no public IP and no route
@@ -257,6 +260,11 @@ Every alarm emails when it fires and again when it clears:
 The two log alarms stay quiet if the agent stops, because no lines looks the same as no errors.
 `chess-site-down` doesn't depend on the agent.
 
+`chess-dynamodb-spend` is an AWS budget on the tables' cost, not an alarm: $5 a month (`dynamodb_monthly_budget`
+in `modules/monitoring`) across the account's DynamoDB in every region. It emails `alert_email` directly, with no link to
+click, when the month's actual cost passes 80% or its forecast passes 100%. AWS updates the costs a few times a
+day, so the email can come hours after a spike, there's no email when it clears, and it doesn't stop the spending.
+
 ## Layout
 
 ```text
@@ -265,7 +273,7 @@ terraform/
   modules/server/            IAM role + instance profile, chess + engine DNS records
   modules/cloudfront/        Assets: ACM cert, DNS validation, CloudFront, Route 53 alias
   modules/dynamodb/          Chess (games) and user tables
-  modules/monitoring/        The uptime check, the chess server's log group, the alarms and their emails
+  modules/monitoring/        The uptime check, the chess server's log group, the alarms and their emails, the DynamoDB budget
   modules/data_service/      The data service's private subnet, DynamoDB endpoint, security group, role and instance, and the upkeep NAT
 ```
 

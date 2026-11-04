@@ -10,7 +10,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
 const { call, player, peek } = testServer;
-const { takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS, SEARCH_LIMITS } = require("../middleware/rateLimit.js");
+const { takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS, SEARCH_LIMITS, ACCOUNT_DELETE_LIMITS } = require("../middleware/rateLimit.js");
 const { guestToken } = require("../../data-service/test/helpers/keys.js");
 
 let server;
@@ -176,7 +176,21 @@ describe("player search limits", () => {
 		assert.equal(limited.http, 429);
 		assert.match(limited.message, /^Too many searches, try again in \d+ seconds?$/);
 		assert.ok(Number(limited.retry_after) > 0);
-		assert.equal((await call("POST", "/api/chess/game", { as: alice })).http, 200);
+		assert.equal((await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } })).http, 200);
+	});
+});
+
+describe("account delete limits", () => {
+	test("a player gets a burst, then 429 with Retry-After, before Auth0 is asked", async () => {
+		const alice = player("alice");
+		for (let i = 0; i < ACCOUNT_DELETE_LIMITS.accountDeleteSession.burst; i++) {
+			assert.equal((await call("DELETE", "/api/user", { as: alice })).http, 200, `request ${i}`);
+		}
+		const limited = await call("DELETE", "/api/user", { as: alice });
+		assert.equal(limited.http, 429);
+		assert.match(limited.message, /^Too many delete requests, try again in \d+ seconds?$/);
+		assert.ok(Number(limited.retry_after) > 0);
+		assert.equal((await call("DELETE", "/api/user", { as: player("bob") })).http, 200); // ANOTHER PLAYER ISN'T TOUCHED
 	});
 });
 

@@ -10,7 +10,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, pruneOpenGames, pruneClosedGames, expireFinishedAiGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser, changeFriends, retrieveFriends, leaveFriends } = require("../dynamoDB.js");
+const { retrieveUser, pruneOpenGames, pruneClosedGames, expireFinishedAiGames, anonymizeFriendGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser, changeFriends, retrieveFriends, leaveFriends } = require("../dynamoDB.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { readAiLevel, isColor } = require("../utils/games.js");
 const { currentGame } = require("./gameController.js");
@@ -145,7 +145,10 @@ async function deleteMe(req, res) {
 	}
 	const left = await leaveFriends(playerId);
 	if (left.status != 200) { return res.json(left); }
-	if (user.user_data) { await expireFinishedAiGames(user.user_data); } // THE LISTS THAT FIND THEM GO WITH THE ROW
+	if (user.user_data) { // THE LISTS THAT FIND THEM GO WITH THE ROW
+		await expireFinishedAiGames(user.user_data);
+		await anonymizeFriendGames(user.user_data);
+	}
 	return res.json({ ...(await deleteUser(playerId)), friend_ids: left.friend_ids });
 }
 

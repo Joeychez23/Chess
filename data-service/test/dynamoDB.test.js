@@ -430,6 +430,21 @@ describe("game lists", () => {
 		assert.equal(fakeDynamo.peek("chess_db", "open1").expireAt.N, openExpiry);
 	});
 
+	test("Delete my account replaces only the player's own name, in finished friend games", async () => {
+		const asWhite = (await db.initalizeGame("friend1", "alice", "bob", false, { names: { w: "Alice", b: "Bob" } })).game_data;
+		await db.closeGame(asWhite, "w", "checkmate");
+		const asBlack = (await db.initalizeGame("friend2", "bob", "alice", false, { names: { w: "Bob", b: "Alice" } })).game_data;
+		await db.closeGame(asBlack, "w", "checkmate");
+		await db.initalizeGame("ai1", "alice", "CHESS_AI", 3, {});
+
+		await db.anonymizeFriendGames((await db.retrieveUser("alice")).user_data);
+		assert.equal(fakeDynamo.peek("chess_db", "friend1").white_name.S, "Deleted player");
+		assert.equal(fakeDynamo.peek("chess_db", "friend1").black_name.S, "Bob");
+		assert.equal(fakeDynamo.peek("chess_db", "friend2").white_name.S, "Bob");
+		assert.equal(fakeDynamo.peek("chess_db", "friend2").black_name.S, "Deleted player");
+		assert.equal(fakeDynamo.peek("chess_db", "ai1").white_name, undefined);
+	});
+
 	test("a finished game left in open_games isn't the open game", async () => {
 		await newGame(); // OPEN
 		await db.initalizeGame("game2", "alice", "CHESS_AI", 3, {});

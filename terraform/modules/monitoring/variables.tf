@@ -16,6 +16,10 @@ variable "table_names" {
 variable "server_role_name" {
   type = string
 }
+variable "dynamodb_monthly_budget" {
+  type    = string
+  default = "5.0" # USD A MONTH, THE BUDGET ON THE TABLES (#361)
+}
 variable "log_group_name" {
   type    = string
   default = "/chess/server" # THE SAME NAME AS deploy/cloudwatch-agent.json

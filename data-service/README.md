@@ -202,7 +202,8 @@ signed out, and guests start a new game.
   from before it don't have one, and a guest's reset sets it again.
 - **Expiry:** signed-in players' finished games lose `expireAt` and are kept.
   Guests' games and open games are deleted 25 days after the last move, and
-  Delete my data puts that expiry back on the player's finished AI games.
+  Delete my account puts that expiry back on the player's finished AI games, and
+  replaces their name in their finished friend games (`anonymizeFriendGames`).
 - **`user_db` rows** are made at first login (`startSession`) and hold the game
   lists, `settings`, `rating`, `rated_games`, `username`, `sid` and `friend_lists`.
 - **Friends:** `friend_lists` is a JSON string, `{ friends, sent, received }` of

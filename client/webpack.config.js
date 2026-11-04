@@ -30,7 +30,8 @@ module.exports = (env, argv) => {
 			guest: './src/js/pages/guest/index.js',  // /              GUEST
 			play: './src/js/pages/play/index.js',    // /play          GUEST GAME, /play/:gameId SIGNED IN GAME
 			settings: './src/js/pages/settings/index.js', // /settings  SIGNED IN
-			login: './src/js/pages/login/index.js'   // /login, /signup SIGNED OUT
+			login: './src/js/pages/login/index.js',  // /login, /signup SIGNED OUT
+			legal: './src/js/pages/legal/index.js'   // /privacy, /terms ANYONE
 		},
 		output: {
 			filename: dev ? '[name].bundle.js' : '[name].[contenthash].bundle.js', // THE HASH CHANGES WITH THE CONTENT, SO BUNDLES CAN BE CACHED LONG-TERM
@@ -45,6 +46,8 @@ module.exports = (env, argv) => {
 			new HtmlWebpackPlugin({ template: './settings.html', filename: 'settings.html', chunks: ['settings'] }),
 			new HtmlWebpackPlugin({ template: './login.html', filename: 'login.html', chunks: ['login'] }),
 			new HtmlWebpackPlugin({ template: './signup.html', filename: 'signup.html', chunks: ['login'] }),
+			new HtmlWebpackPlugin({ template: './privacy.html', filename: 'privacy.html', chunks: ['legal'] }),
+			new HtmlWebpackPlugin({ template: './terms.html', filename: 'terms.html', chunks: ['legal'] }),
 
 			new WebpackPwaManifest({ // manifest.json FOR "ADD TO HOME SCREEN" (THE ICONS ARE LINKED IN EACH .html)
 				filename: 'manifest.json',
@@ -86,7 +89,7 @@ module.exports = (env, argv) => {
 			proxy: [
 				{ context: ['/api'], target: 'http://localhost:3001' }, // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
 				{ context: ['/socket.io'], target: 'http://localhost:3001', ws: true }, // FRIEND GAME SOCKET (server/socket.js)
-				{ context: (pathname) => pathname == '/' || pathname == '/play' || pathname.startsWith('/play/') || pathname == '/settings' || pathname == '/login' || pathname == '/signup', target: 'http://localhost:3001' }, // PAGES: THE SERVER PICKS WHICH ONE TO SEND
+				{ context: (pathname) => pathname == '/' || pathname == '/play' || pathname.startsWith('/play/') || pathname == '/settings' || pathname == '/login' || pathname == '/signup' || pathname == '/privacy' || pathname == '/terms', target: 'http://localhost:3001' }, // PAGES: THE SERVER PICKS WHICH ONE TO SEND
 			],
 		}
 	};

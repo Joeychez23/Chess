@@ -56,7 +56,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Ratings** | Elo from 1500. Only finished friend games (both sides moved, not from a set position) count. Shown on Home and in a friend game's menu. |
 | **Usernames** | 3 to 20 letters, numbers, `_` or `-`, unique in any capitals, some reserved. Picked on Settings after the first sign-in. |
 | **Friends** | Home's Friends box: send, accept, decline and cancel friend requests by username, see who's online, and Challenge (fills in the invite) or Remove each friend. |
-| **Settings** | `/settings`: username, account, default start settings, and Delete my data (forfeits your games, deletes your row and frees your username). |
+| **Settings** | `/settings`: username, account, default start settings, and Delete my account (deletes your Auth0 login, forfeits your games, deletes your row, frees your username and anonymizes your finished friend games). `/privacy` and `/terms` hold the policies. |
 | **Guests** | Play the AI without an account: one game, kept to the browser that made it. |
 | **Mobile** | Portrait and landscape layouts, and iOS audio unlocks on the first tap. |
 

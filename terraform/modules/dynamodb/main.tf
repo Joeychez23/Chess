@@ -12,11 +12,9 @@ provider "aws" {
 # ---------------------------------------------------------------- #
 # MADE BY TERRAFORM IN us-west-2 (terraform/README.md -> Moving the tables to us-west-2)
 resource "aws_dynamodb_table" "chess_table" {
-  name           = var.chess_table_name
-  billing_mode   = "PROVISIONED"
-  read_capacity  = 5
-  write_capacity = 5
-  hash_key       = "game_id" # SEARCH KEY
+  name         = var.chess_table_name
+  billing_mode = "PAY_PER_REQUEST" # NOTHING TO RUN OUT OF, BUT NO CAP ON THE BILL (#361). THE BUDGET IS IN modules/monitoring
+  hash_key     = "game_id"         # SEARCH KEY
 
   attribute {
     name = "game_id"
@@ -42,11 +40,9 @@ resource "aws_dynamodb_table" "chess_table" {
 # ---------------------------------------------------------------- #
 # MADE BY TERRAFORM IN us-west-2 (terraform/README.md -> Moving the tables to us-west-2)
 resource "aws_dynamodb_table" "user_table" {
-  name           = var.user_table_name
-  billing_mode   = "PROVISIONED"
-  read_capacity  = 5
-  write_capacity = 5
-  hash_key       = "user_id" # SEARCH KEY (AUTH0 USER ID)
+  name         = var.user_table_name
+  billing_mode = "PAY_PER_REQUEST" # NOTHING TO RUN OUT OF, BUT NO CAP ON THE BILL (#361). THE BUDGET IS IN modules/monitoring
+  hash_key     = "user_id"         # SEARCH KEY (AUTH0 USER ID)
 
   attribute {
     name = "user_id"
@@ -71,8 +67,6 @@ resource "aws_dynamodb_table" "user_table" {
     range_key          = "search_name"
     projection_type    = "INCLUDE"
     non_key_attributes = ["username"]
-    read_capacity      = 5
-    write_capacity     = 5
   }
 
   point_in_time_recovery {

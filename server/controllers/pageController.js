@@ -91,6 +91,15 @@ function signupPage(req, res) {
 	return sendPage(res, "signup.html");
 }
 
+/* ---------------------------------------------------------------- */
+// Privacy & Terms Pages
+/* ---------------------------------------------------------------- */
+/**
+ * @description /privacy & /terms -> the policies, for anyone: the App Store & players read them signed out
+ */
+function privacyPage(req, res) { return sendPage(res, "privacy.html"); }
+function termsPage(req, res) { return sendPage(res, "terms.html"); }
+
 /**
  * @description Sends a page from client/dist (max-age 0, so a new build shows up on the next load)
  */
@@ -99,4 +108,4 @@ function sendPage(res, page) {
 }
 
 
-module.exports = { homePage, playPage, gamePage, settingsPage, loginPage, signupPage };
+module.exports = { homePage, playPage, gamePage, settingsPage, loginPage, signupPage, privacyPage, termsPage };

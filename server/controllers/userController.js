@@ -9,9 +9,10 @@
 /* ---------------------------------------------------------------- */
 
 const { retrieveUser, updateUserSettings, claimUsername, searchUsernames, retrieveFriends, changeFriend, deleteUser } = require("../dataClient.js");
-const { leaveAllGames, readSettings, userPlayerId } = require("./chessController.js");
+const { leaveAllGames, readSettings, userPlayerId, httpStatus } = require("./chessController.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { disconnectPlayer, emitToPlayer, isOnline } = require("../socket.js");
+const { deleteAuth0User } = require("../utils/auth0.js");
 
 /* ---------------------------------------------------------------- */
 // Get User
@@ -37,7 +38,7 @@ async function getUser(req, res) {
 async function saveSettings(req, res) {
 	const settings = readSettings(req.body);
 	const response = await updateUserSettings(settings); // THE REQUESTER'S ROW
-	return res.json({ status: response.status, settings, message: response.message });
+	return res.status(httpStatus(response)).json({ status: response.status, settings, message: response.message });
 }
 
 /* ---------------------------------------------------------------- */
@@ -106,20 +107,28 @@ function friendAction(action) {
 }
 
 /* ---------------------------------------------------------------- */
-// Delete User Data (DELETE)
+// Delete Account (DELETE)
 /* ---------------------------------------------------------------- */
 /**
- * @description Delete my data (the settings page): leaves every game (forfeits, cancels & declines), then takes the player off everyone's friend lists,
- * deletes their user_db row & frees their username. The Auth0 login isn't deleted, the client logs out after this
+ * @description Delete my account (the settings page): deletes the Auth0 login, leaves every game (forfeits, cancels & declines), takes the player off everyone's friend lists,
+ * replaces their name in their finished friend games, deletes their user_db row & frees their username. The client logs out after this.
+ * Auth0 goes first: a refusal there changes nothing, & the session still works until the row is gone, so a failure later on can be pressed again (Auth0's delete is safe to repeat)
  * @return {[object]} response [{ status, message }]
  */
 async function deleteUserData(req, res) {
 	const playerId = userPlayerId(req.user);
+	try {
+		await deleteAuth0User(req.user.user_id);
+	} catch (err) {
+		if (err.name == "DataServiceDown") { throw err; } // AUTH0 DIDN'T ANSWER: 503 "Try again in a moment"
+		console.error(err.message); // A REFUSAL, E.G. A MANAGEMENT TOKEN WITHOUT delete:users
+		return res.status(500).json({ status: 500, message: "Couldn't delete the account" });
+	}
 	await leaveAllGames(playerId);
 	const response = await deleteUser(); // THE DATA SERVICE REFUSES IT WHILE A GAME OR INVITE IS LEFT
 	for (const friendId of response.friend_ids || []) { emitToPlayer(friendId, "friends", {}); }
 	if (response.status == 200) { disconnectPlayer(playerId); } // THEIR SESSION IS OVER, THEIR OPEN SOCKETS ON EVERY DEVICE ARE CLOSED (#298)
-	return res.json({ status: response.status, message: response.message });
+	return res.status(httpStatus(response)).json({ status: response.status, message: response.message });
 }
 
 
