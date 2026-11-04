@@ -203,6 +203,90 @@ describe("invite", () => {
 });
 
 /* ---------------------------------------------------------------- */
+// Challenge Links
+/* ---------------------------------------------------------------- */
+
+describe("challenge link", () => {
+	const makeLink = async (body = { color: "w" }) => (await call("POST", "/games/challenge", { as: alice, body })).game_data.game_id.S;
+
+	test("is a pending game with an empty seat, only on the creator's list", async () => {
+		const gameId = await makeLink();
+		const item = peek("chess_db", gameId);
+		assert.equal(item.state.S, "PENDING");
+		assert.equal(item.white_player_id.S, "alice");
+		assert.equal(item.black_player_id.S, "OPEN_SEAT");
+		assert.equal(item.inviter_id.S, "alice");
+		assert.deepEqual(list("alice", "requested_games"), [gameId]);
+		assert.equal(peek("user_db", "OPEN_SEAT"), undefined);
+	});
+
+	test("the first player takes the seat under their name, the game opens for both", async () => {
+		const gameId = await makeLink();
+		const joined = await call("POST", `/games/${gameId}/join`, { as: bob });
+		assert.equal(joined.game_data.state.S, "OPEN");
+		assert.equal(joined.game_data.black_player_id.S, "bob");
+		const item = peek("chess_db", gameId);
+		assert.equal(item.state.S, "OPEN");
+		assert.equal(item.black_player_id.S, "bob");
+		assert.deepEqual(list("alice", "requested_games"), []);
+		assert.deepEqual(list("alice", "open_games"), [gameId]);
+		assert.deepEqual(list("bob", "open_games"), [gameId]);
+		assert.equal(peek("user_db", "bob").last_friend_color.S, "b");
+
+		assert.equal((await refused([["chess_db", gameId]], "POST", `/games/${gameId}/join`, { as: carol }, 409)).message, "Game is taken");
+		assert.equal((await call("POST", `/games/${gameId}/join`, { as: bob })).status, 200); // A REPEAT ONLY GETS THE GAME
+		assert.deepEqual((await call("GET", `/games/${gameId}/challenge`, { as: carol })).open, false);
+	});
+
+	test("not by its creator or a guest, and only on a challenge link", async () => {
+		const gameId = await makeLink();
+		const link = [["chess_db", gameId], ["user_db", "alice"]];
+		await refused(link, "POST", `/games/${gameId}/join`, { as: alice }, 403);
+		await refused(link, "POST", `/games/${gameId}/join`, { guest: "game2" }, 403);
+		await refused(link, "POST", `/games/${gameId}/join`, { as: bob, body: { seat: "w" } }, 400);
+
+		await friendGame("game1", "carol", "mallory", true); // AN INVITE TO SOMEONE ELSE
+		assert.equal((await call("POST", "/games/game1/join", { as: bob })).message, "Game data not found");
+		assert.equal((await call("GET", "/games/game1/challenge", { as: bob })).message, "Game data not found");
+		assert.equal(peek("chess_db", "game1").black_player_id.S, "mallory");
+	});
+
+	test("the seat can't be named as a player", async () => {
+		await refused([["user_db", "alice"]], "POST", "/games/invite", { as: alice, body: { opponent_id: "OPEN_SEAT" } }, 400);
+	});
+
+	test("an open friend game answers 409 until replace_current, which forfeits it only once the seat is taken", async () => {
+		const gameId = await makeLink();
+		await friendGame("game1", "carol", "bob");
+		const busy = await call("POST", `/games/${gameId}/join`, { as: bob });
+		assert.equal(busy.status, 409);
+		assert.equal(busy.game_id, "game1");
+		assert.equal(peek("chess_db", gameId).state.S, "PENDING");
+		assert.equal(peek("chess_db", "game1").state.S, "OPEN");
+
+		const joined = await call("POST", `/games/${gameId}/join`, { as: bob, body: { replace_current: true } });
+		assert.equal(joined.status, 200);
+		assert.equal(joined.forfeited.game_id.S, "game1");
+		assert.equal(peek("chess_db", "game1").winner.S, "w"); // CAROL
+	});
+
+	test("the creator in another friend game is refused", async () => {
+		const gameId = await makeLink();
+		await friendGame("game1", "alice", "carol");
+		const busy = await refused([["chess_db", gameId]], "POST", `/games/${gameId}/join`, { as: bob }, 409);
+		assert.equal(busy.message, "They're in another game now");
+	});
+
+	test("the creator cancels: the game & its list entry go", async () => {
+		const gameId = await makeLink();
+		assert.equal((await call("POST", `/games/${gameId}/decline`, { as: alice })).status, 200);
+		assert.equal(peek("chess_db", gameId), undefined);
+		assert.deepEqual(list("alice", "requested_games"), []);
+		assert.equal((await call("POST", `/games/${gameId}/join`, { as: bob })).message, "Game data not found");
+	});
+});
+
+/* ---------------------------------------------------------------- */
 // Accept & Decline
 /* ---------------------------------------------------------------- */
 

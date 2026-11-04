@@ -12,7 +12,7 @@
 
 const path = require("path");
 const { readSessionUser } = require("../middleware/auth.js");
-const { retrieveGame, retrieveUser } = require("../dataClient.js");
+const { retrieveGame, retrieveChallenge, retrieveUser } = require("../dataClient.js");
 const { returnPath } = require("./authController.js");
 
 const BUILD_DIR = path.join(__dirname, "../../client/dist"); // SAME FOLDER server/index.js SERVES THE BUNDLES FROM
@@ -51,12 +51,17 @@ function playPage(req, res) {
  * @description /play/:gameId -> a signed in player's game. Signed out (or the access token expired) -> /api/auth/resume,
  * which re-ups the session with the refresh token (only sent to /api/auth) or logs in, then comes back here.
  * Whose game it is gets checked by the chess routes, the page only needs a signed in player.
- * A PENDING friend invite goes Home, it's accepted or declined there & the board only opens once it's accepted
+ * A PENDING friend invite goes Home, it's accepted or declined there & the board only opens once it's accepted (so does the creator of a challenge link).
+ * A challenge link opened by anyone not in its game -> the join screen, which joins it or says it's taken
  */
 async function gamePage(req, res) {
 	if (!readSessionUser(req)) { return res.redirect(`/api/auth/resume?returnTo=${encodeURIComponent(req.originalUrl)}`); }
 	const response = await retrieveGame(req.params.gameId).catch(() => null); // A FAILED CHECK STILL SENDS THE PAGE
 	if (response?.game_data?.state?.S == "PENDING") { return res.redirect("/"); }
+	if (response && !response.game_data) {
+		const challenge = await retrieveChallenge(req.params.gameId).catch(() => null);
+		if (challenge?.status == 200) { return sendPage(res, "join.html"); }
+	}
 	return sendPage(res, "play.html");
 }
 

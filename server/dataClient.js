@@ -243,6 +243,24 @@ const invite = (details) => call("POST", "/games/invite", details);
 const accept = (gameId, replaceCurrent) => call("POST", `/games/${id(gameId)}/accept`, replaceCurrent ? { replace_current: true } : undefined);
 
 /**
+ * @description The requester makes a challenge link, a PENDING game with the other seat empty
+ * @param  {[object]} details [{ color, start_fen, takebacks }], the data service makes the game id
+ */
+const challenge = (details) => call("POST", "/games/challenge", details);
+
+/**
+ * @description What the join screen shows, for any signed in player with the link
+ * @return {[object]} response [{ status, open, name, player_color, start_params } | { status: 500, "Game data not found" } (not a challenge link)]
+ */
+const retrieveChallenge = (gameId) => call("GET", `/games/${id(gameId)}/challenge`);
+
+/**
+ * @description The requester takes a challenge link's empty seat. With replace_current their open friend game is forfeited
+ * @return {[object]} response [{ status, game_data, forfeited, dropped_invites } | { status: 409, game_id } (a friend game is open) | { status: 409, "Game is taken" }]
+ */
+const join = (gameId, replaceCurrent) => call("POST", `/games/${id(gameId)}/join`, replaceCurrent ? { replace_current: true } : undefined);
+
+/**
  * @description Either player deletes a PENDING invite
  * @return {[object]} response [{ status, game_data (the invite as it was), message }]
  */
@@ -345,4 +363,4 @@ const changeFriend = (action, username) => call("POST", `/users/me/friends/${act
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, challenge, retrieveChallenge, join, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

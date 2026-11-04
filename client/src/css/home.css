@@ -431,6 +431,11 @@ body {
 	padding: 0 16px;
 }
 
+.challengeLinkField { /* THE CHALLENGE LINK & COPY LINK TAKE THE WHOLE ROW */
+	flex: 1 1 100%;
+	min-width: 0;
+}
+
 .sentInvite .spec {
 	min-width: 0;
 	color: var(--maple);

@@ -13,4 +13,5 @@
 
 Related issues: <!-- "Closes #12" for each issue this finishes, "#34" for related ones -->
 
+<!-- Label it semver:major, semver:minor or semver:patch, the version is bumped at that level on merge (no label = patch). -->
 <!-- Update the folder's README if this changes a route, a Socket.IO event, a stored field or a deploy step. -->

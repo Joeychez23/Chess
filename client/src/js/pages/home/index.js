@@ -3,7 +3,7 @@
  *	Home Page (/, signed in)
  *	Six boxes: Play the AI (at a level & color), Play a friend (by username or email, with your color), Invites (sent & received), the player's open games, their finished games & Friends.
  *	A player has one AI game & one friend game open at a time: each box shows its game's board & Continue current game,
- *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites,
+ *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites, a challenge link waits until someone opens it & joins,
  *	the socket redraws Play a friend & Invites when one changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
  *
  */
@@ -16,7 +16,7 @@ import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
-const { validate, newAiGame, getUserGameData, initMultiplayerGame, searchPlayers, acceptInvite, declineInvite, getFriends, friendAction } = require("../../gameplay/validate/index.js");
+const { validate, newAiGame, getUserGameData, initMultiplayerGame, searchPlayers, createChallenge, acceptInvite, declineInvite, getFriends, friendAction } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { startNav, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
@@ -43,12 +43,16 @@ const multiEmailBtn = document.getElementById("enterMultiSubmit");
 const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
 const friendTakebacksSelect = document.getElementById("friendTakebacks"); // THE GAME'S TAKEBACK SETTING, REMATCHES KEEP IT
 const friendFenInput = document.getElementById("friendFen"); // START POSITION (FEN) FOR THE INVITE, BLANK = THE STANDARD POSITION
+const createChallengeBtn = document.getElementById("createChallenge"); // A LINK ANYONE SIGNED IN CAN OPEN TO PLAY YOU, WITH THE SAME START SETTINGS
 const multiNote = document.getElementById("multiNote"); // WHY AN INVITE DIDN'T GO THROUGH, INVITE'S FORFEIT WARNING
 const noInvites = document.getElementById("noInvites"); // INVITES: "NO INVITES RIGHT NOW"
 const inviteList = document.getElementById("inviteList"); // "BOB INVITED YOU", ACCEPT & DECLINE
 const sentInvite = document.getElementById("sentInvite"); // "INVITE SENT TO BOB // WAITING" & CANCEL INVITE
 const sentInviteText = document.getElementById("sentInviteText");
 const cancelInviteBtn = document.getElementById("cancelInvite");
+const challengeLinkField = document.getElementById("challengeLinkField"); // A SENT CHALLENGE LINK: THE LINK & COPY LINK
+const challengeLinkInput = document.getElementById("challengeLink");
+const copyChallengeBtn = document.getElementById("copyChallenge");
 const inviteNote = document.getElementById("inviteNote"); // ACCEPT'S FORFEIT WARNING, WHY AN ACCEPT DIDN'T GO THROUGH
 const loadingDiv = document.getElementById("loadingDiv"); // "Loading...", THEN "No open games" IF THERE ARE NONE
 const gameList = document.getElementById("gameList");
@@ -73,6 +77,7 @@ let FRIEND_GAME_ID = null; // THE PLAYER'S OPEN FRIEND GAME (ONE AT A TIME)
 let FRIEND_NAME = "Friend"; // ITS OPPONENT, FOR THE FORFEIT WARNINGS
 let SENT_INVITE_ID = null; // THE PLAYER'S SENT INVITE (ONE AT A TIME)
 let confirmInvite = false; // INVITE NEEDS A SECOND PRESS WHILE A FRIEND GAME IS OPEN, IT FORFEITS THAT ONE
+let confirmChallenge = false; // CREATE CHALLENGE LINK NEEDS A SECOND PRESS WHILE A FRIEND GAME IS OPEN (SAME WARNING)
 let confirmAccept = null; // THE INVITE WHOSE ACCEPT WAS PRESSED ONCE WHILE A FRIEND GAME IS OPEN (SAME WARNING)
 let confirmRemove = null; // THE FRIEND WHOSE REMOVE WAS PRESSED ONCE
 let searchTimer = null; // THE PLAYER SEARCH WAITING FOR SEARCH_DELAY
@@ -87,6 +92,8 @@ startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
 muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE EMAIL FIELD
 multiEmailInput.addEventListener("input", handlePlayerSearch);
+createChallengeBtn.addEventListener("click", handleCreateChallenge);
+copyChallengeBtn.addEventListener("click", handleCopyChallenge);
 cancelInviteBtn.addEventListener("click", handleCancelInvite);
 addFriendForm.addEventListener("submit", handleAddFriend);
 
@@ -431,6 +438,48 @@ async function handleMultiSubmit(e) {
 }
 
 /**
+ * @description Makes a challenge link with the picked start settings, it shows in Invites. While a friend game is open the first press says it'll be forfeited,
+ * the second makes the link (the server forfeits the open one)
+ */
+async function handleCreateChallenge(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (FRIEND_GAME_ID && !confirmChallenge) { // FIRST PRESS
+		confirmChallenge = true;
+		createChallengeBtn.innerText = "Forfeit & create link";
+		return multiNote.innerText = `This forfeits your game vs ${FRIEND_NAME}, they win. Press again to create the link.`;
+	}
+	multiNote.innerText = "";
+	createChallengeBtn.disabled = true; // ONE LINK PER PRESS
+	const response = await createChallenge(CHESS_URL, confirmChallenge, friendColorSelect.value, friendFenInput.value, Number(friendTakebacksSelect.value));
+	if (response?.status == 200) {
+		friendFenInput.value = "";
+		resetInviteBtn();
+		await refreshHome(); // SHOWS THE LINK IN INVITES
+	} else if (response?.status == 409) { // A FRIEND GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
+		await refreshHome();
+		multiNote.innerText = "You already have a friend game open";
+	} else {
+		resetInviteBtn(); // NOTHING WAS FORFEITED, THE NEXT TRY WARNS AGAIN
+		multiNote.innerText = response?.status == 400 || response?.status == 429 ? response.message : "Couldn't create the link, try again"; // 400: THE FEN CAN'T BE PLAYED, 429: TOO MANY NEW GAMES
+	}
+	createChallengeBtn.disabled = false;
+}
+
+/**
+ * @description Copies the challenge link. Where the browser won't, the link is selected to copy by hand
+ */
+async function handleCopyChallenge() {
+	try {
+		await navigator.clipboard.writeText(challengeLinkInput.value);
+		inviteNote.innerText = "Link copied";
+	} catch {
+		challengeLinkInput.select();
+		inviteNote.innerText = "Couldn't copy, the link is selected to copy by hand";
+	}
+}
+
+/**
  * @description Why an invite didn't go through, from the server's message
  */
 function inviteError(message) {
@@ -441,11 +490,13 @@ function inviteError(message) {
 }
 
 /**
- * @description Puts the invite button back to "Invite": the next press warns about the forfeit again
+ * @description Puts the invite & challenge link buttons back: the next press warns about the forfeit again
  */
 function resetInviteBtn() {
 	confirmInvite = false;
 	multiEmailBtn.innerText = "Invite";
+	confirmChallenge = false;
+	createChallengeBtn.innerText = "Create challenge link";
 	multiNote.innerText = "";
 }
 
@@ -454,7 +505,7 @@ function resetInviteBtn() {
 // Invites
 /* ---------------------------------------------------------------- */
 /**
- * @description Draws Invites: invites to the player (Accept & Decline), then their sent invite (Cancel invite). Each one says the player's color
+ * @description Draws Invites: invites to the player (Accept & Decline), then their sent invite (Cancel invite) or challenge link (Copy link & Cancel). Each one says the player's color
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  */
 function loadInvites(gameData) {
@@ -462,7 +513,11 @@ function loadInvites(gameData) {
 	const sent = gameData?.sent_invite;
 	listInvites(received);
 	SENT_INVITE_ID = sent?.game_id || null;
-	sentInviteText.innerText = sent ? `Invite sent to ${sent.name || "your friend"} // ${colorText(sent.player_color, sent.start_params)} // Waiting` : "";
+	const sentTo = sent?.open_seat ? "Challenge link" : `Invite sent to ${sent?.name || "your friend"}`;
+	sentInviteText.innerText = sent ? `${sentTo} // ${colorText(sent.player_color, sent.start_params)} // Waiting` : "";
+	challengeLinkField.hidden = !sent?.open_seat;
+	challengeLinkInput.value = sent?.open_seat ? `${window.location.origin}/play/${encodeURIComponent(sent.game_id)}` : "";
+	cancelInviteBtn.innerText = sent?.open_seat ? "Cancel" : "Cancel invite";
 	sentInvite.hidden = !SENT_INVITE_ID;
 	noInvites.hidden = Boolean(received.length || SENT_INVITE_ID);
 }

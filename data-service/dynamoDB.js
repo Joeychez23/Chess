@@ -16,7 +16,7 @@ const { Chess } = require("chess.js");
 const { startPieces } = require("./utils/validate.js");
 const { newRating, scoreFor, isRated, readRating } = require("./utils/rating.js");
 const { usernameKey, searchFields } = require("./utils/username.js");
-const { newGameId } = require("./utils/games.js");
+const { newGameId, OPEN_SEAT } = require("./utils/games.js");
 const { unlinkFriends } = require("./utils/friends.js");
 const config = require("./config");
 
@@ -77,12 +77,13 @@ async function checkTables() {
  * pending: friend invites, the game is PENDING & waits in requested_games until it's accepted (acceptInvite),
  * start_params: the start settings ({ color, fen }, Restart & Rematch reuse them, left out = Random from the standard position. fen = a set position, checked by checkStartFen),
  * inviter_id: friend games, the player who sent the invite (their pick is start_params.color),
+ * challenge: a challenge link's game, the other player is OPEN_SEAT until someone takes it (takeOpenSeat). It stays on the game, so a link opened later can say it's taken,
  * reset_player: a guest's reset, their player id: the stored game is replaced only while it's still theirs (or it expired) }]
  * @return {[object]} response [{ status, game_data, message } | { status: 409, message: "Game id already in use" }]
  * @throws when a player's game list couldn't be saved, so a game is only reported as created once it's on both lists (the route answers 500, the chess server 503)
  */
 async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, options) {
-	const { names, pending, start_params, inviter_id, reset_player } = options || {};
+	const { names, pending, start_params, inviter_id, challenge, reset_player } = options || {};
 	const board = start_params?.fen || new Chess().fen(); // A SET POSITION (THE START POSITION BOX) OR THE STANDARD ONE
 	const pieces = startPieces(board); // EVERY KNIGHT, KING, QUEEN, BISHOP & ROOK ON THE BOARD, NONE HAVE MOVED
 
@@ -112,6 +113,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 	if (names?.w) { params.Item.white_name = { S: names.w }; } // FRIEND GAMES: "vs Bob" ON HOME
 	if (names?.b) { params.Item.black_name = { S: names.b }; }
 	if (inviter_id) { params.Item.inviter_id = { S: inviter_id }; } // FRIEND GAMES: SENT OR RECEIVED, & WHOSE COLOR start_params HOLDS (CARRIED OVER ON A REMATCH)
+	if (challenge) { params.Item.challenge = { BOOL: true }; }
 
 	if (reset_player) { // A GUEST'S RESET: STILL THEIR GAME, ANOTHER CREATE OF THIS ID MAY HAVE SAVED SINCE THE READ
 		params.ConditionExpression = 'attribute_not_exists(game_id) OR white_player_id = :reset_player OR black_player_id = :reset_player';
@@ -127,7 +129,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 	}
 
 	async function handleUser(userId) { // ADDS THE GAME TO A PLAYER'S GAME LIST (OPEN, OR REQUESTED FOR AN INVITE)
-		if (userId != "CHESS_AI" && userId != "GUEST_USER" && userId != gameId) { // GUESTS HAVE NO GAME LIST, SKIP THEM LIKE THE AI (A GUEST'S PLAYER ID IS THEIR GAME ID)
+		if (userId != "CHESS_AI" && userId != "GUEST_USER" && userId != OPEN_SEAT && userId != gameId) { // GUESTS & AN OPEN SEAT HAVE NO GAME LIST, SKIP THEM LIKE THE AI (A GUEST'S PLAYER ID IS THEIR GAME ID)
 			const response = await changeUserGames(userId, (gameLists) => {
 				let gameList = pending ? gameLists.requested_games : gameLists.open_games; // INVITES WAIT IN requested_games UNTIL THEY'RE ACCEPTED
 				if (!gameList.includes(gameId)) { gameList[gameList.length] = gameId; } // ADD ONCE, RESTARTS KEEP THE SAME game_id
@@ -488,6 +490,57 @@ async function acceptInvite(gameData) {
 }
 
 /* ---------------------------------------------------------------- */
+// Take open seat (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A player opened a challenge link & joined: they take the seat, PENDING -> OPEN & the game goes on both players' open_games
+ * @param  {[object]} gameData [PENDING challenge game item from retrieveGame]
+ * @param  {[string]} seat [openSeat(gameData), "w" or "b"]
+ * @param  {[string]} playerId [the player taking it]
+ * @param  {[string]} name [their username or screenname, left out = the game has no name for them]
+ * @return {[object]} response [{ status, game_data, message } | { status: 409, message: "Game is taken" }]
+ */
+async function takeOpenSeat(gameData, seat, playerId, name) {
+	const gameId = gameData.game_id.S;
+	const side = seat == "w" ? "white" : "black";
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: {
+			game_id: { S: gameId }
+		},
+		UpdateExpression: `SET #state = :open, expireAt = :expireAt, ${side}_player_id = :player${name ? `, ${side}_name = :name` : ""}`, // THE 25 DAYS START FROM THE JOIN
+		ConditionExpression: `#state = :pending AND ${side}_player_id = :seat`, // ONLY ONE PLAYER WINS THE SEAT, A CANCEL MAY HAVE GOTTEN THERE FIRST
+		ExpressionAttributeNames: { "#state": "state" },
+		ExpressionAttributeValues: {
+			":open": { S: "OPEN" },
+			":pending": { S: "PENDING" },
+			":expireAt": { N: expireTime() },
+			":player": { S: playerId },
+			":seat": { S: OPEN_SEAT }
+		}
+	}
+	if (name) { params.ExpressionAttributeValues[":name"] = { S: name }; }
+
+	try {
+		await connection.updateItem(params); // PUT REQUEST TO DYANMODB
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 409, message: "Game is taken" }; }
+		throw err;
+	}
+
+	const game = { ...gameData, state: { S: "OPEN" }, [`${side}_player_id`]: { S: playerId } };
+	if (name) { game[`${side}_name`] = { S: name }; }
+	const listError = await movePlayersGame(game, gameId, "requested_games", "open_games");
+	if (listError) { throw listError; }
+
+	return {
+		status: 200,
+		game_data: game,
+		message: `Joined game id: ${gameId}`
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Delete invite (DELETE)
 /* ---------------------------------------------------------------- */
 /**
@@ -535,7 +588,7 @@ async function deleteInvite(gameData) {
  * @throws when the lists couldn't be saved (changeUserGames' 500 after LIST_SAVE_TRIES), so the route never answers 200 with stale lists
  */
 async function moveUserGame(userId, gameId, fromList, toList) {
-	if (userId == "CHESS_AI" || userId == "GUEST_USER" || userId == gameId) { return; } // A GUEST'S PLAYER ID IS THEIR GAME ID
+	if (userId == "CHESS_AI" || userId == "GUEST_USER" || userId == OPEN_SEAT || userId == gameId) { return; } // A GUEST'S PLAYER ID IS THEIR GAME ID
 	const response = await changeUserGames(userId, (gameLists) => {
 		gameLists[fromList] = gameLists[fromList].filter((listGameId) => listGameId != gameId);
 		if (toList && !gameLists[toList].includes(gameId)) { gameLists[toList][gameLists[toList].length] = gameId; }
@@ -1567,4 +1620,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { pruneClosedGames, expireFinishedAiGames, anonymizeFriendGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, saveLastColor, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { takeOpenSeat, pruneClosedGames, expireFinishedAiGames, anonymizeFriendGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, saveLastColor, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

@@ -158,6 +158,57 @@ export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent
 }
 
 /**
+ * @description Makes a challenge link: a game with the other seat empty, the first signed in player to open the link & join takes it (POST /challenge). The server makes the game id
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
+ * @param  {[string]} startColor [the player's color: "alternate" | "random" | "w" | "b"]
+ * @param  {[string]} startFen [a set position to start from, blank = the standard position]
+ * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game]
+ * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
+ */
+export async function createChallenge(gameUrl, replaceCurrent, startColor, startFen, takebacks) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ replace_current: replaceCurrent, start_color: startColor, start_fen: startFen, takebacks })
+	};
+	try {
+		return await request(`${gameUrl}/challenge`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description What the join screen shows (GET /game/:gameId/challenge)
+ * @return {[object]} response [{ status, open, name, player_color, start_params } | { status: 500, message: "Game data not found" }]
+ */
+export async function getChallenge(gameUrl, gameId) {
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/challenge`, { method: "GET" })
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Takes a challenge link's empty seat (POST /game/:gameId/join)
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
+ * @return {[object]} response [the game: { status, game_id, ..., state: "OPEN" } | { status: 409, game_id (the open one) } | { status: 409, message: "Game is taken" }]
+ */
+export async function joinChallenge(gameUrl, gameId, replaceCurrent) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ replace_current: replaceCurrent })
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/join`, options)
+	} catch {
+		return
+	}
+}
+
+/**
  * @description Friend invites: the invited player starts the game (POST /game/:gameId/accept)
  * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
  * @return {[object]} response [the game: { status, game_id, game_board, ..., state: "OPEN" } | { status: 409, game_id (the open one) }]

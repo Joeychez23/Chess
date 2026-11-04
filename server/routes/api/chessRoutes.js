@@ -8,7 +8,7 @@
 const router = require('express').Router()
 const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
 const { limitNewGames, limitAiMoves, limitAnalysis } = require('../../middleware/rateLimit.js')
-const { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
+const { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
 
 // THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME (THE ONE IN THEIR guest_game COOKIE)
 // limitNewGames: THE ROUTES THAT MAKE A GAME ANSWER 429 WHEN A SESSION, AN IP OR THE SITE MAKES TOO MANY
@@ -50,6 +50,12 @@ router.route('/game/:gameId/ratings').get(requireAuth, getRatings);   // /api/ch
 router.route('/levels').get(getLevels);                             // /api/chess/levels                -> AI LEVELS + APPROX ELO FOR HOME'S DROPDOWN
 
 router.route('/invite').post(requireAuth, limitNewGames, inviteGame); // /api/chess/invite                -> INVITE A FRIEND BY USERNAME OR EMAIL WITH YOUR COLOR (PENDING GAME). ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+
+router.route('/challenge').post(requireAuth, limitNewGames, challengeGame); // /api/chess/challenge             -> A CHALLENGE LINK: A PENDING GAME WITH THE OTHER SEAT EMPTY, YOUR ONE SENT INVITE. ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+
+router.route('/game/:gameId/challenge').get(requireAuth, getChallenge); // /api/chess/game/:gameId/challenge -> WHAT THE JOIN SCREEN SHOWS
+
+router.route('/game/:gameId/join').post(requireAuth, joinGame);     // /api/chess/game/:gameId/join     -> TAKES A CHALLENGE LINK'S EMPTY SEAT, ONLY ONE PLAYER WINS IT. ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
 
 router.route('/user/:userId').get(requireAuth, getUserGames);       // /api/chess/user/:userId          -> OPEN GAMES FOR HOME (WITH THEIR START SETTINGS), THE OPEN AI & FRIEND GAMES (ai_game_id, friend_game_id) & INVITES
 

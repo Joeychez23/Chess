@@ -96,7 +96,7 @@ describe("the menus' labels & link types", () => {
 		assert.match(handler, /stopFrames\(\);[\s\S]*leaveGame\(\);[\s\S]*cancelRematch[\s\S]*fillThenGo\(link, link\.href\)/);
 	});
 
-	const titles = { play: "Chess", home: "Home", guest: "Home", settings: "Settings", login: "Login/Signup", signup: "Login/Signup", privacy: "Privacy", terms: "Terms" };
+	const titles = { play: "Chess", join: "Join game", home: "Home", guest: "Home", settings: "Settings", login: "Login/Signup", signup: "Login/Signup", privacy: "Privacy", terms: "Terms" };
 	for (const [page, title] of Object.entries(titles)) {
 		test(`${page}'s menu is titled ${title} & has no item for the page it's on`, () => {
 			const html = read(`${page}.html`);

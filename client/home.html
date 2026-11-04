@@ -110,16 +110,21 @@
 						</select>
 						<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" id="friendFen" placeholder="Start position (FEN), optional" aria-label="Start position as a FEN, optional">
 						<button class="btn btnCream" id="enterMultiSubmit" type="submit">Invite</button>
+						<button class="btn btnLine" id="createChallenge" type="button">Create challenge link</button>
 					</div>
 					<p class="spec note" id="multiNote" role="status"></p>
 				</form>
 			</div>
 			<div class="box boxWalnut" id="invites">
 				<div class="boxHead"><h2 class="label">Invites</h2><span class="spec">No. 03</span></div>
-				<p id="noInvites">No invites right now. When a friend invites you, it shows up here.</p>
+				<p id="noInvites">No invites right now. When a friend invites you, or you create a challenge link, it shows up here.</p>
 				<ul class="inviteList" id="inviteList" aria-label="Invites you got" hidden></ul>
 				<div class="sentInvite" id="sentInvite" hidden>
 					<p class="spec" id="sentInviteText"></p>
+					<div class="field challengeLinkField" id="challengeLinkField" hidden>
+						<input type="text" readonly id="challengeLink" aria-label="Challenge link">
+						<button class="btn btnCream" id="copyChallenge" type="button">Copy link</button>
+					</div>
 					<button class="btn btnLine" id="cancelInvite" type="button">Cancel invite</button>
 				</div>
 				<p class="spec note" id="inviteNote" role="status"></p>

@@ -17,13 +17,13 @@ const { checkStartFen } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove, aiAcceptsDraw, analyzePosition } = require("../utils/ai.js");
 const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
-const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft, isColor } = require("../utils/games.js");
+const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft, isColor, OPEN_SEAT } = require("../utils/games.js");
 const { buildPgn } = require("../utils/pgn.js");
 const { findOpening, latestOpening } = require("../utils/openings.js");
 const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
+const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, challenge, retrieveChallenge, join, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
 const { emitToGame, emitToPlayer, isInGameRoom } = require("../socket.js");
 
 const AI_DRAW_FREE_MOVES = 2; // UNTIL BOTH SIDES HAVE MADE THEIR FIRST MOVE THE AI TAKES ANY DRAW, WITHOUT ASKING THE ENGINE
@@ -681,6 +681,62 @@ async function findOpponent(email, username) {
 }
 
 /* ---------------------------------------------------------------- */
+// Challenge Link
+/* ---------------------------------------------------------------- */
+/**
+ * @description Makes a challenge link: a PENDING game like an invite with the other seat empty, the first signed in player to open the link & join takes it.
+ * It's the challenger's one sent invite: a new one deletes the last one. While a friend game is open this answers 409, unless replace_current forfeits it first
+ * @param  {[object]} req.body [{ start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random), start_fen (optional), takebacks (optional, 0 = off), replace_current (optional) }]
+ * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)]
+ */
+async function challengeGame(req, res) {
+	const position = checkStartFen(req.body?.start_fen); // CHECKED BEFORE ANYTHING IS FORFEITED OR SAVED
+	if (position.message) { return res.status(400).json({ status: 400, message: position.message }); }
+
+	const mine = await myGames();
+	const current = openGame(mine, false); // ONE FRIEND GAME AT A TIME
+	if (current && !req.body?.replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
+	if (current) { await forfeitOpenGame(current, userPlayerId(req.user)); } // A NEW LINK FORFEITS THE OPEN ONE
+	if (mine.user_data?.sent_invite) { await dropInvite(mine.user_data.sent_invite.game_id); } // ONE SENT INVITE AT A TIME
+
+	const params = readStartParams(req.body, position.fen);
+	const response = await challenge({ color: params.color, start_fen: params.fen, takebacks: params.takebacks });
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); }
+
+	notifyHome(response.game_data); // THE CHALLENGER'S OTHER TABS SHOW THE LINK
+	return res.json({ status: response.status, game_id: response.game_data.game_id.S, state: "PENDING", message: response.message });
+}
+
+/**
+ * @description What the join screen shows
+ * @param  {[string]} req.params.gameId [game id from the link]
+ * @return {[object]} response [{ status, open, name, player_color, start_params, message } | { status: 500, message: "Game data not found" } (a 404)]
+ */
+async function getChallenge(req, res) {
+	return reply(res, await retrieveChallenge(req.params.gameId));
+}
+
+/**
+ * @description Takes a challenge link's empty seat: PENDING -> OPEN, only one player wins it & the creator can't take it. While the player has a friend game open
+ * this answers 409, unless replace_current forfeits it first
+ * @param  {[string]} req.params.gameId [game id from the link]
+ * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the open friend game & join) }]
+ * @return {[object]} response [{ status, game_id, ai, game_board, ..., state, message } | { status: 409, game_id (the open one), message } | { status: 409, message: "Game is taken" }]
+ */
+async function joinGame(req, res) {
+	const gameId = req.params.gameId;
+	const joined = await ifSaved(() => join(gameId, req.body?.replace_current), async () => { // TOO SLOW: SAVED IF THE GAME IS THEIRS & OPEN NOW, SEE acceptGame
+		const latest = await retrieveGame(gameId, true);
+		return latest.game_data && gameOpen(latest.game_data) ? { ...latest, forfeited: null, dropped_invites: [] } : null;
+	});
+	if (joined.status == 409 && joined.game_id) { return res.status(409).json({ status: 409, game_id: joined.game_id, message: "Friend game already open" }); }
+	if (joined.forfeited) { tellGameOver(joined.forfeited, userPlayerId(req.user), joined.forfeited.winner?.S); } // JOINING FORFEITED THE OPEN ONE
+	for (let i = 0; i < (joined.dropped_invites || []).length; i++) { notifyHome(joined.dropped_invites[i]); } // THEIR SENT INVITE WAS CANCELLED
+	if (joined.status == 200) { notifyHome(joined.game_data); } // THE CREATOR'S HOME SHOWS THE GAME
+	return reply(res, gameResponse(joined));
+}
+
+/* ---------------------------------------------------------------- */
 // Accept Invite (POST)
 /* ---------------------------------------------------------------- */
 /**
@@ -751,7 +807,7 @@ async function declineGame(req, res) {
  * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, ai_game_id / friend_game_id (the open AI / friend game or null),
  * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }], newest last),
  * closed_game_list (the same & winner, reason, the last 20 finished games, newest first),
- * sent_invite ({ game_id, name, player_color, start_params } or null), received_invites ([{ game_id, name, player_color, start_params }]),
+ * sent_invite ({ game_id, name, player_color, start_params, open_seat (a challenge link) } or null), received_invites ([{ game_id, name, player_color, start_params }]),
  * rating ({ rating, provisional, rated_games }, Home's "Rating // 1520?"), message }]
  */
 async function getUserGames(req, res) {
@@ -760,7 +816,7 @@ async function getUserGames(req, res) {
 	const response = await myGames(); // THE DATA SERVICE DROPS EXPIRED GAMES & INVITES BEFORE HOME LISTS THEM
 	if (!response.user_data) { return reply(res, { status: response.status, rating: ratingSummary(readRating(null)), message: response.message }); } // NO GAMES YET, THE STARTING RATING
 	const userData = response.user_data;
-	const inviteBody = (invite) => ({ game_id: invite.game_id, name: invite.name, player_color: invite.player_color, start_params: invite.start_params }); // THE OTHER PLAYER'S ID STAYS ON THE SERVER
+	const inviteBody = (invite) => ({ game_id: invite.game_id, name: invite.name, player_color: invite.player_color, start_params: invite.start_params, ...(invite.player_id == OPEN_SEAT ? { open_seat: true } : {}) }); // THE OTHER PLAYER'S ID STAYS ON THE SERVER, open_seat: A CHALLENGE LINK
 
 	return res.json({
 		status: response.status,
@@ -1110,4 +1166,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId, httpStatus };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId, httpStatus };

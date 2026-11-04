@@ -16,6 +16,7 @@ const crypto = require("crypto");
 const AI_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]; // THE LEVELS IN server/utils/ai.js (LEVELS), THE ENGINE SETTINGS STAY ON THE CHESS SERVER
 const DEFAULT_LEVEL = 3;
 const ID = /^[A-Za-z0-9_-]{1,64}$/; // GAME IDS (newGameId'S, OLDER OBJECT IDS, THE TESTS' "game1") & PLAYER IDS (AUTH0 IDS WITHOUT "auth0|")
+const OPEN_SEAT = "OPEN_SEAT"; // THE EMPTY SIDE OF A CHALLENGE LINK'S GAME, THE FIRST SIGNED IN PLAYER TO JOIN TAKES IT
 
 /* ---------------------------------------------------------------- */
 // Players
@@ -91,6 +92,17 @@ function gameOpen(gameData) {
  */
 function gamePending(gameData) {
 	return gameData.state?.S == "PENDING";
+}
+
+/**
+ * @description The empty side of a challenge link's game that nobody has joined yet
+ * @param  {[object]} gameData [game item]
+ * @return {[string]} color ["w" or "b", null when there's no seat left to take]
+ */
+function openSeat(gameData) {
+	if (!gamePending(gameData)) { return null; }
+	if (gameData.white_player_id.S == OPEN_SEAT) { return "w"; }
+	return gameData.black_player_id.S == OPEN_SEAT ? "b" : null;
 }
 
 /**
@@ -181,12 +193,12 @@ function readAiLevel(value) {
 }
 
 /**
- * @description True for a game id or player id a body may name: letters, numbers, _ & -, and never the AI's player id
+ * @description True for a game id or player id a body may name: letters, numbers, _ & -, and never the AI's player id or the open seat
  * @param  {[string]} value
  * @return {[boolean]} ok
  */
 function isId(value) {
-	return typeof value == "string" && ID.test(value) && value != "CHESS_AI";
+	return typeof value == "string" && ID.test(value) && value != "CHESS_AI" && value != OPEN_SEAT;
 }
 
 /**
@@ -198,4 +210,4 @@ function newGameId() {
 	return crypto.randomBytes(16).toString("base64url");
 }
 
-module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isColor, isId, newGameId, DEFAULT_LEVEL };
+module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, openSeat, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isColor, isId, newGameId, DEFAULT_LEVEL, OPEN_SEAT };

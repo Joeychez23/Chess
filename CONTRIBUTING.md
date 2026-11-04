@@ -18,6 +18,7 @@ The quick start is in the README's [Quick start](README.md#quick-start), the `.e
 2. Keep to one change per pull request. Big features have sub-issues; do them one at a time.
 3. Update the folder's README in the same pull request when you change a route, a Socket.IO event, a stored field or a deploy step.
 4. Open a pull request into `develop` (it goes into `main` once a group of issues is done). The template asks for a short summary, the changes, the commits and the related issues. Write `Closes #N` for each issue it finishes so GitHub closes it on merge.
+5. Label the pull request `semver:major` (breaking), `semver:minor` (a new feature) or `semver:patch` (a fix or internal change). When it merges into `develop`, [the Version workflow](.github/workflows/version.yml) bumps the version at that level, no label is a patch. Don't change the version yourself unless you mean to: a pull request that does isn't bumped again.
 
 Run `npm test` in `server/` and `data-service/` before opening a pull request, and add tests in the folder you changed (see the [server](server/README.md#tests) and [data service](data-service/README.md#tests) READMEs). CI runs both and the client build on every pull request. The tests don't cover the board drawing, so also say in the pull request how you checked the change in the browser (for example: played an AI game and a friend game in two browsers, on desktop and on a phone).
 
