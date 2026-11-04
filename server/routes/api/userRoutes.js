@@ -7,13 +7,13 @@
 
 const router = require('express').Router()
 const { requireAuth } = require('../../middleware/auth.js')
-const { limitPlayerSearch, limitFriends } = require('../../middleware/rateLimit.js')
+const { limitPlayerSearch, limitFriends, limitAccountDeletes } = require('../../middleware/rateLimit.js')
 const { getUser, saveSettings, saveUsername, searchPlayers, getFriends, friendAction, deleteUserData } = require('../../controllers/userController.js')
 
 
 router.route('/').get(requireAuth, getUser);    // /api/user -> SIGNED-IN USER & THEIR USERNAME (401 WHEN SIGNED OUT / EXPIRED)
 
-router.route('/').delete(requireAuth, deleteUserData);    // /api/user -> DELETE MY DATA (SETTINGS PAGE): LEAVES EVERY GAME, THEN DELETES THE user_db ROW & FREES THE USERNAME
+router.route('/').delete(requireAuth, limitAccountDeletes, deleteUserData);    // /api/user -> DELETE MY ACCOUNT (SETTINGS PAGE): DELETES THE AUTH0 LOGIN, LEAVES EVERY GAME, THEN DELETES THE user_db ROW & FREES THE USERNAME. 429 WHEN A LIMIT IS HIT
 
 router.route('/settings').put(requireAuth, saveSettings);    // /api/user/settings -> DEFAULT START SETTINGS (SETTINGS PAGE), HOME'S DROPDOWNS START ON THEM
 
