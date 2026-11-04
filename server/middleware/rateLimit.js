@@ -1,8 +1,8 @@
 /*
  *  rateLimit.js  --  chess server
  *	New Game, Login & AI Move Limits
- *  Every new game is a chess_db item kept for 25 days, and the table is provisioned at 5 writes a second, so making games
- *  in a loop would throttle everyone's moves. Each browser session, each IP & the whole site get a token bucket:
+ *  Every new game is a chess_db item kept for 25 days, and the table is on-demand (it bills per request), so making games
+ *  in a loop would run up the bill. Each browser session, each IP & the whole site get a token bucket:
  *  a burst of new games at once, then one more every so often. There's one server process, so the buckets live in memory
  *
  */
@@ -16,7 +16,7 @@ const { readGuestCookie } = require("./auth.js");
 const LIMITS = {
 	session: { burst: 10, refillMs: 60 * 1000 }, // A SIGNED IN PLAYER OR A GUEST (THEIR COOKIE): 10 AT ONCE, THEN 1 A MINUTE
 	ip: { burst: 30, refillMs: 20 * 1000 }, // AN IP (IPv6: ITS /64), A FEW PLAYERS CAN SHARE ONE: 30 AT ONCE, THEN 1 EVERY 20 SECONDS
-	site: { burst: 60, refillMs: 1000 }, // EVERYONE: 60 AT ONCE, THEN 1 A SECOND (A FIFTH OF chess_db'S WRITES)
+	site: { burst: 60, refillMs: 1000 }, // EVERYONE: 60 AT ONCE, THEN 1 A SECOND (A CAP ON WHAT NEW GAMES COST)
 };
 const LOGIN_LIMITS = { // PASSWORD LOGINS, CHECKED BEFORE AUTH0 IS ASKED
 	loginIp: { burst: 20, refillMs: 30 * 1000 }, // AN IP (IPv6: ITS /64): 20 AT ONCE, THEN 1 EVERY 30 SECONDS
@@ -42,7 +42,7 @@ const CLIENT_ERROR_LIMITS = { // BROWSER ERROR REPORTS BECOME LOG LINES, SO A LO
 	clientErrorIp: { burst: 10, refillMs: 30 * 1000 }, // AN IP (IPv6: ITS /64): 10 AT ONCE, THEN 1 EVERY 30 SECONDS
 	clientErrorSite: { burst: 60, refillMs: 2 * 1000 }, // EVERYONE: 60 AT ONCE, THEN 1 EVERY 2 SECONDS
 };
-const SEARCH_LIMITS = { // PLAYER SEARCH AS YOU TYPE, username-search HAS 5 READ UNITS (ABOUT 10 SEARCHES A SECOND)
+const SEARCH_LIMITS = { // PLAYER SEARCH AS YOU TYPE, username-search IS ON-DEMAND (IT BILLS PER REQUEST), SO THESE CAP WHAT SEARCHES COST
 	searchSession: { burst: 20, refillMs: 1000 }, // A SIGNED IN PLAYER: 20 AT ONCE, THEN 1 A SECOND
 	searchIp: { burst: 60, refillMs: 250 }, // AN IP (IPv6: ITS /64): 60 AT ONCE, THEN 4 A SECOND
 	searchSite: { burst: 50, refillMs: 200 }, // EVERYONE: 50 AT ONCE, THEN 5 A SECOND
