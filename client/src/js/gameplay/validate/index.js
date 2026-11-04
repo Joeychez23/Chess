@@ -441,7 +441,7 @@ export async function friendAction(userUrl, action, username) {
 }
 
 /**
- * @description Delete my data (DELETE /api/user): the server forfeits the open games, cancels & declines the invites, then deletes the user_db row
+ * @description Delete my account (DELETE /api/user): the server deletes the Auth0 login, forfeits the open games, cancels & declines the invites, then deletes the user_db row
  * @param  {[string]} userUrl [user api, "/api/user"]
  * @return {[object]} response [{ status, message }]
  */

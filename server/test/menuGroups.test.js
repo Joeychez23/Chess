@@ -30,25 +30,39 @@ describe("the menus' groups", () => {
 			["End the game", ["Restart", "Cancel"]],
 			["Navigation", ["Home", "Settings"]],
 			["Account", ["Exit"]],
+			["Legal", ["Privacy", "Terms"]],
 		],
 		home: [
 			["On this page", ["Invites", "Your games", "Finished games", "Friends"]],
 			["Navigation", ["Settings"]],
 			["Account", ["Logout"]],
+			["Legal", ["Privacy", "Terms"]],
 		],
 		guest: [
 			["On this page", ["Play the AI"]],
 			["Account", ["Login/Signup"]],
+			["Legal", ["Privacy", "Terms"]],
 		],
 		settings: [
 			["Navigation", ["Home"]],
 			["Account", ["Logout"]],
+			["Legal", ["Privacy", "Terms"]],
 		],
 		login: [
 			["Navigation", ["Home"]],
+			["Legal", ["Privacy", "Terms"]],
 		],
 		signup: [
 			["Navigation", ["Home"]],
+			["Legal", ["Privacy", "Terms"]],
+		],
+		privacy: [
+			["Navigation", ["Home"]],
+			["Legal", ["Terms"]],
+		],
+		terms: [
+			["Navigation", ["Home"]],
+			["Legal", ["Privacy"]],
 		],
 	};
 
@@ -82,7 +96,7 @@ describe("the menus' labels & link types", () => {
 		assert.match(handler, /stopFrames\(\);[\s\S]*leaveGame\(\);[\s\S]*cancelRematch[\s\S]*fillThenGo\(link, link\.href\)/);
 	});
 
-	const titles = { play: "Chess", home: "Home", guest: "Home", settings: "Settings", login: "Login/Signup", signup: "Login/Signup" };
+	const titles = { play: "Chess", home: "Home", guest: "Home", settings: "Settings", login: "Login/Signup", signup: "Login/Signup", privacy: "Privacy", terms: "Terms" };
 	for (const [page, title] of Object.entries(titles)) {
 		test(`${page}'s menu is titled ${title} & has no item for the page it's on`, () => {
 			const html = read(`${page}.html`);

@@ -347,6 +347,8 @@ body {
 	min-height: 0; /* STAYS IN THE PAGE: SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
 }
 
+.legalBox a, .legalLinks a { color: inherit; text-decoration: underline; } /* THE PRIVACY & TERMS PAGES' LINKS */
+
 .note { /* WHY AN INVITE DIDN'T GO THROUGH, THE FORFEIT WARNINGS */
 	min-height: 1.4em;
 	color: var(--gold);

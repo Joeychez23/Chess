@@ -17,7 +17,7 @@
 | `API_PORT` | Server port: `3001` on your Mac (`npm run dev` proxies to it), `8080` on the EC2 instance |
 | `AUTH0_ISSUER_BASE_URL_ORIGIN` | Auth0 tenant domain |
 | `AUTH0_CONNECTION` | Database connection players log in with (`auth0-default-connection`) |
-| `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`) |
+| `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`, `delete:users`) |
 | `SESSION_PUBLIC_KEY` | The public half of the data service's session key, multi-line in double quotes ([Session keys](../data-service/README.md#session-keys-252)). The server checks session and guest tokens with it but can't make one |
 | `SESSION_PUBLIC_KEY_NEXT` | Optional. Only while the key is being changed: tokens signed with the new key are accepted too |
 | `CLIENT_URL` | Optional. Where the game is served, the only origin API writes and sockets accept. Defaults to `http://localhost:API_PORT/` |
@@ -94,7 +94,7 @@ which doesn't start an Auth0 session, so there's no Auth0 login page or logout.
 | `GET /api/user/search?q=` | Home's player search: up to 10 usernames starting with `q` (2 or more characters), in any capitals, as `{ usernames }`. Never an email or Auth0 id. `429` with `Retry-After` when a limit is hit (`SEARCH_LIMITS` in `middleware/rateLimit.js`) |
 | `GET /api/user/friends` | Home's Friends box: `{ friends: [{ username, online }], sent: [{ username }], received: [{ username }] }`, sorted by name. Names only, never an email or Auth0 id. `online` means a socket is open now (on Home or in a friend game), read when this is asked |
 | `POST /api/user/friends/request`, `/accept`, `/decline`, `/cancel`, `/remove` | `{ username }`, in any capitals. Saved on both players' `user_db` rows in one transaction, and both get the socket's `friends`. `400` for your own name, `404` for a name nobody holds or a request that's gone, `409` with the reason (already friends, already asked, a full list: 50 friends, 25 requests each way), `429` with `Retry-After` when a limit is hit (`FRIEND_LIMITS` in `middleware/rateLimit.js`) |
-| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, takes you off everyone's friend lists and requests, then deletes your `user_db` row and frees your username. Your friend games stay in `chess_db`, your finished AI games are deleted 25 days later, and your next sign-in starts a new row |
+| `DELETE /api/user` | Delete my account: deletes your Auth0 login, forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, takes you off everyone's friend lists and requests, then deletes your `user_db` row and frees your username. Your friend games stay in `chess_db` with your name replaced by `Deleted player`, and your finished AI games are deleted 25 days later. Auth0 goes first: if it refuses, nothing changes, and a failure later on can be retried |
 
 The session is two JWTs in httpOnly cookies: an access token (15 minutes)
 checked on every request, and a refresh token (7 days) that's only sent to

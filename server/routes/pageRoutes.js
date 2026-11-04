@@ -6,7 +6,7 @@
  */
 
 const router = require('express').Router()
-const { homePage, playPage, gamePage, settingsPage, loginPage, signupPage } = require('../controllers/pageController.js')
+const { homePage, playPage, gamePage, settingsPage, loginPage, signupPage, privacyPage, termsPage } = require('../controllers/pageController.js')
 
 // PAGES: THE SERVER PICKS THE .html FILE (client/dist) FOR THE URL, THE CLIENT MOVES BETWEEN THEM WITH window.location.href
 
@@ -16,11 +16,15 @@ router.route('/play').get(playPage);            // /play          -> GUEST GAME 
 
 router.route('/play/:gameId').get(gamePage);    // /play/:gameId  -> A SIGNED IN PLAYER'S GAME, SIGNED OUT -> /api/auth/resume, THEN BACK HERE
 
-router.route('/settings').get(settingsPage);     // /settings      -> SIGNED IN -> settings.html (USERNAME, ACCOUNT, DEFAULT START SETTINGS, DELETE MY DATA), SIGNED OUT -> /api/auth/resume, THEN BACK HERE
+router.route('/settings').get(settingsPage);     // /settings      -> SIGNED IN -> settings.html (USERNAME, ACCOUNT, DEFAULT START SETTINGS, DELETE MY ACCOUNT), SIGNED OUT -> /api/auth/resume, THEN BACK HERE
 
 router.route('/login').get(loginPage);          // /login         -> SIGNED OUT -> login.html, SIGNED IN -> ?returnTo= OR HOME
 
 router.route('/signup').get(signupPage);        // /signup        -> SIGNED OUT -> signup.html, SIGNED IN -> ?returnTo= OR HOME
+
+router.route('/privacy').get(privacyPage);      // /privacy       -> ANYONE -> privacy.html
+
+router.route('/terms').get(termsPage);          // /terms         -> ANYONE -> terms.html
 
 
 module.exports = router

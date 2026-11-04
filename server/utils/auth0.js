@@ -189,5 +189,19 @@ async function getAuth0User(email) {
 	return null;
 }
 
+/* ---------------------------------------------------------------- */
+// Delete Auth0 User
+/* ---------------------------------------------------------------- */
+/**
+ * @description Deletes a player's Auth0 login (Management API, needs delete:users). Auth0 answers 204 for a user that's already gone, so a retry is safe
+ * @param  {[string]} userId [full Auth0 user id, with the "auth0|"]
+ * @return {[undefined]} throws when Auth0 refuses
+ */
+async function deleteAuth0User(userId) {
+	const clientToken = await getManagementToken();
+	const response = await auth0Fetch("user delete", `/api/v2/users/${encodeURIComponent(userId)}`, { method: "DELETE", headers: { authorization: `Bearer ${clientToken}` } });
+	if (!response.ok) { throw new Error(`Auth0 user delete failed: ${response.status}`); }
+}
 
-module.exports = { timeouts, passwordLogin, signup, requestPasswordReset, getAuth0User };
+
+module.exports = { timeouts, passwordLogin, signup, requestPasswordReset, getAuth0User, deleteAuth0User };

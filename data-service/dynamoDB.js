@@ -32,6 +32,7 @@ const GAME_TTL = 60 * 60 * 24 * 25; // GAMES EXPIRE 25 DAYS AFTER THE LAST MOVE 
 const FINISHED_GAMES = 20; // GAMES FINISHED GAMES ON HOME SHOWS, closed_games ONLY GROWS
 
 const GAME_LISTS = ["requested_games", "open_games", "closed_games"]; // A user_db ROW'S GAME LISTS (JSON STRINGS)
+const DELETED_NAME = "Deleted player"; // A DELETED PLAYER'S NAME IN THEIR FINISHED FRIEND GAMES, THE SPACE MEANS NO USERNAME CAN BE IT
 const LIST_SAVE_TRIES = 5; // A GAME LIST SAVE THAT LOST A RACE READS THE ROW AGAIN & RETRIES
 const BATCH_READ_TRIES = 5; // A THROTTLED BATCH GET (UnprocessedKeys) ASKS AGAIN FOR THE KEYS IT DIDN'T READ
 const BATCH_READ_DELAY = 50; // MS BEFORE THE FIRST RETRY, DOUBLED EACH TRY
@@ -1124,11 +1125,40 @@ async function expireFinishedAiGames(userData) {
 }
 
 /* ---------------------------------------------------------------- */
+// Anonymize friend games (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Replaces a player's name in their finished friend games, before Delete my account drops the lists that find them. Their opponents keep the game & its result
+ * @param  {[object]} userData [user item from retrieveUser]
+ * @throws when a game can't be read or saved, before the row is gone so Delete my account can run again
+ */
+async function anonymizeFriendGames(userData) {
+	const userId = userData.user_id.S;
+	const games = [...await pruneGameList(userData, "closed_games"), ...await pruneGameList(userData, "open_games")]; // A LIST SAVE THAT FAILED LEAVES A FINISHED GAME IN open_games
+	for (const game of games) {
+		if (game.white_player_id.S == "CHESS_AI" || game.black_player_id.S == "CHESS_AI") { continue; } // AI GAMES HAVE NO NAMES
+		const nameField = game.white_player_id.S == userId ? "white_name" : "black_name";
+		if (!game[nameField]) { continue; }
+		try {
+			await connection.updateItem({
+				TableName: CHESS_TABLE,
+				Key: { game_id: game.game_id },
+				UpdateExpression: `SET ${nameField} = :name`,
+				ConditionExpression: "attribute_exists(game_id)", // TTL DELETED IT SINCE THE READ: DON'T MAKE A NEW ITEM
+				ExpressionAttributeValues: { ":name": { S: DELETED_NAME } }
+			});
+		} catch (err) {
+			if (err.name != "ConditionalCheckFailedException") { throw err; }
+		}
+	}
+}
+
+/* ---------------------------------------------------------------- */
 // Delete user (DELETE)
 /* ---------------------------------------------------------------- */
 /**
  * @description Deletes a player's user_db row, their game lists, settings & rating (Delete my data, after leaveAllGames), & frees their username.
- * The friend games stay in chess_db: a friend's finished games still show the result & the name (their AI games expire, expireFinishedAiGames), & their next login makes a new row
+ * The friend games stay in chess_db: a friend's finished games still show the result, with their name replaced (anonymizeFriendGames, their AI games expire, expireFinishedAiGames)
  * @param  {[string]} userId [auth0 user id without "auth0|"]
  * @return {[object]} response [{ status, message }]
  */
@@ -1537,4 +1567,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { pruneClosedGames, expireFinishedAiGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, saveLastColor, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { pruneClosedGames, expireFinishedAiGames, anonymizeFriendGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, saveLastColor, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
