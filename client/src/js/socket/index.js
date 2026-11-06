@@ -47,7 +47,7 @@ export function joinGame(gameId, playerId, handlers) {
 			if (lost) { lost = false; handlers.reconnected(); }
 			if (joined) { // RECONNECTED, THE OPPONENT MAY HAVE MOVED OR FORFEITED WHILE OFFLINE
 				handlers.move();
-				if (response.state == "CLOSED" && (response.reason == "forfeit" || response.reason == "agreement")) { handlers.gameOver(response); } // THE ENDS WITHOUT A MOVE
+				if (response.state == "CLOSED" && (response.reason == "forfeit" || response.reason == "agreement" || response.reason == "timeout")) { handlers.gameOver(response); } // THE ENDS WITHOUT A MOVE
 			}
 			joined = true;
 		});

@@ -45,7 +45,8 @@ In the Auth0 app's settings, leave **Allowed Callback URLs** and **Allowed
 Logout URLs** empty: players sign in on our own page.
 
 In **Advanced Settings** -> **Grant Types**, enable **Password** and **Client
-Credentials** (the Management API lookup, `getAuth0User()`), and turn off
+Credentials** (the Management API: `read:users` for `getAuth0User()` and
+`delete:users` for Delete my account), and turn off
 **Authorization Code**. In the Auth0
 tenant settings, enable **Trust Token Endpoint IP Header** so Auth0 can use the
 `auth0-forwarded-for` header for login protection.

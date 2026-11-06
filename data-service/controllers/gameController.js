@@ -11,9 +11,9 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, deleteInvite, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, saveLastColor, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, takeOpenSeat, deleteInvite, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, saveLastColor, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
 const { validateMove, undoMoves, gameResult, checkStartFen } = require("../utils/validate.js");
-const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL } = require("../utils/games.js");
+const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, openSeat, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL, DAYS_PER_MOVE, OPEN_SEAT } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
 const { guestToken } = require("../utils/tokens.js");
 
@@ -36,9 +36,10 @@ const NAME_LENGTH = 50; // AN INVITE'S SCREENNAME FROM AUTH0 (USERNAMES ARE 3 - 
  * @return {[object]} response [retrieveGame's { status, game_data, message }, "Game data not found" is { status: 500, message }]
  */
 async function getGame(req, res) {
-	const response = await retrieveGame(req.params.gameId, req.query.consistent == "true");
+	let response = await retrieveGame(req.params.gameId, req.query.consistent == "true");
 	if (!response.game_data) { return res.json(response); } // GAME NOT FOUND
 	if (!req.player) { return refuse(req, res, 401, "No player"); }
+	if (response.game_data.challenge && !playerInGame(req.player, response.game_data)) { response = await retrieveGame(req.params.gameId, true); } // A CHALLENGE LINK: THE READ MAY BE FROM BEFORE THEY TOOK THE SEAT
 	if (!playerInGame(req.player, response.game_data)) { return refuse(req, res, 403, "Player is not in this game"); }
 	return res.json(response);
 }
@@ -446,28 +447,109 @@ function readStartFen(value) {
 /* ---------------------------------------------------------------- */
 /**
  * @description A signed in player invites a friend: a PENDING game with the requester as the inviter. The chess server found the friend
- * in Auth0 (opponent_id) & answers the rules around it (one sent invite, their invite to you, one friend game at a time) before this.
+ * (opponent_id) & answers the rules around it (one sent invite, their invite to you, one friend game at a time) before this.
  * The names are each player's username, or their Auth0 screenname until they pick one (the requester's comes from their token)
- * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3) }]. The game id is made here
+ * @param  {[object]} req.body [{ opponent_id, opponent_screenname (optional), color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3), days_per_move (optional, 1, 3 or 7, left out = no limit) }]. The game id is made here
  * @return {[object]} response [initalizeGame's { status, game_data (PENDING, game_id is the new id), message }]
  */
 async function inviteGame(req, res) {
 	if (req.player.guest) { return refuse(req, res, 403, "Guests can't invite"); }
-	const { opponent_id, opponent_screenname, color, start_fen, takebacks } = req.body || {};
+	const { opponent_id, opponent_screenname, color, start_fen, takebacks, days_per_move } = req.body || {};
 	if (!isId(opponent_id)) { return refuse(req, res, 400, "Invalid opponent"); }
 	if (takebacks !== undefined && takebacks !== 0 && takebacks !== 3) { return refuse(req, res, 400, "Invalid takebacks"); }
+	if (days_per_move !== undefined && !DAYS_PER_MOVE.includes(days_per_move)) { return refuse(req, res, 400, "Invalid days per move"); }
 	if (opponent_id == req.player.id) { return refuse(req, res, 400, "That's your own id"); }
 	if (opponent_screenname !== undefined && (typeof opponent_screenname != "string" || opponent_screenname.length > NAME_LENGTH)) { return refuse(req, res, 400, "Invalid screenname"); }
 	const position = readStartFen(start_fen);
 	if (position.message) { return refuse(req, res, 400, position.message); }
 
-	const params = newStartParams(color, position.fen, takebacks);
+	const params = newStartParams(color, position.fen, takebacks, days_per_move);
 	const sides = pickSides(params, req.player.id, opponent_id, await lastColor(params, req.player.id, false)); // RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
 	const names = {
 		[req.player.id]: (await username(req.player.id)) || req.player.user.user_metadata?.screenname,
 		[opponent_id]: (await username(opponent_id)) || opponent_screenname,
 	};
 	return created(req, res, await initalizeGame(false, sides.white, sides.black, false, { names: { w: names[sides.white], b: names[sides.black] }, pending: true, start_params: params, inviter_id: req.player.id }));
+}
+
+/* ---------------------------------------------------------------- */
+// Challenge Link
+/* ---------------------------------------------------------------- */
+/**
+ * @description A signed in player makes a challenge link: a PENDING game like an invite, with the other side's seat empty (OPEN_SEAT) & only on the requester's
+ * requested_games. The chess server answers the rules around it (one sent invite, one friend game at a time) before this
+ * @param  {[object]} req.body [{ color (the requester's pick), start_fen (optional), takebacks (optional, 0 = off, 3 or left out = up to 3), days_per_move (optional, 1, 3 or 7, left out = no limit) }]. The game id is made here
+ * @return {[object]} response [initalizeGame's { status, game_data (PENDING, game_id is the new id), message }]
+ */
+async function challengeGame(req, res) {
+	if (req.player.guest) { return refuse(req, res, 403, "Guests can't make a challenge link"); }
+	const { color, start_fen, takebacks, days_per_move } = req.body || {};
+	if (takebacks !== undefined && takebacks !== 0 && takebacks !== 3) { return refuse(req, res, 400, "Invalid takebacks"); }
+	if (days_per_move !== undefined && !DAYS_PER_MOVE.includes(days_per_move)) { return refuse(req, res, 400, "Invalid days per move"); }
+	const position = readStartFen(start_fen);
+	if (position.message) { return refuse(req, res, 400, position.message); }
+
+	const params = newStartParams(color, position.fen, takebacks, days_per_move);
+	const sides = pickSides(params, req.player.id, OPEN_SEAT, await lastColor(params, req.player.id, false)); // RANDOM IS DRAWN NOW, THE LINK SAYS "YOU PLAY BLACK (RANDOM)"
+	const name = (await username(req.player.id)) || req.player.user.user_metadata?.screenname;
+	const names = sides.white == req.player.id ? { w: name } : { b: name };
+	return created(req, res, await initalizeGame(false, sides.white, sides.black, false, { names, pending: true, start_params: params, inviter_id: req.player.id, challenge: true }));
+}
+
+/**
+ * @description What the join screen shows, for any signed in player with the link. Any other game (or none) answers the same "Game data not found"
+ * @param  {[string]} req.params.gameId [game id from the link]
+ * @return {[object]} response [{ status, open (the seat is still empty), name (who made the link), player_color (the seat), start_params, message }]
+ */
+async function getChallenge(req, res) {
+	if (req.player.guest) { return refuse(req, res, 403, "Guests can't join"); }
+	const gameData = (await retrieveGame(req.params.gameId, true)).game_data;
+	if (!gameData?.challenge) { return res.json({ status: 500, message: "Game data not found" }); }
+	const seat = openSeat(gameData);
+	return res.json({
+		status: 200,
+		open: Boolean(seat),
+		name: seat ? playerName(gameData, seat == "w" ? "b" : "w") : null,
+		player_color: seat,
+		start_params: seat ? startParams(gameData) : null,
+		message: "Challenge",
+	});
+}
+
+/**
+ * @description A signed in player takes a challenge link's empty seat: PENDING -> OPEN. The same order as acceptGame, so a refusal never costs them their game:
+ * their open friend game answers 409 (unless replace_current), the creator in another friend game is refused, then the seat is taken (a conditional write, so only
+ * one player wins it), and only then their open friend game is forfeited & their sent invite cancelled. The player already in the seat just gets the game (a repeat)
+ * @param  {[string]} req.params.gameId [game id from the link]
+ * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the requester's open friend game) }]
+ * @return {[object]} response [takeOpenSeat's { status, game_data, message } plus forfeited & dropped_invites (see acceptGame) | { status: 409, game_id (the open one), message: "Friend game already open" } | { status: 409, message: "Game is taken" }]
+ */
+async function joinGame(req, res) {
+	if (req.player.guest) { return refuse(req, res, 403, "Guests can't join"); }
+	const { replace_current } = req.body || {};
+	const response = await retrieveGame(req.params.gameId, true);
+	const gameData = response.game_data;
+	if (!gameData?.challenge) { return res.json({ status: 500, message: "Game data not found" }); } // CANCELLED, EXPIRED OR NOT A LINK
+	const playerId = req.player.id;
+	if (playerInGame(req.player, gameData) && gameOpen(gameData)) { return res.json({ ...response, forfeited: null, dropped_invites: [] }); }
+	if (playerId == inviterId(gameData)) { return refuse(req, res, 403, "That's your own link"); }
+	const seat = openSeat(gameData);
+	if (!seat) { return refuse(req, res, 409, "Game is taken"); }
+
+	const current = await currentGame(playerId, false); // ONE FRIEND GAME AT A TIME
+	if (current && replace_current !== true) { return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
+	if (await currentGame(inviterId(gameData), false)) { return refuse(req, res, 409, "They're in another game now"); }
+
+	const joined = await takeOpenSeat(gameData, seat, playerId, (await username(playerId)) || req.player.user.user_metadata?.screenname);
+	if (joined.status != 200) { return refuse(req, res, joined.status, joined.message); }
+	await saveFriendColors(joined.game_data); // ONLY NOW: A LINK NOBODY JOINS DOESN'T COUNT AS A GAME
+	let forfeited = null;
+	if (current) { // JOINING FORFEITS THE OPEN ONE, THE OTHER SIDE WINS
+		const closed = await closeGame(current, playerColor(playerId, current) == "w" ? "b" : "w", "forfeit");
+		if (closed.status == 200) { forfeited = closed.game_data; }
+	}
+	const dropped = await dropSentInvite(playerId);
+	return res.json({ ...joined, forfeited, dropped_invites: dropped ? [dropped] : [] });
 }
 
 /* ---------------------------------------------------------------- */
@@ -691,4 +773,4 @@ async function username(playerId) {
 }
 
 
-module.exports = { getGame, moveGame, aiMoveGame, takebackGame, declineTakebackGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };
+module.exports = { getGame, moveGame, aiMoveGame, takebackGame, declineTakebackGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };

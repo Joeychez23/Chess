@@ -10,7 +10,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, player, peek } = testServer;
+const { call, player, named, peek, auth0WillRefuseDeletes, hasAuth0User } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -23,7 +23,7 @@ const list = (item, name) => JSON.parse(item[name].S);
  * @description An open friend game: the inviter sends, the friend accepts
  */
 async function friendGame(inviter, friend) {
-	const invite = await call("POST", "/api/chess/invite", { as: inviter, body: { opponent_email: friend.email, start_color: "w" } });
+	const invite = await call("POST", "/api/chess/invite", { as: inviter, body: { opponent_username: await named(friend), start_color: "w" } });
 	await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: friend, body: {} });
 	return invite.game_id;
 }
@@ -88,7 +88,7 @@ describe("delete my data", () => {
 		const carol = player("carol");
 		const gameId = await friendGame(alice, bob); // ALICE IS WHITE
 		const aiGame = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
-		const carolsInvite = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_email: alice.email } });
+		const carolsInvite = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_username: await named(alice) } });
 
 		const deleted = await call("DELETE", "/api/user", { as: alice });
 		assert.equal(deleted.status, 200);
@@ -107,17 +107,46 @@ describe("delete my data", () => {
 		assert.equal(peek("user_db", "alice"), undefined);
 	});
 
+	test("deletes the Auth0 login, and the opponent's finished game shows no name", async () => {
+		const alice = player("alice");
+		const bob = player("bob");
+		const gameId = await friendGame(alice, bob); // ALICE IS WHITE
+		assert.equal(peek("chess_db", gameId).white_name.S, "Alice");
+
+		assert.equal((await call("DELETE", "/api/user", { as: alice })).http, 200);
+
+		assert.equal(hasAuth0User(alice), false);
+		assert.equal(hasAuth0User(bob), true);
+		assert.equal(peek("chess_db", gameId).white_name.S, "Deleted player");
+		assert.equal(peek("chess_db", gameId).black_name.S, "Bob");
+		const home = await call("GET", "/api/chess/user/bob", { as: bob });
+		assert.equal(home.closed_game_list[0].opponent_name, "Deleted player");
+		assert.equal(home.closed_game_list[0].winner, "b");
+	});
+
+	test("Auth0 refusing the delete changes nothing, so it can be pressed again", async () => {
+		const alice = player("alice");
+		const bob = player("bob");
+		const gameId = await friendGame(alice, bob);
+		auth0WillRefuseDeletes();
+
+		assert.equal((await call("DELETE", "/api/user", { as: alice })).http, 500);
+		assert.equal(peek("chess_db", gameId).state.S, "OPEN");
+		assert.ok(peek("user_db", "alice"));
+		assert.equal(hasAuth0User(alice), true);
+	});
+
 	test("cancels the invite they sent", async () => {
 		const alice = player("alice");
 		const carol = player("carol");
-		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: carol.email } });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(carol) } });
 
 		await call("DELETE", "/api/user", { as: alice });
 		assert.equal(peek("chess_db", invite.game_id), undefined);
 		assert.deepEqual(list(peek("user_db", "carol"), "requested_games"), []);
 	});
 
-	test("a player can play again afterwards, starting with a new row", async () => {
+	test("a row made after the delete starts fresh", async () => {
 		const alice = player("alice");
 		await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 7 } });
 		await call("DELETE", "/api/user", { as: alice });

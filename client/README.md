@@ -73,10 +73,11 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 | Url | Page |
 | --- | --- |
 | `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites, Your games, Finished games and Friends boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
-| `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). Restart and Rematch swap the url to the new game's id |
+| `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). A challenge link opened by anyone not in its game shows `join.html`, which joins it or says it's taken; its creator goes to `/`. Restart and Rematch swap the url to the new game's id |
 | `/play` | The guest's game. Signed-in players are sent Home |
-| `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my data boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
+| `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my account boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
 | `/login` | Signed out: `login.html`, email and password through `POST /api/auth/login`, with a Forgot password? form through `POST /api/auth/forgot` and a link to `/signup`. Signed in, it goes to `?returnTo=` or `/` |
+| `/privacy`, `/terms` | Anyone: `privacy.html` and `terms.html`, linked from every menu and the login and signup pages |
 | `/signup` | Signed out: `signup.html`, Create account through `POST /api/auth/signup`, with a link to `/login`. Signed in, it goes to `?returnTo=` or `/` |
 
 Anything else goes to `/`, and an unknown `/api` route gets a JSON `404`.
@@ -122,8 +123,8 @@ leaveGame();
 
 ```text
 client/
-  home.html                  Home markup: Play the AI (level), Play a friend (username or email), Invites, Your games, Finished games, Friends, menu (Invites, Your games, Finished games, Friends / Settings / Logout)
-  settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my data, menu (Home / Logout)
+  home.html                  Home markup: Play the AI (level), Play a friend (username or challenge link), Invites, Your games, Finished games, Friends, menu (Invites, Your games, Finished games, Friends / Settings / Logout)
+  settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my account, menu (Home / Logout)
   login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home)
   signup.html                Signup markup: Create account, link to login, menu (Home), shares the login bundle
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Play the AI / Login/Signup)
@@ -135,7 +136,7 @@ client/
   src/js/pages/
     home/index.js            Open games (opponent, level, color), new solo games, invites (send, accept, decline, cancel), friends (requests, Challenge fills the invite, Remove), color dropdowns, the open AI & friend games (Continue / forfeit)
     guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board, Play AI / New game
-    settings/index.js        Username (first pick goes Home), account info, saves the Default start settings, Delete my data (two presses, then logout)
+    settings/index.js        Username (first pick goes Home), account info, saves the Default start settings, Delete my account (two presses, then logout)
     play/index.js            Finds the player + game (url or guest localStorage, a missing guest game is made as Random), starts renderCanvas()
     utils/nav.js             createNav() (opens & closes every page's menu, its keyboard focus, arrow keys, Tab around the page & Left and Right between the page's elements, the game passes hooks), menuItems() (the visible items, the TV remote uses them too), startNav() (pages without the game)
     utils/index.js           table background, showCurrentGame() / hideCurrentGame(), loadLevels(), colorText()

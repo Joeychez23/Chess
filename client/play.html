@@ -63,10 +63,15 @@
 			<ul role="group" aria-label="Account">
 				<li><button class="menuButton" id="optExit">Exit</button></li>
 			</ul>
+			<ul role="group" aria-label="Legal"> <!-- A NEW TAB: THE GAME KEEPS RUNNING -->
+				<li><a class="menuButton" href="/privacy" target="_blank" rel="noopener">Privacy</a></li>
+				<li><a class="menuButton" href="/terms" target="_blank" rel="noopener">Terms</a></li>
+			</ul>
 		</div>
 	</nav>
 
 	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
+	<p id="moveDeadline"></p> <!-- FRIEND GAMES WITH A TIME LIMIT: THE TIME LEFT, NOT A LIVE REGION: IT CHANGES EVERY MINUTE (gameplay/menu/index.js) -->
 	<p id="resultAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE RESULT WHEN A GAME ENDS (gameplay/menu/index.js) -->
 
 	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->

@@ -43,6 +43,10 @@
 			<ul role="group" aria-label="Account">
 				<li><button class="menuButton logoutBtn" type="button">Logout</button></li>
 			</ul>
+			<ul role="group" aria-label="Legal">
+				<li><a class="menuButton" href="/privacy">Privacy</a></li>
+				<li><a class="menuButton" href="/terms">Terms</a></li>
+			</ul>
 		</div>
 	</nav>
 
@@ -83,7 +87,7 @@
 			</div>
 			<div class="box boxWalnut" id="friendBox">
 				<div class="boxHead"><h2 class="label">Play a friend</h2><span class="spec">No. 02</span></div>
-				<p class="boxText">Search for their username or enter the email they sign in with, pick your color and, if you like, a position to start from. The invite shows them. Once they accept, each move shows up on both boards.</p>
+				<p class="boxText">Search for their username, or make a challenge link to send them. Pick your color and, if you like, a position to start from. The invite shows them. Once they accept, each move shows up on both boards.</p>
 				<figure class="boardPicture" hidden>
 					<canvas role="img" aria-label="The board of your current friend game"></canvas>
 					<figcaption class="spec"></figcaption>
@@ -91,7 +95,7 @@
 				<a class="btn btnCream continueGame" href="/" hidden>Continue current game</a>
 				<form id="muliplayerForm" class="boxBottom">
 					<div class="field fieldStack">
-						<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Their username or email" aria-label="Friend's username or email">
+						<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" id="enterMultiEmail" name="enterMultiEmail" placeholder="Their username" aria-label="Friend's username">
 						<ul class="playerResults" id="playerResults" aria-label="Players found" hidden></ul>
 						<p class="spec note" id="playerSearchNote" role="status"></p>
 						<select id="friendColor" aria-label="Your color">
@@ -104,18 +108,29 @@
 							<option value="3" selected>Takebacks: up to 3</option>
 							<option value="0">Takebacks: off</option>
 						</select>
+						<select id="friendDays" aria-label="Time per move">
+							<option value="" selected>Time per move: none</option>
+							<option value="1">Time per move: 1 day</option>
+							<option value="3">Time per move: 3 days</option>
+							<option value="7">Time per move: 7 days</option>
+						</select>
 						<input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" id="friendFen" placeholder="Start position (FEN), optional" aria-label="Start position as a FEN, optional">
 						<button class="btn btnCream" id="enterMultiSubmit" type="submit">Invite</button>
+						<button class="btn btnLine" id="createChallenge" type="button">Create challenge link</button>
 					</div>
 					<p class="spec note" id="multiNote" role="status"></p>
 				</form>
 			</div>
 			<div class="box boxWalnut" id="invites">
 				<div class="boxHead"><h2 class="label">Invites</h2><span class="spec">No. 03</span></div>
-				<p id="noInvites">No invites right now. When a friend invites you, it shows up here.</p>
+				<p id="noInvites">No invites right now. When a friend invites you, or you create a challenge link, it shows up here.</p>
 				<ul class="inviteList" id="inviteList" aria-label="Invites you got" hidden></ul>
 				<div class="sentInvite" id="sentInvite" hidden>
 					<p class="spec" id="sentInviteText"></p>
+					<div class="field challengeLinkField" id="challengeLinkField" hidden>
+						<input type="text" readonly id="challengeLink" aria-label="Challenge link">
+						<button class="btn btnCream" id="copyChallenge" type="button">Copy link</button>
+					</div>
 					<button class="btn btnLine" id="cancelInvite" type="button">Cancel invite</button>
 				</div>
 				<p class="spec note" id="inviteNote" role="status"></p>

@@ -2,7 +2,8 @@
  *  chessController.js  --  chess server
  *	Chess Routes (was the chess lambda, chess-validation/lambdas/functions/chess/index.js)
  *  Each branch of the lambda's handler is its own route now. Responses keep the lambda's
- *  body ({ status, ..., message }) so the client checks them the same way.
+ *  body ({ status, ..., message }) so the client checks them the same way. The HTTP status is the real one (#305),
+ *  so a refusal's body can still say status: 500 under a 4xx, the client reads the body's
  *  The games & players are read & saved through the data service (dataClient.js), which checks every action again
  *
  */
@@ -14,20 +15,43 @@
 const { Chess } = require("chess.js");
 const { checkStartFen } = require("../utils/validate.js");
 const { levelList, readLevel, aiMove, aiAcceptsDraw, analyzePosition } = require("../utils/ai.js");
-const { getAuth0User } = require("../utils/auth0.js");
 const { checkUsername } = require("../utils/username.js");
-const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft, isColor } = require("../utils/games.js");
+const { gameOpen, gamePending, isAiGame, inviterId, playerName, startParams, takebacksLeft, isColor, newStartParams, OPEN_SEAT } = require("../utils/games.js");
 const { buildPgn } = require("../utils/pgn.js");
 const { findOpening, latestOpening } = require("../utils/openings.js");
 const config = require("../config.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { readRating, ratingSummary } = require("../utils/rating.js");
-const { ifSaved, retrieveGame, retrieveRatings, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, accept, decline, rematch, cancelRematch, myGames, findUsername } = require("../dataClient.js");
-const { emitToGame, emitToPlayer, isInGameRoom } = require("../socket.js");
+const { ifSaved, retrieveGame: readGame, retrieveRatings, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, newAiGame, newGuestGame, invite, challenge, retrieveChallenge, join, accept, decline, rematch, cancelRematch, myGames: readMyGames, findUsername } = require("../dataClient.js");
+const { emitToGame, emitToPlayer, tellTimeout, isInGameRoom } = require("../socket.js");
 
 const AI_DRAW_FREE_MOVES = 2; // UNTIL BOTH SIDES HAVE MADE THEIR FIRST MOVE THE AI TAKES ANY DRAW, WITHOUT ASKING THE ENGINE
 const aiTurns = new Map(); // GAME ID -> THE AI MOVE BEING PICKED & SAVED (A PROMISE), SO PARALLEL /ai-move REQUESTS ASK THE ENGINE ONCE
 const runningAnalyses = new Map(); // GAME ID -> { board, answer (A PROMISE) }, ONE ENGINE REQUEST AT A TIME PER GAME
+const NOT_FOUND = /^(Game data not found|User data not found)/; // status: 500 IN THE BODY THAT ISN'T THE SERVER BREAKING (data-service/dynamoDB.js), ANY OTHER 500 IS
+const CONFLICT = /^(Board changed|Game is already over|Game lists changed|Invite was already answered|It's not the AI's turn)/;
+
+/**
+ * @description Reads a game. A read of a game whose player to move ran out of time closes it (data-service/dynamoDB.js), both players are told here
+ * @param  {[string]} gameId [game id]
+ * @param  {[boolean]} consistent [true = sees every finished save]
+ * @return {[object]} response [the data service's { status, game_data, message }]
+ */
+async function retrieveGame(gameId, consistent) {
+	const response = await readGame(gameId, consistent);
+	if (response.timed_out) { tellTimeout(response.game_data); }
+	return response;
+}
+
+/**
+ * @description The requester's row & game lists. Listing them closes their games that ran out of time, both players are told here
+ * @return {[object]} response [the data service's { status, user_data, message }]
+ */
+async function myGames() {
+	const response = await readMyGames();
+	for (const gameData of response.user_data?.timed_out_games || []) { tellTimeout(gameData); }
+	return response;
+}
 
 /* ---------------------------------------------------------------- */
 // Get Game (GET)
@@ -40,7 +64,7 @@ const runningAnalyses = new Map(); // GAME ID -> { board, answer (A PROMISE) }, 
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); } // THE DATA SERVICE ONLY SHOWS A GAME TO A PLAYER IN IT
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const playerId = playerInGame(req, response.game_data); // PICKS THE COLOR
 	if (!playerId) { return notInGame(req, res); }
@@ -92,7 +116,7 @@ function playerGame(response, playerId) {
 async function getPgn(req, res) {
 	const response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	if (!playerInGame(req, gameData)) { return notInGame(req, res); }
@@ -102,7 +126,7 @@ async function getPgn(req, res) {
 		return res.json({ status: 200, ...buildPgn(gameData, { site: config.clientUrl, aiLevel: aiLevel(gameData), player }), message: "PGN" });
 	} catch (err) { // A SAVED MOVE THAT CAN'T BE REPLAYED
 		console.log(`PGN failed: ${gameData.game_id.S}: ${err.message}`);
-		return res.json({ status: 500, message: "This game can't be written as a PGN" });
+		return res.status(500).json({ status: 500, message: "This game can't be written as a PGN" });
 	}
 }
 
@@ -121,7 +145,7 @@ async function getPgn(req, res) {
  */
 async function newGame(req, res) {
 	const { game_id, player_id_1, player_id_2, ai_level, start_color, replace_current } = req.body || {};
-	if (!start_color && (player_id_1 == "CHESS_AI") == (player_id_2 == "CHESS_AI")) { return res.json({ status: 500, message: "One player must be CHESS_AI, friend games start from /invite" }); }
+	if (!start_color && (player_id_1 == "CHESS_AI") == (player_id_2 == "CHESS_AI")) { return res.status(400).json({ status: 500, message: "One player must be CHESS_AI, friend games start from /invite" }); }
 	const position = checkStartFen(req.body?.start_fen); // CHECKED BEFORE ANYTHING IS FORFEITED OR SAVED
 	if (position.message) { return res.status(400).json({ status: 400, message: position.message }); }
 
@@ -132,15 +156,15 @@ async function newGame(req, res) {
 	if (!req.user) { // A GUEST'S OWN GAME IS RESET, ANOTHER BROWSER'S ID (OR CHESS_AI) GETS A NEW GAME WITH A NEW ID (THE CLIENT SAVES IT)
 		const response = await newGuestGame({ game_id, color: params.color, side, level, start_fen: params.fen });
 		if (response.game_data) { setGuestCookie(res, response.guest_token); } // ONLY THIS BROWSER CAN PLAY IT NOW, THE DATA SERVICE SIGNED IT FOR THIS GAME
-		return res.json(gameResponse(response));
+		return reply(res, gameResponse(response));
 	}
 
 	const current = await currentGame(true); // ONE AI GAME AT A TIME (GUESTS ONLY EVER HAVE ONE, IT'S OVERWRITTEN)
-	if (current && !replace_current) { return res.json({ status: 409, game_id: current.game_id.S, message: "AI game already open" }); }
+	if (current && !replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "AI game already open" }); }
 	if (current) { await forfeit(current.game_id.S); } // NEW GAME FORFEITS THE OPEN ONE
 
 	const response = await newAiGame({ color: params.color, level, start_fen: params.fen }); // THE DATA SERVICE PICKS THE SIDES (RANDOM FLIPS A COIN) & MAKES THE ID
-	return res.json(gameResponse(response));
+	return reply(res, gameResponse(response));
 }
 
 
@@ -156,28 +180,28 @@ async function newGame(req, res) {
  */
 async function moveGame(req, res) {
 	const { move, promotion } = req.body || {};
-	if (!Array.isArray(move) || move.length != 2) { return res.json({ status: 500, message: "Invalid piece movement" }); }
+	if (!Array.isArray(move) || move.length != 2) { return res.status(400).json({ status: 500, message: "Invalid piece movement" }); }
 
 	let response = await retrieveGame(req.params.gameId); // GET GAME DATA BY ID
 	if (notYours(response)) { return notInGame(req, res); }
-	if (response.status != 200) { return res.json(gameResponse(response)); }
+	if (response.status != 200) { return reply(res, gameResponse(response)); }
 
 	const playerId = playerInGame(req, response.game_data);
 	if (!playerId) { return notInGame(req, res); }
-	if (gamePending(response.game_data)) { return res.json({ status: 500, message: "Invite not accepted yet" }); }
-	if (!gameOpen(response.game_data)) { return res.json({ status: 500, message: "Game is over" }); }
+	if (gamePending(response.game_data)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
+	if (!gameOpen(response.game_data)) { return res.status(409).json({ status: 500, message: "Game is over" }); }
 
 	const board = response.game_data.game_board.S;
 	response = await ifSaved(() => saveMove(req.params.gameId, move, promotion), async () => { // THE DATA SERVICE PLAYS IT ON THE STORED BOARD, SAVES IT & CLOSES THE GAME ON CHECKMATE OR A DRAW
 		const latest = await retrieveGame(req.params.gameId, true); // TOO SLOW: SAVED IF THE BOARD MOVED (ONLY THIS PLAYER CAN MOVE ON THEIR TURN)
 		return latest.game_data && latest.game_data.game_board.S != board ? latest : null;
 	});
-	if (response.status != 200) { return res.json({ status: 500, message: response.message == "Not your turn" ? "Invalid piece movement" : response.message }); } // NOT LEGAL, NOT THEIR TURN, OR ANOTHER MOVE SAVED FIRST
+	if (response.status != 200) { return res.status(moveRefusal(response)).json({ status: 500, message: response.message == "Not your turn" ? "Invalid piece movement" : response.message }); } // NOT LEGAL, NOT THEIR TURN, OR ANOTHER MOVE SAVED FIRST
 	response.message = "Validation Successful";
 	await recordOpening(response); // BEFORE THE OPPONENT & HOME ARE TOLD, THEY LOAD THE GAME
 	emitToGame(req.params.gameId, "move", { game_id: req.params.gameId, player_id: playerId }); // THE OPPONENT'S CLIENT LOADS THE NEW BOARD
 	if (!isAiGame(response.game_data)) { notifyHome(response.game_data); } // A FRIEND GAME'S PICTURE ON HOME
-	return res.json(gameResponse(response));
+	return reply(res, gameResponse(response));
 }
 
 
@@ -193,24 +217,24 @@ async function moveGame(req, res) {
 async function restartGame(req, res) {
 	let response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (!isAiGame(gameData)) { return res.json({ status: 500, message: "Friend games can't be restarted" }); }
+	if (!isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "Friend games can't be restarted" }); }
 
 	const params = startParams(gameData); // THE START SETTINGS ONLY CHANGE WITH A NEW GAME FROM HOME OR THE GUEST PAGE
 	const level = aiLevel(gameData);
 
 	if (!req.user) { // GUESTS HAVE ONE GAME, IT'S OVERWRITTEN
 		response = await newGuestGame({ game_id: gameData.game_id.S, color: params.color, level, start_fen: params.fen });
-		return res.json(gameResponse(response));
+		return reply(res, gameResponse(response));
 	}
 
 	if (gameOpen(gameData)) { await forfeit(gameData.game_id.S); } // RESTARTING MID GAME FORFEITS IT
 	response = await newAiGame({ color: params.color, level, start_fen: params.fen }); // CREATE NEW GAME, RANDOM DRAWS AGAIN
-	return res.json(gameResponse(response));
+	return reply(res, gameResponse(response));
 }
 
 
@@ -226,23 +250,23 @@ async function restartGame(req, res) {
 async function aiMoveGame(req, res) {
 	let response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (!isAiGame(gameData)) { return res.json({ status: 500, message: "Friend games have no AI" }); }
+	if (!isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "Friend games have no AI" }); }
 
 	const aiColor = gameData.white_player_id.S == "CHESS_AI" ? "w" : "b";
-	if (new Chess(gameData.game_board.S).turn() != aiColor) { return res.json(savedAiMove(response)); } // ALREADY MOVED
-	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is over" }); }
+	if (new Chess(gameData.game_board.S).turn() != aiColor) { return reply(res, savedAiMove(response)); } // ALREADY MOVED
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is over" }); }
 
 	let turn = aiTurns.get(req.params.gameId);
 	if (!turn) { // NO AI MOVE IN FLIGHT FOR THIS GAME: THIS REQUEST PICKS IT, LATER ONES WAIT ON IT & GET THE SAME ANSWER
 		turn = playAiTurn(req.params.gameId, gameData).finally(() => aiTurns.delete(req.params.gameId));
 		aiTurns.set(req.params.gameId, turn);
 	}
-	return res.json(await turn);
+	return reply(res, await turn);
 }
 
 /**
@@ -278,16 +302,16 @@ async function playAiTurn(gameId, gameData) {
 async function analysisGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE CLIENT ASKS RIGHT AFTER A MOVE
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	if (!playerInGame(req, gameData)) { return notInGame(req, res); }
-	if (!isAiGame(gameData) && (gameOpen(gameData) || gamePending(gameData))) { return res.json({ status: 403, message: "No hints in a friend game" }); }
+	if (!isAiGame(gameData) && (gameOpen(gameData) || gamePending(gameData))) { return res.status(403).json({ status: 403, message: "No hints in a friend game" }); }
 
 	const gameId = gameData.game_id.S;
 	const board = gameData.game_board.S;
 	let running = runningAnalyses.get(gameId);
-	if (running && running.board != board) { return res.json({ status: 409, message: "Wait for the analysis to finish." }); }
+	if (running && running.board != board) { return res.status(409).json({ status: 409, message: "Wait for the analysis to finish." }); }
 	if (!running) {
 		running = { board, answer: analyzePosition(board).finally(() => runningAnalyses.delete(gameId)) };
 		runningAnalyses.set(gameId, running);
@@ -296,7 +320,7 @@ async function analysisGame(req, res) {
 		return res.json({ status: 200, game_board: board, ...await running.answer, message: "Analysis" });
 	} catch (err) {
 		console.log(`STOCKFISH FAILED, NO ANALYSIS: ${err.message}`); // THE LINE MUST START WITH THIS: AN ALARM MATCHES IT (terraform/modules/monitoring)
-		return res.json({ status: 503, message: "The engine isn't answering, try again in a moment" });
+		return res.status(503).json({ status: 503, message: "The engine isn't answering, try again in a moment" });
 	}
 }
 
@@ -315,23 +339,23 @@ async function analysisGame(req, res) {
 async function takebackGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE LATEST BOARD
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	const gameId = gameData.game_id.S;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (gamePending(gameData)) { return res.json({ status: 500, message: "Invite not accepted yet" }); }
-	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is over" }); }
-	if (!isAiGame(gameData)) { return res.json(await friendTakeback(gameData, playerId)); }
-	if (aiTurns.has(gameId)) { return res.json({ status: 409, message: "Wait for the AI's move to finish." }); }
+	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is over" }); }
+	if (!isAiGame(gameData)) { return reply(res, await friendTakeback(gameData, playerId)); }
+	if (aiTurns.has(gameId)) { return res.status(409).json({ status: 409, message: "Wait for the AI's move to finish." }); }
 
 	const board = gameData.game_board.S;
 	const saved = await ifSaved(() => takeback(gameId), async () => { // TOO SLOW: SAVED IF THE BOARD CHANGED
 		const latest = await retrieveGame(gameId, true);
 		return latest.game_data && latest.game_data.game_board.S != board ? latest : null;
 	});
-	if (saved.status != 200) { return res.json({ status: saved.status, message: saved.message }); }
+	if (saved.status != 200) { return reply(res, { status: saved.status, message: saved.message }); }
 	await recordOpening(saved, latestOpening(saved.game_data.moves.S, startParams(saved.game_data).fen));
 	return res.json(playerGame(saved, playerId));
 }
@@ -370,7 +394,7 @@ async function friendTakeback(gameData, playerId) {
 async function declineTakebackGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, true);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameId = response.game_data.game_id.S;
 	const playerId = playerInGame(req, response.game_data);
@@ -380,7 +404,7 @@ async function declineTakebackGame(req, res) {
 		const latest = await retrieveGame(gameId, true);
 		return latest.game_data && !latest.game_data.takeback_player_id ? { status: 200, declined: true, message: "Takeback declined" } : null;
 	});
-	if (declined.status != 200) { return res.json({ status: declined.status, message: declined.message }); }
+	if (declined.status != 200) { return reply(res, { status: declined.status, message: declined.message }); }
 	emitToGame(gameId, "takeback", { game_id: gameId, player_id: playerId, state: "declined" });
 	return res.json({ status: 200, declined: true, message: declined.message });
 }
@@ -408,16 +432,16 @@ async function getLevels(req, res) {
 async function forfeitGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (gamePending(gameData)) { return res.json({ status: 500, message: "Invite not accepted yet, decline it instead" }); }
-	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is already over" }); }
+	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet, decline it instead" }); }
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is already over" }); }
 
 	const closed = await forfeitOpenGame(gameData, playerId);
-	return res.json(gameResponse(closed));
+	return reply(res, gameResponse(closed));
 }
 
 /**
@@ -463,22 +487,22 @@ function tellGameOver(gameData, playerId, winner, reason = "forfeit") {
 async function drawGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, true); // CONSISTENT: THE AI JUDGES THE LATEST BOARD
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	const gameId = gameData.game_id.S;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (gamePending(gameData)) { return res.json({ status: 500, message: "Invite not accepted yet" }); }
-	if (!gameOpen(gameData)) { return res.json({ status: 500, message: "Game is already over" }); }
+	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is already over" }); }
 
 	const pressed = await ifSaved(() => offerDraw(gameId), () => savedDraw(gameId, playerId));
-	if (pressed.status != 200) { return res.json({ status: pressed.status, message: pressed.message }); }
+	if (pressed.status != 200) { return reply(res, { status: pressed.status, message: pressed.message }); }
 	if (pressed.game_data) { // THE OPPONENT'S OFFER WAS STANDING
 		tellGameOver(pressed.game_data, playerId, "draw", "agreement");
 		return res.json(gameResponse(pressed));
 	}
-	if (isAiGame(gameData)) { return res.json(await aiDrawAnswer(gameData)); }
+	if (isAiGame(gameData)) { return reply(res, await aiDrawAnswer(gameData)); }
 
 	emitToGame(gameId, "draw-offer", { game_id: gameId, player_id: playerId, state: "offered" });
 	return res.json({ status: 200, offered: true, opponent_name: playerName(gameData, playerId == gameData.white_player_id.S ? "b" : "w"), message: pressed.message });
@@ -510,7 +534,7 @@ async function aiDrawAnswer(gameData) {
 async function declineDrawGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, true);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameId = response.game_data.game_id.S;
 	const playerId = playerInGame(req, response.game_data);
@@ -520,7 +544,7 @@ async function declineDrawGame(req, res) {
 		const latest = await retrieveGame(gameId, true);
 		return latest.game_data && !latest.game_data.draw_offer_player_id ? { status: 200, declined: true, message: "Draw declined" } : null;
 	});
-	if (declined.status != 200) { return res.json({ status: declined.status, message: declined.message }); }
+	if (declined.status != 200) { return reply(res, { status: declined.status, message: declined.message }); }
 	emitToGame(gameId, "draw-offer", { game_id: gameId, player_id: playerId, state: "declined" });
 	return res.json({ status: 200, declined: true, message: declined.message });
 }
@@ -551,17 +575,17 @@ async function savedDraw(gameId, playerId) {
 async function rematchGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	const gameId = gameData.game_id.S;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (isAiGame(gameData)) { return res.json({ status: 500, message: "AI games restart instead" }); }
-	if (gameOpen(gameData) || gamePending(gameData)) { return res.json({ status: 500, message: "Game isn't over yet" }); }
+	if (isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "AI games restart instead" }); }
+	if (gameOpen(gameData) || gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Game isn't over yet" }); }
 
 	const pressed = await ifSaved(() => rematch(gameId), () => savedRematch(gameId, playerId)); // THE DATA SERVICE: BOTH PRESSES WITHIN 5 MINUTES, NEITHER PLAYER IN ANOTHER FRIEND GAME, THE NEW GAME WITH THE INVITER'S PICK
-	if (pressed.status == 409) { return res.json({ status: 409, message: pressed.message }); } // ONE FRIEND GAME AT A TIME
+	if (pressed.status == 409) { return res.status(409).json({ status: 409, message: pressed.message }); } // ONE FRIEND GAME AT A TIME
 	if (pressed.waiting) { // FIRST PRESS
 		const opponentIsWhite = playerId != gameData.white_player_id.S;
 		return res.json({
@@ -573,7 +597,7 @@ async function rematchGame(req, res) {
 			message: pressed.message
 		});
 	}
-	if (!pressed.new_game_id) { return res.json({ status: 500, message: pressed.message || "Rematch failed" }); }
+	if (!pressed.new_game_id) { return res.status(500).json({ status: 500, message: pressed.message || "Rematch failed" }); }
 
 	if (pressed.game_data) { // THE REMATCH IS OPEN: A PRESS AFTER A FAILED ONE IS THE FIRST THE OTHER BOARD HEARS OF IT
 		emitToGame(gameId, "rematch", { game_id: gameId, new_game_id: pressed.new_game_id }); // BOTH BOARDS LOAD THE NEW GAME
@@ -591,7 +615,7 @@ async function rematchGame(req, res) {
 async function cancelRematchGame(req, res) {
 	const response = await cancelRematch(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	return res.json({ status: response.status, cancelled: response.cancelled, message: response.message });
+	return reply(res, { status: response.status, cancelled: response.cancelled, message: response.message });
 }
 
 /**
@@ -618,38 +642,36 @@ async function savedRematch(gameId, playerId) {
 // Invite (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Invites a friend by email: looks up their Auth0 account & creates a PENDING game, they accept or decline it on Home.
+ * @description Invites a friend by username (never by email, so this can't tell anyone which emails have accounts) & creates a PENDING game, they accept or decline it on Home.
  * The challenger (signed in user) picks their color, the sides are drawn now so the invite shows them. One sent invite at a time: a new one deletes the last one.
  * Signed in players have one friend game open at a time: while one is open this answers 409, unless replace_current forfeits it first
- * @param  {[object]} req.body [{ opponent_email, start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random),
- * start_fen (optional, a set position to start from), takebacks (optional, 0 = off, left out = up to 3 per game), replace_current (optional, true = forfeit the open friend game & invite) }]
+ * @param  {[object]} req.body [{ opponent_username, start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random),
+ * start_fen (optional, a set position to start from), takebacks (optional, 0 = off, left out = up to 3 per game), days_per_move (optional, 1, 3 or 7, left out = no limit), replace_current (optional, true = forfeit the open friend game & invite) }]
  * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)]
  */
 async function inviteGame(req, res) {
-	const { opponent_email, opponent_username, replace_current } = req.body || {};
-	if (!opponent_email && !opponent_username) { return res.json({ status: 500, message: "Missing opponent" }); }
+	const { opponent_username, replace_current } = req.body || {};
+	if (!opponent_username) { return res.status(400).json({ status: 500, message: "Missing opponent" }); }
 	const position = checkStartFen(req.body?.start_fen); // CHECKED BEFORE ANYTHING IS FORFEITED OR SAVED
 	if (position.message) { return res.status(400).json({ status: 400, message: position.message }); }
 	const challengerId = userPlayerId(req.user); // requireAuth SETS req.user
 
-	const opponent = await findOpponent(opponent_email, opponent_username);
-	if (!opponent) { return res.json({ status: 500, message: "Opponent not found" }); }
-	const opponentId = opponent.id;
-	if (opponentId == challengerId) { return res.json({ status: 500, message: opponent_username ? "That's your username" : "That's your email" }); }
+	const opponentId = await findOpponent(opponent_username);
+	if (!opponentId) { return res.status(404).json({ status: 500, message: "Opponent not found" }); }
+	if (opponentId == challengerId) { return res.status(400).json({ status: 500, message: "That's your username" }); }
 
 	const mine = await myGames();
 	const theirInvite = receivedInvites(mine).find((invite) => invite.player_id == opponentId);
-	if (theirInvite) { return res.json({ status: 500, game_id: theirInvite.game_id, message: "They already invited you" }); } // ACCEPT THEIRS INSTEAD
+	if (theirInvite) { return res.status(409).json({ status: 500, game_id: theirInvite.game_id, message: "They already invited you" }); } // ACCEPT THEIRS INSTEAD
 
 	const current = openGame(mine, false); // ONE FRIEND GAME AT A TIME
-	if (current && !replace_current) { return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
+	if (current && !replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
 	if (current) { await forfeitOpenGame(current, challengerId); } // A NEW INVITE FORFEITS THE OPEN ONE
 	if (mine.user_data?.sent_invite) { await dropInvite(mine.user_data.sent_invite.game_id); } // ONE SENT INVITE AT A TIME
 
 	const params = readStartParams(req.body, position.fen);
-	const screenname = opponent.screenname; // THEIR NAME UNTIL THEY PICK A USERNAME (THE CHALLENGER'S IS IN THEIR TOKEN)
-	const response = await invite({ opponent_id: opponentId, opponent_screenname: typeof screenname == "string" ? screenname.slice(0, 50) : undefined, color: params.color, start_fen: params.fen, takebacks: params.takebacks }); // CREATE NEW GAME (THE DATA SERVICE MAKES THE ID), PENDING UNTIL THEY ACCEPT. RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); }
+	const response = await invite({ opponent_id: opponentId, color: params.color, start_fen: params.fen, takebacks: params.takebacks, days_per_move: params.days_per_move }); // CREATE NEW GAME (THE DATA SERVICE MAKES THE ID), PENDING UNTIL THEY ACCEPT. RANDOM IS DRAWN NOW, THE INVITE SAYS "YOU PLAY BLACK (RANDOM)"
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); }
 
 	notifyHome(response.game_data); // THEIR HOME SHOWS THE INVITE
 	return res.json({
@@ -662,19 +684,70 @@ async function inviteGame(req, res) {
 
 
 /**
- * @description The player an invite is for, by username (the data service) or by email (Auth0)
- * @param  {[string]} email [opponent_email, used when there's no username]
+ * @description The player an invite is for
  * @param  {[string]} username [opponent_username]
- * @return {[object]} opponent [{ id, screenname (by email only, their name until they pick a username) }, null when nobody has it]
+ * @return {[string]} id [their player id, null when nobody has it]
  */
-async function findOpponent(email, username) {
-	if (username) {
-		const checked = checkUsername(username);
-		const found = checked.username ? await findUsername(checked.username) : null;
-		return found?.player_id ? { id: found.player_id } : null;
-	}
-	const user = await getAuth0User(email); // WAS auth0UserByEmail IN THE LAMBDA
-	return user ? { id: user.user_id.split("auth0|")[1], screenname: user.user_metadata?.screenname } : null; // PLAYER IDS DROP THE "auth0|", SAME AS THE CLIENT
+async function findOpponent(username) {
+	const checked = checkUsername(username);
+	const found = checked.username ? await findUsername(checked.username) : null;
+	return found?.player_id || null;
+}
+
+/* ---------------------------------------------------------------- */
+// Challenge Link
+/* ---------------------------------------------------------------- */
+/**
+ * @description Makes a challenge link: a PENDING game like an invite with the other seat empty, the first signed in player to open the link & join takes it.
+ * It's the challenger's one sent invite: a new one deletes the last one. While a friend game is open this answers 409, unless replace_current forfeits it first
+ * @param  {[object]} req.body [{ start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random), start_fen (optional), takebacks (optional, 0 = off), days_per_move (optional, 1, 3 or 7, left out = no limit), replace_current (optional) }]
+ * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message } | { status: 400, message } (start_fen can't be played)]
+ */
+async function challengeGame(req, res) {
+	const position = checkStartFen(req.body?.start_fen); // CHECKED BEFORE ANYTHING IS FORFEITED OR SAVED
+	if (position.message) { return res.status(400).json({ status: 400, message: position.message }); }
+
+	const mine = await myGames();
+	const current = openGame(mine, false); // ONE FRIEND GAME AT A TIME
+	if (current && !req.body?.replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" }); }
+	if (current) { await forfeitOpenGame(current, userPlayerId(req.user)); } // A NEW LINK FORFEITS THE OPEN ONE
+	if (mine.user_data?.sent_invite) { await dropInvite(mine.user_data.sent_invite.game_id); } // ONE SENT INVITE AT A TIME
+
+	const params = readStartParams(req.body, position.fen);
+	const response = await challenge({ color: params.color, start_fen: params.fen, takebacks: params.takebacks, days_per_move: params.days_per_move });
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); }
+
+	notifyHome(response.game_data); // THE CHALLENGER'S OTHER TABS SHOW THE LINK
+	return res.json({ status: response.status, game_id: response.game_data.game_id.S, state: "PENDING", message: response.message });
+}
+
+/**
+ * @description What the join screen shows
+ * @param  {[string]} req.params.gameId [game id from the link]
+ * @return {[object]} response [{ status, open, name, player_color, start_params, message } | { status: 500, message: "Game data not found" } (a 404)]
+ */
+async function getChallenge(req, res) {
+	return reply(res, await retrieveChallenge(req.params.gameId));
+}
+
+/**
+ * @description Takes a challenge link's empty seat: PENDING -> OPEN, only one player wins it & the creator can't take it. While the player has a friend game open
+ * this answers 409, unless replace_current forfeits it first
+ * @param  {[string]} req.params.gameId [game id from the link]
+ * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the open friend game & join) }]
+ * @return {[object]} response [{ status, game_id, ai, game_board, ..., state, message } | { status: 409, game_id (the open one), message } | { status: 409, message: "Game is taken" }]
+ */
+async function joinGame(req, res) {
+	const gameId = req.params.gameId;
+	const joined = await ifSaved(() => join(gameId, req.body?.replace_current), async () => { // TOO SLOW: SAVED IF THE GAME IS THEIRS & OPEN NOW, SEE acceptGame
+		const latest = await retrieveGame(gameId, true);
+		return latest.game_data && gameOpen(latest.game_data) ? { ...latest, forfeited: null, dropped_invites: [] } : null;
+	});
+	if (joined.status == 409 && joined.game_id) { return res.status(409).json({ status: 409, game_id: joined.game_id, message: "Friend game already open" }); }
+	if (joined.forfeited) { tellGameOver(joined.forfeited, userPlayerId(req.user), joined.forfeited.winner?.S); } // JOINING FORFEITED THE OPEN ONE
+	for (let i = 0; i < (joined.dropped_invites || []).length; i++) { notifyHome(joined.dropped_invites[i]); } // THEIR SENT INVITE WAS CANCELLED
+	if (joined.status == 200) { notifyHome(joined.game_data); } // THE CREATOR'S HOME SHOWS THE GAME
+	return reply(res, gameResponse(joined));
 }
 
 /* ---------------------------------------------------------------- */
@@ -691,27 +764,27 @@ async function acceptGame(req, res) {
 	const { replace_current } = req.body || {};
 	const response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: "Invite not found" }); } // DECLINED, CANCELLED OR EXPIRED
+	if (!response.game_data) { return res.status(httpStatus(response)).json({ status: response.status, message: "Invite not found" }); } // DECLINED, CANCELLED OR EXPIRED
 
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (!gamePending(gameData)) { return res.json({ status: 500, message: "Invite was already answered" }); }
-	if (playerId == inviterId(gameData)) { return res.json({ status: 500, message: "Only the invited player can accept" }); }
+	if (!gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite was already answered" }); }
+	if (playerId == inviterId(gameData)) { return res.status(403).json({ status: 500, message: "Only the invited player can accept" }); }
 
 	const accepted = await ifSaved(() => accept(gameData.game_id.S, replace_current), async () => { // THE DATA SERVICE: THEIR OPEN FRIEND GAME (409 UNLESS replace_current), THE INVITER ISN'T BUSY, THEN THE FORFEIT, THEIR SENT INVITE & THE ACCEPT
 		const latest = await retrieveGame(gameData.game_id.S, true); // TOO SLOW: SAVED IF IT'S OPEN NOW. WHAT IT FORFEITED & DROPPED ISN'T KNOWN HERE, THOSE BOARDS & HOMES SEE IT WHEN NEXT LOADED
 		return latest.game_data && gameOpen(latest.game_data) ? { ...latest, forfeited: null, dropped_invites: [] } : null;
 	});
-	if (accepted.status == 409 && accepted.game_id) { return res.json({ status: 409, game_id: accepted.game_id, message: "Friend game already open" }); }
+	if (accepted.status == 409 && accepted.game_id) { return res.status(409).json({ status: 409, game_id: accepted.game_id, message: "Friend game already open" }); }
 	if (accepted.message == "They're in another game now") { // THE INVITER STARTED ANOTHER FRIEND GAME SINCE (A REMATCH, OR THEY ACCEPTED ONE)
 		await dropInvite(gameData.game_id.S);
-		return res.json({ status: 500, message: "They're in another game now" });
+		return res.status(409).json({ status: 500, message: "They're in another game now" });
 	}
 	if (accepted.forfeited) { tellGameOver(accepted.forfeited, playerId, accepted.forfeited.winner?.S); } // ACCEPTING FORFEITED THE OPEN ONE
 	for (let i = 0; i < (accepted.dropped_invites || []).length; i++) { notifyHome(accepted.dropped_invites[i]); } // THEIR SENT INVITE WAS CANCELLED
 	if (accepted.status == 200) { notifyHome(gameData); } // THE INVITER'S HOME SHOWS THE GAME
-	return res.json(gameResponse(accepted));
+	return reply(res, gameResponse(accepted));
 }
 
 
@@ -726,16 +799,16 @@ async function acceptGame(req, res) {
 async function declineGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: "Invite not found" }); }
+	if (!response.game_data) { return res.status(httpStatus(response)).json({ status: response.status, message: "Invite not found" }); }
 
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
-	if (!gamePending(gameData)) { return res.json({ status: 500, message: "Invite was already answered" }); }
+	if (!gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite was already answered" }); }
 
 	const deleted = await decline(gameData.game_id.S);
 	if (deleted.status == 200) { notifyHome(gameData); } // THE OTHER PLAYER'S HOME DROPS IT
-	return res.json({ status: deleted.status == 200 ? 200 : 500, game_id: gameData.game_id.S, message: deleted.message });
+	return res.status(httpStatus(deleted)).json({ status: deleted.status == 200 ? 200 : 500, game_id: gameData.game_id.S, message: deleted.message });
 }
 
 
@@ -748,16 +821,16 @@ async function declineGame(req, res) {
  * @return {[object]} response [{ status, user_id, requested_games, open_games, closed_games, ai_game_id / friend_game_id (the open AI / friend game or null),
  * open_game_list ([{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }], newest last),
  * closed_game_list (the same & winner, reason, the last 20 finished games, newest first),
- * sent_invite ({ game_id, name, player_color, start_params } or null), received_invites ([{ game_id, name, player_color, start_params }]),
+ * sent_invite ({ game_id, name, player_color, start_params, open_seat (a challenge link) } or null), received_invites ([{ game_id, name, player_color, start_params }]),
  * rating ({ rating, provisional, rated_games }, Home's "Rating // 1520?"), message }]
  */
 async function getUserGames(req, res) {
 	if (req.params.userId != userPlayerId(req.user)) { return res.status(403).json({ status: 403, message: "Not your game list" }); }
 
 	const response = await myGames(); // THE DATA SERVICE DROPS EXPIRED GAMES & INVITES BEFORE HOME LISTS THEM
-	if (!response.user_data) { return res.json({ status: response.status, rating: ratingSummary(readRating(null)), message: response.message }); } // NO GAMES YET, THE STARTING RATING
+	if (!response.user_data) { return reply(res, { status: response.status, rating: ratingSummary(readRating(null)), message: response.message }); } // NO GAMES YET, THE STARTING RATING
 	const userData = response.user_data;
-	const inviteBody = (invite) => ({ game_id: invite.game_id, name: invite.name, player_color: invite.player_color, start_params: invite.start_params }); // THE OTHER PLAYER'S ID STAYS ON THE SERVER
+	const inviteBody = (invite) => ({ game_id: invite.game_id, name: invite.name, player_color: invite.player_color, start_params: invite.start_params, ...(invite.player_id == OPEN_SEAT ? { open_seat: true } : {}) }); // THE OTHER PLAYER'S ID STAYS ON THE SERVER, open_seat: A CHALLENGE LINK
 
 	return res.json({
 		status: response.status,
@@ -791,7 +864,7 @@ async function getUserGames(req, res) {
 async function getRatings(req, res) {
 	const response = await retrieveGame(req.params.gameId);
 	if (notYours(response)) { return notInGame(req, res); }
-	if (!response.game_data) { return res.json({ status: response.status, message: response.message }); } // GAME NOT FOUND
+	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); } // GAME NOT FOUND
 
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
@@ -884,6 +957,38 @@ function notifyHome(gameData) {
 }
 
 /**
+ * @description The real HTTP status of an answer whose body may say status: 500 for a refusal (the lambda's body, the client reads it). A 500 nothing here recognizes stays a 500:
+ * those are what the 5xx alarm is for (terraform/modules/monitoring)
+ * @param  {[object]} response [an answer with { status, message }]
+ * @return {[number]} status [404 not found, 409 conflict, otherwise the answer's own status]
+ */
+function httpStatus(response) {
+	if (response.status != 500) { return response.status; }
+	if (NOT_FOUND.test(response.message)) { return 404; }
+	if (CONFLICT.test(response.message)) { return 409; }
+	return 500;
+}
+
+/**
+ * @description The HTTP status of a move the data service refused. Its 400 is a move that isn't legal or a board that can't be read, its 409 is not their turn, the game's over or another move saved first
+ * @param  {[object]} response [the data service's { status, message }]
+ * @return {[number]} status [422 illegal move, 500 a corrupted board, otherwise httpStatus]
+ */
+function moveRefusal(response) {
+	if (response.status != 400) { return httpStatus(response); }
+	return response.message == "Invalid piece movement" ? 422 : 500;
+}
+
+/**
+ * @description Sends a body with its real HTTP status (httpStatus), for answers that can be a game or a refusal
+ * @param  {[object]} res [express response]
+ * @param  {[object]} body [{ status, ..., message }, sent as it is]
+ */
+function reply(res, body) {
+	return res.status(httpStatus(body)).json(body);
+}
+
+/**
  * @description Response for a created or moved game (same body the lambda sent)
  * @param  {[object]} response [{ status, game_data, message }]
  * @return {[object]} body
@@ -958,16 +1063,12 @@ function savedAiMove(response) {
 
 /**
  * @description The start settings a request asks for (Home & the guest page's dropdowns & Start position box, the invite form)
- * @param  {[object]} body [req.body, { start_color: "alternate" | "random" | "w" | "b", takebacks (the invite form): 0 = off }]
+ * @param  {[object]} body [req.body, { start_color: "alternate" | "random" | "w" | "b", takebacks (the invite form): 0 = off, days_per_move (the invite form): 1, 3 or 7 }]
  * @param  {[string]} fen [the set position from checkStartFen(body.start_fen), false = the standard position]
- * @return {[object]} params [{ color, fen (only for a set position), takebacks (only when off: 0) }, any other color is Random (the default)]
+ * @return {[object]} params [{ color, fen (only for a set position), takebacks (only when off: 0), days_per_move (only with a limit) }, any other color is Random (the default)]
  */
 function readStartParams(body, fen) {
-	const color = isColor(body?.start_color) ? body.start_color : "random";
-	let params = { color };
-	if (fen) { params.fen = fen; } // REPLAYING moves (THREEFOLD, PGN, TAKEBACKS, REPLAYS) HAS TO START FROM THIS, NOT THE STANDARD POSITION
-	if (body?.takebacks === 0) { params.takebacks = 0; }
-	return params;
+	return newStartParams(body?.start_color, fen, body?.takebacks, body?.days_per_move); // A fen: REPLAYING moves (THREEFOLD, PGN, TAKEBACKS, REPLAYS) HAS TO START FROM THIS, NOT THE STANDARD POSITION
 }
 
 /**
@@ -996,7 +1097,7 @@ function readColor(value) { return isColor(value) ? value : "alternate"; } // AL
  * @description One game for Your games or Finished games on Home
  * @param  {[object]} gameData [game item, pruneGameList's projection is enough]
  * @param  {[string]} playerId [the user the list is for]
- * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening }]
+ * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening, move_deadline }]
  */
 function gameSummary(gameData, playerId) {
 	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
@@ -1008,14 +1109,24 @@ function gameSummary(gameData, playerId) {
 		player_color: playerColor,
 		start_params: startParams(gameData),
 		opening: readOpening(gameData),
+		move_deadline: openDeadline(gameData),
 	};
+}
+
+/**
+ * @description When the next move is due in a game that's still going
+ * @param  {[object]} gameData [game item]
+ * @return {[number]} deadline [epoch seconds, null when the game has no limit or it's over]
+ */
+function openDeadline(gameData) {
+	return gameData.move_deadline && gameOpen(gameData) ? Number(gameData.move_deadline.N) : null;
 }
 
 /**
  * @description The game's result fields, sent with every game response
  * @param  {[object]} gameData [game item]
  * @return {[object]} result [{ state: "PENDING" | "OPEN" | "CLOSED", winner: "w" | "b" | "draw" | null, reason, draw_offer: the color with a standing draw offer | null,
- * takeback_request: the color with a standing takeback request | null, takebacks_left: friend games' takebacks left, AI games have no limit: null }]
+ * takeback_request: the color with a standing takeback request | null, takebacks_left: friend games' takebacks left, AI games have no limit: null, move_deadline: when the next move is due in epoch seconds | null }]
  */
 function gameState(gameData) {
 	const drawOffer = gameData.draw_offer_player_id?.S;
@@ -1027,6 +1138,7 @@ function gameState(gameData) {
 		draw_offer: drawOffer ? (drawOffer == gameData.white_player_id.S ? "w" : "b") : null,
 		takeback_request: takebackRequest ? (takebackRequest == gameData.white_player_id.S ? "w" : "b") : null,
 		takebacks_left: isAiGame(gameData) ? null : takebacksLeft(gameData),
+		move_deadline: openDeadline(gameData),
 	};
 }
 
@@ -1075,4 +1187,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId, httpStatus };

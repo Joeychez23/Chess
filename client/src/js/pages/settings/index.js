@@ -3,7 +3,7 @@
  *	Settings Page (/settings, signed in)
  *	Six boxes: Username (what friends see, Home sends a player who has none here first), Account (the email you sign in with, games finished, Sign out),
  *	Default start settings (what Home's dropdowns start on), Friends & Closed games (placeholders for now)
- *	and Delete my data (forfeits & cancels everything, deletes the user_db row & frees the username, then signs out)
+ *	and Delete my account (deletes the Auth0 login, forfeits & cancels everything, deletes the user_db row & frees the username, then signs out)
  *
  */
 
@@ -19,7 +19,7 @@ const { getUserGameData, saveSettings, saveUsername, deleteUserData } = require(
 const { startNav, startLogoutButtons, loadLevels, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES (server/routes/api/chessRoutes.js), THE GAME LISTS & SAVED SETTINGS
-const USER_URL = "/api/user"; // USER ROUTES (server/routes/api/userRoutes.js), SAVE THE USERNAME & SETTINGS, DELETE MY DATA
+const USER_URL = "/api/user"; // USER ROUTES (server/routes/api/userRoutes.js), SAVE THE USERNAME & SETTINGS, DELETE MY ACCOUNT
 
 const signedInAs = document.getElementById("signedInAs"); // "SIGNED IN // EMAIL"
 const settingsTitle = document.getElementById("settingsTitle"); // "SETTINGS", OR "PICK A USERNAME" WHEN HOME SENT THEM HERE
@@ -42,7 +42,7 @@ const auth = new InternalAuth;
 const sessionCheck = auth.getUser(); // STARTS CHECKING THE SESSION NOW INSTEAD OF AFTER THE PAGE LOADS
 
 let USERNAME = null; // THE PLAYER'S SAVED USERNAME, null UNTIL THEY PICK ONE
-let confirmDelete = false; // DELETE MY DATA NEEDS A SECOND PRESS
+let confirmDelete = false; // DELETE MY ACCOUNT NEEDS A SECOND PRESS
 
 startNav();
 startLogoutButtons(auth); // LOGOUT IN THE MENU & SIGN OUT ARE A POST (#332)
@@ -152,11 +152,11 @@ async function handleSaveSettings(e) {
 }
 
 /* ---------------------------------------------------------------- */
-// Delete My Data
+// Delete My Account
 /* ---------------------------------------------------------------- */
 /**
- * @description First press warns, the second deletes (DELETE /api/user): the server forfeits the open games, cancels & declines the invites
- * & deletes the user_db row. Then it signs out (the server's logout also signs out of Auth0)
+ * @description First press warns, the second deletes (DELETE /api/user): the server deletes the Auth0 login, forfeits the open games,
+ * cancels & declines the invites & deletes the user_db row. Then it signs out
  */
 async function handleDeleteData(e) {
 	e.preventDefault();
@@ -168,7 +168,7 @@ async function handleDeleteData(e) {
 		setTimeout(function () { // 5 SECONDS TO PRESS AGAIN, LIKE THE GAME'S FORFEIT
 			if (!confirmDelete) { return; }
 			confirmDelete = false;
-			deleteDataBtn.innerText = "Delete my data";
+			deleteDataBtn.innerText = "Delete my account";
 			deleteNote.innerText = "";
 		}, 5000);
 		return;
@@ -179,8 +179,8 @@ async function handleDeleteData(e) {
 	const response = await deleteUserData(USER_URL);
 	if (response?.status != 200) {
 		deleteDataBtn.disabled = false;
-		deleteDataBtn.innerText = "Delete my data";
-		return deleteNote.innerText = "Couldn't delete your data, try again";
+		deleteDataBtn.innerText = "Delete my account";
+		return deleteNote.innerText = "Couldn't delete your account, try again";
 	}
 	auth.logout(); // POST /api/auth/logout, THEN THE GUEST PAGE
 }

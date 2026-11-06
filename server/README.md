@@ -17,7 +17,7 @@
 | `API_PORT` | Server port: `3001` on your Mac (`npm run dev` proxies to it), `8080` on the EC2 instance |
 | `AUTH0_ISSUER_BASE_URL_ORIGIN` | Auth0 tenant domain |
 | `AUTH0_CONNECTION` | Database connection players log in with (`auth0-default-connection`) |
-| `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`) |
+| `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app used for login and the Management API (`read:users`, `delete:users`) |
 | `SESSION_PUBLIC_KEY` | The public half of the data service's session key, multi-line in double quotes ([Session keys](../data-service/README.md#session-keys-252)). The server checks session and guest tokens with it but can't make one |
 | `SESSION_PUBLIC_KEY_NEXT` | Optional. Only while the key is being changed: tokens signed with the new key are accepted too |
 | `CLIENT_URL` | Optional. Where the game is served, the only origin API writes and sockets accept. Defaults to `http://localhost:API_PORT/` |
@@ -58,7 +58,7 @@ engine are answered from test data.
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
 | `dataClient.test.js` | The data service down, too slow (3 seconds for a read, 10 for a write) or refusing the signature: 503 "Try again in a moment". A move, forfeit, accept or rematch that saved but answered too late is read back: the player gets what was saved and the other player is told. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
 | `auth.test.js` | Signing in through the data service: `GET /api/auth/login` going to the login page, the login's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
-| `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, and the sign-in checks |
+| `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, an email invite answering the same with or without an account, and the sign-in checks |
 | `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
 | `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
 | `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
@@ -94,7 +94,7 @@ which doesn't start an Auth0 session, so there's no Auth0 login page or logout.
 | `GET /api/user/search?q=` | Home's player search: up to 10 usernames starting with `q` (2 or more characters), in any capitals, as `{ usernames }`. Never an email or Auth0 id. `429` with `Retry-After` when a limit is hit (`SEARCH_LIMITS` in `middleware/rateLimit.js`) |
 | `GET /api/user/friends` | Home's Friends box: `{ friends: [{ username, online }], sent: [{ username }], received: [{ username }] }`, sorted by name. Names only, never an email or Auth0 id. `online` means a socket is open now (on Home or in a friend game), read when this is asked |
 | `POST /api/user/friends/request`, `/accept`, `/decline`, `/cancel`, `/remove` | `{ username }`, in any capitals. Saved on both players' `user_db` rows in one transaction, and both get the socket's `friends`. `400` for your own name, `404` for a name nobody holds or a request that's gone, `409` with the reason (already friends, already asked, a full list: 50 friends, 25 requests each way), `429` with `Retry-After` when a limit is hit (`FRIEND_LIMITS` in `middleware/rateLimit.js`) |
-| `DELETE /api/user` | Delete my data: forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, takes you off everyone's friend lists and requests, then deletes your `user_db` row and frees your username. Your friend games stay in `chess_db`, your finished AI games are deleted 25 days later, and your next sign-in starts a new row |
+| `DELETE /api/user` | Delete my account: deletes your Auth0 login, forfeits your open friend game (your friend wins and their board shows it) and your open AI game, cancels your sent invite, declines the invites you got, takes you off everyone's friend lists and requests, then deletes your `user_db` row and frees your username. Your friend games stay in `chess_db` with your name replaced by `Deleted player`, and your finished AI games are deleted 25 days later. Auth0 goes first: if it refuses, nothing changes, and a failure later on can be retried. `429` with `Retry-After` when a limit is hit (`ACCOUNT_DELETE_LIMITS` in `middleware/rateLimit.js`) |
 
 The session is two JWTs in httpOnly cookies: an access token (15 minutes)
 checked on every request, and a refresh token (7 days) that's only sent to
@@ -112,8 +112,11 @@ device within 15 minutes.
 ## Chess API
 
 Routes are under `/api/chess`, called from `client/src/js/gameplay/validate/index.js`.
-Responses keep the old chess lambda's `{ status, ..., message }` body: a refused
-move or missing game is HTTP 200 with `status: 500`.
+Responses keep the old chess lambda's `{ status, ..., message }` body, and the
+HTTP status is the real one: 400 bad input, 403 not allowed, 404 not found, 409
+conflict, not your turn or game over, 422 illegal move. A refusal's body can still
+say `status: 500` under a 4xx, so `message` and the HTTP status are what tell them
+apart. A real 5xx is the server breaking.
 
 - **Who's playing** comes from the session cookie, never from player ids the
   client sends. Nobody can move for the AI except `/ai-move`.
@@ -123,7 +126,7 @@ move or missing game is HTTP 200 with `status: 500`.
 - **Not your game:** `401` signed out (the client refreshes once and retries),
   `403` signed in.
 - **New game limits** (`server/middleware/rateLimit.js`): `/game`, `/restart` and
-  `/invite` answer `429` with `Retry-After` past 10 at once per session (then 1 a
+  `/invite` answer `429` with `Retry-After` past 10 at once per session (an invite counts before its username is looked up) (then 1 a
   minute), 30 per IP or IPv6 /64 (then 1 every 20 s), or 60 site-wide (then 1 a
   second). Checked before anything is saved. Moves aren't limited. The counts are
   in memory and reset on restart.
@@ -152,7 +155,10 @@ move or missing game is HTTP 200 with `status: 500`.
 | `POST /api/chess/game/:gameId/draw/decline` | | Signed in, friend games. Turns down the opponent's offer (`{ declined: true }`) and emits `draw-offer`. `409` when it already ended |
 | `POST /api/chess/game/:gameId/rematch` | | Signed in, finished friend games. The first press waits 5 minutes (`{ waiting, expires_in, opponent_name, opponent_here }`, `opponent_here`: they have the game page open). If the other player presses in time, a new game starts with the same start settings (`{ new_game_id }`, the inviter keeps their color pick, Random draws again, Alternate switches), both players' sent invites are cancelled, and `rematch` is emitted. `{ status: 409 }` if either player is in another friend game, or the rematch game expired |
 | `POST /api/chess/game/:gameId/rematch/cancel` | | Signed in. Takes back the player's rematch request (`{ cancelled: true }`). `{ cancelled: false }` when the other player's press already started it, `rematch` is on its way |
-| `POST /api/chess/invite` | `{ opponent_username or opponent_email, start_color, start_fen, takebacks, replace_current }` | Signed in only. Invites a friend: finds them by username (data service, any capitals) or their Auth0 account by email (`getAuth0User`) and creates a `PENDING` game with both names (`white_name`, `black_name`: each player's username, or their Auth0 screenname until they pick one), `inviter_id` and `start_params`. `start_color` is your color (`alternate`: random at first, then the opposite of your last friend game; `random`, `w` or `b`), and the sides are drawn now so the invite shows them. `start_fen` (optional) starts the game and its rematches from a set position, with the same `400` as `/game` when it can't be played. Your last sent invite is deleted. The data service makes the game id. Refused for your own email, and for a friend who already invited you. While you have a friend game open this returns `{ status: 409, game_id }`, unless `replace_current: true` forfeits it first |
+| `POST /api/chess/invite` | `{ opponent_username, start_color, start_fen, takebacks, days_per_move, replace_current }` | Signed in only. Invites a friend: finds them by username (data service, any capitals) and creates a `PENDING` game with both names (`white_name`, `black_name`: each player's username, or the inviter's Auth0 screenname until they pick one). Email addresses aren't accepted, so inviting can't reveal which ones have accounts, `inviter_id` and `start_params`. `start_color` is your color (`alternate`: random at first, then the opposite of your last friend game; `random`, `w` or `b`), and the sides are drawn now so the invite shows them. `start_fen` (optional) starts the game and its rematches from a set position, with the same `400` as `/game` when it can't be played. `days_per_move` (optional: 1, 3 or 7, saved in `start_params` so rematches keep it) gives each move a deadline; `move_deadline` (epoch seconds) is on every game response and Home's game rows while the game is open, and the first read after it passes closes the game as `timeout`. Your last sent invite is deleted. The data service makes the game id. Refused for your own username, and for a friend who already invited you. While you have a friend game open this returns `{ status: 409, game_id }`, unless `replace_current: true` forfeits it first |
+| `POST /api/chess/challenge` | `{ start_color, start_fen, takebacks, replace_current }` | Signed in only. A challenge link: a `PENDING` game with the other seat empty (`OPEN_SEAT`), only on your `requested_games`. It's your one sent invite (`sent_invite.open_seat`), and has the same `409` / `replace_current` rule as an invite. The link is `/play/:gameId` |
+| `GET /api/chess/game/:gameId/challenge` | | Signed in only. What the join screen shows: `{ open, name, player_color, start_params }`, `open: false` once the seat is taken. `404` when it isn't a challenge link (cancelled or expired too) |
+| `POST /api/chess/game/:gameId/join` | `{ replace_current }` | Signed in, not the link's creator (`403`). A conditional write takes the seat, so only one player wins it (`409` "Game is taken"): `PENDING` → `OPEN`, the game moves to both players' `open_games`, and your own sent invite is cancelled. Same `409` / `replace_current` rule. Emits `games` to both Homes |
 | `POST /api/chess/game/:gameId/accept` | `{ replace_current }` | Signed in, the invited player. `PENDING` → `OPEN`, the game moves from both players' `requested_games` to `open_games`, and your own sent invite is cancelled. Same `409` / `replace_current` rule as `/invite`. Refused if the inviter is in another friend game by then (the invite is deleted) |
 | `POST /api/chess/game/:gameId/decline` | | Signed in, either player of a `PENDING` game. The invited player declines or the inviter cancels: the game is deleted and dropped from both players' `requested_games` |
 | `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home, plus `ai_game_id` and `friend_game_id` (your open AI and friend games, or `null`), `open_game_list` (`[{ game_id, ai, ai_level, opponent_name, player_color, start_params }]`, newest last, for Your games), `closed_game_list` (the same plus `winner` and `reason`, your last 20 finished games, newest first, for Finished games), `sent_invite` (`{ game_id, name, player_color, start_params }` or `null`) and `received_invites` (`[{ game_id, name, player_color, start_params }]`, `player_color` is yours), `settings` (`{ ai_level, ai_color, friend_color }`, the defaults until you save some) and `games_finished`. Ids of games and invites TTL already deleted are pruned first, and `rating` (`{ rating, provisional, rated_games }`, the starting 1500 before your first game) |
@@ -182,8 +188,8 @@ curl -s -c jar -b jar -X POST $API/game/$GAME/ai-move
 curl -s -c jar -b jar $API/game/$GAME
 ```
 
-A refused move still answers HTTP 200: check `status` and `message` in the
-body.
+A refused move answers a 4xx (`422` illegal, `409` not your turn or game over),
+with `status` and `message` in the body.
 
 ## CSRF
 
@@ -225,7 +231,7 @@ Every game response has the result fields:
 | --- | --- |
 | `state` | `PENDING` (a friend invite nobody has answered yet), `OPEN` or `CLOSED` |
 | `winner` | `w`, `b`, `draw`, or `null` while open |
-| `reason` | `checkmate`, `stalemate`, `insufficient material`, `fifty-move rule`, `threefold repetition`, `forfeit`, `agreement`, or `null` |
+| `reason` | `checkmate`, `stalemate`, `insufficient material`, `fifty-move rule`, `threefold repetition`, `forfeit`, `agreement`, `timeout` (the player to move ran out of time, `winner` is `draw` when the other side can't checkmate), or `null` |
 
 The client, server, data service and engine all pin `chess.js` `1.4.0`, so they
 agree on what's legal; a test fails if they differ.

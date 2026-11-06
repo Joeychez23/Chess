@@ -16,6 +16,7 @@ const crypto = require("crypto");
 const AI_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]; // THE LEVELS IN server/utils/ai.js (LEVELS), THE ENGINE SETTINGS STAY ON THE CHESS SERVER
 const DEFAULT_LEVEL = 3;
 const ID = /^[A-Za-z0-9_-]{1,64}$/; // GAME IDS (newGameId'S, OLDER OBJECT IDS, THE TESTS' "game1") & PLAYER IDS (AUTH0 IDS WITHOUT "auth0|")
+const OPEN_SEAT = "OPEN_SEAT"; // THE EMPTY SIDE OF A CHALLENGE LINK'S GAME, THE FIRST SIGNED IN PLAYER TO JOIN TAKES IT
 
 /* ---------------------------------------------------------------- */
 // Players
@@ -94,6 +95,17 @@ function gamePending(gameData) {
 }
 
 /**
+ * @description The empty side of a challenge link's game that nobody has joined yet
+ * @param  {[object]} gameData [game item]
+ * @return {[string]} color ["w" or "b", null when there's no seat left to take]
+ */
+function openSeat(gameData) {
+	if (!gamePending(gameData)) { return null; }
+	if (gameData.white_player_id.S == OPEN_SEAT) { return "w"; }
+	return gameData.black_player_id.S == OPEN_SEAT ? "b" : null;
+}
+
+/**
  * @description The color to move, from the board's FEN (its second field)
  * @param  {[object]} gameData [game item]
  * @return {[string]} turn ["w" or "b"]
@@ -102,35 +114,74 @@ function turnColor(gameData) {
 	return gameData.game_board.S.split(" ")[1];
 }
 
+/* ---------------------------------------------------------------- */
+// Move Deadline
+/* ---------------------------------------------------------------- */
+/**
+ * @description When the next move is due in a game with a time limit, counted from now
+ * @param  {[object]} gameData [game item, start_params.days_per_move is the limit]
+ * @return {[string]} deadline [epoch seconds as DynamoDB saves a number, null when the game has no limit]
+ */
+function moveDeadline(gameData) {
+	const days = startParams(gameData).days_per_move;
+	return days ? String(Math.floor(Date.now() / 1000) + days * SECONDS_PER_DAY) : null;
+}
+
+/**
+ * @description True for an open game whose player to move ran out of time
+ * @param  {[object]} gameData [game item, the game lists' projection is enough]
+ * @return {[boolean]} overdue
+ */
+function overdue(gameData) {
+	return gameOpen(gameData) && !gamePending(gameData) && !!gameData.move_deadline && Number(gameData.move_deadline.N) * 1000 <= Date.now();
+}
+
+/**
+ * @description Who wins when the player to move runs out of time: the other side, or nobody when that side can't checkmate
+ * (only a king, or a king & one bishop or knight, the usual rule for insufficient material on time)
+ * @param  {[object]} gameData [game item with its board]
+ * @return {[string]} winner ["w", "b" or "draw"]
+ */
+function timeoutWinner(gameData) {
+	const winner = turnColor(gameData) == "w" ? "b" : "w";
+	const pieces = gameData.game_board.S.split(" ")[0].replace(/[^a-zA-Z]/g, "").split("").filter((piece) => (piece == piece.toUpperCase()) == (winner == "w") && piece.toLowerCase() != "k");
+	const canMate = pieces.length > 1 || (pieces.length == 1 && !["n", "b"].includes(pieces[0].toLowerCase()));
+	return canMate ? winner : "draw";
+}
+
 
 /* ---------------------------------------------------------------- */
 // Start Settings
 /* ---------------------------------------------------------------- */
 const MAX_TAKEBACKS = 3; // ACCEPTED TAKEBACKS PER FRIEND GAME
+const DAYS_PER_MOVE = [1, 3, 7]; // THE TIME LIMITS A FRIEND GAME CAN HAVE
+const SECONDS_PER_DAY = 24 * 60 * 60;
 
 /**
- * @description A new game's start settings: the color the player picked, a set position & friend games' takeback setting. Restart & Rematch reuse them
+ * @description A new game's start settings: the color the player picked, a set position & friend games' takeback setting & time limit. Restart & Rematch reuse them
  * @param  {[string]} color ["w", "b", "random" or "alternate", anything else is random]
  * @param  {[string]} fen [the checked set position (checkStartFen), false for the standard position]
  * @param  {[number]} takebacks [0 turns friend game takebacks off, anything else leaves the limit (MAX_TAKEBACKS)]
- * @return {[object]} params [{ color, fen (only for a set position), takebacks (only when off: 0) }]
+ * @param  {[number]} daysPerMove [1, 3 or 7 days to make each move, anything else is no limit]
+ * @return {[object]} params [{ color, fen (only for a set position), takebacks (only when off: 0), days_per_move (only with a limit) }]
  */
-function newStartParams(color, fen, takebacks) {
+function newStartParams(color, fen, takebacks, daysPerMove) {
 	let params = { color: isColor(color) ? color : "random" };
 	if (fen) { params.fen = fen; }
 	if (takebacks === 0) { params.takebacks = 0; }
+	if (DAYS_PER_MOVE.includes(daysPerMove)) { params.days_per_move = daysPerMove; }
 	return params;
 }
 
 /**
  * @description A game's saved start settings, games from before start_params are random from the standard position
  * @param  {[object]} gameData [game item]
- * @return {[object]} params [{ color, fen, takebacks }]
+ * @return {[object]} params [{ color, fen, takebacks, days_per_move }]
  */
 function startParams(gameData) {
 	let params = {};
 	try { params = JSON.parse(gameData.start_params?.S || "{}"); } catch { }
-	return newStartParams(params.color, params.fen || false, params.takebacks);
+	return newStartParams(params.color, params.fen || false, params.takebacks, params.days_per_move);
 }
 
 /**
@@ -181,12 +232,12 @@ function readAiLevel(value) {
 }
 
 /**
- * @description True for a game id or player id a body may name: letters, numbers, _ & -, and never the AI's player id
+ * @description True for a game id or player id a body may name: letters, numbers, _ & -, and never the AI's player id or the open seat
  * @param  {[string]} value
  * @return {[boolean]} ok
  */
 function isId(value) {
-	return typeof value == "string" && ID.test(value) && value != "CHESS_AI";
+	return typeof value == "string" && ID.test(value) && value != "CHESS_AI" && value != OPEN_SEAT;
 }
 
 /**
@@ -198,4 +249,4 @@ function newGameId() {
 	return crypto.randomBytes(16).toString("base64url");
 }
 
-module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isColor, isId, newGameId, DEFAULT_LEVEL };
+module.exports = { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, openSeat, turnColor, moveDeadline, overdue, timeoutWinner, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isColor, isId, newGameId, DEFAULT_LEVEL, DAYS_PER_MOVE, OPEN_SEAT };

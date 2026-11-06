@@ -10,7 +10,7 @@ require("./helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, page, player, peek } = testServer;
+const { call, page, player, named, peek } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -23,7 +23,7 @@ const pick = (who, username) => call("PUT", "/api/user/username", { as: who, bod
  * @description An open friend game: the inviter sends, the friend accepts
  */
 async function friendGame(inviter, friend) {
-	const invite = await call("POST", "/api/chess/invite", { as: inviter, body: { opponent_email: friend.email, start_color: "w" } });
+	const invite = await call("POST", "/api/chess/invite", { as: inviter, body: { opponent_username: await named(friend), start_color: "w" } });
 	await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: friend, body: {} });
 	return invite.game_id;
 }
@@ -193,12 +193,12 @@ describe("home", () => {
 describe("names friends see", () => {
 	test("an invite shows usernames, and the Auth0 screenname for a player without one", async () => {
 		const alice = player("alice");
-		const bob = player("bob"); // NO USERNAME, HIS SCREENNAME IS "Bob"
+		const bob = player("bob"); // NO USERNAME, THEIR SCREENNAME IS "Bob"
 		await pick(alice, "AliceTheGreat");
-		await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email } });
+		await call("POST", "/api/chess/invite", { as: bob, body: { opponent_username: "AliceTheGreat" } });
 
-		assert.equal((await call("GET", "/api/chess/user/bob", { as: bob })).received_invites[0].name, "AliceTheGreat");
-		assert.equal((await call("GET", "/api/chess/user/alice", { as: alice })).sent_invite.name, "Bob");
+		assert.equal((await call("GET", "/api/chess/user/alice", { as: alice })).received_invites[0].name, "Bob");
+		assert.equal((await call("GET", "/api/chess/user/bob", { as: bob })).sent_invite.name, "AliceTheGreat");
 	});
 
 	test("an invite by username finds the player in any capitals and shows the names", async () => {

@@ -11,7 +11,7 @@ const assert = require("node:assert/strict");
 const { Chess } = require("chess.js");
 const { findOpening } = require("../utils/openings.js");
 const testServer = require("./helpers/server.js");
-const { call, player, engineWillPlay, dataServiceWillAnswer, peek } = testServer;
+const { call, player, named, engineWillPlay, dataServiceWillAnswer, peek } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -34,7 +34,7 @@ function fenAfter(moves) {
 async function friendGame() {
 	const alice = player("alice");
 	const bob = player("bob");
-	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } });
+	const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 	await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 	const play = async (moves, first = 0) => {
 		let response;

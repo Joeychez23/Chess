@@ -12,7 +12,7 @@ const { Chess } = require("chess.js");
 const { analyzePosition, clearAnalyses } = require("../utils/ai.js");
 const { ANALYSIS_LIMITS } = require("../middleware/rateLimit.js");
 const testServer = require("./helpers/server.js");
-const { call, player, engineWillPlay, engineWillScore, engineCalls } = testServer;
+const { call, player, named, engineWillPlay, engineWillScore, engineCalls } = testServer;
 
 const START = new Chess().fen();
 const STALEMATE = "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1";
@@ -105,7 +105,7 @@ describe("friend games", () => {
 	let bob;
 	beforeEach(() => { bob = player("bob"); }); // reset() FORGETS WHO CAN BE FOUND BY EMAIL
 
-	const invite = async () => (await call("POST", "/api/chess/invite", { as: alice, body: { opponent_email: bob.email, start_color: "w" } })).game_id;
+	const invite = async () => (await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } })).game_id;
 	const friendGame = async () => {
 		const gameId = await invite();
 		await call("POST", `/api/chess/game/${gameId}/accept`, { as: bob, body: {} });

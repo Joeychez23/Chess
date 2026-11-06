@@ -28,6 +28,7 @@ const auth0Users = new Map(); // EMAIL -> AUTH0 USER, WHAT getAuth0User FINDS
 const auth0Passwords = new Map(); // EMAIL -> PASSWORD, ONLY THE PASSWORD GRANT USES THIS
 const auth0LoginRequests = []; // PASSWORD-REALM REQUESTS (HEADERS + BODY)
 const auth0SignupRequests = []; // /dbconnections/signup BODIES
+let auth0RefusesDeletes = false; // A MANAGEMENT TOKEN WITHOUT delete:users
 const auth0ResetRequests = []; // /dbconnections/change_password BODIES
 const auth0Blocks = []; // QUEUED AUTH0 TOO_MANY_ATTEMPTS ANSWERS
 const auth0Stalls = []; // AUTH0 CALLS WHOSE NEXT ANSWER NEVER ARRIVES: { path, grant } (auth0WillStall)
@@ -86,6 +87,7 @@ function reset() {
 	auth0Passwords.clear();
 	auth0LoginRequests.length = 0;
 	auth0SignupRequests.length = 0;
+	auth0RefusesDeletes = false;
 	auth0ResetRequests.length = 0;
 	auth0Blocks.length = 0;
 	auth0Stalls.length = 0;
@@ -104,7 +106,7 @@ function reset() {
 // Players
 /* ---------------------------------------------------------------- */
 /**
- * @description A signed in player: their session user, and an Auth0 account so friends can invite them by email
+ * @description A signed in player: their session user, and their Auth0 account
  * @param  {[string]} name [e.g. "alice", also their player id]
  * @return {[object]} player [{ id, email, user }]
  */
@@ -115,6 +117,20 @@ function player(name) {
 	auth0Passwords.set(user.email, password);
 	return { id: name, email: user.email, password, user };
 }
+
+/**
+ * @description Gives a player a username (their screenname), so friends can invite them
+ * @param  {[object]} who [from player()]
+ * @return {[string]} username [what an invite finds them by]
+ */
+async function named(who) {
+	const username = who.user.user_metadata.screenname;
+	await call("PUT", "/api/user/username", { as: who, body: { username } });
+	return username;
+}
+
+const auth0WillRefuseDeletes = () => { auth0RefusesDeletes = true; };
+const hasAuth0User = (who) => auth0Users.has(who.email);
 
 /**
  * @description The access cookie a signed in player's browser sends (signed like the data service signs it, utils/tokens.js)
@@ -274,6 +290,12 @@ async function standInFetch(url, options) {
 		const user = auth0Users.get(searchParams.get("email"));
 		return json(user ? [user] : []);
 	}
+	if (hostname == "auth0.test" && pathname.startsWith("/api/v2/users/") && options.method == "DELETE") {
+		if (auth0RefusesDeletes) { return json({ error: "Forbidden" }, 403); }
+		const userId = decodeURIComponent(pathname.slice("/api/v2/users/".length));
+		for (const [email, user] of auth0Users) { if (user.user_id == userId) { auth0Users.delete(email); } }
+		return new Response(null, { status: 204 }); // THE SAME FOR A USER THAT'S ALREADY GONE, LIKE AUTH0'S
+	}
 	if (url.startsWith(config.dataServiceUrl)) {
 		const queued = dataServiceAnswers.findIndex((answer) => answer.path == pathname);
 		if (queued != -1) {
@@ -396,4 +418,4 @@ function dataServiceWillStall(path) {
 }
 
 
-module.exports = { start, reset, player, call, send, page, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, throttleBatchReads: fakeDynamo.throttleBatchReads };
+module.exports = { start, reset, player, named, call, send, page, auth0WillRefuseDeletes, hasAuth0User, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, poke: fakeDynamo.poke, throttleBatchReads: fakeDynamo.throttleBatchReads };

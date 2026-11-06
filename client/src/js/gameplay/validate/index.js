@@ -130,28 +130,82 @@ export async function getRatings(gameUrl, gameId) {
 }
 
 /**
- * @description Invites a friend, the server finds them by username or email (an @ means email, usernames can't have one) & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
+ * @description Invites a friend, the server finds them by username & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
  * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the server answers 409 while one is open]
  * @param  {[string]} startColor [the inviter's color: "alternate" | "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position, rematches keep it]
  * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game, rematches keep it]
+ * @param  {[number]} daysPerMove [1, 3 or 7 days for each move, left out = no limit, rematches keep it]
  * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
  */
-export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent, startColor, startFen, takebacks) {
+export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent, startColor, startFen, takebacks, daysPerMove) {
 	let options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			challenger_id: _id,
-			...(opponent.includes("@") ? { opponent_email: opponent } : { opponent_username: opponent }),
+			opponent_username: opponent,
 			replace_current: replaceCurrent,
 			start_color: startColor,
 			start_fen: startFen,
-			takebacks
+			takebacks,
+			days_per_move: daysPerMove
 		})
 	};
 	try {
 		return await request(`${gameUrl}/invite`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Makes a challenge link: a game with the other seat empty, the first signed in player to open the link & join takes it (POST /challenge). The server makes the game id
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
+ * @param  {[string]} startColor [the player's color: "alternate" | "random" | "w" | "b"]
+ * @param  {[string]} startFen [a set position to start from, blank = the standard position]
+ * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game]
+ * @param  {[number]} daysPerMove [1, 3 or 7 days for each move, left out = no limit]
+ * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
+ */
+export async function createChallenge(gameUrl, replaceCurrent, startColor, startFen, takebacks, daysPerMove) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ replace_current: replaceCurrent, start_color: startColor, start_fen: startFen, takebacks, days_per_move: daysPerMove })
+	};
+	try {
+		return await request(`${gameUrl}/challenge`, options)
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description What the join screen shows (GET /game/:gameId/challenge)
+ * @return {[object]} response [{ status, open, name, player_color, start_params } | { status: 500, message: "Game data not found" }]
+ */
+export async function getChallenge(gameUrl, gameId) {
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/challenge`, { method: "GET" })
+	} catch {
+		return
+	}
+}
+
+/**
+ * @description Takes a challenge link's empty seat (POST /game/:gameId/join)
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
+ * @return {[object]} response [the game: { status, game_id, ..., state: "OPEN" } | { status: 409, game_id (the open one) } | { status: 409, message: "Game is taken" }]
+ */
+export async function joinChallenge(gameUrl, gameId, replaceCurrent) {
+	const options = {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ replace_current: replaceCurrent })
+	};
+	try {
+		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/join`, options)
 	} catch {
 		return
 	}
@@ -441,7 +495,7 @@ export async function friendAction(userUrl, action, username) {
 }
 
 /**
- * @description Delete my data (DELETE /api/user): the server forfeits the open games, cancels & declines the invites, then deletes the user_db row
+ * @description Delete my account (DELETE /api/user): the server deletes the Auth0 login, forfeits the open games, cancels & declines the invites, then deletes the user_db row
  * @param  {[string]} userUrl [user api, "/api/user"]
  * @return {[object]} response [{ status, message }]
  */
@@ -467,6 +521,6 @@ async function request(url, options) {
 		if (refresh.ok) { res = await fetch(url, options); }
 	}
 	const body = await res.json();
-	if (res.status >= 500) { body.serverError = true; } // THE SERVER BROKE. A REFUSED MOVE IS AN HTTP 200 WITH status: 500 IN THE BODY (chessController.js)
+	if (res.status >= 500) { body.serverError = true; } // THE SERVER BROKE. A REFUSED MOVE IS AN HTTP 4XX WITH status: 500 IN THE BODY (chessController.js)
 	return body;
 }

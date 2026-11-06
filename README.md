@@ -25,7 +25,7 @@
 
 A chess game drawn on an HTML5 canvas: sprite pieces with shadows and
 reflections on a wooden table, sliding moves and move sounds. Play Stockfish at
-8 levels or a friend by username or email.
+8 levels or a friend by username or challenge link.
 
 Every move is checked three times: by chess.js in the browser, by the Express
 server, and by the private **data service**, the only code that can touch
@@ -46,9 +46,9 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Canvas** | Board, table and pieces are layered sprites (reflection, shadow, piece). Pieces face the way they last moved, and knights hop. |
 | **Moving** | Drag and drop or click to move, with legal moves and check highlighted, or press `/` and type a move like `e4`, choosing from the legal moves it lists. Promote by clicking one of your captured pieces. Touch and a TV remote mode (`TV_DEV` in `client/src/js/pages/play/index.js`) work too. |
 | **Play the AI** | 8 levels with approximate Elo ([AI levels](server/README.md#ai-levels)) and a color (Alternate, the default: random at first, then switching each game; Random, White, Black). The server picks and saves the AI's moves. Forfeit ends an unfinished game after a second press, then Restart starts a new game with the same level and color. One open AI game per player. |
-| **Play a friend** | Invite by username or email with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
+| **Play a friend** | Invite by username with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
 | **Set positions** | An optional FEN in **Start position**. The server refuses broken or finished positions with the reason, and Restart and Rematch keep it. |
-| **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition, a forfeit or a draw by agreement. Both boards show the result. |
+| **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition, a forfeit, a draw by agreement or running out of time (`timeout`). Both boards show the result. |
 | **Hints** | In AI games, Hint in the game menu highlights a good move from the engine, and Turn Eval Bar shows who's winning in a bar beside the board. Finished games can show the bar too. Friend games that are still going show neither. |
 | **Takebacks** | Takeback in the game menu. AI games, guests too: your last move and the AI's reply go back, with no limit per game. Friend games: your opponent can accept or decline, once per move, and the next move cancels it. Accepted, your last move goes back, and their reply if they made one, up to 3 per game. The invite can turn them off. |
 | **Draw offers** | Offer Draw in the game menu, once per player per move. Your opponent can accept or decline, and the offer ends with the next move. The AI always accepts until both sides have made their first move, then only when it isn't ahead. |
@@ -56,7 +56,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Ratings** | Elo from 1500. Only finished friend games (both sides moved, not from a set position) count. Shown on Home and in a friend game's menu. |
 | **Usernames** | 3 to 20 letters, numbers, `_` or `-`, unique in any capitals, some reserved. Picked on Settings after the first sign-in. |
 | **Friends** | Home's Friends box: send, accept, decline and cancel friend requests by username, see who's online, and Challenge (fills in the invite) or Remove each friend. |
-| **Settings** | `/settings`: username, account, default start settings, and Delete my data (forfeits your games, deletes your row and frees your username). |
+| **Settings** | `/settings`: username, account, default start settings, and Delete my account (deletes your Auth0 login, forfeits your games, deletes your row, frees your username and anonymizes your finished friend games). `/privacy` and `/terms` hold the policies. |
 | **Guests** | Play the AI without an account: one game, kept to the browser that made it. |
 | **Mobile** | Portrait and landscape layouts, and iOS audio unlocks on the first tap. |
 

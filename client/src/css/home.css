@@ -347,6 +347,8 @@ body {
 	min-height: 0; /* STAYS IN THE PAGE: SCREEN READERS ONLY READ OUT A MESSAGE AREA THAT'S ALREADY THERE */
 }
 
+.legalBox a, .legalLinks a { color: inherit; text-decoration: underline; } /* THE PRIVACY & TERMS PAGES' LINKS */
+
 .note { /* WHY AN INVITE DIDN'T GO THROUGH, THE FORFEIT WARNINGS */
 	min-height: 1.4em;
 	color: var(--gold);
@@ -427,6 +429,11 @@ body {
 .sentInvite .btn {
 	min-height: 40px;
 	padding: 0 16px;
+}
+
+.challengeLinkField { /* THE CHALLENGE LINK & COPY LINK TAKE THE WHOLE ROW */
+	flex: 1 1 100%;
+	min-width: 0;
 }
 
 .sentInvite .spec {
