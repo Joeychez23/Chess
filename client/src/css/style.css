@@ -46,6 +46,11 @@ button {
 	background-position: "center";
 }
 
+#board3D { /* THE 3D BOARD (gameplay/renderer), FULL SCREEN BUT DRAWN INSIDE THE SAFE AREA: NOTHING UNDER A NOTCH OR ROUNDED CORNER */
+	box-sizing: border-box;
+	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
 #main canvas {
 	display: block;
 	padding: 0;
@@ -496,7 +501,7 @@ body #menuContainer { /* body: style.css LOADS BEFORE nav.css. THE OTHER PAGES' 
 	gap: 12px;
 	box-sizing: border-box;
 	width: max-content;
-	max-width: calc(100vw - 32px);
+	max-width: calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
 	padding: 10px 14px;
 	border: 1px solid rgba(201, 163, 90, 0.45);
 	border-radius: 14px;
@@ -533,7 +538,7 @@ body #menuContainer { /* body: style.css LOADS BEFORE nav.css. THE OTHER PAGES' 
 }
 
 #controlsHint button {
-	min-height: 36px;
+	min-height: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
 	padding: 0 14px;
 	border: 0;
 	border-radius: 6px;

@@ -47,11 +47,22 @@ const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON
 };
 
 const PHONE_PIXEL_RATIO = 1.5; // PHONES DRAW AT MOST THIS MANY PIXELS PER CSS PIXEL (2 ELSEWHERE)
+// SMALL TOUCH SCREENS (#400's RULE, PLUS A PHONE ON ITS SIDE, WIDER THAN 768PX BUT SHORT) GET A STEEPER CAMERA SO EVERY SQUARE IS A
+// TAP TARGET: AT LEAST TAP_PX TALL ON SCREEN. RE-CHECKED ON EVERY RESIZE (ROTATING THE PHONE RESIZES)
+const SMALL_SCREEN = window.matchMedia("(pointer: coarse) and (max-width: 768px), (pointer: coarse) and (max-height: 500px)");
+const TAP_PX = 44;
+const SMALL_TILTS = [30, 25, 20, 15, 10, 5, 3].map(MathUtils.degToRad); // TRIED IN ORDER: THE MOST 3D ONE THAT STILL MAKES TAP_PX, ELSE THE STEEPEST
+const FOV = 45;
+const SMALL_FOV = 30; // A LONGER LENS: LESS PERSPECTIVE, SO THE FAR ROW ISN'T SQUASHED & THE SQUARES CAN BE BIGGER
+const FIT_NDC = 0.98; // ROOM LEFT AROUND THE BOARD WHEN THERE'S SPACE FOR IT (1 IS EDGE TO EDGE)
+const PIECE_TOP = PIECE_SIZE * 1.4; // ABOUT A KING'S HEIGHT, THE PIECES ON THE EDGE ROWS STAY ON SCREEN WHEN THERE'S SPACE FOR IT
 let view = null; // EVERYTHING ONE mount() MADE, null WHEN UNMOUNTED
 const raycaster = new Raycaster();
 const pointer = new Vector2(); // NORMALIZED DEVICE COORDS (-1..1)
 const offset = new Vector3(); // CAMERA POSITION MINUS WHAT IT LOOKS AT
 const spherical = new Spherical(); // offset AS DISTANCE, TILT & ANGLE AROUND THE BOARD
+const fitCamera = new PerspectiveCamera(); // smallScreenCamera()'S STAND-IN, THE REAL ONE STAYS WHERE THE PLAYER PUT IT
+const corner = new Vector3();
 
 /* ---------------------------------------------------------------- */
 // Squares
@@ -85,22 +96,87 @@ function removePiece(mesh) {
 // Mount
 /* ---------------------------------------------------------------- */
 
-// MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER, PIXEL DENSITY CAPPED (2, PHONES 1.5) SO 3x PHONES DON'T DRAW 9x THE PIXELS
+// MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER (INSIDE ITS SAFE AREA PADDING, css/style.css #board3D), PIXEL DENSITY CAPPED
+// (2, PHONES 1.5) SO 3x PHONES DON'T DRAW 9x THE PIXELS. A SMALL SCREEN ALSO GETS ITS CAMERA LIMITS FOR THE NEW SIZE
 function resize() {
-	const { renderer, camera, container } = view;
-	const w = container.clientWidth, h = container.clientHeight;
-	if (!w || !h) { return; } // HIDDEN: KEEP THE LAST SIZE
+	const { renderer, camera, container, controls } = view;
+	const style = getComputedStyle(container);
+	const w = container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+	const h = container.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+	if (!(w > 0 && h > 0)) { return; } // HIDDEN: KEEP THE LAST SIZE
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, view.phone ? PHONE_PIXEL_RATIO : 2));
 	renderer.setSize(w, h, false); // CSS SIZES THE CANVAS
 	camera.aspect = w / h;
+	camera.fov = SMALL_SCREEN.matches ? SMALL_FOV : FOV;
 	camera.updateProjectionMatrix();
+	view.small = SMALL_SCREEN.matches ? smallScreenCamera(h) : null;
+	controls.maxPolarAngle = view.small ? view.small.tilt : MAX_TILT; // NO TILTING OR ZOOMING OUT TO WHERE A SQUARE IS UNDER TAP_PX
+	controls.maxDistance = view.small ? Math.max(view.small.distance, MIN_DISTANCE) : MAX_DISTANCE;
+	controls.update(); // A CAMERA PAST THE NEW LIMITS (THE PHONE WAS TURNED) MOVES INSIDE THEM
 	requestRender();
 }
 
-// PUTS THE CAMERA AT ITS DEFAULT SPOT angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE CENTER
+/**
+ * @description The small screen camera: the most tilted of SMALL_TILTS whose squares are TAP_PX tall at the distance picked, or the
+ * steepest when none are (the biggest squares the screen allows: a phone on its side is about 8 squares tall). The distance is the
+ * closest with room around the board & its pieces, or closer to make TAP_PX (edge pieces' tops may go off screen), but never so
+ * close a square is off screen
+ * @param  {[number]} h [the canvas's height in CSS pixels, view.camera has its new aspect & fov]
+ * @return {[object]} { tilt, distance } [from straight down, from the center]
+ */
+function smallScreenCamera(h) {
+	fitCamera.copy(view.camera);
+	let fit;
+	for (const tilt of SMALL_TILTS) {
+		const squares = closest(tilt, () => cornersOnScreen(0, 1));
+		const roomy = closest(tilt, () => cornersOnScreen(0, FIT_NDC) && cornersOnScreen(PIECE_TOP, 1));
+		const tap = closest(tilt, () => smallestSquarePx(h) < TAP_PX); // FARTHER THAN THIS IS UNDER TAP_PX
+		fit = { tilt, distance: Math.max(squares, Math.min(roomy, tap)) };
+		aimFitCamera(tilt, fit.distance);
+		if (smallestSquarePx(h) >= TAP_PX - 0.5) { break; }
+	}
+	return fit;
+}
+
+// PUTS fitCamera AT tilt & distance FROM WHITE'S SIDE (THE BOARD LOOKS THE SAME FROM BLACK'S)
+function aimFitCamera(tilt, distance) {
+	fitCamera.position.setFromSpherical(spherical.set(distance, tilt, 0));
+	fitCamera.lookAt(0, 0, 0);
+	fitCamera.updateMatrixWorld();
+}
+
+// THE CLOSEST DISTANCE AT tilt WHERE ok() IS TRUE (IT MUST BE TRUE FAR AWAY & FALSE UP CLOSE), FOUND BY HALVING
+function closest(tilt, ok) {
+	let near = 1, far = 400;
+	for (let i = 0; i < 30; i++) {
+		const mid = (near + far) / 2;
+		aimFitCamera(tilt, mid);
+		if (ok()) { far = mid; } else { near = mid; }
+	}
+	return far;
+}
+
+// THE BOARD'S 4 CORNERS, y UP, ARE INSIDE ndc OF fitCamera'S SCREEN (1 IS ITS EDGE)
+function cornersOnScreen(y, ndc) {
+	return [-1, 1].every((x) => [-1, 1].every(function (z) {
+		corner.set(x * BOARD_SIZE / 2, y, z * BOARD_SIZE / 2).project(fitCamera);
+		return Math.abs(corner.x) <= ndc && Math.abs(corner.y) <= ndc;
+	}));
+}
+
+// HOW TALL THE FAR ROW'S SQUARES ARE ON fitCamera'S SCREEN IN CSS PIXELS (THE SMALLEST, THE TILT SQUASHES THE FAR SIDE MOST)
+function smallestSquarePx(h) {
+	const back = corner.set(0, 0, -BOARD_SIZE / 2).project(fitCamera).y;
+	const front = corner.set(0, 0, -BOARD_SIZE / 2 + CELL_SIZE).project(fitCamera).y;
+	return Math.abs(back - front) / 2 * h;
+}
+
+// PUTS THE CAMERA AT ITS DEFAULT SPOT angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE CENTER.
+// A SMALL SCREEN'S IS STEEPER & FITS THE BOARD TO IT (smallScreenCamera)
 function placeCamera(angle) {
 	view.controls.target.set(0, 0, 0); // UNDOES ANY PAN
-	view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle));
+	if (view.small) { view.camera.position.setFromSpherical(spherical.set(view.small.distance, view.small.tilt, angle)); }
+	else { view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle)); }
 	view.controls.update(); // LOOKS AT THE TARGET
 }
 
@@ -254,7 +330,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	const scene = new Scene();
 	scene.background = new Color(BAIZE_FOG);
 	if (!phone) { scene.fog = new Fog(BAIZE_FOG, 50, 150); } // PAST THE BAIZE TABLE, FADE INTO THE BACKGROUND
-	const camera = new PerspectiveCamera(45, 1, 0.1, 1000); // PLACED BELOW (placeCamera), WHITE'S SIDE UNTIL setSide()
+	const camera = new PerspectiveCamera(FOV, 1, 0.1, 1000); // PLACED BELOW (placeCamera), WHITE'S SIDE UNTIL setSide()
 	scene.add(new HemisphereLight(0xFFF4E0, 0x3A2A1A, 1.2)); // FILL: WARM SKY, DARK WOOD BOUNCE, NO SHADOW MAPS
 	const keyLight = new DirectionalLight(0xFFFFFF, 2.2); // KEY: HIGH & TO WHITE'S LEFT
 	keyLight.position.set(-10, 25, 15);
@@ -277,21 +353,22 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
 	view = { phone, container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
-	Object.assign(view, { lost: false, onContextLost: lost, onContextRestored: restored });
+	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored });
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
+	container.style.backgroundColor = scene.background.getStyle(); // THE SAFE AREA PADDING (UNDER A NOTCH) IS THE SCENE'S BACKGROUND
+	view.observer = new ResizeObserver(resize);
+	view.observer.observe(container);
+	window.addEventListener("orientationchange", resize); // SOME MOBILE BROWSERS REPORT THE NEW SIZE LATE
+	container.appendChild(canvas);
+	resize(); // FIRST: A SMALL SCREEN'S CAMERA (view.small) IS FIT TO THE SIZE
 	placeCamera(0);
 	container.addEventListener("pointerdown", onPointerDown, true);
 	container.addEventListener("pointermove", onPointerMove, true);
 	window.addEventListener("pointerup", onPointerUp);
 	window.addEventListener("pointercancel", onPointerUp);
-	view.observer = new ResizeObserver(resize);
-	view.observer.observe(container);
-	window.addEventListener("orientationchange", resize); // SOME MOBILE BROWSERS REPORT THE NEW SIZE LATE
 	canvas.addEventListener("webglcontextlost", onContextLost);
 	canvas.addEventListener("webglcontextrestored", onContextRestored);
-	container.appendChild(canvas);
 	document.addEventListener("visibilitychange", onVisibility);
-	resize();
 	requestRender();
 	showHint(); // THE FIRST TIME 3D OPENS
 }
