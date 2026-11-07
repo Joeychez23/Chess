@@ -93,6 +93,7 @@ function resize() {
 	renderer.setSize(w, h, false); // CSS SIZES THE CANVAS
 	camera.aspect = w / h;
 	camera.updateProjectionMatrix();
+	requestRender();
 }
 
 // PUTS THE CAMERA AT ITS DEFAULT SPOT angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE CENTER
@@ -157,6 +158,7 @@ function createControls(camera, canvas) {
 		if (view.pointerType === "touch") { startGesture(); } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
 	});
 	controls.addEventListener("change", function () {
+		requestRender();
 		const { controlsActive, press, pointerAt } = view;
 		if (controlsActive && Math.hypot(pointerAt.x - press.x, pointerAt.y - press.y) > DRAG_PX) { startGesture(); }
 	});
@@ -193,11 +195,31 @@ function onPointerUp() {
 	if (view) { view.controls.enabled = true; }
 }
 
-// EACH FRAME: STEP THE MOVING PIECES & CAMERA, THEN DRAW
+/* ---------------------------------------------------------------- */
+// Rendering
+/* ---------------------------------------------------------------- */
+
+// DRAWS ON DEMAND: ASKS FOR ONE FRAME WHEN SOMETHING CHANGED (A FEW CALLS BEFORE IT RUNS STILL DRAW ONCE). NOTHING WHILE THE TAB IS
+// HIDDEN, visibilitychange DRAWS ON THE WAY BACK. AN IDLE BOARD DRAWS NOTHING
+function requestRender() {
+	if (!view || view.frameId !== null || document.hidden) { return; }
+	view.frameId = requestAnimationFrame(frame);
+}
+
+// ONE FRAME: STEP THE MOVING PIECES & CAMERA, THEN DRAW. ASKS FOR THE NEXT ONLY WHILE SOMETHING IS STILL MOVING
 function frame(now) {
+	view.frameId = null;
 	for (const anim of [...view.anims]) { stepAnim(anim, now); }
 	if (view.cameraTurn) { stepCamera(now); }
+	if (view.controls.enableDamping) { view.controls.update(); } // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME
 	view.renderer.render(view.scene, view.camera);
+	if (view.anims.size || view.cameraTurn) { requestRender(); }
+}
+
+function onVisibility() {
+	if (!document.hidden) { requestRender(); return; }
+	cancelAnimationFrame(view.frameId);
+	view.frameId = null;
 }
 
 /**
@@ -218,7 +240,7 @@ export function mount(container) {
 	const keyLight = new DirectionalLight(0xFFFFFF, 2.2); // KEY: HIGH & TO WHITE'S LEFT
 	keyLight.position.set(-10, 25, 15);
 	scene.add(keyLight);
-	const boardTexture = new TextureLoader().load(BOARD_IMAGE);
+	const boardTexture = new TextureLoader().load(BOARD_IMAGE, () => requestRender()); // DRAWS AGAIN WHEN THE SQUARES ARRIVE
 	boardTexture.colorSpace = SRGBColorSpace; // COLORS MATCH THE 2D BOARD
 	boardTexture.minFilter = LinearMipmapLinearFilter;
 	boardTexture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8); // SHARP AT THE CAMERA'S LOW ANGLE
@@ -235,7 +257,7 @@ export function mount(container) {
 		const [color, opacity] = HIGHLIGHTS[kind];
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
-	view = { container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null }; // side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
+	view = { container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
 	placeCamera(0);
 	container.addEventListener("pointerdown", onPointerDown, true);
@@ -246,8 +268,9 @@ export function mount(container) {
 	view.observer.observe(container);
 	window.addEventListener("orientationchange", resize); // SOME MOBILE BROWSERS REPORT THE NEW SIZE LATE
 	container.appendChild(canvas);
+	document.addEventListener("visibilitychange", onVisibility);
 	resize();
-	renderer.setAnimationLoop(frame);
+	requestRender();
 	showHint(); // THE FIRST TIME 3D OPENS
 }
 
@@ -260,7 +283,8 @@ export function unmount() {
 	finishAnims();
 	removeHint();
 	const { renderer, scene, observer, controls, container } = view;
-	renderer.setAnimationLoop(null);
+	cancelAnimationFrame(view.frameId);
+	document.removeEventListener("visibilitychange", onVisibility);
 	observer.disconnect();
 	controls.dispose();
 	window.removeEventListener("orientationchange", resize);
@@ -308,6 +332,7 @@ export function syncFromBoard(chessInst) {
 		place(i >= 0 ? spare.splice(i, 1)[0] : addPiece(p.type, p.color), square);
 	}
 	spare.forEach(removePiece);
+	requestRender();
 }
 
 /**
@@ -359,6 +384,7 @@ export function setSide(color, animate) {
 	}
 	const from = cameraAzimuth();
 	view.cameraTurn = { from, to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)), start: null };
+	requestRender();
 }
 
 /**
@@ -371,6 +397,7 @@ export function resetCamera(color) {
 	view.side = color;
 	placeCamera(color === "b" ? Math.PI : 0);
 	setLabels(color);
+	requestRender();
 }
 
 /**
@@ -390,6 +417,7 @@ export function highlight(squares, kind) {
 		view.scene.add(mesh);
 		meshes.set(square, mesh);
 	}
+	requestRender();
 }
 
 /* ---------------------------------------------------------------- */
@@ -424,6 +452,7 @@ function animate(mesh, x1, z1, { hop = false, ease = false, fade = 0, delay = 0,
 	if (fade > 0) { setOpacity(mesh, 0); } // UNSEEN UNTIL ITS FIRST FRAME
 	return new Promise(function (done) {
 		view.anims.add({ mesh, x0, z0, x1, z1, hop, ease, fade, delay, duration, onEnd, start: null, done });
+		requestRender();
 	});
 }
 
