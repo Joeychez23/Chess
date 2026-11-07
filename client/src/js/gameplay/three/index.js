@@ -19,6 +19,8 @@ import { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } from "
 import { createSurroundings, orientLabels } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
 import { showHint, dismissHint, removeHint } from "./hint.js";
+import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"; // ?perf=1's READOUT FOR PHONE TESTS (#430)
+export { perfLoaded } from "./perf.js"; // load.js GIVES IT THE CHUNK'S DOWNLOAD TIME
 
 /* ---------------------------------------------------------------- */
 // Global
@@ -286,10 +288,12 @@ function requestRender() {
 // ONE FRAME: STEP THE MOVING PIECES & CAMERA, THEN DRAW. ASKS FOR THE NEXT ONLY WHILE SOMETHING IS STILL MOVING
 function frame(now) {
 	view.frameId = null;
+	perfMoving(now, view.anims.size > 0 || Boolean(view.cameraTurn));
 	for (const anim of [...view.anims]) { stepAnim(anim, now); }
 	if (view.cameraTurn) { stepCamera(now); }
 	if (view.controls.enableDamping) { view.controls.update(); } // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME
 	view.renderer.render(view.scene, view.camera);
+	perfFrame(now);
 	if (view.anims.size || view.cameraTurn) { requestRender(); }
 }
 
@@ -303,6 +307,7 @@ function onVisibility() {
 // NOTHING DRAWS UNTIL THE CALLER (renderer/) PUTS UP A NEW BOARD
 function onContextLost(e) {
 	e.preventDefault();
+	perfLost();
 	view.lost = true;
 	cancelAnimationFrame(view.frameId);
 	view.frameId = null;
@@ -371,6 +376,13 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	document.addEventListener("visibilitychange", onVisibility);
 	requestRender();
 	showHint(); // THE FIRST TIME 3D OPENS
+	perfStart({ renderer, camera, squareCorners });
+}
+
+// A SQUARE'S 4 CORNERS ON THE BOARD, FOR perf.js
+function squareCorners(square) {
+	const x = center(fileOf(square)), z = center(rowOf(square)), d = CELL_SIZE / 2;
+	return [[-d, -d], [-d, d], [d, -d], [d, d]].map(([dx, dz]) => new Vector3(x + dx, 0, z + dz));
 }
 
 /**
@@ -381,6 +393,7 @@ export function unmount() {
 	if (!view) { return; }
 	finishAnims();
 	removeHint();
+	perfStop();
 	const { renderer, scene, observer, controls, container } = view;
 	cancelAnimationFrame(view.frameId);
 	document.removeEventListener("visibilitychange", onVisibility);
