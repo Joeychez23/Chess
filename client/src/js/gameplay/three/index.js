@@ -509,6 +509,20 @@ export function setSide(color, animate) {
 }
 
 /**
+ * @description Lands every moving piece & a Flip Board turn in progress at once (reduce motion turned on mid-move)
+ */
+export function stopMotion() {
+	if (!view) { return; }
+	finishAnims();
+	if (view.cameraTurn) {
+		turnCamera(view.cameraTurn.to);
+		setLabels(view.side);
+		view.cameraTurn = null;
+	}
+	requestRender();
+}
+
+/**
  * @description Puts the camera back at its default spot for a side at once (Reset View)
  * @param  {[string]} color ['w' | 'b', the side the player looks from]
  */

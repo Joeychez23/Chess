@@ -29,7 +29,7 @@ const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
-const { drawBoard, VIEWS, addBoardListener } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
+const { drawBoard, VIEWS, addBoardListener, stopMotion3D } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
 export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -129,7 +129,10 @@ async function startGame(view) {
 
 	const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)"); // THE DEVICE'S REDUCE MOTION SETTING
 	game.reduceMotion = reduceMotionQuery.matches;
-	reduceMotionQuery.addEventListener("change", function (e) { game.reduceMotion = e.matches; }); // CHANGED DURING A GAME: THE NEXT FRAME USES IT
+	reduceMotionQuery.addEventListener("change", function (e) { // CHANGED DURING A GAME: THE NEXT FRAME USES IT
+		game.reduceMotion = e.matches;
+		if (e.matches) { stopMotion3D(); } // A 3D CAMERA TURN OR PIECE SLIDE ALREADY GOING LANDS AT ONCE (#432)
+	});
 
 	if (view === VIEWS.THREE_D) { showView(VIEWS.THREE_D); } // FALLS BACK TO 2D ITSELF WHEN 3D CAN'T LOAD
 	startFrames(renderLoop); // THE RENDER LOOP, FRAMES ONLY COME WHILE SOMETHING CHANGES & THE TAB IS SHOWN

@@ -103,6 +103,15 @@ export function glideHome3D() {
 }
 
 /**
+ * @description Reduce motion was just turned on: 3D's camera turn & piece slides in progress land at once. Reduce motion keeps 3D
+ * (it doesn't switch to 2D), it only takes the motion out: Flip Board & Reset View set the camera, moves & restarts set the pieces
+ * (drawBoard, glideHome3D). Only the player's own camera drags still move it. Does nothing on 2D
+ */
+export function stopMotion3D() {
+	if (board3D) { board3D.stopMotion(); }
+}
+
+/**
  * @description Which board is on
  * @return {[string]} [VIEWS.TWO_D or VIEWS.THREE_D]
  */
