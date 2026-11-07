@@ -5,7 +5,8 @@
  *	drawBoard() & setView() & never checks which one is on. The 2D canvas keeps drawing on 3D, laid clear over the 3D board
  *	with only its trays showing, its frames still run the game (tiles, slides, trays), then the 3D board is set to match chessInst,
  *	game.viewColor (the camera's side) & the 2D highlights.
- *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D. Input (gameplay/input) only asks here for the
+ *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D. One that loses its WebGL context (iPhones do when
+ *	the page is backgrounded) is put up again when the browser gives it back, or falls back to 2D when it keeps losing it. Input (gameplay/input) only asks here for the
  *	square under the pointer, its handlers are the same on both boards (addBoardListener)
  *
  */
@@ -17,6 +18,7 @@ const { game, canvas, chessInst, requestFrame } = require("../state/index.js"); 
 const { load3D } = require("../three/load.js"); // DOWNLOADS THE 3D BOARD THE FIRST TIME IT'S TURNED ON
 const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { moveBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS, THE SQUARE OF A SCREEN TILE
+const { reportError } = require("../../pages/utils/reportErrors.js"); // THE BROWSER ERROR REPORTS (#194)
 const { Chess } = require("chess.js");
 const scratch = new Chess(); // ONLY moveBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
 
@@ -28,6 +30,13 @@ let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT T
 let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
 let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
 const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
+let viewListener = () => {}; // onViewChange()'S, TOLD WHEN 3D FALLS BACK TO 2D BY ITSELF
+
+const RESTORE_WAIT_MS = 3000; // A LOST CONTEXT NOT GIVEN BACK THIS LONG AFTER THE PAGE IS SEEN: A NEW BOARD (& CONTEXT) GOES UP ANYWAY
+const MAX_LOSSES = 3; // THIS MANY LOST CONTEXTS...
+const LOSS_WINDOW_MS = 2 * 60 * 1000; // ...THIS CLOSE TOGETHER & IT'S BACK TO 2D
+let losses = []; // WHEN EACH RECENT CONTEXT WAS LOST (Date.now())
+let restoreTimer = null;
 
 /* ---------------------------------------------------------------- */
 // Draw
@@ -147,12 +156,67 @@ export function isCameraGesture() {
  * @return {[Promise<string>]} [the view that's on now]
  */
 export function setView(view) {
-	const next = (switching || Promise.resolve()).then(function () { // AFTER THE LAST SWITCH, SO THE LAST PRESS WINS
-		return view === VIEWS.THREE_D ? show3D() : show2D();
-	});
+	return queue(() => view === VIEWS.THREE_D ? show3D() : show2D());
+}
+
+/**
+ * @description Calls listener with the view that's on when the board switches by itself (3D lost its context for good & fell back to 2D)
+ * @param  {[function]} listener [(view) => {}]
+ */
+export function onViewChange(listener) {
+	viewListener = listener;
+}
+
+// RUNS task AFTER THE LAST SWITCH, SO THE LAST PRESS WINS
+function queue(task) {
+	const next = (switching || Promise.resolve()).then(task);
 	switching = next;
 	next.finally(function () { if (switching === next) { switching = null; } });
 	return next;
+}
+
+/* ---------------------------------------------------------------- */
+// Lost Context
+/* ---------------------------------------------------------------- */
+// THE 3D BOARD STOPPED DRAWING. TOO MANY LATELY: 2D, OTHERWISE A NEW BOARD GOES UP WHEN THE CONTEXT IS BACK (OR AFTER A WAIT)
+function contextLost() {
+	const now = Date.now();
+	losses = losses.filter((t) => now - t < LOSS_WINDOW_MS).concat(now);
+	reportError("3D board lost its WebGL context", "3d-board");
+	if (losses.length >= MAX_LOSSES) { fallBack2D("3D board kept losing its graphics. Switched to 2D."); return; }
+	waitForRestore();
+}
+
+// WAITS RESTORE_WAIT_MS OF THE PAGE BEING SEEN (A HIDDEN PAGE DOESN'T COUNT), THEN REBUILDS EVEN IF THE CONTEXT ISN'T BACK
+function waitForRestore() {
+	stopWaiting();
+	if (document.hidden) { document.addEventListener("visibilitychange", waitForRestore, { once: true }); return; }
+	restoreTimer = setTimeout(rebuild3D, RESTORE_WAIT_MS);
+}
+
+function stopWaiting() {
+	clearTimeout(restoreTimer);
+	restoreTimer = null;
+	document.removeEventListener("visibilitychange", waitForRestore);
+}
+
+// TAKES DOWN THE LOST BOARD & PUTS UP A NEW ONE AT THE CURRENT POSITION (show3D SYNCS IT). ONE THAT CAN'T START: 2D
+function rebuild3D() {
+	stopWaiting();
+	queue(function () {
+		if (!board3D) { return VIEWS.TWO_D; } // THE PLAYER WENT TO 2D MEANWHILE
+		remove3D();
+		return show3D();
+	}).then((on) => { if (on !== VIEWS.THREE_D) { viewListener(on); } });
+}
+
+function fallBack2D(message) {
+	stopWaiting();
+	queue(function () {
+		showStatus("view", message, MESSAGE_TIME);
+		reportError(message, "3d-board");
+		return show2D();
+	}).then(viewListener);
 }
 
 async function show3D() {
@@ -166,9 +230,10 @@ async function show3D() {
 	boardListeners.forEach(([type, handler, options]) => container.addEventListener(type, handler, options));
 	canvas.after(container);
 	try {
-		board.mount(container); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
+		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
 	} catch (err) {
 		console.warn("3D board failed to start", err);
+		reportError(`3D board couldn't start: ${err.message}`, "3d-board");
 		board.unmount(); // FREES WHATEVER IT MADE BEFORE IT THREW
 		container.remove();
 		container = null;
@@ -202,7 +267,9 @@ function overlayCanvas(on) {
 	if (!on) { tableImage = null; }
 }
 
-function show2D() {
+// TAKES THE 3D BOARD & ITS CONTAINER DOWN, THE 2D CANVAS STAYS AS IT IS
+function remove3D() {
+	stopWaiting();
 	if (board3D) {
 		board3D.unmount();
 		board3D = null;
@@ -211,6 +278,10 @@ function show2D() {
 		container.remove();
 		container = null;
 	}
+}
+
+function show2D() {
+	remove3D();
 	overlayCanvas(false);
 	game.refresh = true; // REDRAW THE WHOLE CANVAS, IT ONLY HAD THE TRAYS ON 3D
 	requestFrame();

@@ -203,7 +203,7 @@ function onPointerUp() {
 // DRAWS ON DEMAND: ASKS FOR ONE FRAME WHEN SOMETHING CHANGED (A FEW CALLS BEFORE IT RUNS STILL DRAW ONCE). NOTHING WHILE THE TAB IS
 // HIDDEN, visibilitychange DRAWS ON THE WAY BACK. AN IDLE BOARD DRAWS NOTHING
 function requestRender() {
-	if (!view || view.frameId !== null || document.hidden) { return; }
+	if (!view || view.frameId !== null || document.hidden || view.lost) { return; }
 	view.frameId = requestAnimationFrame(frame);
 }
 
@@ -223,11 +223,28 @@ function onVisibility() {
 	view.frameId = null;
 }
 
+// THE BROWSER TOOK THE GPU BACK (iPHONES DO WHEN THE PAGE IS BACKGROUNDED OR LOW ON MEMORY). preventDefault() LETS IT BE RESTORED.
+// NOTHING DRAWS UNTIL THE CALLER (renderer/) PUTS UP A NEW BOARD
+function onContextLost(e) {
+	e.preventDefault();
+	view.lost = true;
+	cancelAnimationFrame(view.frameId);
+	view.frameId = null;
+	finishAnims(); // THEIR PROMISES RESOLVE, THE GAME DOESN'T WAIT ON A BOARD THAT CAN'T DRAW
+	view.onContextLost();
+}
+
+function onContextRestored() {
+	view.onContextRestored();
+}
+
 /**
  * @description Creates the renderer, scene, board & lights inside container & starts drawing. Throws if WebGL is unavailable
  * @param  {[HTMLElement]} container [what the 3D canvas fills, sized by CSS]
+ * @param  {[object]} events [{ onContextLost, onContextRestored }: the WebGL context went away / came back, the board stops drawing
+ * when it's lost & the caller puts up a new one (unmount() then mount())]
  */
-export function mount(container) {
+export function mount(container, { onContextLost: lost = () => {}, onContextRestored: restored = () => {} } = {}) {
 	if (view) { return; }
 	const phone = window.matchMedia("(pointer: coarse)").matches; // TOUCH-FIRST SCREEN: THE CHEAPER SCENE (NO FOG, LOWER PIXEL RATIO)
 	const renderer = new WebGLRenderer({ antialias: true, powerPreference: phone ? "low-power" : "default" });
@@ -260,6 +277,7 @@ export function mount(container) {
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
 	view = { phone, container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
+	Object.assign(view, { lost: false, onContextLost: lost, onContextRestored: restored });
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
 	placeCamera(0);
 	container.addEventListener("pointerdown", onPointerDown, true);
@@ -269,6 +287,8 @@ export function mount(container) {
 	view.observer = new ResizeObserver(resize);
 	view.observer.observe(container);
 	window.addEventListener("orientationchange", resize); // SOME MOBILE BROWSERS REPORT THE NEW SIZE LATE
+	canvas.addEventListener("webglcontextlost", onContextLost);
+	canvas.addEventListener("webglcontextrestored", onContextRestored);
 	container.appendChild(canvas);
 	document.addEventListener("visibilitychange", onVisibility);
 	resize();
@@ -294,6 +314,8 @@ export function unmount() {
 	container.removeEventListener("pointermove", onPointerMove, true);
 	window.removeEventListener("pointerup", onPointerUp);
 	window.removeEventListener("pointercancel", onPointerUp);
+	renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
+	renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
 	const freed = new Set();
 	scene.traverse(function (o) {
 		if (o.geometry) { freed.add(o.geometry); }
@@ -305,7 +327,7 @@ export function unmount() {
 	freed.forEach((r) => r.dispose()); // SHARED ONES (PIECE GEOMETRY, WOODS) ONLY LOSE THEIR GPU COPY, THE NEXT mount() RE-UPLOADS THEM
 	renderer.domElement.remove();
 	renderer.dispose();
-	renderer.forceContextLoss();
+	if (!view.lost) { renderer.forceContextLoss(); } // A LOST CONTEXT HAS NOTHING LEFT TO FREE
 	view = null;
 }
 

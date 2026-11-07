@@ -7,6 +7,7 @@
  */
 
 import { showStatus, clearStatus, MESSAGE_TIME } from "../status/index.js";
+import { reportError } from "../../pages/utils/reportErrors.js";
 
 let loading = null; // THE PENDING OR FINISHED import(), SO TURNING 3D ON TWICE DOWNLOADS ONCE
 
@@ -29,6 +30,7 @@ function hasWebGL() {
  */
 export function load3D() {
 	if (!hasWebGL()) {
+		reportError("3D board unavailable: no WebGL", "3d-board");
 		showStatus("view", "3D board unavailable: this browser can't use WebGL. Staying on 2D.", MESSAGE_TIME);
 		return Promise.resolve(null);
 	}
