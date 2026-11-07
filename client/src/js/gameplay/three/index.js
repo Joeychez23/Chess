@@ -46,6 +46,7 @@ const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON
 	check: [0xFF0000, 0.55],
 };
 
+const PHONE_PIXEL_RATIO = 1.5; // PHONES DRAW AT MOST THIS MANY PIXELS PER CSS PIXEL (2 ELSEWHERE)
 let view = null; // EVERYTHING ONE mount() MADE, null WHEN UNMOUNTED
 const raycaster = new Raycaster();
 const pointer = new Vector2(); // NORMALIZED DEVICE COORDS (-1..1)
@@ -84,12 +85,12 @@ function removePiece(mesh) {
 // Mount
 /* ---------------------------------------------------------------- */
 
-// MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER, PIXEL DENSITY CAPPED AT 2 SO 3x PHONES DON'T DRAW 9x THE PIXELS
+// MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER, PIXEL DENSITY CAPPED (2, PHONES 1.5) SO 3x PHONES DON'T DRAW 9x THE PIXELS
 function resize() {
 	const { renderer, camera, container } = view;
 	const w = container.clientWidth, h = container.clientHeight;
 	if (!w || !h) { return; } // HIDDEN: KEEP THE LAST SIZE
-	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+	renderer.setPixelRatio(Math.min(window.devicePixelRatio, view.phone ? PHONE_PIXEL_RATIO : 2));
 	renderer.setSize(w, h, false); // CSS SIZES THE CANVAS
 	camera.aspect = w / h;
 	camera.updateProjectionMatrix();
@@ -228,13 +229,14 @@ function onVisibility() {
  */
 export function mount(container) {
 	if (view) { return; }
-	const renderer = new WebGLRenderer({ antialias: true });
+	const phone = window.matchMedia("(pointer: coarse)").matches; // TOUCH-FIRST SCREEN: THE CHEAPER SCENE (NO FOG, LOWER PIXEL RATIO)
+	const renderer = new WebGLRenderer({ antialias: true, powerPreference: phone ? "low-power" : "default" });
 	const canvas = renderer.domElement;
 	canvas.style.display = "block";
 	canvas.style.width = canvas.style.height = "100%";
 	const scene = new Scene();
 	scene.background = new Color(BAIZE_FOG);
-	scene.fog = new Fog(BAIZE_FOG, 50, 150); // PAST THE BAIZE TABLE, FADE INTO THE BACKGROUND
+	if (!phone) { scene.fog = new Fog(BAIZE_FOG, 50, 150); } // PAST THE BAIZE TABLE, FADE INTO THE BACKGROUND
 	const camera = new PerspectiveCamera(45, 1, 0.1, 1000); // PLACED BELOW (placeCamera), WHITE'S SIDE UNTIL setSide()
 	scene.add(new HemisphereLight(0xFFF4E0, 0x3A2A1A, 1.2)); // FILL: WARM SKY, DARK WOOD BOUNCE, NO SHADOW MAPS
 	const keyLight = new DirectionalLight(0xFFFFFF, 2.2); // KEY: HIGH & TO WHITE'S LEFT
@@ -257,7 +259,7 @@ export function mount(container) {
 		const [color, opacity] = HIGHLIGHTS[kind];
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
-	view = { container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
+	view = { phone, container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
 	placeCamera(0);
 	container.addEventListener("pointerdown", onPointerDown, true);
