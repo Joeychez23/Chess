@@ -4,7 +4,8 @@
  *	The one place that picks the board the player sees: the 2D canvas or the 3D board (three/). The rest of the game calls
  *	drawBoard() & setView() & never checks which one is on. The 2D canvas keeps drawing even while it's hidden behind the
  *	3D board, its frames still run the game (tiles, slides, trays), then the 3D board is set to match chessInst.
- *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D
+ *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D. Input (gameplay/input) only asks here for the
+ *	square under the pointer, its handlers are the same on both boards (addBoardListener)
  *
  */
 
@@ -20,6 +21,7 @@ export const VIEWS = { TWO_D: "2d", THREE_D: "3d" };
 let board3D = null; // THE 3D MODULE WHILE IT'S MOUNTED, null ON 2D
 let container = null; // WHAT THE 3D CANVAS FILLS, IN #main NEXT TO THE (HIDDEN) 2D CANVAS
 let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT TWICE
+const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
 
 /* ---------------------------------------------------------------- */
 // Draw
@@ -38,6 +40,38 @@ export function drawBoard() {
  */
 export function currentView() {
 	return board3D ? VIEWS.THREE_D : VIEWS.TWO_D;
+}
+
+/* ---------------------------------------------------------------- */
+// Input
+/* ---------------------------------------------------------------- */
+/**
+ * @description Listens on the board the player sees: the 2D canvas now & every 3D board put up later (its container goes away with it)
+ * @param  {[string]} type ["click", "touchstart", ...]
+ * @param  {[function]} handler [the same handler for both boards]
+ * @param  {[object]} options [addEventListener options]
+ */
+export function addBoardListener(type, handler, options) {
+	boardListeners.push([type, handler, options]);
+	canvas.addEventListener(type, handler, options);
+	if (container) { container.addEventListener(type, handler, options); }
+}
+
+/**
+ * @description The square under a pointer on the 3D board
+ * @param  {[MouseEvent|object]} e [anything with clientX & clientY]
+ * @return {[string|null]} ["e4", null off the board or on 2D]
+ */
+export function squareUnder3D(e) {
+	return board3D ? board3D.squareUnder(e) : null;
+}
+
+/**
+ * @description A camera gesture (orbit, zoom) is in progress on the 3D board, so pointer input must not touch the pieces
+ * @return {[boolean]}
+ */
+export function isCameraGesture() {
+	return Boolean(board3D && board3D.isCameraGesture());
 }
 
 /* ---------------------------------------------------------------- */
@@ -65,6 +99,8 @@ async function show3D() {
 	container = document.createElement("div");
 	container.id = "board3D";
 	container.style.width = container.style.height = "100%";
+	container.style.touchAction = "none"; // THE TOUCH HANDLERS OWN EVERY FINGER, NO SCROLL OR PINCH ZOOM OF THE PAGE
+	boardListeners.forEach(([type, handler, options]) => container.addEventListener(type, handler, options));
 	canvas.after(container);
 	try {
 		board.mount(container); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE

@@ -124,7 +124,7 @@ export function mount(container) {
 		const [color, opacity] = HIGHLIGHTS[kind];
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
-	view = { container, renderer, scene, camera, plane, markGeometry, marks, pieces: new Map(), anims: new Set() };
+	view = { container, renderer, scene, camera, plane, markGeometry, marks, pieces: new Map(), anims: new Set(), cameraGesture: false }; // cameraGesture: THE CAMERA CONTROLS SET IT WHILE THEY OWN THE POINTER
 	view.observer = new ResizeObserver(resize);
 	view.observer.observe(container);
 	window.addEventListener("orientationchange", resize); // SOME MOBILE BROWSERS REPORT THE NEW SIZE LATE
@@ -200,6 +200,14 @@ export function squareUnder(e) {
 	if (!hit) { return null; }
 	if (hit.object !== view.plane) { return hit.object.userData.square; }
 	return FILES[toCell(hit.point.x)] + (8 - toCell(hit.point.z));
+}
+
+/**
+ * @description A camera gesture is in progress (true from its start until after the click its release fires), piece input ignores the pointer meanwhile
+ * @return {[boolean]}
+ */
+export function isCameraGesture() {
+	return Boolean(view && view.cameraGesture);
 }
 
 /**

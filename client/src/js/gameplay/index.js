@@ -29,7 +29,7 @@ const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
-const { drawBoard, setView, VIEWS } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
+const { drawBoard, setView, VIEWS, addBoardListener } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
 export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -135,19 +135,19 @@ async function startGame(view) {
 	startFrames(renderLoop); // THE RENDER LOOP, FRAMES ONLY COME WHILE SOMETHING CHANGES & THE TAB IS SHOWN
 	document.addEventListener("visibilitychange", function () { if (!document.hidden) { game.refresh = true; } }); // SHOWN AGAIN: A SLIDE CATCHES UP TO THE TIME (stepSlide), REDRAWS A CANVAS THE BROWSER MAY HAVE THROWN AWAY
 
-	// EVENT LISTENERS (THE BOARD'S HANDLERS ARE IN gameplay/input/index.js, handleWindowResize IN gameplay/layout/index.js, THE MENU'S IN gameplay/menu/index.js)
+	// EVENT LISTENERS (addBoardListener PUTS THE BOARD'S ON THE 2D CANVAS & THE 3D BOARD, THE BOARD'S HANDLERS ARE IN gameplay/input/index.js, handleWindowResize IN gameplay/layout/index.js, THE MENU'S IN gameplay/menu/index.js)
 	window.addEventListener("resize", handleWindowResize);
 	if (game.TV_BOOL || OVERRIDE_TV) { window.addEventListener("keydown", handleKeyPress) }
-	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("click", handleCanvasClick); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousemove", handleMouseMove); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mousedown", handleMouseDown); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("mouseup", handleMouseUp); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); }); } // THE RIGHT BUTTON DRAWS MARKS & ARROWS
+	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("click", handleCanvasClick); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("mousemove", handleMouseMove); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("mousedown", handleMouseDown); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("mouseup", handleMouseUp); }
+	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("contextmenu", function (e) { e.preventDefault(); }); } // THE RIGHT BUTTON DRAWS MARKS & ARROWS
 	if (!game.TV_BOOL || OVERRIDE_TV) {
-		canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
-		canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
-		canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
-		canvas.addEventListener("touchcancel", handleTouchCancel, { passive: false });
+		addBoardListener("touchstart", handleTouchStart, { passive: false });
+		addBoardListener("touchmove", handleTouchMove, { passive: false });
+		addBoardListener("touchend", handleTouchEnd, { passive: false });
+		addBoardListener("touchcancel", handleTouchCancel, { passive: false });
 	}
 	if (!game.TV_BOOL || OVERRIDE_TV) { addMenuListeners(); } // THE MENU BUTTON, A CLICK AWAY (THE BOARD: handleCanvasClick) & ESCAPE
 	optResumeBtn.addEventListener("click", handleResume);

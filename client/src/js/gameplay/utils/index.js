@@ -89,6 +89,16 @@ export function tileToSquare(x, y, viewColor) {
 	return viewColor == 'b' ? `${String.fromCharCode(104 - x)}${y + 1}` : `${String.fromCharCode(97 + x)}${8 - y}`;
 }
 
+/**
+ * @description The screen column & row of a board square, the reverse of tileToSquare()
+ * @param  {[string]} square ["e4"]
+ * @param  {[string]} viewColor ['w' | 'b', the side at the bottom of the screen]
+ * @return {[object]} { x, y } [screen column & row]
+ */
+export function squareToTile(square, viewColor) {
+	const file = square.charCodeAt(0) - 97, rank = Number(square[1]);
+	return viewColor == 'b' ? { x: 7 - file, y: rank - 1 } : { x: file, y: 8 - rank };
+}
 
 /* ---------------------------------------------------------------- */
 // toggleAnnotation()
