@@ -61,11 +61,14 @@ export function drawBoard() {
 
 /**
  * @description The squares the 2D board highlights, by 3D highlight kind: the opponent's last move, the hint, the king in check
- * & the held piece's moves (captures apart), like drawLastMove, drawHint, the check highlight & checkAvailableMoves
- * @return {[object]} { last, hint, check, legal, capture } [lists of squares]
+ * & the held piece's moves (captures apart), like drawLastMove, drawHint, the check highlight & checkAvailableMoves. focus is the
+ * keyboard's (TV remote's) selected square while the menu is closed: 2D only lifts the piece on it, 3D needs a visible ring
+ * @return {[object]} { last, hint, check, legal, capture, focus } [lists of squares]
  */
 function marks3D() {
-	const marks = { last: game.lastOpponentMove || [], hint: game.hint || [], check: [], legal: [], capture: [] };
+	const marks = { last: game.lastOpponentMove || [], hint: game.hint || [], check: [], legal: [], capture: [], focus: [] };
+	const keyboard = game.keyboardTile && !game.menuToggled && tileToSquare(game.keyboardTile.x, game.keyboardTile.y, game.viewColor);
+	if (keyboard) { marks.focus.push(keyboard); }
 	if (chessInst.isCheck()) {
 		const king = chessInst.board().flat().find((p) => p && p.type === "k" && p.color === chessInst.turn());
 		if (king) { marks.check.push(king.square); }
@@ -97,6 +100,23 @@ export function glideHome3D() {
 	shownFen = chessInst.fen(); // SO drawBoard DOESN'T SET THEM AT ONCE WHEN THE NEW GAME TAKES OVER
 	if (game.reduceMotion) { board3D.syncFromBoard(chessInst); }
 	else { board3D.glideHome(chessInst); }
+}
+
+/**
+ * @description Reduce motion was just turned on: 3D's camera turn & piece slides in progress land at once. Reduce motion keeps 3D
+ * (it doesn't switch to 2D), it only takes the motion out: Flip Board & Reset View set the camera, moves & restarts set the pieces
+ * (drawBoard, glideHome3D). Only the player's own camera drags still move it. Does nothing on 2D
+ */
+export function stopMotion3D() {
+	if (board3D) { board3D.stopMotion(); }
+}
+
+/**
+ * @description Resolves once the 3D board has drawn a frame with its squares in (the page fades in on it, #433). At once on 2D
+ * @return {[Promise<void>]}
+ */
+export function whenDrawn3D() {
+	return board3D ? board3D.whenDrawn() : Promise.resolve();
 }
 
 /**
@@ -260,6 +280,8 @@ async function show3D() {
 let tableImage = null; // THE 2D CANVAS'S CSS TABLE BACKGROUND, TAKEN OFF ON 3D (IT'S OPAQUE & WOULD HIDE THE 3D BOARD), PUT BACK ON 2D
 function overlayCanvas(on) {
 	game.traysOnly = on;
+	if (on) { canvas.setAttribute("aria-hidden", "true"); } // ONLY TRAYS ON 3D: SCREEN READERS GET THE 3D CANVAS'S LABEL, NOT A SECOND BOARD
+	else { canvas.removeAttribute("aria-hidden"); }
 	if (on && tableImage === null) { tableImage = canvas.style.backgroundImage; }
 	Object.assign(canvas.style, on
 		? { position: "fixed", left: "0", top: "0", zIndex: "1", pointerEvents: "none", backgroundImage: "none" }
