@@ -29,7 +29,8 @@ const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
-export { load3D } from "./three/load.js"; // THE 3D BOARD, DOWNLOADED ONLY WHEN THE PLAYER TURNS 3D ON (ITS OWN "three" CHUNK)
+const { drawBoard, setView, VIEWS } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
+export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -49,7 +50,8 @@ const AI_RETRY_TIME = 5000; // ASKS FOR THE AI'S MOVE AGAIN AFTER THIS WHEN IT D
 /**
  * @description Starts a game: adds the canvas to main & starts the game (startGame) once the images are loaded.
  * The rest of the game is in the files next to this one (see the top of this file), the state they share is game (gameplay/state/index.js)
- * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, TV_BOOL, SIGNED_IN }, TV_BOOL = TV REMOTE CONTROLS INSTEAD OF THE MOUSE]
+ * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, TV_BOOL, SIGNED_IN, VIEW }, TV_BOOL = TV REMOTE CONTROLS INSTEAD OF THE MOUSE,
+ * VIEW = VIEWS.THREE_D TO START ON THE 3D BOARD (LEFT OUT: 2D)]
  */
 export async function renderCanvas(playerData) {
 	game.GAME_URL = playerData.GAME_URL; // SETS CONSTANT GAME VARIABLES
@@ -84,7 +86,7 @@ export async function renderCanvas(playerData) {
 	 */
 	const startGameCheck = setInterval(async function () {
 		if (imageProgress() == 1) { // EVERY IMAGE preloadImages() STARTED IS IN (THE PLAY PAGE STARTS THEM BEFORE renderCanvas)
-			startGame();
+			startGame(playerData.VIEW);
 			clearInterval(startGameCheck);
 		}
 	}, 100);
@@ -96,8 +98,9 @@ export async function renderCanvas(playerData) {
 /**
  * @description Starts the render loop. Loads the game, joins a friend game's socket room, adds the canvas
  * to main, draws with renderLoop() when something changes & adds the event listeners (their handlers are in gameplay/input & gameplay/menu)
+ * @param  {[string]} view [VIEWS.THREE_D puts up the 3D board once the game is in, anything else stays on the 2D canvas]
  */
-async function startGame() {
+async function startGame(view) {
 	game.wTakenPieces = setTakenPieceArr("b");
 	game.bTakenPieces = setTakenPieceArr("w");
 
@@ -128,6 +131,7 @@ async function startGame() {
 	game.reduceMotion = reduceMotionQuery.matches;
 	reduceMotionQuery.addEventListener("change", function (e) { game.reduceMotion = e.matches; }); // CHANGED DURING A GAME: THE NEXT FRAME USES IT
 
+	if (view === VIEWS.THREE_D) { setView(VIEWS.THREE_D); } // FALLS BACK TO 2D ITSELF WHEN 3D CAN'T LOAD
 	startFrames(renderLoop); // THE RENDER LOOP, FRAMES ONLY COME WHILE SOMETHING CHANGES & THE TAB IS SHOWN
 	document.addEventListener("visibilitychange", function () { if (!document.hidden) { game.refresh = true; } }); // SHOWN AGAIN: A SLIDE CATCHES UP TO THE TIME (stepSlide), REDRAWS A CANVAS THE BROWSER MAY HAVE THROWN AWAY
 
@@ -234,7 +238,7 @@ async function renderLoop() {
 				await startAiSlide();
 			} else {
 				flipWhenDone(); // FLIP BOARD WAS PRESSED DURING THE SLIDE OR SAVE THAT JUST ENDED
-				game.drawScreen(); // DRAW ONE FRAME
+				drawBoard(); // DRAW ONE FRAME (2D OR 3D)
 				document.documentElement.classList.remove("loadingPage"); // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT
 				game.refresh = false;
 			}

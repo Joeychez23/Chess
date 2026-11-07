@@ -15,6 +15,7 @@ const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE 
 const { tableShdw, boardImg, boardShdw, rawBoardImg } = require("../sprites/index.js"); // IMAGE NUMBERS
 const { placeMoveList } = require("../movelist/index.js"); // MOVES THE MOVE LIST PANEL TO THE FREE SPACE NEXT TO THE BOARD
 const { placeEvalBar } = require("../analysis/index.js"); // PUTS THE EVALUATION BAR BESIDE THE BOARD
+const { drawBoard } = require("../renderer/index.js"); // DRAWS THE BOARD THAT'S ON (2D OR 3D)
 
 const xBoardShadowRatio = 0.985; // NUDGES THE SQUARES RIGHT A LITTLE TO LINE UP WITH THE BOARD IMAGE
 const COORD_BORDER_RATIO = 0.285; // SQUARES FROM THE BOARD'S EDGE TO THE MIDDLE OF THE BAND BETWEEN THE BORDER'S GOLD LINES
@@ -187,13 +188,13 @@ async function renderCoffee() {
 // Resize Window
 /* ---------------------------------------------------------------- */
 /**
- * @description Redraws the game at the new window size (renderBoard() resizes everything from the window)
+ * @description Redraws the game at the new window size (renderBoard() resizes everything from the window, the 3D board follows its container)
  */
 export function handleWindowResize() {
 	if (game.boardReset) { return; } // LOADING: THE OLD BOARD STAYS, SLIDING HOME: drawRestartSlide() DRAWS THE NEW SIZE NEXT FRAME
 	game.refresh = true;
 	try {
-		game.drawScreen();
+		drawBoard();
 		game.refresh = false;
 	} catch (err) { console.log(err); }
 };
