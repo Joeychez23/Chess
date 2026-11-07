@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<!-- A DRAFT, NOT LEGAL ADVICE (#202): FILL IN THE [BRACKETS] & HAVE THE WORDING CHECKED BEFORE RELEASE -->
+<html lang="en" class="loadingPage"> <!-- loadingPage: THE LAST PAGE STAYS ON SCREEN UNTIL THIS PAGE IS DRAWN (showPage() REMOVES IT) -->
+
+<head>
+	<meta charset="UTF-8" />
+	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
+	<link rel="icon" type="image/png" sizes="32x32" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-32.png" />
+	<link rel="icon" type="image/png" sizes="192x192" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-192.png" />
+	<link rel="apple-touch-icon" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-180.png" /> <!-- iOS HOME SCREEN, ON THE BAIZE GREEN -->
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="theme-color" content="#0c2a1f" />
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..700&family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif&display=swap">
+	<title>Terms of Service // Chess</title>
+	<style> /* IN THE PAGE, NOT home.css: IT'S NEEDED FOR THE FIRST PAINT, THE CSS FILES ARE ADDED BY THE BUNDLE AFTER THAT */
+		@view-transition { navigation: auto; } /* HOME & A GAME FADE INTO THIS PAGE THE SAME WAY */
+		html.loadingPage::view-transition-group(*),
+		html.loadingPage::view-transition-old(*),
+		html.loadingPage::view-transition-new(*) { animation-play-state: paused; } /* THE LAST PAGE STAYS ON SCREEN UNTIL THIS PAGE IS DRAWN */
+		::view-transition-group(*) { animation-duration: 400ms; }
+		@media (prefers-reduced-motion: reduce) { /* NO FADE: THE LAST PAGE STILL STAYS ON SCREEN WHILE loadingPage IS ON, THEN THIS PAGE IS JUST THERE (0s WHILE PAUSED WOULD SHOW THE UNFINISHED PAGE) */
+			html:not(.loadingPage)::view-transition-group(*) { animation-duration: 0s; }
+		}
+		html { background-color: #0c2a1f; } /* THE PAGE'S GREEN FROM THE FIRST PAINT, NOT WHITE */
+	</style>
+</head>
+
+<body id="body">
+	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
+	<nav id="menuContainer" aria-label="Menu">
+		<div id="resultDisplay">Terms</div>
+		<div id="menuButtonList">
+			<ul role="group" aria-label="Navigation">
+				<li><a class="menuButton" href="/">Home</a></li>
+			</ul>
+			<ul role="group" aria-label="Legal">
+				<li><a class="menuButton" href="/privacy">Privacy</a></li>
+			</ul>
+		</div>
+	</nav>
+
+	<main class="page">
+		<section class="hero heroPlain">
+			<div class="heroText">
+				<p class="spec">Effective [EFFECTIVE DATE]</p>
+				<h1 class="title">Terms of Service</h1>
+				<p class="lead">The rules for playing chess on this site.</p>
+			</div>
+		</section>
+
+		<section class="boxes" aria-label="Terms of Service">
+			<div class="box boxBaize legalBox">
+				<div class="boxHead"><h2 class="label">These terms</h2><span class="spec">No. 01</span></div>
+				<p class="boxText">This site is run by [OPERATOR NAME]. By using it you agree to these terms and to our <a href="/privacy">Privacy Policy</a>. If you don't agree, please don't use the site.</p>
+			</div>
+			<div class="box boxWalnut legalBox">
+				<div class="boxHead"><h2 class="label">Your account</h2><span class="spec">No. 02</span></div>
+				<p class="boxText">You need to be at least [MINIMUM AGE] to make an account. Keep your password to yourself: you're responsible for what happens on your account. You can delete it at any time on the settings page.</p>
+			</div>
+			<div class="box boxMaple legalBox">
+				<div class="boxHead"><h2 class="label">Fair play</h2><span class="spec">No. 03</span></div>
+				<p class="boxText">Treat other players with respect. Don't use a chess engine or another person's help in a game against a friend, pick a username that's offensive or pretends to be someone else, or try to break, overload or get around the limits of the site.</p>
+			</div>
+			<div class="box boxBaize legalBox">
+				<div class="boxHead"><h2 class="label">Your account can be closed</h2><span class="spec">No. 04</span></div>
+				<p class="boxText">We can remove a username, or suspend or close an account, when these terms are broken.</p>
+			</div>
+			<div class="box boxWalnut legalBox">
+				<div class="boxHead"><h2 class="label">No guarantees</h2><span class="spec">No. 05</span></div>
+				<p class="boxText">The site is free and provided as it is. It can change or stop, and games or ratings can be lost. As far as the law allows, we aren't liable for losses from using it.</p>
+			</div>
+			<div class="box boxMaple legalBox">
+				<div class="boxHead"><h2 class="label">Changes &amp; contact</h2><span class="spec">No. 06</span></div>
+				<p class="boxText">We'll post any change to these terms here with a new date, and using the site afterwards means you accept them. These terms are governed by the laws of [GOVERNING LAW]. Questions go to [CONTACT EMAIL].</p>
+			</div>
+		</section>
+	</main>
+</body>
+
+</html>

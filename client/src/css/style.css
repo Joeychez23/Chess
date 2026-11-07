@@ -478,3 +478,73 @@ body #menuContainer { /* body: style.css LOADS BEFORE nav.css. THE OTHER PAGES' 
 	outline: 2px solid var(--gold);
 	outline-offset: -2px;
 }
+
+/* ---------------------------------------------------------------- */
+/* 3D Controls Hint (gameplay/three/hint.js) */
+/* ---------------------------------------------------------------- */
+
+#controlsHint { /* BOTTOM CENTER, ONLY THE FIRST TIME 3D OPENS. CLICKS OUTSIDE ITS BUTTON GO THROUGH TO THE BOARD */
+	position: fixed;
+	z-index: 20;
+	bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	align-items: center;
+	gap: 12px;
+	box-sizing: border-box;
+	width: max-content;
+	max-width: calc(100vw - 32px);
+	padding: 10px 14px;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 14px;
+	background-color: rgba(35, 22, 14, 0.9);
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 14px;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+	pointer-events: none;
+}
+
+#controlsHint ul {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 8px 12px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+#controlsHint li {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+#controlsHint kbd {
+	padding: 4px 10px;
+	border-radius: 6px;
+	background-color: var(--maple);
+	color: var(--walnut);
+	font: 600 14px var(--font-mono);
+}
+
+#controlsHint button {
+	min-height: 36px;
+	padding: 0 14px;
+	border: 0;
+	border-radius: 6px;
+	background-color: var(--gold);
+	color: var(--walnut);
+	font: 700 14px var(--font-label);
+	cursor: pointer;
+	pointer-events: auto;
+}
+
+#controlsHint button:focus-visible {
+	outline: 2px solid var(--maple);
+	outline-offset: 2px;
+}

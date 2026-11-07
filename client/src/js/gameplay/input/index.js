@@ -432,9 +432,13 @@ export async function handleMouseUp(e) {
 		return;
 	}
 	setPointerTile(e); // IF HOVER IS TRUE
+	letGo(true);
+}
+
+function letGo(hoveredOnly) { // LETS GO OF THE HELD PIECE (hoveredOnly: ONLY WHEN IT'S UNDER THE POINTER), BACK TO ITS SQUARE UNTIL A CLICK DROPS IT
 	for (let i = 0; i < game.tiles.length; i++) {
 		let tile = game.tiles[i];
-		if (tile.isMousedown && tile.isHovering && tile.type && tile.color == game.playerColor) { // LET GO OF THE HELD PIECE
+		if (tile.isMousedown && (tile.isHovering || !hoveredOnly) && tile.type && tile.color == game.playerColor) {
 			tile.isMousedown = false;
 			game.mousedownTile = false;
 			game.tileX = tile.originX
@@ -512,8 +516,8 @@ export function handleTouchEnd(e) { // FINGER UP = MOUSE UP + CLICK
 
 export function clearTouch() { touchState = null; } // THE MENU OPENED: THIS FINGER'S RELEASE ISN'T A CLICK
 
-export function handleTouchCancel() { // THE BROWSER TOOK THE TOUCH (A SYSTEM GESTURE): LET GO WITHOUT A CLICK
+export function handleTouchCancel() { // THE BROWSER (A SYSTEM GESTURE) OR THE 3D CAMERA TOOK THE TOUCH: LET GO WITHOUT A CLICK
 	if (!touchState) { return; }
-	handleMouseUp(touchState.point);
+	letGo(false); // NOT handleMouseUp: IT SITS OUT CAMERA GESTURES, WHICH WOULD LEAVE THE PIECE HELD
 	touchState = null;
 }

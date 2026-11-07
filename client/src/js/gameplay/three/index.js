@@ -10,12 +10,15 @@
 
 import {
 	WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, HemisphereLight, DirectionalLight, PlaneGeometry, MeshStandardMaterial,
-	MeshBasicMaterial, Mesh, TextureLoader, SRGBColorSpace, LinearMipmapLinearFilter, GridHelper, Raycaster, Vector2, MathUtils
+	MeshBasicMaterial, Mesh, TextureLoader, SRGBColorSpace, LinearMipmapLinearFilter, GridHelper, Raycaster, Vector2, Vector3, Spherical,
+	MathUtils, MOUSE, TOUCH
 } from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js";
 import { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } from "../animate/timing.js"; // THE 2D BOARD'S TIMINGS, SO A MOVE TAKES THE SAME TIME ON BOTH
-import { createSurroundings } from "./board.js";
+import { createSurroundings, orientLabels } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
+import { showHint, dismissHint, removeHint } from "./hint.js";
 
 /* ---------------------------------------------------------------- */
 // Global
@@ -28,8 +31,12 @@ const FILES = "abcdefgh";
 const HOP_HEIGHT = CELL_SIZE * 0.6; // HOW HIGH A KNIGHT HOPS
 const CAMERA_HEIGHT = 32; // THE CAMERA LOOKS DOWN AT THE CENTER FROM THIS HIGH...
 const CAMERA_DISTANCE = 26; // ...& THIS FAR BACK FROM IT, ON THE SIDE AT THE BOTTOM OF THE SCREEN
+const MIN_DISTANCE = 12; // ZOOM LIMITS: CLOSE ENOUGH TO READ A SQUARE...
+const MAX_DISTANCE = 70; // ...FAR ENOUGH TO SEE THE WHOLE TABLE, BEFORE THE FOG SWALLOWS THE BOARD (DEFAULT IS ~41)
+const MAX_TILT = MathUtils.degToRad(80); // FROM STRAIGHT DOWN (0): STAYS ABOVE THE TABLE, NEVER LEVEL WITH OR BELOW IT
 const FLIP_MS = 700; // HOW LONG FLIP BOARD TAKES TO TURN THE CAMERA TO THE OTHER SIDE
 const SINK_DEPTH = CELL_SIZE * 0.5; // HOW FAR A TAKEN PIECE DROPS AS IT FADES
+const DRAG_PX = 4; // A PRESS THAT MOVES THE CAMERA ONLY BECOMES A CAMERA GESTURE PAST THIS MANY PIXELS, SO A SHAKY CLICK STILL CLICKS ITS SQUARE
 const BOARD_IMAGE = new URL("./board.jpg", import.meta.url).href; // JUST THE 8x8 SQUARES, BUNDLED (NOT S3: images/ IS GITIGNORED) & ONLY FETCHED WITH 3D ON
 const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON TOP
 	last: [0xE8792B, 0.3],
@@ -42,6 +49,8 @@ const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON
 let view = null; // EVERYTHING ONE mount() MADE, null WHEN UNMOUNTED
 const raycaster = new Raycaster();
 const pointer = new Vector2(); // NORMALIZED DEVICE COORDS (-1..1)
+const offset = new Vector3(); // CAMERA POSITION MINUS WHAT IT LOOKS AT
+const spherical = new Spherical(); // offset AS DISTANCE, TILT & ANGLE AROUND THE BOARD
 
 /* ---------------------------------------------------------------- */
 // Squares
@@ -86,11 +95,26 @@ function resize() {
 	camera.updateProjectionMatrix();
 }
 
-// PUTS THE CAMERA angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE CENTER
+// PUTS THE CAMERA AT ITS DEFAULT SPOT angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE CENTER
 function placeCamera(angle) {
-	view.cameraAngle = angle;
+	view.controls.target.set(0, 0, 0); // UNDOES ANY PAN
 	view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle));
-	view.camera.lookAt(0, 0, 0);
+	view.controls.update(); // LOOKS AT THE TARGET
+}
+
+// THE CAMERA'S ANGLE AROUND WHAT IT LOOKS AT (0 WHITE'S SIDE, PI BLACK'S), WHEREVER THE PLAYER TURNED IT
+function cameraAzimuth() {
+	offset.copy(view.camera.position).sub(view.controls.target);
+	return Math.atan2(offset.x, offset.z);
+}
+
+// TURNS THE CAMERA AROUND WHAT IT LOOKS AT TO angle, KEEPING THE PLAYER'S ZOOM, TILT & PAN
+function turnCamera(angle) {
+	const { camera, controls } = view;
+	spherical.setFromVector3(offset.copy(camera.position).sub(controls.target));
+	spherical.theta = angle;
+	camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));
+	camera.lookAt(controls.target);
 }
 
 // TURNS THE CAMERA PART OF THE WAY TO ITS SIDE (setSide), SLOW START & LANDING
@@ -98,8 +122,75 @@ function stepCamera(now) {
 	const turn = view.cameraTurn;
 	if (turn.start === null) { turn.start = now; }
 	const t = MathUtils.clamp((now - turn.start) / FLIP_MS, 0, 1);
-	placeCamera(turn.from + (turn.to - turn.from) * easeInOut(t));
+	turnCamera(turn.from + (turn.to - turn.from) * easeInOut(t));
+	if (t >= 0.5) { setLabels(view.side); } // SIDE ON TO THE BOARD: THE LABELS SWAP UNSEEN
 	if (t === 1) { view.cameraTurn = null; }
+}
+
+// TURNS THE a-h / 1-8 LABELS TO READ FROM color'S SIDE, LIKE THE 2D BOARD'S
+function setLabels(color) {
+	if (view.labelSide === color) { return; }
+	view.labelSide = color;
+	orientLabels(view.surroundings, color);
+}
+
+/* ---------------------------------------------------------------- */
+// Camera Controls
+/* ---------------------------------------------------------------- */
+
+// MOUSE: LEFT-DRAG PANS (ON A PIECE IT'S PIECE INPUT INSTEAD), RIGHT-DRAG ROTATES, SCROLL ZOOMS. TOUCH: ONE FINGER IS PIECE INPUT,
+// TWO ROTATE & PINCH ZOOM. A PRESS THAT MOVES THE CAMERA PAST DRAG_PX (OR ANY TWO FINGER TOUCH) SETS cameraGesture, SO gameplay/input IGNORES IT
+function createControls(camera, canvas) {
+	const controls = new OrbitControls(camera, canvas);
+	controls.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
+	controls.touches = { ONE: null, TWO: TOUCH.DOLLY_ROTATE };
+	controls.screenSpacePanning = false; // PANS ALONG THE TABLE, NOT UP INTO THE AIR
+	controls.minDistance = MIN_DISTANCE;
+	controls.maxDistance = MAX_DISTANCE;
+	controls.minPolarAngle = 0; // STRAIGHT DOWN, NEVER PAST IT
+	controls.maxPolarAngle = MAX_TILT;
+	controls.maxTargetRadius = BOARD_SIZE / 2; // THE CAMERA ALWAYS LOOKS AT A POINT ON THE BOARD, SO PANNING CAN'T LOSE IT (cursor IS THE ORIGIN)
+	controls.addEventListener("start", function () {
+		view.controlsActive = true;
+		view.cameraTurn = null; // THE PLAYER TOOK THE CAMERA MID FLIP
+		setLabels(view.side);
+		if (view.pointerType === "touch") { startGesture(); } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
+	});
+	controls.addEventListener("change", function () {
+		const { controlsActive, press, pointerAt } = view;
+		if (controlsActive && Math.hypot(pointerAt.x - press.x, pointerAt.y - press.y) > DRAG_PX) { startGesture(); }
+	});
+	controls.addEventListener("end", function () {
+		const v = view;
+		v.controlsActive = false;
+		if (v.cameraGesture) { setTimeout(function () { if (!v.controlsActive) { v.cameraGesture = false; } }, 0); } // AFTER THE CLICK THE RELEASE FIRES
+	});
+	return controls;
+}
+
+// THE CONTROLS OWN THE POINTER FROM HERE. THE FIRST CAMERA MOVE ALSO DISMISSES THE CONTROLS HINT
+function startGesture() {
+	view.cameraGesture = true;
+	dismissHint();
+}
+
+// CAPTURE PHASE, BEFORE THE CONTROLS SEE IT: A LEFT MOUSE PRESS ON A PIECE IS PIECE INPUT, THE CAMERA SITS IT OUT UNTIL THE RELEASE
+function onPointerDown(e) {
+	if (!view.controlsActive) {
+		view.cameraGesture = false;
+		view.press = { x: e.clientX, y: e.clientY };
+	}
+	view.pointerAt = { x: e.clientX, y: e.clientY };
+	view.pointerType = e.pointerType;
+	view.controls.enabled = !(e.pointerType === "mouse" && e.button === 0 && hitUnder(e, false));
+}
+
+function onPointerMove(e) {
+	view.pointerAt = { x: e.clientX, y: e.clientY };
+}
+
+function onPointerUp() {
+	if (view) { view.controls.enabled = true; }
 }
 
 // EACH FRAME: STEP THE MOVING PIECES & CAMERA, THEN DRAW
@@ -133,7 +224,8 @@ export function mount(container) {
 	boardTexture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8); // SHARP AT THE CAMERA'S LOW ANGLE
 	const plane = new Mesh(new PlaneGeometry(BOARD_SIZE, BOARD_SIZE), new MeshStandardMaterial({ map: boardTexture }));
 	plane.rotation.x = -0.5 * Math.PI; // LAY IT FLAT
-	scene.add(plane, createSurroundings(BOARD_SIZE));
+	const surroundings = createSurroundings(BOARD_SIZE); // ITS LABELS START ON WHITE'S SIDE
+	scene.add(plane, surroundings);
 	const grid = new GridHelper(BOARD_SIZE, 8);
 	grid.position.y = 0.01; // JUST ABOVE THE BOARD, NO Z-FIGHTING
 	scene.add(grid);
@@ -143,14 +235,20 @@ export function mount(container) {
 		const [color, opacity] = HIGHLIGHTS[kind];
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
-	view = { container, renderer, scene, camera, plane, markGeometry, marks, pieces: new Map(), anims: new Set(), cameraGesture: false, cameraAngle: 0, cameraTurn: null }; // cameraGesture: THE CAMERA CONTROLS SET IT WHILE THEY OWN THE POINTER, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
+	view = { container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null }; // side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
+	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
 	placeCamera(0);
+	container.addEventListener("pointerdown", onPointerDown, true);
+	container.addEventListener("pointermove", onPointerMove, true);
+	window.addEventListener("pointerup", onPointerUp);
+	window.addEventListener("pointercancel", onPointerUp);
 	view.observer = new ResizeObserver(resize);
 	view.observer.observe(container);
 	window.addEventListener("orientationchange", resize); // SOME MOBILE BROWSERS REPORT THE NEW SIZE LATE
 	container.appendChild(canvas);
 	resize();
 	renderer.setAnimationLoop(frame);
+	showHint(); // THE FIRST TIME 3D OPENS
 }
 
 /**
@@ -160,10 +258,16 @@ export function mount(container) {
 export function unmount() {
 	if (!view) { return; }
 	finishAnims();
-	const { renderer, scene, observer } = view;
+	removeHint();
+	const { renderer, scene, observer, controls, container } = view;
 	renderer.setAnimationLoop(null);
 	observer.disconnect();
+	controls.dispose();
 	window.removeEventListener("orientationchange", resize);
+	container.removeEventListener("pointerdown", onPointerDown, true);
+	container.removeEventListener("pointermove", onPointerMove, true);
+	window.removeEventListener("pointerup", onPointerUp);
+	window.removeEventListener("pointercancel", onPointerUp);
 	const freed = new Set();
 	scene.traverse(function (o) {
 		if (o.geometry) { freed.add(o.geometry); }
@@ -213,13 +317,20 @@ export function syncFromBoard(chessInst) {
  */
 export function squareUnder(e) {
 	if (!view) { return null; }
-	const rect = view.renderer.domElement.getBoundingClientRect();
-	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-	raycaster.setFromCamera(pointer, view.camera);
-	const [hit] = raycaster.intersectObjects([...view.pieces.values(), view.plane], false);
+	const hit = hitUnder(e, true);
 	if (!hit) { return null; }
 	if (hit.object !== view.plane) { return hit.object.userData.square; }
 	return FILES[toCell(hit.point.x)] + (8 - toCell(hit.point.z));
+}
+
+// THE NEAREST PIECE (OR THE BOARD, withBoard) UNDER A POINTER EVENT, undefined WHEN NOTHING IS
+function hitUnder(e, withBoard) {
+	const rect = view.renderer.domElement.getBoundingClientRect();
+	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+	raycaster.setFromCamera(pointer, view.camera);
+	const targets = [...view.pieces.values()];
+	if (withBoard) { targets.push(view.plane); }
+	return raycaster.intersectObjects(targets, false)[0];
 }
 
 /**
@@ -231,21 +342,23 @@ export function isCameraGesture() {
 }
 
 /**
- * @description Puts the camera on a side of the board (Flip Board), turning it around the board or setting it at once.
- * Pressing again mid-turn turns back from where it is
+ * @description Puts the camera on a side of the board (Flip Board), turning it the short way around what it looks at (keeping the
+ * player's zoom, tilt & pan) or setting it at its default at once. Pressing again mid-turn turns back from where it is
  * @param  {[string]} color ['w' | 'b', the side the player looks from]
  * @param  {[boolean]} animate [false sets it at once (mount, reduce motion)]
  */
 export function setSide(color, animate) {
-	if (!view) { return; }
+	if (!view || view.side === color) { return; }
+	view.side = color;
 	const angle = color === "b" ? Math.PI : 0;
-	if ((view.cameraTurn ? view.cameraTurn.to : view.cameraAngle) === angle) { return; }
 	if (!animate) {
 		view.cameraTurn = null;
 		placeCamera(angle);
+		setLabels(color);
 		return;
 	}
-	view.cameraTurn = { from: view.cameraAngle, to: angle, start: null };
+	const from = cameraAzimuth();
+	view.cameraTurn = { from, to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)), start: null };
 }
 
 /**
@@ -255,7 +368,9 @@ export function setSide(color, animate) {
 export function resetCamera(color) {
 	if (!view) { return; }
 	view.cameraTurn = null;
+	view.side = color;
 	placeCamera(color === "b" ? Math.PI : 0);
+	setLabels(color);
 }
 
 /**
