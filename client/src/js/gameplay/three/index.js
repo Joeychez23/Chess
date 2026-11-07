@@ -11,7 +11,7 @@
 import {
 	WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, HemisphereLight, DirectionalLight, PlaneGeometry, MeshStandardMaterial,
 	MeshBasicMaterial, Mesh, TextureLoader, SRGBColorSpace, LinearMipmapLinearFilter, GridHelper, Raycaster, Vector2, Vector3, Spherical,
-	MathUtils, MOUSE, TOUCH, RingGeometry
+	MathUtils, MOUSE, TOUCH, RingGeometry, Plane
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js";
@@ -39,6 +39,8 @@ const MAX_TILT = MathUtils.degToRad(80); // FROM STRAIGHT DOWN (0): STAYS ABOVE 
 const FLIP_MS = 700; // HOW LONG FLIP BOARD TAKES TO TURN THE CAMERA TO THE OTHER SIDE
 const SINK_DEPTH = CELL_SIZE * 0.5; // HOW FAR A TAKEN PIECE DROPS AS IT FADES
 const DRAG_PX = 4; // A PRESS THAT MOVES THE CAMERA ONLY BECOMES A CAMERA GESTURE PAST THIS MANY PIXELS, SO A SHAKY CLICK STILL CLICKS ITS SQUARE
+const TOUCH_DRAG_PX = 10; // A FINGER ON A HELD PIECE ONLY DRAGS IT PAST THIS MANY PIXELS (gameplay/input's touchDragThreshold, A SHAKY TAP STAYS A TAP)
+const LIFT_HEIGHT = CELL_SIZE * 0.2; // HOW HIGH A PICKED UP OR DRAGGED PIECE FLOATS OVER THE BOARD (2D DRAWS IT A TENTH OF A SQUARE UP)
 const BOARD_IMAGE = new URL("./board.jpg", import.meta.url).href; // JUST THE 8x8 SQUARES, BUNDLED (NOT S3: images/ IS GITIGNORED) & ONLY FETCHED WITH 3D ON
 const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON TOP
 	last: [0xE8792B, 0.3],
@@ -68,6 +70,8 @@ const offset = new Vector3(); // CAMERA POSITION MINUS WHAT IT LOOKS AT
 const spherical = new Spherical(); // offset AS DISTANCE, TILT & ANGLE AROUND THE BOARD
 const fitCamera = new PerspectiveCamera(); // smallScreenCamera()'S STAND-IN, THE REAL ONE STAYS WHERE THE PLAYER PUT IT
 const corner = new Vector3();
+const table = new Plane(new Vector3(0, 1, 0), 0); // THE BOARD'S SURFACE, A DRAGGED PIECE OFF THE BOARD FOLLOWS THE POINTER ON IT
+const tablePoint = new Vector3();
 
 /* ---------------------------------------------------------------- */
 // Squares
@@ -269,8 +273,13 @@ function onPointerDown(e) {
 	view.controls.enabled = !(e.pointerType === "mouse" && e.button === 0 && hitUnder(e, false));
 }
 
+// A HELD PIECE PAST THE DRAG THRESHOLD FOLLOWS THE POINTER (dragHeld). BEFORE gameplay/input'S mousemove / touchmove, SO ITS SQUARE LOOKUP SKIPS THE PIECE TOO
 function onPointerMove(e) {
 	view.pointerAt = { x: e.clientX, y: e.clientY };
+	const held = view.held;
+	if (!held || !held.dragging || view.cameraGesture) { return; }
+	if (!held.following && Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > (e.pointerType === "touch" ? TOUCH_DRAG_PX : DRAG_PX)) { held.following = true; }
+	if (held.following) { liftHeld(); }
 }
 
 function onPointerUp() {
@@ -371,7 +380,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 		marks[kind] = { geometry: kind === "focus" ? ringGeometry : markGeometry, material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
 	view = { phone, container, renderer, scene, camera, plane, surroundings, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
-	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored });
+	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored, held: null }); // held: THE PICKED UP PIECE (setHeld) { mesh, dragging, following }
 	view.drawn = new Promise((resolve) => { view.markDrawn = resolve; }); // whenDrawn(): THE FIRST FRAME WITH THE SQUARES IN (textureReady)
 	view.textureReady = false;
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
@@ -456,6 +465,7 @@ export function unmount() {
 export function syncFromBoard(chessInst) {
 	if (!view) { return; }
 	finishAnims();
+	putDownHeld(); // ON ITS SQUARE BEFORE THE MESHES ARE SORTED, setHeld() LIFTS IT AGAIN IF IT'S STILL HELD
 	const want = new Map(); // SQUARE -> { type, color } STILL TO PLACE
 	for (const row of chessInst.board()) { for (const p of row) { if (p) { want.set(p.square, p); } } }
 	const spare = []; // MESHES ON A SQUARE THAT CHANGED
@@ -491,7 +501,8 @@ function hitUnder(e, withBoard) {
 	const rect = view.renderer.domElement.getBoundingClientRect();
 	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
 	raycaster.setFromCamera(pointer, view.camera);
-	const targets = [...view.pieces.values()];
+	const dragged = view.held && view.held.following ? view.held.mesh : null; // THE DRAGGED PIECE IS UNDER THE POINTER, THE SQUARE IS UNDER IT
+	const targets = [...view.pieces.values()].filter((mesh) => mesh !== dragged);
 	if (withBoard) { targets.push(view.plane); }
 	return raycaster.intersectObjects(targets, false)[0];
 }
@@ -570,6 +581,56 @@ export function highlight(squares, kind) {
 		meshes.set(square, mesh);
 	}
 	requestRender();
+}
+
+/**
+ * @description Lifts the piece the player picked up, like the 2D board: clicked, it floats over its square until it's put down or moved,
+ * dragged (pressed & moved past the drag threshold), it floats over the square under the pointer, the one a drop lands on (squareUnder),
+ * or under the pointer on the table off the board. No animation, the 2D lift is instant too, so reduce motion needs nothing.
+ * A dropped piece that's moving slides down from where it was let go (animateMove), call this after it
+ * @param  {[string|null]} square [the held piece's square, null when nothing is held (it's put back down)]
+ * @param  {[boolean]} dragging [the press is still down, so moving the pointer drags it]
+ */
+export function setHeld(square, dragging) {
+	if (!view) { return; }
+	const mesh = (square && view.pieces.get(square)) || null;
+	const held = view.held;
+	if (held && held.mesh === mesh && held.dragging === Boolean(dragging)) { return; } // UNCHANGED: A DRAG KEEPS FOLLOWING
+	if (held && held.mesh !== mesh) { putDownHeld(); }
+	view.held = mesh ? { mesh, dragging: Boolean(dragging), following: false } : null;
+	if (view.held) { liftHeld(); }
+}
+
+// PUTS THE HELD PIECE BACK ON ITS SQUARE, UNLESS IT'S ALREADY SLIDING AWAY (A DROPPED MOVE) OR GONE (TAKEN, SYNCED AWAY)
+function putDownHeld() {
+	const held = view.held;
+	view.held = null;
+	if (!held) { return; }
+	const { mesh } = held;
+	if ([...view.anims].some((anim) => anim.mesh === mesh) || view.pieces.get(mesh.userData.square) !== mesh) { requestRender(); return; }
+	place(mesh, mesh.userData.square);
+	requestRender();
+}
+
+// FLOATS THE HELD PIECE OVER ITS SQUARE, OR WHERE IT'S DRAGGED (dragPoint)
+function liftHeld() {
+	const { mesh, following } = view.held;
+	const at = following ? dragPoint() : null;
+	const square = mesh.userData.square;
+	mesh.position.set(at ? at.x : center(fileOf(square)), LIFT_HEIGHT, at ? at.z : center(rowOf(square)));
+	updateShadow(mesh);
+	requestRender();
+}
+
+// WHERE A DRAGGED PIECE FLOATS: THE CENTER OF THE SQUARE UNDER THE POINTER (2D SNAPS IT TO SQUARES TOO), OFF THE BOARD THE POINT UNDER
+// THE POINTER ON THE TABLE, KEPT WITHIN A SQUARE OF THE EDGE. null WHEN THE POINTER ISN'T OVER THE TABLE (AT THE HORIZON)
+function dragPoint() {
+	const pointerEvent = { clientX: view.pointerAt.x, clientY: view.pointerAt.y };
+	const square = squareUnder(pointerEvent);
+	if (square) { return { x: center(fileOf(square)), z: center(rowOf(square)) }; }
+	if (!raycaster.ray.intersectPlane(table, tablePoint)) { return null; } // squareUnder() JUST AIMED THE RAY AT THE POINTER
+	const edge = BOARD_SIZE / 2 + CELL_SIZE;
+	return { x: MathUtils.clamp(tablePoint.x, -edge, edge), z: MathUtils.clamp(tablePoint.z, -edge, edge) };
 }
 
 /* ---------------------------------------------------------------- */

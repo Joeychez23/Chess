@@ -52,11 +52,26 @@ export function drawBoard() {
 	board3D.setSide(game.viewColor, !game.reduceMotion); // FLIP BOARD TURNS THE CAMERA
 	syncMarks3D();
 	const fen = chessInst.fen();
-	if (fen === shownFen) { return; } // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
-	const move = game.reduceMotion ? null : moveBetween(scratch, shownFen, fen);
-	shownFen = fen;
-	if (move) { board3D.animateMove(move.from, move.to, move.promotion); }
-	else { board3D.syncFromBoard(chessInst); }
+	if (fen !== shownFen) { // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
+		const move = game.reduceMotion ? null : moveBetween(scratch, shownFen, fen);
+		shownFen = fen;
+		if (move) { board3D.animateMove(move.from, move.to, move.promotion); }
+		else { board3D.syncFromBoard(chessInst); }
+	}
+	const held = heldPiece();
+	board3D.setHeld(held && held.square, held && held.dragging); // AFTER THE MOVE: A DROPPED PIECE SLIDES FROM WHERE IT WAS LET GO
+}
+
+/**
+ * @description The piece the player holds, as the 2D board lifts it: picked up by a click (clickedTile) or pressed (mousedownTile, the
+ * press is still down so it drags). Nothing once the board is locked for the move just sent (opposingMove)
+ * @return {[object|null]} { square, dragging } [its square ("e2"), null when nothing is held]
+ */
+function heldPiece() {
+	const tile = game.mousedownTile || game.clickedTile;
+	if (!tile || game.opposingMove) { return null; }
+	const square = tileToSquare(tile.originX, tile.originY, game.viewColor);
+	return square ? { square, dragging: Boolean(game.mousedownTile) } : null;
 }
 
 /**
@@ -73,11 +88,9 @@ function marks3D() {
 		const king = chessInst.board().flat().find((p) => p && p.type === "k" && p.color === chessInst.turn());
 		if (king) { marks.check.push(king.square); }
 	}
-	const held = game.clickedTile || game.mousedownTile;
-	if (held && !game.opposingMove && !game.currPromotion) {
-		const from = tileToSquare(held.originX, held.originY, game.viewColor);
-		const moves = from ? chessInst.moves({ square: from, verbose: true }) : [];
-		moves.forEach((m) => marks[m.captured ? "capture" : "legal"].push(m.to));
+	const held = heldPiece();
+	if (held && !game.currPromotion) {
+		chessInst.moves({ square: held.square, verbose: true }).forEach((m) => marks[m.captured ? "capture" : "legal"].push(m.to));
 	}
 	return marks;
 }

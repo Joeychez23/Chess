@@ -403,6 +403,7 @@ export async function handleMouseDown(e) {
 			tile.isMousedown = true;
 			game.mousedownTile = tile;
 			game.mouseDownTime = null;
+			game.refresh = true; // DRAWN LIFTED NOW, NOT ON THE FIRST MOVE (3D LIFTS IT ON THIS FRAME)
 			for (let j = 0; j < game.tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
 				if (game.tiles[j].isClicked && (game.tiles[j].x != game.tileX || game.tiles[j].y != game.tileY) && game.tiles[j].color == game.playerColor) {
 					game.tiles[j].isClicked = false
