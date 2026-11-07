@@ -59,6 +59,7 @@ export function handleInitialData() {
 			currInst = chessInst.board();
 			overlapSlideObj = null
 			renderPiecesToBoard(currInst, clickX, clickY, true);
+			if (game.traysOnly) { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD IS DRAWN IN 3D UNDER THE CANVAS, ONLY THE TRAYS SHOW
 			if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
 				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
 				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
@@ -69,6 +70,7 @@ export function handleInitialData() {
 				renderTakenPieces(game.bTakenPieces, 'w');
 			}
 
+			if (game.traysOnly) { return; } // NO TABLE SHADOW OVER THE 3D BOARD
 			ctx.globalAlpha = 0.05
 			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 			ctx.globalAlpha = 1;
@@ -84,6 +86,7 @@ export function handleInitialData() {
 			for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); }
 			overlapSlideObj = null
 			renderPiecesToBoard(currInst, clickX, clickY, true);
+			if (game.traysOnly) { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD IS DRAWN IN 3D UNDER THE CANVAS, ONLY THE TRAYS SHOW
 			if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
 				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
 				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
@@ -94,6 +97,7 @@ export function handleInitialData() {
 				renderTakenPieces(game.bTakenPieces, 'w');
 			}
 
+			if (game.traysOnly) { return; } // NO TABLE SHADOW OVER THE 3D BOARD
 			ctx.globalAlpha = 0.05
 			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 			ctx.globalAlpha = 1;

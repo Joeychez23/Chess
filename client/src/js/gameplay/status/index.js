@@ -32,7 +32,7 @@ function removeMessage(kind) {
 
 /**
  * @description Shows a message, replacing the last one of its kind
- * @param  {[string]} kind ["move", "server", "ai", "action" or "connection"]
+ * @param  {[string]} kind ["move", "server", "ai", "action", "connection" or "view" (3D board loading)]
  * @param  {[string]} text [what the player reads]
  * @param  {[number]} clearAfter [ms until it goes away, leave it out to keep it until clearStatus(kind)]
  */

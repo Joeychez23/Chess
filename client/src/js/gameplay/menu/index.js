@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess frontend
  *	Menu
- *	The in game menu (the 3 line button, Resume, Hint, Takeback, Offer Draw, Type a Move, Sound, Flip Board, Eval Bar, Download PGN, Forfeit / Restart / Rematch, Home & Exit), loading a new board in place
+ *	The in game menu (the 3 line button, Resume, Hint, Takeback, Offer Draw, Type a Move, Sound, Flip Board, View 3D / 2D & Reset View, Eval Bar, Download PGN, Forfeit / Restart / Rematch, Home & Exit), loading a new board in place
  *	for Restart, Rematch & Takeback (the pieces slide home, gameplay/animate/index.js) & the game over screen. Also the friend game
  *	socket's handlers (socketHandlers: a move, a forfeit, a draw offer, a takeback or a rematch), startGame & loadRematch join with them
  *
@@ -23,11 +23,14 @@ const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT,
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
+const { setView, currentView, resetCamera, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
 const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
+const optViewBtn = document.getElementById("optView"); // MENU: VIEW 3D / 2D
+const optResetViewBtn = document.getElementById("optResetView"); // MENU: RESET VIEW, ONLY ON 3D
 const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
 const optHomepageBtn = document.getElementById("optHome"); // MENU: HOMEPAGE
 const optExitBtn = document.getElementById("optExit"); // MENU: LOGOUT (SIGNED IN) / LOGIN/SIGNUP (GUESTS)
@@ -40,6 +43,7 @@ const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHIL
 const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
 const takebackPrompt = document.getElementById("takebackPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S TAKEBACK REQUEST STANDS
 
+const VIEW_KEY = "VIEW"; // localStorage: "3d" WHEN THE PLAYER TURNED 3D ON, 2D IS THE DEFAULT (3D PHASE 0)
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
 const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A FORFEIT IS ALREADY IN THE TITLE
 	"checkmate": "by Checkmate",
@@ -149,6 +153,53 @@ export function handleSound(e) {
 	game.soundOn = !game.soundOn;
 	optSoundBtn.innerText = game.soundOn ? "Turn Sound: Off" : "Turn Sound: On"; // THE WORDS SAY WHAT A PRESS WILL DO
 	try { localStorage.setItem(SOUND_KEY, game.soundOn ? "on" : "off"); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
+}
+
+/* ---------------------------------------------------------------- */
+// View & Reset View Buttons (Menu)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The saved view when the game starts, 2D when none is saved or storage is blocked (private mode)
+ * @return {[string]} [VIEWS.TWO_D or VIEWS.THREE_D]
+ */
+export function loadView() {
+	setViewWords(VIEWS.TWO_D); // UNTIL showView() SAYS WHICH IS ON
+	try { return localStorage.getItem(VIEW_KEY) == VIEWS.THREE_D ? VIEWS.THREE_D : VIEWS.TWO_D; } catch { return VIEWS.TWO_D; }
+}
+
+/**
+ * @description Switches the board (setView) & sets the buttons for the one that's on (3D that can't start stays on 2D)
+ * @param  {[string]} view [VIEWS.TWO_D or VIEWS.THREE_D]
+ * @return {[Promise<string>]} [the view that's on now]
+ */
+export function showView(view) {
+	return setView(view).then(function (on) { setViewWords(on); return on; });
+}
+
+// THE WORDS SAY WHAT A PRESS WILL DO, RESET VIEW IS ONLY ON 3D
+function setViewWords(on) {
+	optViewBtn.innerText = on === VIEWS.THREE_D ? "View: 2D" : "View: 3D";
+	optResetViewBtn.parentElement.hidden = on !== VIEWS.THREE_D;
+}
+
+/**
+ * @description Switches between 2D & 3D & saves what's on, the menu stays open
+ */
+export function handleView(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	showView(currentView() === VIEWS.THREE_D ? VIEWS.TWO_D : VIEWS.THREE_D).then(function (on) {
+		try { localStorage.setItem(VIEW_KEY, on); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
+	});
+}
+
+/**
+ * @description Puts the 3D camera back at its default for the player's side, the menu stays open
+ */
+export function handleResetView(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	resetCamera();
 }
 
 /* ---------------------------------------------------------------- */
