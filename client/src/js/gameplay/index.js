@@ -25,11 +25,11 @@ const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, han
 const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
 const { addMenuListeners, handleResume, handleSound, loadSound, loadView, showView, handleView, handleResetView, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
-const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { showStatus, clearStatus, MESSAGE_TIME } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
-const { drawBoard, VIEWS, addBoardListener, stopMotion3D } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
+const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
 export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -134,7 +134,7 @@ async function startGame(view) {
 		if (e.matches) { stopMotion3D(); } // A 3D CAMERA TURN OR PIECE SLIDE ALREADY GOING LANDS AT ONCE (#432)
 	});
 
-	if (view === VIEWS.THREE_D) { showView(VIEWS.THREE_D); } // FALLS BACK TO 2D ITSELF WHEN 3D CAN'T LOAD
+	if (view === VIEWS.THREE_D) { fadeInOn3D(); } // FALLS BACK TO 2D ITSELF WHEN 3D CAN'T LOAD
 	startFrames(renderLoop); // THE RENDER LOOP, FRAMES ONLY COME WHILE SOMETHING CHANGES & THE TAB IS SHOWN
 	document.addEventListener("visibilitychange", function () { if (!document.hidden) { game.refresh = true; } }); // SHOWN AGAIN: A SLIDE CATCHES UP TO THE TIME (stepSlide), REDRAWS A CANVAS THE BROWSER MAY HAVE THROWN AWAY
 
@@ -229,6 +229,37 @@ async function startAiSlide() {
 }
 
 /**
+ * @description A game that opens on 3D: the page stays hidden (loadingPage) until the 3D board is up & its first frame with the
+ * squares is drawn, so it fades in on a whole board, never an empty one (#433). 3D that can't start shows 2D at once (setView
+ * falls back). 3D still not drawn after FADE_WAIT_MS of the page being seen: the page fades in on 2D & says why, the next load tries 3D again
+ */
+const FADE_WAIT_MS = 8000; // LIKE THE HOME PAGE'S WAIT (showPageWhenDrawn)
+let holdFade = false; // TRUE WHILE fadeInOn3D WAITS, renderLoop DOESN'T FADE IN
+function fadeInOn3D() {
+	holdFade = true;
+	let timer = null;
+	const release = function () {
+		if (!holdFade) { return; }
+		holdFade = false;
+		clearTimeout(timer);
+		document.removeEventListener("visibilitychange", startTimer);
+		game.refresh = true; // THE NEXT FRAME FADES IN (renderLoop)
+		requestFrame();
+	};
+	function startTimer() { // ONLY COUNTS WHILE THE PAGE IS SEEN: A TAB OPENED IN THE BACKGROUND DRAWS NOTHING
+		if (document.hidden) { document.addEventListener("visibilitychange", startTimer, { once: true }); return; }
+		timer = setTimeout(function () {
+			if (!holdFade) { return; }
+			showStatus("view", "3D board took too long to load. Showing 2D.", MESSAGE_TIME);
+			showView(VIEWS.TWO_D); // AFTER THE 3D SWITCH STILL GOING: A BOARD THAT COMES UP LATE IS TAKEN DOWN BEFORE IT'S SEEN
+			release(); // NOTHING ON 3D YET: THE 2D CANVAS IS THE BOARD THAT'S DRAWN
+		}, FADE_WAIT_MS);
+	}
+	startTimer();
+	showView(VIEWS.THREE_D).then((on) => on === VIEWS.THREE_D ? whenDrawn3D() : null).then(release, release);
+}
+
+/**
  * @description Runs for each frame the browser gives it (requestFrame). On the AI's turn it asks the server for the AI's move
  * & starts its slide, otherwise it draws a frame when something changed (refresh) or a piece is sliding (currSlide).
  * Asks for the next frame only while there's more to draw, setting refresh, currSlide or restartSlide starts it again
@@ -244,7 +275,7 @@ async function renderLoop() {
 			} else {
 				flipWhenDone(); // FLIP BOARD WAS PRESSED DURING THE SLIDE OR SAVE THAT JUST ENDED
 				drawBoard(); // DRAW ONE FRAME (2D OR 3D)
-				document.documentElement.classList.remove("loadingPage"); // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT
+				if (!holdFade) { document.documentElement.classList.remove("loadingPage"); } // THE FIRST FRAME IS DRAWN: FADE INTO THE GAME (play.html), DOES NOTHING AFTER THAT. 3D AT LOAD: fadeInOn3D
 				game.refresh = false;
 			}
 		}

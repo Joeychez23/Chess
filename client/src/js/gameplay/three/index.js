@@ -296,6 +296,7 @@ function frame(now) {
 	if (view.cameraTurn) { stepCamera(now); }
 	if (view.controls.enableDamping) { view.controls.update(); } // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME
 	view.renderer.render(view.scene, view.camera);
+	if (view.textureReady) { view.markDrawn(); } // ONLY THE FIRST CALL COUNTS
 	perfFrame(now);
 	if (view.anims.size || view.cameraTurn) { requestRender(); }
 }
@@ -345,7 +346,12 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	const keyLight = new DirectionalLight(0xFFFFFF, 2.2); // KEY: HIGH & TO WHITE'S LEFT
 	keyLight.position.set(-10, 25, 15);
 	scene.add(keyLight);
-	const boardTexture = new TextureLoader().load(BOARD_IMAGE, () => requestRender()); // DRAWS AGAIN WHEN THE SQUARES ARRIVE
+	const squaresIn = function () { // DRAWS AGAIN WHEN THE SQUARES ARRIVE (OR FAIL TO: THE BOARD IS STILL PLAYABLE), THAT FRAME IS whenDrawn()'S
+		if (!view || view.plane.material.map !== boardTexture) { return; } // A BOARD UNMOUNTED SINCE
+		view.textureReady = true;
+		requestRender();
+	};
+	const boardTexture = new TextureLoader().load(BOARD_IMAGE, squaresIn, undefined, squaresIn);
 	boardTexture.colorSpace = SRGBColorSpace; // COLORS MATCH THE 2D BOARD
 	boardTexture.minFilter = LinearMipmapLinearFilter;
 	boardTexture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8); // SHARP AT THE CAMERA'S LOW ANGLE
@@ -366,6 +372,8 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	});
 	view = { phone, container, renderer, scene, camera, plane, surroundings, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
 	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored });
+	view.drawn = new Promise((resolve) => { view.markDrawn = resolve; }); // whenDrawn(): THE FIRST FRAME WITH THE SQUARES IN (textureReady)
+	view.textureReady = false;
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
 	container.style.backgroundColor = scene.background.getStyle(); // THE SAFE AREA PADDING (UNDER A NOTCH) IS THE SCENE'S BACKGROUND
 	view.observer = new ResizeObserver(resize);
@@ -390,6 +398,15 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 function squareCorners(square) {
 	const x = center(fileOf(square)), z = center(rowOf(square)), d = CELL_SIZE / 2;
 	return [[-d, -d], [-d, d], [d, -d], [d, d]].map(([dx, dz]) => new Vector3(x + dx, 0, z + dz));
+}
+
+/**
+ * @description Resolves after the first frame drawn with the board's squares in, so the page can fade in on a whole board.
+ * Never, for a board that loses its context or is unmounted first (the caller times out)
+ * @return {[Promise<void>]}
+ */
+export function whenDrawn() {
+	return view ? view.drawn : Promise.resolve();
 }
 
 /**

@@ -112,6 +112,14 @@ export function stopMotion3D() {
 }
 
 /**
+ * @description Resolves once the 3D board has drawn a frame with its squares in (the page fades in on it, #433). At once on 2D
+ * @return {[Promise<void>]}
+ */
+export function whenDrawn3D() {
+	return board3D ? board3D.whenDrawn() : Promise.resolve();
+}
+
+/**
  * @description Which board is on
  * @return {[string]} [VIEWS.TWO_D or VIEWS.THREE_D]
  */
