@@ -41,7 +41,8 @@ function labelTexture(text) {
 }
 
 /**
- * @description Builds the frame, labels (White's view) & table around a board of boardSize world units centered on the origin, top at y = 0
+ * @description Builds the frame, labels (White's view, turn them with orientLabels) & table around a board of boardSize world units
+ * centered on the origin, top at y = 0
  * @param  {[number]} boardSize [world units per board side]
  * @return {[Group]}
  */
@@ -59,15 +60,34 @@ export function createSurroundings(boardSize) {
 	table.position.y = -depth - 0.01;
 	group.add(table);
 	const labelGeometry = new PlaneGeometry(cell * 0.4, cell * 0.4);
-	const band = half + COORD_BORDER_RATIO * cell; // FILES ALONG WHITE'S NEAR EDGE, RANKS UP WHITE'S LEFT
+	const band = half + COORD_BORDER_RATIO * cell;
+	const labels = [];
 	for (let i = 0; i < 8; i++) {
 		const along = -half + cell * (i + 0.5);
-		for (const [text, x, z] of [["abcdefgh"[i], along, band], [String(8 - i), -band, along]]) {
+		for (const [text, file] of [["abcdefgh"[i], true], [String(8 - i), false]]) {
 			const label = new Mesh(labelGeometry, new MeshBasicMaterial({ map: labelTexture(text), transparent: true, depthWrite: false }));
-			label.position.set(x, 0.006, z);
 			label.rotation.x = -0.5 * Math.PI;
+			label.userData = { file, along, band };
+			labels.push(label);
 			group.add(label);
 		}
 	}
+	group.userData.labels = labels;
+	orientLabels(group, "w");
 	return group;
+}
+
+/**
+ * @description Puts the labels where the 2D board has them for a side, upright to that side: files along its near edge, ranks up its left
+ * @param  {[Group]} group [from createSurroundings]
+ * @param  {[string]} color ['w' | 'b', the side the player looks from]
+ */
+export function orientLabels(group, color) {
+	const s = color === "b" ? -1 : 1; // BLACK'S NEAR EDGE IS -Z, ITS LEFT IS +X
+	for (const label of group.userData.labels) {
+		const { file, along, band } = label.userData;
+		if (file) { label.position.set(along, 0.006, s * band); }
+		else { label.position.set(-s * band, 0.006, along); }
+		label.rotation.z = color === "b" ? Math.PI : 0; // TURNED HALF WAY ROUND IN THE BOARD'S PLANE
+	}
 }

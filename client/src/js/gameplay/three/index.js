@@ -16,7 +16,7 @@ import {
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js";
 import { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } from "../animate/timing.js"; // THE 2D BOARD'S TIMINGS, SO A MOVE TAKES THE SAME TIME ON BOTH
-import { createSurroundings } from "./board.js";
+import { createSurroundings, orientLabels } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
 
 /* ---------------------------------------------------------------- */
@@ -122,7 +122,15 @@ function stepCamera(now) {
 	if (turn.start === null) { turn.start = now; }
 	const t = MathUtils.clamp((now - turn.start) / FLIP_MS, 0, 1);
 	turnCamera(turn.from + (turn.to - turn.from) * easeInOut(t));
+	if (t >= 0.5) { setLabels(view.side); } // SIDE ON TO THE BOARD: THE LABELS SWAP UNSEEN
 	if (t === 1) { view.cameraTurn = null; }
+}
+
+// TURNS THE a-h / 1-8 LABELS TO READ FROM color'S SIDE, LIKE THE 2D BOARD'S
+function setLabels(color) {
+	if (view.labelSide === color) { return; }
+	view.labelSide = color;
+	orientLabels(view.surroundings, color);
 }
 
 /* ---------------------------------------------------------------- */
@@ -144,6 +152,7 @@ function createControls(camera, canvas) {
 	controls.addEventListener("start", function () {
 		view.controlsActive = true;
 		view.cameraTurn = null; // THE PLAYER TOOK THE CAMERA MID FLIP
+		setLabels(view.side);
 		if (view.pointerType === "touch") { view.cameraGesture = true; } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
 	});
 	controls.addEventListener("change", function () {
@@ -208,7 +217,8 @@ export function mount(container) {
 	boardTexture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8); // SHARP AT THE CAMERA'S LOW ANGLE
 	const plane = new Mesh(new PlaneGeometry(BOARD_SIZE, BOARD_SIZE), new MeshStandardMaterial({ map: boardTexture }));
 	plane.rotation.x = -0.5 * Math.PI; // LAY IT FLAT
-	scene.add(plane, createSurroundings(BOARD_SIZE));
+	const surroundings = createSurroundings(BOARD_SIZE); // ITS LABELS START ON WHITE'S SIDE
+	scene.add(plane, surroundings);
 	const grid = new GridHelper(BOARD_SIZE, 8);
 	grid.position.y = 0.01; // JUST ABOVE THE BOARD, NO Z-FIGHTING
 	scene.add(grid);
@@ -218,7 +228,7 @@ export function mount(container) {
 		const [color, opacity] = HIGHLIGHTS[kind];
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
-	view = { container, renderer, scene, camera, plane, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", cameraTurn: null }; // side: THE SIDE THE CAMERA IS ON (OR TURNING TO), cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
+	view = { container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null }; // side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
 	placeCamera(0);
 	container.addEventListener("pointerdown", onPointerDown, true);
@@ -335,6 +345,7 @@ export function setSide(color, animate) {
 	if (!animate) {
 		view.cameraTurn = null;
 		placeCamera(angle);
+		setLabels(color);
 		return;
 	}
 	const from = cameraAzimuth();
@@ -350,6 +361,7 @@ export function resetCamera(color) {
 	view.cameraTurn = null;
 	view.side = color;
 	placeCamera(color === "b" ? Math.PI : 0);
+	setLabels(color);
 }
 
 /**
