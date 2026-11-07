@@ -17,6 +17,8 @@ const {
 	tableShdw, wRightKnightImg, wLeftKnightImg, wRightKnightShdw, wLeftKnightShdw, wRightKnightRefl, wLeftKnightRefl, bRightKnightImg, bLeftKnightImg, bRightKnightShdw, bLeftKnightShdw, bRightKnightRefl, bLeftKnightRefl // TABLE SHADOW & THE KNIGHTS (THE OTHER PIECES' IMAGES COME FROM THE draw FUNCTIONS ABOVE)
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
 const { setRestartLoading } = require("../menu/index.js"); // RESTART / REMATCH BUTTON'S LOADING FILL, PUT BACK WHEN THE PIECES ARE HOME
+const { currentView, VIEWS } = require("../renderer/index.js"); // WHICH BOARD IS ON
+const instant = () => game.reduceMotion || currentView() === VIEWS.THREE_D; // ON 3D THE HIDDEN 2D SLIDE LANDS AT ONCE, SO THE MOVE REACHES chessInst & THE 3D BOARD SLIDES IT (NOT TWICE THE WAIT)
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), SHOWN AGAIN WHEN THE PIECES ARE HOME
 
 const RESTART_SLIDE_MS = 800; // HOW LONG THE PIECES TAKE TO SLIDE HOME
@@ -42,8 +44,8 @@ export function stepSlide(tile, square) {
 	const now = performance.now();
 	if (tile.slideStartTime === null || tile.slideStartTime === undefined) { tile.slideStartTime = now + (knight ? KNIGHT_PAUSE_MS : 0); }
 	const duration = (knight ? 1 : Math.max(Math.abs(xSquares), Math.abs(ySquares))) * SLIDE_MS_PER_SQUARE;
-	tile.slideProgress = duration && !game.reduceMotion ? Math.min(Math.max((now - tile.slideStartTime) / duration, 0), 1) : 1; // 0 - 1 OF THE TIME
-	if (game.reduceMotion) { game.slideStart = false; } // NO KNIGHT STOP (slideStart IS WHAT STARTS IT)
+	tile.slideProgress = duration && !instant() ?Math.min(Math.max((now - tile.slideStartTime) / duration, 0), 1) : 1; // 0 - 1 OF THE TIME
+	if (instant()) { game.slideStart = false; } // NO KNIGHT STOP (slideStart IS WHAT STARTS IT)
 	tile.xDiff = xSquares * game.tileWidth * tile.slideProgress; // PIXELS MOVED SO FAR
 	tile.yDiff = -ySquares * game.tileHeight * tile.slideProgress; // yDiff IS SUBTRACTED, SO GOING DOWN THE SCREEN MAKES IT NEGATIVE
 }

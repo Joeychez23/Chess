@@ -15,23 +15,35 @@
 const { game, canvas, chessInst, requestFrame } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE 2D CANVAS, THE BOARD THAT'S DRAWN
 const { load3D } = require("../three/load.js"); // DOWNLOADS THE 3D BOARD THE FIRST TIME IT'S TURNED ON
 const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { moveBetween } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS
+const { Chess } = require("chess.js");
+const scratch = new Chess(); // ONLY moveBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
 
 export const VIEWS = { TWO_D: "2d", THREE_D: "3d" };
 
 let board3D = null; // THE 3D MODULE WHILE IT'S MOUNTED, null ON 2D
 let container = null; // WHAT THE 3D CANVAS FILLS, IN #main NEXT TO THE (HIDDEN) 2D CANVAS
 let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT TWICE
+let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
 const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
 
 /* ---------------------------------------------------------------- */
 // Draw
 /* ---------------------------------------------------------------- */
 /**
- * @description Draws one frame of the board that's on. The render loop & a window resize call it instead of game.drawScreen()
+ * @description Draws one frame of the board that's on. The render loop & a window resize call it instead of game.drawScreen().
+ * 3D only follows chessInst, which only the move path (gameplay/moves) changes: one move from what it shows slides, anything
+ * else (load, takeback, restart, reconnect, a turned down move) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
  */
 export function drawBoard() {
 	game.drawScreen(); // 2D (HIDDEN ON 3D): ALSO FILLS game.tiles & STEPS THE SLIDES THE GAME WAITS ON
-	if (board3D) { board3D.syncFromBoard(chessInst); } // 3D: SIZES ITSELF (ResizeObserver) & DRAWS ITS OWN FRAMES, ONLY THE PIECES ARE SET HERE
+	if (!board3D) { return; } // 3D: SIZES ITSELF (ResizeObserver) & DRAWS ITS OWN FRAMES, ONLY THE PIECES ARE SET HERE
+	const fen = chessInst.fen();
+	if (fen === shownFen) { return; } // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
+	const move = game.reduceMotion ? null : moveBetween(scratch, shownFen, fen);
+	shownFen = fen;
+	if (move) { board3D.animateMove(move.from, move.to, move.promotion); }
+	else { board3D.syncFromBoard(chessInst); }
 }
 
 /**
@@ -115,6 +127,7 @@ async function show3D() {
 	board3D = board;
 	canvas.style.display = "none"; // STILL DRAWN (drawBoard), JUST NOT SEEN
 	board3D.syncFromBoard(chessInst);
+	shownFen = chessInst.fen();
 	game.refresh = true;
 	requestFrame();
 	return VIEWS.THREE_D;

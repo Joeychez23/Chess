@@ -8,7 +8,7 @@ const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
 const { Chess } = require("chess.js");
 const { playerMove } = require("../../client/src/js/gameplay/user/index.js");
-const { materialDiff, lastMoveBy, tileToSquare, toggleAnnotation } = require("../../client/src/js/gameplay/utils/index.js");
+const { materialDiff, lastMoveBy, moveBetween, tileToSquare, toggleAnnotation } = require("../../client/src/js/gameplay/utils/index.js");
 
 const PROMOTES_WHITE = "8/P6k/8/8/8/8/8/K7 w - - 0 1"; // THE a PAWN PROMOTES ON a8
 const PROMOTES_BLACK = "4k3/8/8/8/8/8/p7/1N2K3 b - - 0 1"; // THE a PAWN PROMOTES ON a1, OR BY TAKING ON b1
@@ -242,5 +242,28 @@ describe("toggleAnnotation", () => {
 		toggleAnnotation(annotations, "a1", "a2");
 		toggleAnnotation(annotations, "e2", "e4");
 		assert.deepEqual(annotations, [{ from: "e2", to: "e4" }]);
+	});
+});
+
+describe("moveBetween", () => {
+	const board = new Chess();
+	const after = (fen, move) => { const c = new Chess(fen); c.move(move); return c.fen(); };
+	const START = new Chess().fen();
+
+	test("one move: the move", () => {
+		assert.deepEqual(moveBetween(board, START, after(START, "e4")), { from: "e2", to: "e4", promotion: undefined });
+	});
+
+	test("castling & promotion", () => {
+		assert.deepEqual(moveBetween(board, CASTLE, after(CASTLE, "O-O")), { from: "e1", to: "g1", promotion: undefined });
+		assert.deepEqual(moveBetween(board, PROMOTES_WHITE, after(PROMOTES_WHITE, "a8=N")), { from: "a7", to: "a8", promotion: "n" });
+	});
+
+	test("null for a takeback, two moves, a new game or no change", () => {
+		const e4 = after(START, "e4");
+		assert.equal(moveBetween(board, e4, START), null);
+		assert.equal(moveBetween(board, START, after(e4, "e5")), null);
+		assert.equal(moveBetween(board, CASTLE, START), null);
+		assert.equal(moveBetween(board, START, START), null);
 	});
 });
