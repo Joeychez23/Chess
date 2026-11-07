@@ -47,6 +47,17 @@ export function drawBoard() {
 }
 
 /**
+ * @description Restart & Rematch on 3D: the pieces glide home to chessInst (already the new game) in the 2D slide's time,
+ * pieces with no match fade in or out. With reduce motion on they're just set. Does nothing on 2D
+ */
+export function glideHome3D() {
+	if (!board3D) { return; }
+	shownFen = chessInst.fen(); // SO drawBoard DOESN'T SET THEM AT ONCE WHEN THE NEW GAME TAKES OVER
+	if (game.reduceMotion) { board3D.syncFromBoard(chessInst); }
+	else { board3D.glideHome(chessInst); }
+}
+
+/**
  * @description Which board is on
  * @return {[string]} [VIEWS.TWO_D or VIEWS.THREE_D]
  */

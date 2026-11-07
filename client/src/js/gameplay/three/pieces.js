@@ -146,13 +146,51 @@ export function updateShadow(mesh) {
 	const shadow = mesh.getObjectByName("shadow");
 	const lift = mesh.position.y / mesh.scale.y; // IN PIECE UNITS
 	shadow.position.y = SHADOW_Y / mesh.scale.y - lift;
-	shadow.material.opacity = SHADOW_OPACITY * MathUtils.clamp(1 - lift / SHADOW_FADE, 0, 1);
+	shadow.material.opacity = SHADOW_OPACITY * MathUtils.clamp(1 - Math.max(lift, 0) / SHADOW_FADE, 0, 1) * (mesh.userData.opacity ?? 1);
+}
+
+// SEE-THROUGH COPIES OF A PIECE'S WOOD & GOLD (THE RIM SHADER & ITS UNIFORM COME ALONG), SO IT FADES ON ITS OWN
+function fadeMaterials(color) {
+	return [WOODS[color], materials.gold].map(function (shared) {
+		const m = shared.clone();
+		m.onBeforeCompile = shared.onBeforeCompile;
+		m.userData = shared.userData;
+		m.transparent = true;
+		return m;
+	});
+}
+
+function freeFadeMaterials(mesh) {
+	if (!mesh.userData.fadeMaterials) { return; }
+	mesh.userData.fadeMaterials.forEach((m) => m.dispose());
+	mesh.userData.fadeMaterials = null;
 }
 
 /**
- * @description Frees a piece's own GPU resources (its shadow material). Its geometry & wood are shared, the scene's disposal frees those
+ * @description Fades a piece & its shadow (captures fading away, the slide home fading pieces in & out). At 1 it's back on the shared, solid materials
+ * @param  {[Mesh]} mesh [from createPiece()]
+ * @param  {[number]} opacity [0 - 1]
+ */
+export function setOpacity(mesh, opacity) {
+	const { color } = mesh.userData;
+	mesh.userData.opacity = opacity;
+	if (opacity >= 1) {
+		freeFadeMaterials(mesh);
+		mesh.material = [WOODS[color], materials.gold];
+	} else {
+		mesh.userData.fadeMaterials ??= fadeMaterials(color);
+		mesh.userData.fadeMaterials.forEach((m) => { m.opacity = opacity; });
+		mesh.material = mesh.userData.fadeMaterials;
+	}
+	mesh.visible = opacity > 0;
+	updateShadow(mesh);
+}
+
+/**
+ * @description Frees a piece's own GPU resources (its shadow material & fade copies). Its geometry & wood are shared, the scene's disposal frees those
  * @param  {[Mesh]} mesh [from createPiece()]
  */
 export function disposePiece(mesh) {
 	mesh.getObjectByName("shadow").material.dispose();
+	freeFadeMaterials(mesh);
 }

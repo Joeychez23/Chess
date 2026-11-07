@@ -17,13 +17,11 @@ const {
 	tableShdw, wRightKnightImg, wLeftKnightImg, wRightKnightShdw, wLeftKnightShdw, wRightKnightRefl, wLeftKnightRefl, bRightKnightImg, bLeftKnightImg, bRightKnightShdw, bLeftKnightShdw, bRightKnightRefl, bLeftKnightRefl // TABLE SHADOW & THE KNIGHTS (THE OTHER PIECES' IMAGES COME FROM THE draw FUNCTIONS ABOVE)
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
 const { setRestartLoading } = require("../menu/index.js"); // RESTART / REMATCH BUTTON'S LOADING FILL, PUT BACK WHEN THE PIECES ARE HOME
-const { currentView, VIEWS } = require("../renderer/index.js"); // WHICH BOARD IS ON
+const { currentView, VIEWS, glideHome3D } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SLIDE HOME
 const instant = () => game.reduceMotion || currentView() === VIEWS.THREE_D; // ON 3D THE HIDDEN 2D SLIDE LANDS AT ONCE, SO THE MOVE REACHES chessInst & THE 3D BOARD SLIDES IT (NOT TWICE THE WAIT)
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), SHOWN AGAIN WHEN THE PIECES ARE HOME
-
-const RESTART_SLIDE_MS = 800; // HOW LONG THE PIECES TAKE TO SLIDE HOME
-const SLIDE_MS_PER_SQUARE = 263; // HOW LONG A MOVE TAKES PER SQUARE
-export const KNIGHT_PAUSE_MS = 100; // A KNIGHT STOPS THIS LONG BEFORE ITS HOP
+const { KNIGHT_PAUSE_MS, RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } = require("./timing.js"); // SHARED WITH THE 3D BOARD, SO A MOVE TAKES THE SAME TIME ON BOTH
+export { KNIGHT_PAUSE_MS };
 
 /* ---------------------------------------------------------------- */
 // Step Slide
@@ -42,8 +40,8 @@ export function stepSlide(tile, square) {
 	const ySquares = tile.ySlideTo - Math.floor(square / 8); // SQUARES TO GO UP OR DOWN, DOWN THE SCREEN IS POSITIVE
 	const knight = tile.type == 'n';
 	const now = performance.now();
-	if (tile.slideStartTime === null || tile.slideStartTime === undefined) { tile.slideStartTime = now + (knight ? KNIGHT_PAUSE_MS : 0); }
-	const duration = (knight ? 1 : Math.max(Math.abs(xSquares), Math.abs(ySquares))) * SLIDE_MS_PER_SQUARE;
+	if (tile.slideStartTime === null || tile.slideStartTime === undefined) { tile.slideStartTime = now + slideDelay(knight); }
+	const duration = slideDuration(Math.max(Math.abs(xSquares), Math.abs(ySquares)), knight);
 	tile.slideProgress = duration && !instant() ?Math.min(Math.max((now - tile.slideStartTime) / duration, 0), 1) : 1; // 0 - 1 OF THE TIME
 	if (instant()) { game.slideStart = false; } // NO KNIGHT STOP (slideStart IS WHAT STARTS IT)
 	tile.xDiff = xSquares * game.tileWidth * tile.slideProgress; // PIXELS MOVED SO FAR
@@ -65,8 +63,7 @@ export function handleKnightHop(tile) {
 	if (tile.isSliding) {
 		if (tile.xSlideTo != tile.x) { xMoved = Math.abs(tile.xDiff) / (Math.abs(tile.xSlideTo - tile.x) * game.tileWidth); }
 		if (tile.ySlideTo != tile.y) { yMoved = Math.abs(tile.yDiff) / (Math.abs(tile.ySlideTo - tile.y) * game.tileHeight); }
-		game.knightHop = Math.sin(Math.min(Math.max(xMoved, yMoved), 1) * Math.PI); // 0 AT THE START & END, 1 HALFWAY
-		if (game.knightHop < 0.001) { game.knightHop = 0; } // BACK ON THE BOARD (sin(PI) ISN'T EXACTLY 0)
+		game.knightHop = hopArc(Math.max(xMoved, yMoved)); // 0 AT THE START & END, 1 HALFWAY
 	} else { game.knightHop = 0; } // ON THE BOARD
 }
 
@@ -141,6 +138,7 @@ export function startRestartSlide(fromPieces) {
 	for (let t = 0; t < toPieces.length; t++) { if (!toUsed[t]) { pieces[pieces.length] = setSlidePiece(toPieces[t], toPieces[t], 1); } } // FADES IN
 	for (let f = 0; f < fromPieces.length; f++) { if (!fromUsed[f]) { pieces[pieces.length] = setSlidePiece(fromPieces[f], fromPieces[f], -1); } } // FADES OUT
 	game.restartSlide = { pieces, startTime: Date.now() };
+	glideHome3D(); // ON 3D ITS PIECES GLIDE HOME IN THE SAME TIME (THE 2D SLIDE STILL RUNS HIDDEN & ENDS IT)
 }
 
 /**
@@ -204,9 +202,8 @@ export function drawRestartSlide() {
 		game.refresh = true; // AN AI MOVE SLIDES IN NEXT
 		return;
 	}
-	const eased = 0.5 - Math.cos(progress * Math.PI) / 2; // HOW FAR ALONG, SLOW START & LANDING
-	let hop = Math.sin(progress * Math.PI); // KNIGHTS: 0 ON THE BOARD, 1 HALFWAY (HALF A SQUARE UP), SAME ARC AS handleKnightHop()
-	if (hop < 0.001) { hop = 0; } // BACK ON THE BOARD (sin(PI) ISN'T EXACTLY 0)
+	const eased = easeInOut(progress); // HOW FAR ALONG, SLOW START & LANDING
+	const hop = hopArc(progress); // KNIGHTS: 0 ON THE BOARD, 1 HALFWAY (HALF A SQUARE UP), SAME ARC AS handleKnightHop()
 	renderBoard();
 
 	let drawPieces = []; // WHERE EACH PIECE IS THIS FRAME

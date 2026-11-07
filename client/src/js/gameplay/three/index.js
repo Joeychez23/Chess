@@ -12,7 +12,8 @@ import {
 	WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, HemisphereLight, DirectionalLight, PlaneGeometry, MeshStandardMaterial,
 	MeshBasicMaterial, Mesh, TextureLoader, SRGBColorSpace, LinearMipmapLinearFilter, GridHelper, Raycaster, Vector2, MathUtils
 } from "three";
-import { createPiece, updateShadow, disposePiece } from "./pieces.js";
+import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js";
+import { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } from "../animate/timing.js"; // THE 2D BOARD'S TIMINGS, SO A MOVE TAKES THE SAME TIME ON BOTH
 import { createSurroundings } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
 
@@ -24,8 +25,8 @@ const BOARD_SIZE = 24; // WORLD UNITS PER BOARD SIDE
 const CELL_SIZE = BOARD_SIZE / 8;
 const PIECE_SIZE = CELL_SIZE * 0.8; // ONE PIECE UNIT (pieces.js), BASES LEAVE A GAP INSIDE THE SQUARE
 const FILES = "abcdefgh";
-const SLIDE_MS_PER_SQUARE = 263; // SAME SPEED AS THE 2D BOARD (animate/index.js)
 const HOP_HEIGHT = CELL_SIZE * 0.6; // HOW HIGH A KNIGHT HOPS
+const SINK_DEPTH = CELL_SIZE * 0.5; // HOW FAR A TAKEN PIECE DROPS AS IT FADES
 const BOARD_IMAGE = new URL("./board.jpg", import.meta.url).href; // JUST THE 8x8 SQUARES, BUNDLED (NOT S3: images/ IS GITIGNORED) & ONLY FETCHED WITH 3D ON
 const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON TOP
 	last: [0xE8792B, 0.3],
@@ -233,13 +234,18 @@ export function highlight(squares, kind) {
 // Animation
 /* ---------------------------------------------------------------- */
 
-// PUTS A MOVING PIECE WHERE THE TIME SAYS (now = Infinity FINISHES IT), ENDING IT AT progress 1
+// PUTS A MOVING PIECE WHERE THE TIME SAYS (now = Infinity FINISHES IT), ENDING IT AT progress 1. THE CLOCK STARTS ON ITS FIRST FRAME
+// PLUS ITS delay (A KNIGHT'S STOP), ease IS THE RESTART SLIDE'S SLOW START & LANDING, fade 1 FADES IN & -1 FADES OUT & DROPS
 function stepAnim(anim, now) {
-	if (anim.start === null) { anim.start = now; } // TIMED FROM ITS FIRST FRAME
-	const t = now === Infinity || !anim.duration ? 1 : Math.min((now - anim.start) / anim.duration, 1);
+	if (anim.start === null) { anim.start = now + anim.delay; }
+	const t = now === Infinity || !anim.duration ? 1 : MathUtils.clamp((now - anim.start) / anim.duration, 0, 1);
+	const along = anim.ease ? easeInOut(t) : t;
 	const { mesh, x0, z0, x1, z1 } = anim;
-	mesh.position.set(x0 + (x1 - x0) * t, anim.hop ? Math.sin(Math.PI * t) * HOP_HEIGHT : 0, z0 + (z1 - z0) * t);
-	updateShadow(mesh);
+	let y = anim.hop ? hopArc(t) * HOP_HEIGHT : 0;
+	if (anim.fade < 0) { y -= t * SINK_DEPTH; }
+	mesh.position.set(x0 + (x1 - x0) * along, y, z0 + (z1 - z0) * along);
+	if (anim.fade) { setOpacity(mesh, anim.fade > 0 ? t : 1 - t); } // ALSO PUTS THE SHADOW UNDER IT
+	else { updateShadow(mesh); }
 	if (t < 1) { return; }
 	view.anims.delete(anim);
 	if (anim.onEnd) { anim.onEnd(); } // NOW, NOT IN A .then(): A syncFromBoard() OR unmount() RIGHT AFTER SEES THE FINAL PIECES
@@ -250,17 +256,25 @@ function finishAnims() {
 	for (const anim of [...view.anims]) { stepAnim(anim, Infinity); }
 }
 
-// MOVES A MESH TO square & SLIDES (OR HOPS) IT THERE FROM WHERE IT'S DRAWN NOW, onEnd RUNS ON ARRIVAL
-function slide(mesh, square, hop, onEnd) {
+// STARTS AN ANIMATION OF mesh FROM WHERE IT'S DRAWN NOW TO (x1, z1), RESOLVES WHEN IT ENDS
+function animate(mesh, x1, z1, { hop = false, ease = false, fade = 0, delay = 0, duration, onEnd }) {
 	const x0 = mesh.position.x, z0 = mesh.position.z;
-	view.pieces.delete(mesh.userData.square);
+	if (fade > 0) { setOpacity(mesh, 0); } // UNSEEN UNTIL ITS FIRST FRAME
+	return new Promise(function (done) {
+		view.anims.add({ mesh, x0, z0, x1, z1, hop, ease, fade, delay, duration, onEnd, start: null, done });
+	});
+}
+
+// MOVES A MESH TO square & SLIDES (OR HOPS) IT THERE FROM WHERE IT'S DRAWN NOW. options: animate()'s, duration DEFAULTS TO A MOVE'S
+function slide(mesh, square, options) {
+	const x0 = mesh.position.x, z0 = mesh.position.z;
+	if (view.pieces.get(mesh.userData.square) === mesh) { view.pieces.delete(mesh.userData.square); } // NOT A PIECE THAT ALREADY SLID IN THERE
 	place(mesh, square);
 	const x1 = mesh.position.x, z1 = mesh.position.z;
 	const squares = Math.max(Math.abs(x1 - x0), Math.abs(z1 - z0)) / CELL_SIZE;
 	mesh.position.set(x0, 0, z0); // place() JUMPED IT, PUT IT BACK FOR THE FIRST FRAME
-	return new Promise(function (done) {
-		view.anims.add({ mesh, x0, z0, x1, z1, hop, onEnd, duration: (hop ? 1 : squares) * SLIDE_MS_PER_SQUARE, start: null, done });
-	});
+	updateShadow(mesh);
+	return animate(mesh, x1, z1, { duration: slideDuration(squares, options.hop), ...options });
 }
 
 /**
@@ -279,17 +293,73 @@ export function animateMove(from, to, promotion) {
 	const fileStep = fileOf(to) - fileOf(from);
 	let captured = view.pieces.get(to);
 	if (type === "p" && fileStep !== 0 && !captured) { captured = view.pieces.get(to[0] + from[1]); } // EN PASSANT: THE PAWN BESIDE IT
-	if (captured) { view.pieces.delete(captured.userData.square); }
-	const moves = [slide(mesh, to, type === "n", function () {
-		if (captured) { removePiece(captured); }
+	const knight = type === "n";
+	const moves = [slide(mesh, to, { hop: knight, delay: slideDelay(knight), onEnd: function () {
 		if (promotion && type === "p") {
 			removePiece(mesh);
 			place(addPiece(promotion, color), to);
 		}
-	})];
+	} })];
+	if (captured) { // FADES & DROPS AWAY WHILE THE PIECE COMES IN, GONE AS IT LANDS
+		view.pieces.delete(captured.userData.square);
+		const { x, z } = captured.position;
+		moves.push(animate(captured, x, z, { fade: -1, delay: slideDelay(knight), duration: slideDuration(Math.max(Math.abs(fileStep), Math.abs(rowOf(to) - rowOf(from))), knight), onEnd: () => removePiece(captured) }));
+	}
 	if (type === "k" && Math.abs(fileStep) === 2) { // CASTLING: THE ROOK JUMPS OVER THE KING
 		const rook = view.pieces.get((fileStep > 0 ? "h" : "a") + from[1]);
-		if (rook) { moves.push(slide(rook, (fileStep > 0 ? "f" : "d") + from[1], false)); }
+		if (rook) { moves.push(slide(rook, (fileStep > 0 ? "f" : "d") + from[1], {})); }
 	}
 	return Promise.all(moves).then(() => {});
+}
+
+/**
+ * @description Restart & Rematch: every piece glides home to the new position in the 2D slide's time (RESTART_SLIDE_MS) on a slow start
+ * & landing, pairing each square with a piece of the same color & type, closest first (a bishop stays on its square color).
+ * Knights that move hop. A square with no piece left for it fades in, a piece with no square fades out where it is
+ * @param  {[Chess]} chessInst [the new game, only its board() is read]
+ * @return {[Promise<void>]} [resolves when every piece is home]
+ */
+export function glideHome(chessInst) {
+	if (!view) { return Promise.resolve(); }
+	finishAnims();
+	const targets = chessInst.board().flat().filter(Boolean); // { square, type, color }
+	const meshes = [...view.pieces.values()];
+	const light = (square) => (fileOf(square) + rowOf(square)) % 2 === 0;
+	const pairs = [];
+	targets.forEach(function (p, t) {
+		meshes.forEach(function (mesh, m) {
+			if (mesh.userData.type !== p.type || mesh.userData.color !== p.color) { return; }
+			const from = mesh.userData.square;
+			let distance = Math.hypot(fileOf(p.square) - fileOf(from), rowOf(p.square) - rowOf(from));
+			if (p.type === "b" && light(from) !== light(p.square)) { distance += 100; } // A BISHOP STAYS ON ITS SQUARE COLOR
+			pairs.push({ t, m, distance });
+		});
+	});
+	pairs.sort((a, b) => a.distance - b.distance); // CLOSEST FIRST
+	const target = new Map(); // MESH INDEX -> TARGET INDEX
+	const filled = new Set(); // TARGET INDEXES WITH A PIECE
+	for (const { t, m } of pairs) {
+		if (target.has(m) || filled.has(t)) { continue; }
+		target.set(m, t);
+		filled.add(t);
+	}
+	view.pieces.clear();
+	const glides = [];
+	meshes.forEach(function (mesh, m) {
+		if (!target.has(m)) { // NO SQUARE: FADES OUT WHERE IT IS
+			const { x, z } = mesh.position;
+			glides.push(animate(mesh, x, z, { fade: -1, duration: RESTART_SLIDE_MS, onEnd: () => removePiece(mesh) }));
+			return;
+		}
+		const square = targets[target.get(m)].square;
+		const moves = square !== mesh.userData.square;
+		glides.push(slide(mesh, square, { hop: moves && mesh.userData.type === "n", ease: true, duration: RESTART_SLIDE_MS }));
+	});
+	targets.forEach(function (p, t) {
+		if (filled.has(t)) { return; }
+		const mesh = addPiece(p.type, p.color); // NO PIECE LEFT FOR IT: FADES IN ON ITS SQUARE
+		place(mesh, p.square);
+		glides.push(animate(mesh, mesh.position.x, mesh.position.z, { fade: 1, duration: RESTART_SLIDE_MS }));
+	});
+	return Promise.all(glides).then(() => {});
 }
