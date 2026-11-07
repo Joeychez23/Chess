@@ -127,7 +127,7 @@ function stepCamera(now) {
 /* ---------------------------------------------------------------- */
 
 // MOUSE: LEFT-DRAG PANS (ON A PIECE IT'S PIECE INPUT INSTEAD), RIGHT-DRAG ROTATES, SCROLL ZOOMS. TOUCH: ONE FINGER IS PIECE INPUT,
-// TWO ROTATE & PINCH ZOOM. A PRESS THAT MOVES THE CAMERA PAST DRAG_PX SETS cameraGesture, SO gameplay/input IGNORES IT
+// TWO ROTATE & PINCH ZOOM. A PRESS THAT MOVES THE CAMERA PAST DRAG_PX (OR ANY TWO FINGER TOUCH) SETS cameraGesture, SO gameplay/input IGNORES IT
 function createControls(camera, canvas) {
 	const controls = new OrbitControls(camera, canvas);
 	controls.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
@@ -136,6 +136,7 @@ function createControls(camera, canvas) {
 	controls.addEventListener("start", function () {
 		view.controlsActive = true;
 		view.cameraTurn = null; // THE PLAYER TOOK THE CAMERA MID FLIP
+		if (view.pointerType === "touch") { view.cameraGesture = true; } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
 	});
 	controls.addEventListener("change", function () {
 		const { controlsActive, press, pointerAt } = view;
@@ -156,6 +157,7 @@ function onPointerDown(e) {
 		view.press = { x: e.clientX, y: e.clientY };
 	}
 	view.pointerAt = { x: e.clientX, y: e.clientY };
+	view.pointerType = e.pointerType;
 	view.controls.enabled = !(e.pointerType === "mouse" && e.button === 0 && hitUnder(e, false));
 }
 
@@ -209,7 +211,7 @@ export function mount(container) {
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
 	view = { container, renderer, scene, camera, plane, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", cameraTurn: null }; // side: THE SIDE THE CAMERA IS ON (OR TURNING TO), cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
-	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 } }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
+	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
 	placeCamera(0);
 	container.addEventListener("pointerdown", onPointerDown, true);
 	container.addEventListener("pointermove", onPointerMove, true);
