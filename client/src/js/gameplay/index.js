@@ -23,13 +23,13 @@ const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // D
 const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & TV REMOTE HANDLERS (ADDED IN startGame)
 const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
-const { addMenuListeners, handleResume, handleSound, loadSound, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
+const { addMenuListeners, handleResume, handleSound, loadSound, loadView, showView, handleView, handleResetView, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
-const { drawBoard, setView, VIEWS, addBoardListener } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
+const { drawBoard, VIEWS, addBoardListener } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
 export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -51,7 +51,7 @@ const AI_RETRY_TIME = 5000; // ASKS FOR THE AI'S MOVE AGAIN AFTER THIS WHEN IT D
  * @description Starts a game: adds the canvas to main & starts the game (startGame) once the images are loaded.
  * The rest of the game is in the files next to this one (see the top of this file), the state they share is game (gameplay/state/index.js)
  * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, TV_BOOL, SIGNED_IN, VIEW }, TV_BOOL = TV REMOTE CONTROLS INSTEAD OF THE MOUSE,
- * VIEW = VIEWS.THREE_D TO START ON THE 3D BOARD (LEFT OUT: 2D)]
+ * VIEW = VIEWS.THREE_D TO START ON THE 3D BOARD (LEFT OUT: THE PLAYER'S SAVED VIEW, loadView)]
  */
 export async function renderCanvas(playerData) {
 	game.GAME_URL = playerData.GAME_URL; // SETS CONSTANT GAME VARIABLES
@@ -86,7 +86,7 @@ export async function renderCanvas(playerData) {
 	 */
 	const startGameCheck = setInterval(async function () {
 		if (imageProgress() == 1) { // EVERY IMAGE preloadImages() STARTED IS IN (THE PLAY PAGE STARTS THEM BEFORE renderCanvas)
-			startGame(playerData.VIEW);
+			startGame(playerData.VIEW || loadView()); // THE PLAYER'S SAVED VIEW, 2D BY DEFAULT
 			clearInterval(startGameCheck);
 		}
 	}, 100);
@@ -131,7 +131,7 @@ async function startGame(view) {
 	game.reduceMotion = reduceMotionQuery.matches;
 	reduceMotionQuery.addEventListener("change", function (e) { game.reduceMotion = e.matches; }); // CHANGED DURING A GAME: THE NEXT FRAME USES IT
 
-	if (view === VIEWS.THREE_D) { setView(VIEWS.THREE_D); } // FALLS BACK TO 2D ITSELF WHEN 3D CAN'T LOAD
+	if (view === VIEWS.THREE_D) { showView(VIEWS.THREE_D); } // FALLS BACK TO 2D ITSELF WHEN 3D CAN'T LOAD
 	startFrames(renderLoop); // THE RENDER LOOP, FRAMES ONLY COME WHILE SOMETHING CHANGES & THE TAB IS SHOWN
 	document.addEventListener("visibilitychange", function () { if (!document.hidden) { game.refresh = true; } }); // SHOWN AGAIN: A SLIDE CATCHES UP TO THE TIME (stepSlide), REDRAWS A CANVAS THE BROWSER MAY HAVE THROWN AWAY
 
@@ -153,6 +153,8 @@ async function startGame(view) {
 	optResumeBtn.addEventListener("click", handleResume);
 	optSoundBtn.addEventListener("click", handleSound);
 	optFlipBtn.addEventListener("click", handleFlip);
+	document.getElementById("optView").addEventListener("click", handleView);
+	document.getElementById("optResetView").addEventListener("click", handleResetView);
 	if (!game.TV_BOOL || OVERRIDE_TV) { optPgnBtn.addEventListener("click", handleDownloadPgn); } // THE TV REMOTE CAN'T REACH IT, A TV HAS NOWHERE TO SAVE A FILE
 	else { optPgnBtn.parentElement.hidden = true; }
 	document.getElementById("optHint").addEventListener("click", handleHint);

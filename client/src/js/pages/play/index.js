@@ -141,6 +141,7 @@ function gameNotFound() {
 	optResumeBtn.parentElement.hidden = true;
 	optSoundBtn.parentElement.hidden = true;
 	optFlipBtn.parentElement.hidden = true;
+	document.getElementById("optView").parentElement.hidden = true;
 	optTypeMoveBtn.parentElement.hidden = true; // NO GAME: THEIR LISTENERS ARE ADDED WHEN IT STARTS
 	optPgnBtn.parentElement.hidden = true;
 	optRestartBtn.parentElement.hidden = true;

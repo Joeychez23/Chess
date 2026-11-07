@@ -98,6 +98,13 @@ export function currentView() {
 	return board3D ? VIEWS.THREE_D : VIEWS.TWO_D;
 }
 
+/**
+ * @description Reset View: the 3D camera back to its default for the side the player looks from. Does nothing on 2D
+ */
+export function resetCamera() {
+	if (board3D) { board3D.resetCamera(game.viewColor); }
+}
+
 /* ---------------------------------------------------------------- */
 // Input
 /* ---------------------------------------------------------------- */

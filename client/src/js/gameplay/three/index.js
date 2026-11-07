@@ -249,6 +249,16 @@ export function setSide(color, animate) {
 }
 
 /**
+ * @description Puts the camera back at its default spot for a side at once (Reset View)
+ * @param  {[string]} color ['w' | 'b', the side the player looks from]
+ */
+export function resetCamera(color) {
+	if (!view) { return; }
+	view.cameraTurn = null;
+	placeCamera(color === "b" ? Math.PI : 0);
+}
+
+/**
  * @description Marks squares in one style, replacing that style's last marks. highlight([], kind) clears it
  * @param  {[string[]]} squares [["e4", ...]]
  * @param  {[string]} kind ["legal", "capture", "last" (last move), "check" or "hint"]
