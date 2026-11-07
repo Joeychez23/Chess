@@ -192,11 +192,14 @@ async function show3D() {
  * through it to the 3D board, input finds the picker from the canvas position (gameplay/input)
  * @param  {[boolean]} on [true for 3D, false puts it back in the page as the 2D board]
  */
+let tableImage = null; // THE 2D CANVAS'S CSS TABLE BACKGROUND, TAKEN OFF ON 3D (IT'S OPAQUE & WOULD HIDE THE 3D BOARD), PUT BACK ON 2D
 function overlayCanvas(on) {
 	game.traysOnly = on;
+	if (on && tableImage === null) { tableImage = canvas.style.backgroundImage; }
 	Object.assign(canvas.style, on
-		? { position: "fixed", left: "0", top: "0", zIndex: "1", pointerEvents: "none" }
-		: { position: "", left: "", top: "", zIndex: "", pointerEvents: "" });
+		? { position: "fixed", left: "0", top: "0", zIndex: "1", pointerEvents: "none", backgroundImage: "none" }
+		: { position: "", left: "", top: "", zIndex: "", pointerEvents: "", backgroundImage: tableImage ?? canvas.style.backgroundImage });
+	if (!on) { tableImage = null; }
 }
 
 function show2D() {
