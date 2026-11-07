@@ -18,6 +18,7 @@ import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js
 import { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } from "../animate/timing.js"; // THE 2D BOARD'S TIMINGS, SO A MOVE TAKES THE SAME TIME ON BOTH
 import { createSurroundings, orientLabels } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
+import { showHint, dismissHint, removeHint } from "./hint.js";
 
 /* ---------------------------------------------------------------- */
 // Global
@@ -153,11 +154,11 @@ function createControls(camera, canvas) {
 		view.controlsActive = true;
 		view.cameraTurn = null; // THE PLAYER TOOK THE CAMERA MID FLIP
 		setLabels(view.side);
-		if (view.pointerType === "touch") { view.cameraGesture = true; } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
+		if (view.pointerType === "touch") { startGesture(); } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
 	});
 	controls.addEventListener("change", function () {
 		const { controlsActive, press, pointerAt } = view;
-		if (controlsActive && Math.hypot(pointerAt.x - press.x, pointerAt.y - press.y) > DRAG_PX) { view.cameraGesture = true; }
+		if (controlsActive && Math.hypot(pointerAt.x - press.x, pointerAt.y - press.y) > DRAG_PX) { startGesture(); }
 	});
 	controls.addEventListener("end", function () {
 		const v = view;
@@ -165,6 +166,12 @@ function createControls(camera, canvas) {
 		if (v.cameraGesture) { setTimeout(function () { if (!v.controlsActive) { v.cameraGesture = false; } }, 0); } // AFTER THE CLICK THE RELEASE FIRES
 	});
 	return controls;
+}
+
+// THE CONTROLS OWN THE POINTER FROM HERE. THE FIRST CAMERA MOVE ALSO DISMISSES THE CONTROLS HINT
+function startGesture() {
+	view.cameraGesture = true;
+	dismissHint();
 }
 
 // CAPTURE PHASE, BEFORE THE CONTROLS SEE IT: A LEFT MOUSE PRESS ON A PIECE IS PIECE INPUT, THE CAMERA SITS IT OUT UNTIL THE RELEASE
@@ -241,6 +248,7 @@ export function mount(container) {
 	container.appendChild(canvas);
 	resize();
 	renderer.setAnimationLoop(frame);
+	showHint(); // THE FIRST TIME 3D OPENS
 }
 
 /**
@@ -250,6 +258,7 @@ export function mount(container) {
 export function unmount() {
 	if (!view) { return; }
 	finishAnims();
+	removeHint();
 	const { renderer, scene, observer, controls, container } = view;
 	renderer.setAnimationLoop(null);
 	observer.disconnect();
