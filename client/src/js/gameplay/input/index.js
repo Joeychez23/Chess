@@ -191,17 +191,30 @@ function getCanvasPoint(e) {
 
 /**
  * @description The screen column & row under the pointer, the same on both boards (off the board is below 0 or above 7).
- * 2D: from the canvas position, 3D: from the square the 3D board reports
+ * 2D: from the canvas position, 3D: from the square the 3D board reports, or the promotion picker's tile (drawn on the canvas over it)
  * @param  {[object]} e [mouse event, or a touch made to look like one]
  * @return {[object]} { x, y } [screen column & row]
  */
 function pointerTile(e) {
 	if (currentView() === VIEWS.THREE_D) {
+		const picker = pickerTile(e);
+		if (picker) { return picker; }
 		const square = squareUnder3D(e);
 		return square ? squareToTile(square, game.viewColor) : OFF_3D_BOARD;
 	}
+	return canvasTile(e);
+}
+
+function canvasTile(e) { // THE SCREEN COLUMN & ROW AT THE POINTER ON THE 2D CANVAS
 	const point = getCanvasPoint(e);
 	return { x: Math.floor((point.x - game.xBoardOff) / game.tileWidth), y: Math.floor((point.y - game.yBoardOff) / game.tileHeight) };
+}
+
+function pickerTile(e) { // 3D: THE CANVAS TILE WHEN IT'S ON A PIECE OF THE OPEN PROMOTION PICKER, null OTHERWISE
+	if (!game.currPromotion) { return null; }
+	const tile = canvasTile(e);
+	const picker = (game.playerColor == 'w' ? game.bTakenPieces : game.wTakenPieces) || [];
+	return picker.some((p) => p.x === tile.x && p.y === tile.y) ? tile : null;
 }
 
 function setPointerTile(e) { // game.tileX & game.tileY = THE SCREEN COLUMN & ROW UNDER THE POINTER

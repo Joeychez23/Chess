@@ -2,8 +2,9 @@
  *  index.js  --  chess frontend
  *	Renderer
  *	The one place that picks the board the player sees: the 2D canvas or the 3D board (three/). The rest of the game calls
- *	drawBoard() & setView() & never checks which one is on. The 2D canvas keeps drawing even while it's hidden behind the
- *	3D board, its frames still run the game (tiles, slides, trays), then the 3D board is set to match chessInst.
+ *	drawBoard() & setView() & never checks which one is on. The 2D canvas keeps drawing on 3D, laid clear over the 3D board
+ *	with only its trays showing, its frames still run the game (tiles, slides, trays), then the 3D board is set to match chessInst,
+ *	game.viewColor (the camera's side) & the 2D highlights.
  *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D. Input (gameplay/input) only asks here for the
  *	square under the pointer, its handlers are the same on both boards (addBoardListener)
  *
@@ -15,7 +16,7 @@
 const { game, canvas, chessInst, requestFrame } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE 2D CANVAS, THE BOARD THAT'S DRAWN
 const { load3D } = require("../three/load.js"); // DOWNLOADS THE 3D BOARD THE FIRST TIME IT'S TURNED ON
 const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
-const { moveBetween } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS
+const { moveBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS, THE SQUARE OF A SCREEN TILE
 const { Chess } = require("chess.js");
 const scratch = new Chess(); // ONLY moveBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
 
@@ -25,6 +26,7 @@ let board3D = null; // THE 3D MODULE WHILE IT'S MOUNTED, null ON 2D
 let container = null; // WHAT THE 3D CANVAS FILLS, IN #main NEXT TO THE (HIDDEN) 2D CANVAS
 let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT TWICE
 let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
+let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
 const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
 
 /* ---------------------------------------------------------------- */
@@ -37,13 +39,44 @@ const boardListeners = []; // [type, handler, options] FROM addBoardListener, PU
  */
 export function drawBoard() {
 	game.drawScreen(); // 2D (HIDDEN ON 3D): ALSO FILLS game.tiles & STEPS THE SLIDES THE GAME WAITS ON
-	if (!board3D) { return; } // 3D: SIZES ITSELF (ResizeObserver) & DRAWS ITS OWN FRAMES, ONLY THE PIECES ARE SET HERE
+	if (!board3D) { return; } // 3D: SIZES ITSELF (ResizeObserver) & DRAWS ITS OWN FRAMES, ONLY THE PIECES, CAMERA SIDE & HIGHLIGHTS ARE SET HERE
+	board3D.setSide(game.viewColor, !game.reduceMotion); // FLIP BOARD TURNS THE CAMERA
+	syncMarks3D();
 	const fen = chessInst.fen();
 	if (fen === shownFen) { return; } // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
 	const move = game.reduceMotion ? null : moveBetween(scratch, shownFen, fen);
 	shownFen = fen;
 	if (move) { board3D.animateMove(move.from, move.to, move.promotion); }
 	else { board3D.syncFromBoard(chessInst); }
+}
+
+/**
+ * @description The squares the 2D board highlights, by 3D highlight kind: the opponent's last move, the hint, the king in check
+ * & the held piece's moves (captures apart), like drawLastMove, drawHint, the check highlight & checkAvailableMoves
+ * @return {[object]} { last, hint, check, legal, capture } [lists of squares]
+ */
+function marks3D() {
+	const marks = { last: game.lastOpponentMove || [], hint: game.hint || [], check: [], legal: [], capture: [] };
+	if (chessInst.isCheck()) {
+		const king = chessInst.board().flat().find((p) => p && p.type === "k" && p.color === chessInst.turn());
+		if (king) { marks.check.push(king.square); }
+	}
+	const held = game.clickedTile || game.mousedownTile;
+	if (held && !game.opposingMove && !game.currPromotion) {
+		const from = tileToSquare(held.originX, held.originY, game.viewColor);
+		const moves = from ? chessInst.moves({ square: from, verbose: true }) : [];
+		moves.forEach((m) => marks[m.captured ? "capture" : "legal"].push(m.to));
+	}
+	return marks;
+}
+
+// PUTS marks3D() ON THE 3D BOARD WHEN THEY CHANGED
+function syncMarks3D() {
+	const marks = marks3D();
+	const key = JSON.stringify(marks);
+	if (key === shownMarks) { return; }
+	shownMarks = key;
+	Object.keys(marks).forEach((kind) => board3D.highlight([...new Set(marks[kind])], kind));
 }
 
 /**
@@ -136,12 +169,27 @@ async function show3D() {
 		return show2D();
 	}
 	board3D = board;
-	canvas.style.display = "none"; // STILL DRAWN (drawBoard), JUST NOT SEEN
+	overlayCanvas(true);
+	board3D.setSide(game.viewColor, false);
 	board3D.syncFromBoard(chessInst);
 	shownFen = chessInst.fen();
+	shownMarks = null;
 	game.refresh = true;
 	requestFrame();
 	return VIEWS.THREE_D;
+}
+
+/**
+ * @description On 3D the 2D canvas lies over the 3D board, the same size & place as on 2D, clear except for the taken piece trays
+ * (the promotion picker while promoting, game.traysOnly), so they stay where they are on 2D (trayNudge too). Pointer input goes
+ * through it to the 3D board, input finds the picker from the canvas position (gameplay/input)
+ * @param  {[boolean]} on [true for 3D, false puts it back in the page as the 2D board]
+ */
+function overlayCanvas(on) {
+	game.traysOnly = on;
+	Object.assign(canvas.style, on
+		? { position: "fixed", left: "0", top: "0", zIndex: "1", pointerEvents: "none" }
+		: { position: "", left: "", top: "", zIndex: "", pointerEvents: "" });
 }
 
 function show2D() {
@@ -153,8 +201,8 @@ function show2D() {
 		container.remove();
 		container = null;
 	}
-	canvas.style.display = "";
-	game.refresh = true; // REDRAW THE CANVAS, IT MAY HAVE CHANGED SIZE WHILE IT WAS HIDDEN
+	overlayCanvas(false);
+	game.refresh = true; // REDRAW THE WHOLE CANVAS, IT ONLY HAD THE TRAYS ON 3D
 	requestFrame();
 	return VIEWS.TWO_D;
 }

@@ -26,6 +26,9 @@ const CELL_SIZE = BOARD_SIZE / 8;
 const PIECE_SIZE = CELL_SIZE * 0.8; // ONE PIECE UNIT (pieces.js), BASES LEAVE A GAP INSIDE THE SQUARE
 const FILES = "abcdefgh";
 const HOP_HEIGHT = CELL_SIZE * 0.6; // HOW HIGH A KNIGHT HOPS
+const CAMERA_HEIGHT = 32; // THE CAMERA LOOKS DOWN AT THE CENTER FROM THIS HIGH...
+const CAMERA_DISTANCE = 26; // ...& THIS FAR BACK FROM IT, ON THE SIDE AT THE BOTTOM OF THE SCREEN
+const FLIP_MS = 700; // HOW LONG FLIP BOARD TAKES TO TURN THE CAMERA TO THE OTHER SIDE
 const SINK_DEPTH = CELL_SIZE * 0.5; // HOW FAR A TAKEN PIECE DROPS AS IT FADES
 const BOARD_IMAGE = new URL("./board.jpg", import.meta.url).href; // JUST THE 8x8 SQUARES, BUNDLED (NOT S3: images/ IS GITIGNORED) & ONLY FETCHED WITH 3D ON
 const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON TOP
@@ -83,9 +86,26 @@ function resize() {
 	camera.updateProjectionMatrix();
 }
 
-// EACH FRAME: STEP THE MOVING PIECES, THEN DRAW
+// PUTS THE CAMERA angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE CENTER
+function placeCamera(angle) {
+	view.cameraAngle = angle;
+	view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle));
+	view.camera.lookAt(0, 0, 0);
+}
+
+// TURNS THE CAMERA PART OF THE WAY TO ITS SIDE (setSide), SLOW START & LANDING
+function stepCamera(now) {
+	const turn = view.cameraTurn;
+	if (turn.start === null) { turn.start = now; }
+	const t = MathUtils.clamp((now - turn.start) / FLIP_MS, 0, 1);
+	placeCamera(turn.from + (turn.to - turn.from) * easeInOut(t));
+	if (t === 1) { view.cameraTurn = null; }
+}
+
+// EACH FRAME: STEP THE MOVING PIECES & CAMERA, THEN DRAW
 function frame(now) {
 	for (const anim of [...view.anims]) { stepAnim(anim, now); }
+	if (view.cameraTurn) { stepCamera(now); }
 	view.renderer.render(view.scene, view.camera);
 }
 
@@ -102,9 +122,7 @@ export function mount(container) {
 	const scene = new Scene();
 	scene.background = new Color(BAIZE_FOG);
 	scene.fog = new Fog(BAIZE_FOG, 50, 150); // PAST THE BAIZE TABLE, FADE INTO THE BACKGROUND
-	const camera = new PerspectiveCamera(45, 1, 0.1, 1000);
-	camera.position.set(0, 32, 26); // WHITE'S SIDE, LOOKING DOWN AT AN ANGLE
-	camera.lookAt(0, 0, 0);
+	const camera = new PerspectiveCamera(45, 1, 0.1, 1000); // PLACED BELOW (placeCamera), WHITE'S SIDE UNTIL setSide()
 	scene.add(new HemisphereLight(0xFFF4E0, 0x3A2A1A, 1.2)); // FILL: WARM SKY, DARK WOOD BOUNCE, NO SHADOW MAPS
 	const keyLight = new DirectionalLight(0xFFFFFF, 2.2); // KEY: HIGH & TO WHITE'S LEFT
 	keyLight.position.set(-10, 25, 15);
@@ -125,7 +143,8 @@ export function mount(container) {
 		const [color, opacity] = HIGHLIGHTS[kind];
 		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
-	view = { container, renderer, scene, camera, plane, markGeometry, marks, pieces: new Map(), anims: new Set(), cameraGesture: false }; // cameraGesture: THE CAMERA CONTROLS SET IT WHILE THEY OWN THE POINTER
+	view = { container, renderer, scene, camera, plane, markGeometry, marks, pieces: new Map(), anims: new Set(), cameraGesture: false, cameraAngle: 0, cameraTurn: null }; // cameraGesture: THE CAMERA CONTROLS SET IT WHILE THEY OWN THE POINTER, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
+	placeCamera(0);
 	view.observer = new ResizeObserver(resize);
 	view.observer.observe(container);
 	window.addEventListener("orientationchange", resize); // SOME MOBILE BROWSERS REPORT THE NEW SIZE LATE
@@ -209,6 +228,24 @@ export function squareUnder(e) {
  */
 export function isCameraGesture() {
 	return Boolean(view && view.cameraGesture);
+}
+
+/**
+ * @description Puts the camera on a side of the board (Flip Board), turning it around the board or setting it at once.
+ * Pressing again mid-turn turns back from where it is
+ * @param  {[string]} color ['w' | 'b', the side the player looks from]
+ * @param  {[boolean]} animate [false sets it at once (mount, reduce motion)]
+ */
+export function setSide(color, animate) {
+	if (!view) { return; }
+	const angle = color === "b" ? Math.PI : 0;
+	if ((view.cameraTurn ? view.cameraTurn.to : view.cameraAngle) === angle) { return; }
+	if (!animate) {
+		view.cameraTurn = null;
+		placeCamera(angle);
+		return;
+	}
+	view.cameraTurn = { from: view.cameraAngle, to: angle, start: null };
 }
 
 /**

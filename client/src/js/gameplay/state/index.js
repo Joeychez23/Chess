@@ -87,6 +87,7 @@ export const game = {
 	moveObj: [null, null], // MOVE BEING PLAYED { from, to, promotion }, THE AI'S ALSO HAS response
 	lastOpponentMove: null, // [from, to] OF THE OPPONENT'S LAST MOVE, HIGHLIGHTED BY drawLastMove(), null UNTIL THEY'VE MOVED
 	hint: null, // [from, to] OF THE HINT, HIGHLIGHTED BY drawHint() UNTIL THE NEXT MOVE, null WITHOUT ONE
+	traysOnly: false, // 3D IS ON: THE 2D CANVAS LIES OVER THE 3D BOARD & DRAWS ONLY THE TAKEN PIECE TRAYS (gameplay/renderer)
 	evalBarShown: false, // THE EVALUATION BAR IS ON SCREEN, THE MOVE LIST MAKES ROOM FOR IT (gameplay/analysis/index.js)
 	annotations: [], // THE PLAYER'S RIGHT-CLICK MARKS & ARROWS { from, to } IN BOARD SQUARES (from == to IS A MARK), DRAWN BY drawAnnotations()
 	tiles: setTiles(), // 64 TILE STATES IN SCREEN ORDER (ROW * 8 + COLUMN), FILLED WITH THE PIECE ON EACH SQUARE WHILE DRAWING

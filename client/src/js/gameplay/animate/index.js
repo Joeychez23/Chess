@@ -205,6 +205,7 @@ export function drawRestartSlide() {
 	const eased = easeInOut(progress); // HOW FAR ALONG, SLOW START & LANDING
 	const hop = hopArc(progress); // KNIGHTS: 0 ON THE BOARD, 1 HALFWAY (HALF A SQUARE UP), SAME ARC AS handleKnightHop()
 	renderBoard();
+	if (game.traysOnly) { ctx.clearRect(0, 0, game.cw, game.ch); return; } // 3D: ITS PIECES GLIDE HOME ON THEIR OWN (glideHome3D), THE OVERLAY STAYS CLEAR
 
 	let drawPieces = []; // WHERE EACH PIECE IS THIS FRAME
 	for (let i = 0; i < game.restartSlide.pieces.length; i++) {
