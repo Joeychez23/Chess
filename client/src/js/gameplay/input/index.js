@@ -95,6 +95,7 @@ export function clearRemoteSelection() {
 	if (!remoteNavBox.menuBtn) { return; }
 	remoteNavBox.menuBtn.style.backgroundColor = "#CD853F";
 	remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false };
+	game.keyboardTile = null; // NO RING UNTIL THE NEXT KEY
 }
 
 /* ---------------------------------------------------------------- */
@@ -172,6 +173,7 @@ export async function handleKeyPress(e) {
 		}
 		if (game.menuToggled && e.keyCode == 36) { moveRemoteSelection("Home"); } // HOME
 		if (game.menuToggled && e.keyCode == 35) { moveRemoteSelection("End"); } // END
+		game.keyboardTile = remoteNavBox.menuHover ? null : { x: remoteNavBox.x, y: remoteNavBox.y }; // THE 3D BOARD RINGS THE SELECTED SQUARE
 		game.refresh = true
 	}
 }

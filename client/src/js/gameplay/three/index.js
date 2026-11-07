@@ -11,7 +11,7 @@
 import {
 	WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, HemisphereLight, DirectionalLight, PlaneGeometry, MeshStandardMaterial,
 	MeshBasicMaterial, Mesh, TextureLoader, SRGBColorSpace, LinearMipmapLinearFilter, GridHelper, Raycaster, Vector2, Vector3, Spherical,
-	MathUtils, MOUSE, TOUCH
+	MathUtils, MOUSE, TOUCH, RingGeometry
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js";
@@ -46,7 +46,10 @@ const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON
 	capture: [0xFF3B30, 0.45],
 	hint: [0x55C8FF, 0.45],
 	check: [0xFF0000, 0.55],
+	focus: [0xFFC83D, 1], // THE KEYBOARD'S SQUARE: A GOLD RING (NOT A FILL), LIKE THE PAGE'S FOCUS OUTLINE, CLEAR OF THE YELLOW LEGAL FILL
 };
+const FOCUS_RING = [0.36, 0.47]; // ITS INNER & OUTER EDGE, HALF A SIDE IN SQUARES FROM THE CENTER
+const LABEL = "Chess board, 3D. To play with the keyboard, press / and type a move."; // THE CANVAS'S ACCESSIBLE NAME (role img)
 
 const PHONE_PIXEL_RATIO = 1.5; // PHONES DRAW AT MOST THIS MANY PIXELS PER CSS PIXEL (2 ELSEWHERE)
 // SMALL TOUCH SCREENS (#400's RULE, PLUS A PHONE ON ITS SIDE, WIDER THAN 768PX BUT SHORT) GET A STEEPER CAMERA SO EVERY SQUARE IS A
@@ -332,6 +335,8 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	const canvas = renderer.domElement;
 	canvas.style.display = "block";
 	canvas.style.width = canvas.style.height = "100%";
+	canvas.setAttribute("role", "img");
+	canvas.setAttribute("aria-label", LABEL);
 	const scene = new Scene();
 	scene.background = new Color(BAIZE_FOG);
 	if (!phone) { scene.fog = new Fog(BAIZE_FOG, 50, 150); } // PAST THE BAIZE TABLE, FADE INTO THE BACKGROUND
@@ -352,12 +357,14 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	grid.position.y = 0.01; // JUST ABOVE THE BOARD, NO Z-FIGHTING
 	scene.add(grid);
 	const markGeometry = new PlaneGeometry(CELL_SIZE * 0.9, CELL_SIZE * 0.9).rotateX(-0.5 * Math.PI);
+	const [inner, outer] = FOCUS_RING.map((s) => s * CELL_SIZE * Math.SQRT2); // 4 SEGMENTS FROM 45°: A SQUARE RING, CORNERS ON THE DIAGONALS
+	const ringGeometry = new RingGeometry(inner, outer, 4, 1, Math.PI / 4).rotateX(-0.5 * Math.PI);
 	const marks = {};
 	Object.keys(HIGHLIGHTS).forEach(function (kind, i) {
 		const [color, opacity] = HIGHLIGHTS[kind];
-		marks[kind] = { material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
+		marks[kind] = { geometry: kind === "focus" ? ringGeometry : markGeometry, material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
-	view = { phone, container, renderer, scene, camera, plane, surroundings, markGeometry, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
+	view = { phone, container, renderer, scene, camera, plane, surroundings, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
 	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored });
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
 	container.style.backgroundColor = scene.background.getStyle(); // THE SAFE AREA PADDING (UNDER A NOTCH) IS THE SCENE'S BACKGROUND
@@ -517,16 +524,16 @@ export function resetCamera(color) {
 /**
  * @description Marks squares in one style, replacing that style's last marks. highlight([], kind) clears it
  * @param  {[string[]]} squares [["e4", ...]]
- * @param  {[string]} kind ["legal", "capture", "last" (last move), "check" or "hint"]
+ * @param  {[string]} kind ["legal", "capture", "last" (last move), "check", "hint" or "focus" (the keyboard's square, a ring)]
  */
 export function highlight(squares, kind) {
 	if (!HIGHLIGHTS[kind]) { throw new Error(`Bad highlight kind: ${kind}`); }
 	if (!view) { return; }
-	const { material, y, meshes } = view.marks[kind];
+	const { geometry, material, y, meshes } = view.marks[kind];
 	for (const [square, mesh] of meshes) { mesh.visible = squares.includes(square); }
 	for (const square of squares) {
 		if (meshes.has(square)) { continue; }
-		const mesh = new Mesh(view.markGeometry, material); // ONE PER SQUARE, MADE THE FIRST TIME IT'S MARKED
+		const mesh = new Mesh(geometry, material); // ONE PER SQUARE, MADE THE FIRST TIME IT'S MARKED
 		mesh.position.set(center(fileOf(square)), y, center(rowOf(square)));
 		view.scene.add(mesh);
 		meshes.set(square, mesh);
