@@ -27,6 +27,10 @@ let boardHeight; // BOARD IMAGE HEIGHT
 let xBoardStart; // LEFT OF THE BOARD IMAGE
 let yBoardStart; // TOP OF THE BOARD IMAGE
 
+const insetProbe = document.createElement("div"); // ITS PADDING IS THE SAFE AREA (NOTCH, ROUNDED CORNERS, HOME BAR), READ BY safeArea()
+insetProbe.style.cssText = "position: fixed; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px)";
+document.body.appendChild(insetProbe);
+
 let coffeeStartTime = Date.now(); // CLOCK OF THE COFFEE STEAM ANIMATION
 let renderCoffeeImg = false; // THE SCREEN IS WIDE ENOUGH FOR THE TABLE PROPS
 
@@ -49,56 +53,59 @@ let candleObj = { img: [], img2: 56, shdw: 57, x: null, y: null, width: null, he
 export function renderBoard() {
 	game.cw = window.innerWidth;
 	game.ch = window.innerHeight;
+	const safe = safeArea(); // THE BOARD, ITS TRAYS & THE PROMOTION PICKER FIT & CENTER IN HERE, THE TABLE STILL FILLS THE SCREEN
+	const cw = game.cw - safe.left - safe.right;
+	const ch = game.ch - safe.top - safe.bottom;
 	const dpr = Math.min(window.devicePixelRatio || 1, 2); // RENDER AT DEVICE RESOLUTION (CAPPED) SO THE BOARD IS SHARP ON HIGH DPI / MOBILE SCREENS
 	canvas.width = Math.round(game.cw * dpr);
 	canvas.height = Math.round(game.ch * dpr);
 	canvas.style.width = `${game.cw}px`;
 	canvas.style.height = `${game.ch}px`;
 	ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // ALL DRAWING STAYS IN CSS PIXELS
-	game.portraitBoard = game.cw < game.ch;
+	game.portraitBoard = cw < ch;
 	let boardPadding = 1.4; // SCREEN SIZE / BOARD SIZE, BIGGER = SMALLER BOARD
-	boardWidth = game.cw / boardPadding;
-	boardHeight = (9 * (game.cw / boardPadding)) / 11; // THE BOARD IMAGE IS 11:9 (WIDE)
+	boardWidth = cw / boardPadding;
+	boardHeight = (9 * (cw / boardPadding)) / 11; // THE BOARD IMAGE IS 11:9 (WIDE)
 	// THE MENU IS SIZED BY CSS (css/nav.css)
 
 	let widthOverHeight, smBoard = false;
 	if (canvas.width) { // ASPECT RATIO OF BOARD WITH MARBLE IF CANVAS WIDTH > HEIGHT
-		if (game.cw > game.ch * (boardPadding - 0.2)) { // LANDSCAPE: THE HEIGHT SIZES THE BOARD
+		if (cw > ch * (boardPadding - 0.2)) { // LANDSCAPE: THE HEIGHT SIZES THE BOARD
 			widthOverHeight = true;
-			boardHeight = game.ch / boardPadding;
-			boardWidth = (11 * (game.ch / boardPadding)) / 9;
-			if (game.cw * .5875 > game.ch) { // LARGE BOARD
+			boardHeight = ch / boardPadding;
+			boardWidth = (11 * (ch / boardPadding)) / 9;
+			if (cw * .5875 > ch) { // LARGE BOARD
 				renderCoffeeImg = true;
 				game.widthGreater = true;
 				boardPadding = 1.2;
-				boardHeight = game.ch / boardPadding;
-				boardWidth = (11 * (game.ch / boardPadding)) / 9;
-			} else if (game.cw > game.ch * (boardPadding + 0.215)) { // MEDIUM BOARD
+				boardHeight = ch / boardPadding;
+				boardWidth = (11 * (ch / boardPadding)) / 9;
+			} else if (cw > ch * (boardPadding + 0.215)) { // MEDIUM BOARD
 				renderCoffeeImg = true;
 				game.widthGreater = true;
 				boardPadding = 1.25;
-				boardHeight = game.ch / boardPadding;
-				boardWidth = (11 * (game.ch / boardPadding)) / 9;
+				boardHeight = ch / boardPadding;
+				boardWidth = (11 * (ch / boardPadding)) / 9;
 			} else { // SMALL BOARD
 				smBoard = true;
 				renderCoffeeImg = false;
 				game.widthGreater = false;
 				boardPadding = 1.4;
-				boardHeight = game.ch / boardPadding;
-				boardWidth = (11 * (game.ch / boardPadding)) / 9;
+				boardHeight = ch / boardPadding;
+				boardWidth = (11 * (ch / boardPadding)) / 9;
 			}
 		} else { // NARROW: THE WIDTH SIZES THE BOARD, TAKEN PIECES GO ABOVE & BELOW IT
 			renderCoffeeImg = false;
 			game.widthGreater = false;
 			if (game.portraitBoard) { // PORTRAIT (MOBILE) BOARD: FILL THE WIDTH, LEAVING HEIGHT FOR THE TAKEN PIECE ROWS ABOVE & BELOW
-				boardWidth = Math.min(game.cw * 0.98, game.ch * 0.8);
+				boardWidth = Math.min(cw * 0.98, ch * 0.8);
 				boardHeight = (9 * boardWidth) / 11;
 			}
 		}
 	}
 
-	xBoardStart = (game.cw - boardWidth) / 2; // DIFFERENCE OF THE X AXIS MARBLE EDGES OF THE BOARD TO JUST THE BOARD
-	yBoardStart = (game.ch - boardHeight) / 2; // DIFFERENCE OF THE Y AXIS MARBLE EDGES OF THE BOARD TO JUST THE BOARD
+	xBoardStart = safe.left + (cw - boardWidth) / 2; // DIFFERENCE OF THE X AXIS MARBLE EDGES OF THE BOARD TO JUST THE BOARD
+	yBoardStart = safe.top + (ch - boardHeight) / 2; // DIFFERENCE OF THE Y AXIS MARBLE EDGES OF THE BOARD TO JUST THE BOARD
 
 	ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 	ctx.drawImage(images[boardShdw].image, xBoardStart, yBoardStart, boardWidth, boardHeight); // RENDER BOARD SHADOW
@@ -106,8 +113,8 @@ export function renderBoard() {
 
 	bw = (boardWidth - (boardWidth * (images[boardImg].image.naturalWidth - images[rawBoardImg].image.naturalWidth) / images[boardImg].image.naturalWidth)) // THE WIDTH OF THE CHESS BOARD NO MARBLE
 	bh = (boardHeight - (boardHeight * (images[boardImg].image.naturalHeight - images[rawBoardImg].image.naturalHeight) / images[boardImg].image.naturalHeight)) // THE HEIGHT OF THE CHESS BOARD NO MARBLE
-	game.xBoardOff = ((game.cw - (bw * xBoardShadowRatio)) / 2); // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS X
-	game.yBoardOff = (game.ch - bh) / 2; // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS Y
+	game.xBoardOff = safe.left + (cw - (bw * xBoardShadowRatio)) / 2; // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS X
+	game.yBoardOff = safe.top + (ch - bh) / 2; // WHERE THE FIRST TILE OF THE CHESS BOARD STARTS Y
 	game.tileWidth = bw / 8;
 	game.tileHeight = bh / 8;
 	drawCoordinates();
@@ -144,6 +151,16 @@ export function renderBoard() {
 		ctx.drawImage(images[candleObj.img2].image, candleObj.x, candleObj.y, candleObj.width, candleObj.height);
 	}
 	return { clickX, clickY }
+}
+
+/**
+ * @description The safe area's insets, 0 on screens without a notch or rounded corners (& browsers without env())
+ * @return {[object]} { top, right, bottom, left } [CSS pixels]
+ */
+function safeArea() {
+	const style = getComputedStyle(insetProbe);
+	const px = (side) => parseFloat(style[`padding${side}`]) || 0;
+	return { top: px("Top"), right: px("Right"), bottom: px("Bottom"), left: px("Left") };
 }
 
 /* ---------------------------------------------------------------- */

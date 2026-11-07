@@ -8,6 +8,7 @@
 
 const ENDPOINT = "/api/client-errors";
 const MAX_REPORTS = 10; // PER PAGE LOAD, THE SERVER HAS ITS OWN LIMITS TOO
+let sendReport = null; // startErrorReports()'S report(), FOR reportError()
 
 /**
  * @description A URL's path without its query or game id
@@ -40,6 +41,7 @@ function startErrorReports(win = window) {
 		win.navigator.sendBeacon?.(ENDPOINT, new Blob([body], { type: "application/json" })); // NOT fetch, SO A REPORT THAT FAILS CAN'T REPORT ITSELF
 	}
 
+	sendReport = report;
 	win.addEventListener("pagehide", () => { leaving = true; }); // REQUESTS CUT OFF BY LEAVING THE PAGE AREN'T ERRORS
 	win.addEventListener("pageshow", () => { leaving = false; }); // BACK TO THIS PAGE FROM THE BROWSER'S CACHE
 
@@ -65,5 +67,15 @@ function startErrorReports(win = window) {
 	};
 }
 
+/**
+ * @description Reports a failure the code caught itself (e.g. the 3D board losing its WebGL context), as an "error" from source.
+ * Does nothing before startErrorReports() (a page that doesn't report)
+ * @param  {[string]} message [what went wrong]
+ * @param  {[string]} source [where, e.g. "3d-board"]
+ */
+function reportError(message, source) {
+	if (sendReport) { sendReport("error", { message, source }); }
+}
 
-module.exports = { startErrorReports };
+
+module.exports = { startErrorReports, reportError };

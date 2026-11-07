@@ -14,7 +14,7 @@ const { aiMove } = require("../utils/ai.js");
 const config = require("../config.js");
 const { LOGIN_LIMITS } = require("../middleware/rateLimit.js");
 const keys = require("../../data-service/test/helpers/keys.js");
-const { startErrorReports } = require("../../client/src/js/pages/utils/reportErrors.js");
+const { startErrorReports, reportError } = require("../../client/src/js/pages/utils/reportErrors.js");
 const { send, engineWillPlay, engineCalls, dataServiceWillAnswer, auth0WillSign } = testServer;
 
 const STOCKFISH_ALARM = /^STOCKFISH FAILED/; // THE PATTERNS IN terraform/modules/monitoring/main.tf
@@ -273,6 +273,14 @@ describe("the browser's reportErrors.js", () => {
 		listeners.pageshow();
 		await assert.rejects(win.fetch("/api/user"));
 		assert.equal(beacons.length, 1);
+	});
+
+	test("a failure the code caught is sent as an error from its source, & the route accepts it", async () => {
+		browser();
+		reportError("3D board lost its WebGL context", "3d-board");
+		assert.deepEqual(await sent(), [{ kind: "error", page: "/play/:id", message: "3D board lost its WebGL context", source: "3d-board" }]);
+		const res = await send("POST", "/api/client-errors", {}, { headers: { "Content-Type": beacons[0].blob.type, Origin: new URL(config.clientUrl).origin }, body: await beacons[0].blob.text() });
+		assert.equal(res.http, 204);
 	});
 
 	test("the same error is sent once, & a page sends 10 at most", () => {

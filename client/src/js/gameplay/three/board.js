@@ -7,6 +7,7 @@
  */
 
 import { Shape, Path, Mesh, ShapeGeometry, CanvasTexture, SRGBColorSpace, Group, BoxGeometry, PlaneGeometry, MeshBasicMaterial } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { frameWood, gold, baize } from "./materials.js";
 
 const COORD_BORDER_RATIO = 0.285;
@@ -14,6 +15,8 @@ const BORDER = 0.75; // FRAME WIDTH, IN SQUARES
 const INLAYS = [[0.04, 0.08], [0.49, 0.53]]; // GOLD LINES, [inner, outer] DISTANCE FROM THE BOARD EDGE, IN SQUARES
 const FRAME_DEPTH = 0.25; // FRAME THICKNESS BELOW THE BOARD SURFACE, IN SQUARES
 const LABEL_COLOR = "#d9b27a"; // THE 2D BOARD'S COORDINATE GOLD
+const GLYPHS = "abcdefgh87654321"; // THE LABEL ATLAS, LEFT TO RIGHT: FILES, THEN RANKS FROM THE TOP (8 - i)
+const GLYPH_PX = 64;
 
 // A SQUARE FRAME OUTLINE (OUTER SQUARE MINUS INNER SQUARE) LYING FLAT AT HEIGHT y
 function squareRing(inner, outer, material, y) {
@@ -25,19 +28,35 @@ function squareRing(inner, outer, material, y) {
 	return mesh;
 }
 
-// ONE LABEL'S TEXTURE: GOLD TEXT ON TRANSPARENT, DRAWN LIKE THE 2D BOARD'S drawCoordinates()
-function labelTexture(text) {
+// EVERY LABEL'S GLYPH IN ONE TEXTURE (GLYPHS ORDER, GLYPH_PX SQUARE EACH): GOLD TEXT ON TRANSPARENT, DRAWN LIKE THE 2D BOARD'S drawCoordinates()
+function labelAtlas() {
 	const canvas = document.createElement("canvas");
-	canvas.width = canvas.height = 64;
+	canvas.width = GLYPH_PX * GLYPHS.length;
+	canvas.height = GLYPH_PX;
 	const ctx = canvas.getContext("2d");
 	ctx.font = "600 44px Archivo, \"Helvetica Neue\", Arial, sans-serif";
 	ctx.fillStyle = LABEL_COLOR;
 	ctx.textAlign = "center";
 	ctx.textBaseline = "middle";
-	ctx.fillText(text, 32, 34);
+	[...GLYPHS].forEach((text, k) => ctx.fillText(text, GLYPH_PX * (k + 0.5), 34));
 	const texture = new CanvasTexture(canvas);
 	texture.colorSpace = SRGBColorSpace;
 	return texture;
+}
+
+// ALL 16 LABELS READ FROM color'S SIDE AS ONE MESH (ONE DRAW CALL), WHERE THE 2D BOARD HAS THEM: FILES ALONG ITS NEAR EDGE, RANKS UP ITS LEFT
+function labelsFor(color, cell, half, material) {
+	const s = color === "b" ? -1 : 1; // BLACK'S NEAR EDGE IS -Z, ITS LEFT IS +X
+	const band = half + COORD_BORDER_RATIO * cell;
+	const parts = [...GLYPHS].map(function (text, k) {
+		const along = -half + cell * ((k % 8) + 0.5);
+		const g = new PlaneGeometry(cell * 0.4, cell * 0.4);
+		const uv = g.attributes.uv;
+		for (let i = 0; i < uv.count; i++) { uv.setX(i, (k + uv.getX(i)) / GLYPHS.length); } // ITS SLOT IN THE ATLAS
+		g.rotateZ(color === "b" ? Math.PI : 0).rotateX(-0.5 * Math.PI); // UPRIGHT TO THAT SIDE, LYING FLAT
+		return k < 8 ? g.translate(along, 0.006, s * band) : g.translate(-s * band, 0.006, along);
+	});
+	return new Mesh(mergeGeometries(parts), material);
 }
 
 /**
@@ -59,35 +78,21 @@ export function createSurroundings(boardSize) {
 	table.rotation.x = -0.5 * Math.PI;
 	table.position.y = -depth - 0.01;
 	group.add(table);
-	const labelGeometry = new PlaneGeometry(cell * 0.4, cell * 0.4);
-	const band = half + COORD_BORDER_RATIO * cell;
-	const labels = [];
-	for (let i = 0; i < 8; i++) {
-		const along = -half + cell * (i + 0.5);
-		for (const [text, file] of [["abcdefgh"[i], true], [String(8 - i), false]]) {
-			const label = new Mesh(labelGeometry, new MeshBasicMaterial({ map: labelTexture(text), transparent: true, depthWrite: false }));
-			label.rotation.x = -0.5 * Math.PI;
-			label.userData = { file, along, band };
-			labels.push(label);
-			group.add(label);
-		}
-	}
+	const labelMaterial = new MeshBasicMaterial({ map: labelAtlas(), transparent: true, depthWrite: false });
+	const labels = { w: labelsFor("w", cell, half, labelMaterial), b: labelsFor("b", cell, half, labelMaterial) };
+	group.add(labels.w, labels.b);
 	group.userData.labels = labels;
 	orientLabels(group, "w");
 	return group;
 }
 
 /**
- * @description Puts the labels where the 2D board has them for a side, upright to that side: files along its near edge, ranks up its left
+ * @description Shows the labels that read from a side, where the 2D board has them: files along its near edge, ranks up its left
  * @param  {[Group]} group [from createSurroundings]
  * @param  {[string]} color ['w' | 'b', the side the player looks from]
  */
 export function orientLabels(group, color) {
-	const s = color === "b" ? -1 : 1; // BLACK'S NEAR EDGE IS -Z, ITS LEFT IS +X
-	for (const label of group.userData.labels) {
-		const { file, along, band } = label.userData;
-		if (file) { label.position.set(along, 0.006, s * band); }
-		else { label.position.set(-s * band, 0.006, along); }
-		label.rotation.z = color === "b" ? Math.PI : 0; // TURNED HALF WAY ROUND IN THE BOARD'S PLANE
-	}
+	const { w, b } = group.userData.labels;
+	w.visible = color !== "b";
+	b.visible = color === "b";
 }

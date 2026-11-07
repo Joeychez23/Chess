@@ -7,7 +7,9 @@
  */
 
 import { showStatus, clearStatus, MESSAGE_TIME } from "../status/index.js";
+import { reportError } from "../../pages/utils/reportErrors.js";
 
+const PERF = new URLSearchParams(window.location.search).has("perf"); // ?perf=1: three/perf.js'S READOUT (#430), READ NOW, A NEW GAME'S URL DROPS IT
 let loading = null; // THE PENDING OR FINISHED import(), SO TURNING 3D ON TWICE DOWNLOADS ONCE
 
 /**
@@ -29,12 +31,15 @@ function hasWebGL() {
  */
 export function load3D() {
 	if (!hasWebGL()) {
+		reportError("3D board unavailable: no WebGL", "3d-board");
 		showStatus("view", "3D board unavailable: this browser can't use WebGL. Staying on 2D.", MESSAGE_TIME);
 		return Promise.resolve(null);
 	}
 	if (!loading) {
 		showStatus("view", "Loading 3D board...");
+		const start = performance.now();
 		loading = import(/* webpackChunkName: "three" */ "./index.js").then(function (board) {
+			board.perfLoaded(performance.now() - start, PERF); // ?perf=1 SHOWS IT (#430)
 			clearStatus("view");
 			return board;
 		}, function (error) {

@@ -23,7 +23,7 @@ const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT,
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
-const { setView, currentView, resetCamera, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA
+const { setView, currentView, resetCamera, onViewChange, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -164,6 +164,7 @@ export function handleSound(e) {
  */
 export function loadView() {
 	setViewWords(VIEWS.TWO_D); // UNTIL showView() SAYS WHICH IS ON
+	onViewChange(setViewWords); // 3D THAT FELL BACK TO 2D BY ITSELF (LOST ITS WEBGL CONTEXT)
 	try { return localStorage.getItem(VIEW_KEY) == VIEWS.THREE_D ? VIEWS.THREE_D : VIEWS.TWO_D; } catch { return VIEWS.TWO_D; }
 }
 
