@@ -1,14 +1,17 @@
 /*
  *  pieces.js  --  chess frontend
  *	3D Pieces
- *	Piece meshes built from code: Lathe for the round pieces, Extrude for the knight's head, each with a blob shadow.
- *	Geometry is in "piece units": 1 = one piece size, base center at the origin, +Y up. Each type's geometry is built
+ *	Piece meshes from the Blender models (pieces.glb, rebuilt as docs/3d-pieces.md says), each with a blob shadow. If those can't
+ *	load, the same pieces are built from code: Lathe for the round pieces, Extrude for the knight's head.
+ *	Geometry is in "piece units": 1 = one piece size, base center at the origin, +Y up. Each type's geometry is made
  *	once & shared. Heights: pawn 0.83 < knight 1.16 < bishop 1.20 < rook 1.32 < queen 1.52 < king 1.70
  *
  */
 
-import { MathUtils, LatheGeometry, Vector2, BoxGeometry, TorusGeometry, Shape, ExtrudeGeometry, Mesh, PlaneGeometry, MeshBasicMaterial } from "three";
+import { MathUtils, LatheGeometry, Vector2, BoxGeometry, TorusGeometry, Shape, ExtrudeGeometry, Mesh, PlaneGeometry, MeshBasicMaterial, TextureLoader, SRGBColorSpace } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import * as materials from "./materials.js";
 
 const SEGMENTS = 20; // AROUND THE LATHE, KEEPS 32 PIECES WELL UNDER 50K TRIANGLES
@@ -94,11 +97,53 @@ function knight() {
 }
 
 const builders = { p: pawn, n: knight, b: bishop, r: rook, q: queen, k: king };
-const geometries = {}; // BUILT ON FIRST USE, SHARED BY EVERY PIECE OF THAT TYPE (DISPOSING ONLY FREES THE GPU COPY, THE NEXT RENDER RE-UPLOADS IT)
+const geometries = {}; // MADE ON FIRST USE, SHARED BY EVERY PIECE OF THAT TYPE (DISPOSING ONLY FREES THE GPU COPY, THE NEXT RENDER RE-UPLOADS IT)
+
+/* ---------------------------------------------------------------- */
+// Blender models
+/* ---------------------------------------------------------------- */
+
+const MODEL_URL = new URL("./pieces.glb", import.meta.url).href; // BUNDLED LIKE board.jpg & ONLY FETCHED WITH 3D ON
+const ATLAS_URL = new URL("./pieces.jpg", import.meta.url).href; // BAKED GRAIN & AO. ITS OWN FILE: AN IMAGE INSIDE THE .glb LOADS FROM A blob: URL, WHICH THE CSP BLOCKS
+const MODEL_TIMEOUT_MS = 15000; // A STALLED DOWNLOAD SHOULDN'T LEAVE "Loading 3D board..." UP FOREVER
+const MODEL_NAMES = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
+
+// ONE GEOMETRY PER PIECE LIKE build(): GROUP 0 DRAWN IN WOOD & GROUP 1 IN GOLD. A glTF PRIMITIVE PER MATERIAL LOADS AS ONE MESH EACH
+function modelGeometry(scene, name) {
+	const meshes = [];
+	scene.getObjectByName(name).traverse((o) => { if (o.isMesh) { meshes.push(o); } });
+	meshes.sort((a, b) => (a.material.name === "gold") - (b.material.name === "gold"));
+	if (meshes.length > 1) { return mergeGeometries(meshes.map((m) => m.geometry), true); }
+	meshes[0].geometry.addGroup(0, Infinity, 0);
+	return meshes[0].geometry;
+}
+
+/**
+ * @description Downloads the Blender models & puts their baked atlas on the woods
+ * @return {[Promise<object>]} [geometry by piece type, empty when they couldn't load: the pieces are built from code instead]
+ */
+async function loadModels() {
+	try {
+		const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+		const timeout = new Promise((resolve, reject) => setTimeout(reject, MODEL_TIMEOUT_MS, new Error("timed out")));
+		const [gltf, atlas] = await Promise.race([Promise.all([loader.loadAsync(MODEL_URL), new TextureLoader().loadAsync(ATLAS_URL)]), timeout]);
+		const models = {};
+		for (const [type, name] of Object.entries(MODEL_NAMES)) { models[type] = modelGeometry(gltf.scene, name); }
+		atlas.flipY = false; // glTF UVs START AT THE IMAGE'S TOP
+		atlas.colorSpace = SRGBColorSpace;
+		materials.maple.map = materials.walnut.map = atlas; // GREYSCALE, EACH WOOD TINTS IT LIKE THE GRAIN IT REPLACES
+		return models;
+	} catch (error) {
+		console.warn("3D pieces: the Blender models didn't load, building them from code", error);
+		return {};
+	}
+}
+
+const models = await loadModels(); // ONCE, IN THE LAZY "three" CHUNK: load3D()'S import() WAITS FOR IT, SO createPiece() STAYS SYNCHRONOUS
 
 function pieceGeometry(type) {
 	if (!builders[type]) { throw new Error(`Bad piece type: ${type}`); }
-	return geometries[type] ??= build(builders[type]());
+	return geometries[type] ??= models[type] ?? build(builders[type]());
 }
 
 /* ---------------------------------------------------------------- */
