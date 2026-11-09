@@ -12,14 +12,52 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# AWS MANAGED POLICIES: CACHE ASSETS AT THE EDGE (1 DAY DEFAULT, UP TO 1 YEAR) AND ADD HSTS / NOSNIFF / FRAME / REFERRER HEADERS,
-# PLUS CORS: THE 3D BOARD'S WEBGL TEXTURES & .glb ARE CROSS-ORIGIN READS
+# AWS MANAGED POLICY: CACHE ASSETS AT THE EDGE (1 DAY DEFAULT, UP TO 1 YEAR)
 data "aws_cloudfront_cache_policy" "caching_optimized" {
   name = "Managed-CachingOptimized"
 }
 
-data "aws_cloudfront_response_headers_policy" "security_headers" {
-  name = "Managed-CORS-and-SecurityHeadersPolicy"
+# HSTS / NOSNIFF / FRAME / REFERRER HEADERS, PLUS CORS: THE 3D BOARD'S WEBGL TEXTURES & .glb ARE CROSS-ORIGIN READS.
+# NOT AWS'S MANAGED CORS POLICIES: THEY LIST NO ALLOWED HEADERS, SO CLOUDFRONT LEAVES OUT THE CORS HEADER WHEN A REQUEST HAS ONE LIKE CHROME'S "priority"
+resource "aws_cloudfront_response_headers_policy" "assets" {
+  name = "${replace(var.domain_name, ".", "-")}-assets"
+
+  cors_config {
+    access_control_allow_credentials = false
+    origin_override                  = false
+    access_control_allow_headers {
+      items = ["*"]
+    }
+    access_control_allow_methods {
+      items = ["GET", "HEAD", "OPTIONS"]
+    }
+    access_control_allow_origins {
+      items = ["*"]
+    }
+  }
+
+  security_headers_config {
+    content_type_options {
+      override = false
+    }
+    frame_options {
+      frame_option = "SAMEORIGIN"
+      override     = false
+    }
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = false
+    }
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      override                   = false
+    }
+    xss_protection {
+      mode_block = true
+      protection = true
+      override   = false
+    }
+  }
 }
 
 data "aws_route53_zone" "route53_domain" {
@@ -70,7 +108,7 @@ resource "aws_cloudfront_distribution" "cloudfront_dist" {
     allowed_methods            = ["GET", "HEAD", "OPTIONS"] # STATIC ORIGIN: READ-ONLY
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
-    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.assets.id
     compress                   = true
     viewer_protocol_policy     = "redirect-to-https"
   }
