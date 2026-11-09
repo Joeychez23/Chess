@@ -18,7 +18,9 @@
 
 **Images and audio aren't in the repo** (`client/src/images` and `client/src/audio`
 are git-ignored). They're in the `aws-prac-chess-s3` bucket and CloudFront serves
-them; every asset url starts with `CHESS_ASSETS_URL`.
+them; every asset url starts with `CHESS_ASSETS_URL`. That includes the 3D board's
+textures and `pieces.glb`, under `images/3d/`. Those need CloudFront's CORS headers
+(`terraform/modules/cloudfront`). The `.blend` sources in `images/3d/blend/` stay local.
 
 To use local copies instead of CloudFront, put them in `client/dist`, which the
 server already serves (and builds leave in place). From the repo root:

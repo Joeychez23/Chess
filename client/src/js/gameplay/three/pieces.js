@@ -103,8 +103,16 @@ const geometries = {}; // MADE ON FIRST USE, SHARED BY EVERY PIECE OF THAT TYPE 
 // Blender models
 /* ---------------------------------------------------------------- */
 
-const MODEL_URL = new URL("./pieces.glb", import.meta.url).href; // BUNDLED LIKE board.jpg & ONLY FETCHED WITH 3D ON
-const ATLAS_URL = new URL("./pieces.jpg", import.meta.url).href; // BAKED GRAIN & AO. ITS OWN FILE: AN IMAGE INSIDE THE .glb LOADS FROM A blob: URL, WHICH THE CSP BLOCKS
+const ASSETS = `${process.env.CHESS_ASSETS_URL}/images/3d`; // S3 / CLOUDFRONT LIKE THE SPRITES
+const MODEL_URL = `${ASSETS}/blend/pieces.glb`; // ONLY FETCHED WITH 3D ON
+const ATLAS_URLS = [ // BAKED FROM THE 2D PIECES' SHADERS. THEIR OWN FILES: AN IMAGE INSIDE THE .glb LOADS FROM A blob: URL, WHICH THE CSP BLOCKS
+	`${ASSETS}/pieces-w.webp`,
+	`${ASSETS}/pieces-b.webp`,
+	`${ASSETS}/pieces-rm-w.webp`,
+	`${ASSETS}/pieces-rm-b.webp`,
+	`${ASSETS}/pieces-n.webp`,
+	`${ASSETS}/pieces-l.webp`,
+];
 const MODEL_TIMEOUT_MS = 15000; // A STALLED DOWNLOAD SHOULDN'T LEAVE "Loading 3D board..." UP FOREVER
 const MODEL_NAMES = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
 
@@ -118,28 +126,38 @@ function modelGeometry(scene, name) {
 	return meshes[0].geometry;
 }
 
+function loadAtlas(url) {
+	return new TextureLoader().loadAsync(url).then(function (atlas) {
+		atlas.flipY = false; // glTF UVs START AT THE IMAGE'S TOP
+		atlas.anisotropy = 4;
+		return atlas;
+	});
+}
+
 /**
- * @description Downloads the Blender models & puts their baked atlas on the woods
- * @return {[Promise<object>]} [geometry by piece type, empty when they couldn't load: the pieces are built from code instead]
+ * @description Downloads the Blender models & their atlases
+ * @return {[Promise<object>]} [{ models: geometry by piece type, atlasMaterials: by color }, both empty when they couldn't load: the pieces are built from code instead]
  */
 async function loadModels() {
 	try {
 		const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 		const timeout = new Promise((resolve, reject) => setTimeout(reject, MODEL_TIMEOUT_MS, new Error("timed out")));
-		const [gltf, atlas] = await Promise.race([Promise.all([loader.loadAsync(MODEL_URL), new TextureLoader().loadAsync(ATLAS_URL)]), timeout]);
+		const [gltf, ...atlases] = await Promise.race([Promise.all([loader.loadAsync(MODEL_URL), ...ATLAS_URLS.map(loadAtlas)]), timeout]);
+		const [colorW, colorB, roughMetalW, roughMetalB, normal, light] = atlases;
+		colorW.colorSpace = colorB.colorSpace = SRGBColorSpace;
 		const models = {};
-		for (const [type, name] of Object.entries(MODEL_NAMES)) { models[type] = modelGeometry(gltf.scene, name); }
-		atlas.flipY = false; // glTF UVs START AT THE IMAGE'S TOP
-		atlas.colorSpace = SRGBColorSpace;
-		materials.maple.map = materials.walnut.map = atlas; // GREYSCALE, EACH WOOD TINTS IT LIKE THE GRAIN IT REPLACES
-		return models;
+		for (const [type, name] of Object.entries(MODEL_NAMES)) {
+			if (gltf.scene.getObjectByName(name)) { models[type] = modelGeometry(gltf.scene, name); } // NOT IN THE .glb YET: BUILT FROM CODE
+		}
+		const atlasMaterials = { w: materials.atlasMaterial({ color: colorW, roughMetal: roughMetalW, normal, light }), b: materials.atlasMaterial({ color: colorB, roughMetal: roughMetalB, normal, light }) };
+		return { models, atlasMaterials };
 	} catch (error) {
 		console.warn("3D pieces: the Blender models didn't load, building them from code", error);
-		return {};
+		return { models: {}, atlasMaterials: {} };
 	}
 }
 
-const models = await loadModels(); // ONCE, IN THE LAZY "three" CHUNK: load3D()'S import() WAITS FOR IT, SO createPiece() STAYS SYNCHRONOUS
+const { models, atlasMaterials } = await loadModels(); // ONCE, IN THE LAZY "three" CHUNK: load3D()'S import() WAITS FOR IT, SO createPiece() STAYS SYNCHRONOUS
 
 function pieceGeometry(type) {
 	if (!builders[type]) { throw new Error(`Bad piece type: ${type}`); }
@@ -151,6 +169,7 @@ function pieceGeometry(type) {
 /* ---------------------------------------------------------------- */
 
 const WOODS = { w: materials.maple, b: materials.walnut };
+const pieceMaterials = (type, color) => (models[type] ? [atlasMaterials[color]] : [WOODS[color], materials.gold]); // ITS ATLAS, OR WOOD & GOLD WHEN IT'S BUILT FROM CODE
 const SHADOW_Y = 0.015; // WORLD UNITS ABOVE THE BOARD: OVER THE GRID LINES (0.01), UNDER THE HIGHLIGHTS (0.02+)
 const SHADOW_OPACITY = 0.85;
 const SHADOW_FADE = 1.5; // PIECE UNITS OF LIFT AT WHICH THE SHADOW IS GONE
@@ -166,9 +185,9 @@ const shadowGeometry = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 export function createPiece(type, color, size) {
 	if (!WOODS[color]) { throw new Error(`Bad piece color: ${color}`); }
 	const geometry = pieceGeometry(type);
-	const mesh = new Mesh(geometry, [WOODS[color], materials.gold]);
+	const mesh = new Mesh(geometry, pieceMaterials(type, color));
 	mesh.scale.setScalar(size);
-	if (color === "b") { mesh.rotation.y = Math.PI; } // BLACK'S KNIGHTS FACE THE OTHER WAY
+	if (color === "b" && !models[type]) { mesh.rotation.y = Math.PI; } // BLACK'S KNIGHTS FACE THE OTHER WAY
 	mesh.userData.type = type;
 	mesh.userData.color = color;
 	if (!geometry.boundingBox) { geometry.computeBoundingBox(); }
@@ -194,9 +213,9 @@ export function updateShadow(mesh) {
 	shadow.material.opacity = SHADOW_OPACITY * MathUtils.clamp(1 - Math.max(lift, 0) / SHADOW_FADE, 0, 1) * (mesh.userData.opacity ?? 1);
 }
 
-// SEE-THROUGH COPIES OF A PIECE'S WOOD & GOLD (THE RIM SHADER & ITS UNIFORM COME ALONG), SO IT FADES ON ITS OWN
-function fadeMaterials(color) {
-	return [WOODS[color], materials.gold].map(function (shared) {
+// SEE-THROUGH COPIES OF A PIECE'S MATERIALS (THEIR SHADER PATCH & UNIFORMS COME ALONG), SO IT FADES ON ITS OWN
+function fadeMaterials(type, color) {
+	return pieceMaterials(type, color).map(function (shared) {
 		const m = shared.clone();
 		m.onBeforeCompile = shared.onBeforeCompile;
 		m.userData = shared.userData;
@@ -217,13 +236,13 @@ function freeFadeMaterials(mesh) {
  * @param  {[number]} opacity [0 - 1]
  */
 export function setOpacity(mesh, opacity) {
-	const { color } = mesh.userData;
+	const { type, color } = mesh.userData;
 	mesh.userData.opacity = opacity;
 	if (opacity >= 1) {
 		freeFadeMaterials(mesh);
-		mesh.material = [WOODS[color], materials.gold];
+		mesh.material = pieceMaterials(type, color);
 	} else {
-		mesh.userData.fadeMaterials ??= fadeMaterials(color);
+		mesh.userData.fadeMaterials ??= fadeMaterials(type, color);
 		mesh.userData.fadeMaterials.forEach((m) => { m.opacity = opacity; });
 		mesh.material = mesh.userData.fadeMaterials;
 	}

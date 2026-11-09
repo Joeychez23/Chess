@@ -29,7 +29,7 @@ function contentSecurityPolicy() {
 		`font-src ${sources("'self'", "https://fonts.gstatic.com")}`,
 		`img-src ${sources("'self'", "data:", assets)}`,
 		`media-src ${sources("'self'", assets)}`,
-		"connect-src 'self'", // fetch() & SOCKET.IO, BOTH SAME ORIGIN
+		`connect-src ${sources("'self'", assets)}`, // fetch() & SOCKET.IO SAME ORIGIN, THE ASSETS DOMAIN FOR THE 3D PIECES' .glb (GLTFLoader FETCHES IT)
 		"object-src 'none'",
 		"base-uri 'self'",
 		"form-action 'self'",

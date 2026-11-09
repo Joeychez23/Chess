@@ -12,13 +12,14 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# AWS MANAGED POLICIES: CACHE ASSETS AT THE EDGE (1 DAY DEFAULT, UP TO 1 YEAR) AND ADD HSTS / NOSNIFF / FRAME / REFERRER HEADERS
+# AWS MANAGED POLICIES: CACHE ASSETS AT THE EDGE (1 DAY DEFAULT, UP TO 1 YEAR) AND ADD HSTS / NOSNIFF / FRAME / REFERRER HEADERS,
+# PLUS CORS: THE 3D BOARD'S WEBGL TEXTURES & .glb ARE CROSS-ORIGIN READS
 data "aws_cloudfront_cache_policy" "caching_optimized" {
   name = "Managed-CachingOptimized"
 }
 
 data "aws_cloudfront_response_headers_policy" "security_headers" {
-  name = "Managed-SecurityHeadersPolicy"
+  name = "Managed-CORS-and-SecurityHeadersPolicy"
 }
 
 data "aws_route53_zone" "route53_domain" {

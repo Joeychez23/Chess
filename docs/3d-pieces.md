@@ -1,6 +1,6 @@
 # 3D piece models (#437)
 
-The 3D board's pieces are modelled in Blender and shipped as two files in `client/src/js/gameplay/three/`:
+The 3D board's pieces are modelled in Blender and shipped as two files in `images/3d/` on S3 / CloudFront, from the git-ignored `client/src/images/3d/` (the `.glb` in `blend/`):
 
 - `pieces.glb`: the six meshes (`pawn`, `knight`, `bishop`, `rook`, `queen`, `king`), Meshopt compressed. Each has a `wood` primitive and, except the pawn, knight and rook, a `gold` one.
 - `pieces.jpg`: the 1024x1024 greyscale atlas with the baked wood grain and ambient occlusion. `maple` and `walnut` tint it, so white and black share it. It's its own file because GLTFLoader loads an image inside a `.glb` from a `blob:` URL, which the CSP blocks.
@@ -9,7 +9,7 @@ The 3D board's pieces are modelled in Blender and shipped as two files in `clien
 
 ## Source
 
-`client/src/js/gameplay/three/pieces.blend`, made with Blender 5.2. It holds the meshes, the atlas (packed) and the script that made them, in the text block `build_pieces.py`.
+`client/src/images/3d/blend/pieces.blend`, made with Blender 5.2. It holds the meshes, the atlas (packed) and the script that made them, in the text block `build_pieces.py`.
 
 ## Rebuild
 

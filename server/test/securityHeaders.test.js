@@ -46,7 +46,7 @@ describe("security headers", () => {
 		assert.ok(csp.includes(`media-src 'self' ${assets}`));
 		assert.match(csp, /style-src [^;]*https:\/\/fonts\.googleapis\.com/);
 		assert.match(csp, /font-src [^;]*https:\/\/fonts\.gstatic\.com/);
-		assert.match(csp, /connect-src 'self'(;|$)/);
+		assert.ok(csp.includes(`connect-src 'self' ${assets}`));
 		assert.match(csp, /object-src 'none'/);
 	});
 
