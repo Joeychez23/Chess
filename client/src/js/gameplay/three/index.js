@@ -21,6 +21,7 @@ import { BAIZE_FOG } from "./materials.js";
 import { showHint, dismissHint, removeHint } from "./hint.js";
 import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"; // ?perf=1's READOUT FOR PHONE TESTS (#430)
 export { perfLoaded } from "./perf.js"; // load.js GIVES IT THE CHUNK'S DOWNLOAD TIME
+import "../../../css/board3D.css"; // #board3D, THE CONTROLS HINT & THE PERF READOUT: IN THIS CHUNK, NOT THE PLAY BUNDLE
 
 /* ---------------------------------------------------------------- */
 // Global
@@ -105,7 +106,7 @@ function removePiece(mesh) {
 // Mount
 /* ---------------------------------------------------------------- */
 
-// MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER (INSIDE ITS SAFE AREA PADDING, css/style.css #board3D), PIXEL DENSITY CAPPED
+// MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER (INSIDE ITS SAFE AREA PADDING, css/board3D.css #board3D), PIXEL DENSITY CAPPED
 // (2, PHONES 1.5) SO 3x PHONES DON'T DRAW 9x THE PIXELS. A SMALL SCREEN ALSO GETS ITS CAMERA LIMITS FOR THE NEW SIZE
 function resize() {
 	const { renderer, camera, container, controls } = view;
