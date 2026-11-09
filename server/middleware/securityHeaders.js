@@ -24,7 +24,7 @@ function contentSecurityPolicy() {
 	const sources = (...list) => list.filter(Boolean).join(" ");
 	return [
 		"default-src 'self'",
-		"script-src 'self'",
+		"script-src 'self' 'wasm-unsafe-eval'", // WASM ONLY, STILL NO JS eval: THE 3D PIECES' MESHOPT DECODER (client/.../three/pieces.js)
 		`style-src ${sources("'self'", "'unsafe-inline'", "https://fonts.googleapis.com")}`,
 		`font-src ${sources("'self'", "https://fonts.gstatic.com")}`,
 		`img-src ${sources("'self'", "data:", assets)}`,

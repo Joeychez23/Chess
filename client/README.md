@@ -133,6 +133,7 @@ client/
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles
   src/css/style.css          Play page layout (canvas), imported by pages/play
+  src/css/board3D.css        The 3D board, its controls hint & ?perf=1 readout, imported by gameplay/three (lazy "three" chunk)
   src/js/pages/
     home/index.js            Open games (opponent, level, color), new solo games, invites (send, accept, decline, cancel), friends (requests, Challenge fills the invite, Remove), color dropdowns, the open AI & friend games (Continue / forfeit)
     guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board, Play AI / New game

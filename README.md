@@ -60,6 +60,20 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Guests** | Play the AI without an account: one game, kept to the browser that made it. |
 | **Mobile** | Portrait and landscape layouts, and iOS audio unlocks on the first tap. |
 
+## 3D board
+
+The board is 2D by default. To turn on 3D, open the game menu and press **View: 3D**; **View: 2D** switches back. Your choice is saved in your browser, and 2D players never download the 3D code.
+
+**Controls**
+- Mouse: left-drag moves a piece, or pans when it starts off a piece. Right-drag rotates and scroll zooms.
+- Touch: drag moves a piece, two fingers rotate and pinch zooms.
+- Keyboard: press `/` and type a move, as on 2D.
+- **Reset View** in the game menu puts the camera back, and **Flip Board** turns it to the other side.
+
+**Supported browsers:** any browser with WebGL 2, which includes current Chrome, Edge, Firefox and Safari 15 or later, on desktop and phone.
+
+**Fallback:** if WebGL isn't available or the 3D code can't download, you stay on 2D and a message says why. If the browser loses the 3D board's WebGL context, as iPhones can when the page is in the background, the board comes back on its own; after 3 losses within 2 minutes it switches to 2D. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for screen readers and reduced motion.
+
 ## How it works
 
 1. **Page.** The server picks the page from the session cookie ([Pages](client/README.md#pages)).
