@@ -26,7 +26,7 @@ describe("the menus' groups", () => {
 		play: [
 			["Current game", ["Resume"]],
 			["Game actions", ["Hint", "Takeback", "Offer Draw", "Type a Move"]],
-			["View", ["Turn Sound: Off", "Flip Board", "Turn Eval Bar: On", "Download PGN"]],
+			["View", ["Turn Sound: Off", "Flip Board", "View: 3D", "Reset View", "Turn Eval Bar: On", "Download PGN"]],
 			["End the game", ["Restart", "Cancel"]],
 			["Navigation", ["Home", "Settings"]],
 			["Account", ["Exit"]],

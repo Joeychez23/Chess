@@ -81,6 +81,11 @@ module.exports = (env, argv) => {
 				},
 			],
 		},
+		optimization: {
+			splitChunks: {
+				cacheGroups: { default: false, defaultVendors: false }, // NO VENDOR SPLIT: THREE.JS STAYS IN THE LAZY "three" CHUNK WITH gameplay/three/, SO TURNING 3D ON IS ONE DOWNLOAD
+			},
+		},
 		resolve: {
 			fallback: { crypto: false },
 		},

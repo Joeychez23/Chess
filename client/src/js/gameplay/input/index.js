@@ -3,7 +3,8 @@
  *	Input
  *	The board's controls: the mouse (hover, click to pick up & put down, drag & drop), touch on phones (tap & drag, mapped onto
  *	the mouse handlers) & the TV remote (arrow keys move a select box, enter clicks, right from the last column reaches the menu).
- *	startGame (gameplay/index.js) adds their listeners
+ *	startGame (gameplay/index.js) adds their listeners to both boards. The only thing that differs on the 3D board is the square under
+ *	the pointer (pointerTile), camera gestures there never reach the pieces
  *
  */
 
@@ -12,7 +13,8 @@
 /* ---------------------------------------------------------------- */
 const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, TV REMOTE FOR TESTING
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
-const { tileToSquare, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION, ADDS OR REMOVES A MARK OR ARROW
+const { tileToSquare, squareToTile, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION & BACK, ADDS OR REMOVES A MARK OR ARROW
+const { currentView, VIEWS, squareUnder3D, isCameraGesture } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
 const { openMenu, closeMenu } = require("../menu/index.js"); // THE TV REMOTE OPENS THE MENU, A CLICK ON THE BOARD CLOSES IT
 const { menuItems, itemForKey } = require("../../pages/utils/nav.js"); // THE MENU'S ITEMS, READ FROM THE PAGE
@@ -23,6 +25,7 @@ const REMOTE_SKIPS = ["optPgn", "optTypeMove"]; // A TV HAS NOWHERE TO SAVE A FI
 let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
 let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
 let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // TV REMOTE SELECT BOX: SQUARE (x, y), ON THE MENU BUTTON (menuHover) & THE SELECTED MENU BUTTON
+const OFF_3D_BOARD = { x: -100, y: 0 }; // OFF THE 3D BOARD: A COLUMN NO TILE OR TRAY IS IN, ROW INSIDE SO handleMouseMove STILL CLEARS THE HOVER
 const touchDragThreshold = 10; // PX A FINGER MUST MOVE BEFORE A TAP BECOMES A DRAG
 let audioUnlocked = false; // THE MOVE SOUND WAS UNLOCKED BY A TAP (IOS)
 let annotationStart = null; // SQUARE THE RIGHT BUTTON WENT DOWN ON, null WHEN IT'S UP OR WENT DOWN OFF THE BOARD
@@ -92,6 +95,7 @@ export function clearRemoteSelection() {
 	if (!remoteNavBox.menuBtn) { return; }
 	remoteNavBox.menuBtn.style.backgroundColor = "#CD853F";
 	remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false };
+	game.keyboardTile = null; // NO RING UNTIL THE NEXT KEY
 }
 
 /* ---------------------------------------------------------------- */
@@ -169,6 +173,7 @@ export async function handleKeyPress(e) {
 		}
 		if (game.menuToggled && e.keyCode == 36) { moveRemoteSelection("Home"); } // HOME
 		if (game.menuToggled && e.keyCode == 35) { moveRemoteSelection("End"); } // END
+		game.keyboardTile = remoteNavBox.menuHover ? null : { x: remoteNavBox.x, y: remoteNavBox.y }; // THE 3D BOARD RINGS THE SELECTED SQUARE
 		game.refresh = true
 	}
 }
@@ -186,9 +191,43 @@ function getCanvasPoint(e) {
 	return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 }
 
-function squareUnder(e) { // THE BOARD SQUARE UNDER THE MOUSE, null OFF THE BOARD
+/**
+ * @description The screen column & row under the pointer, the same on both boards (off the board is below 0 or above 7).
+ * 2D: from the canvas position, 3D: from the square the 3D board reports, or the promotion picker's tile (drawn on the canvas over it)
+ * @param  {[object]} e [mouse event, or a touch made to look like one]
+ * @return {[object]} { x, y } [screen column & row]
+ */
+function pointerTile(e) {
+	if (currentView() === VIEWS.THREE_D) {
+		const picker = pickerTile(e);
+		if (picker) { return picker; }
+		const square = squareUnder3D(e);
+		return square ? squareToTile(square, game.viewColor) : OFF_3D_BOARD;
+	}
+	return canvasTile(e);
+}
+
+function canvasTile(e) { // THE SCREEN COLUMN & ROW AT THE POINTER ON THE 2D CANVAS
 	const point = getCanvasPoint(e);
-	return tileToSquare(Math.floor((point.x - game.xBoardOff) / game.tileWidth), Math.floor((point.y - game.yBoardOff) / game.tileHeight), game.viewColor);
+	return { x: Math.floor((point.x - game.xBoardOff) / game.tileWidth), y: Math.floor((point.y - game.yBoardOff) / game.tileHeight) };
+}
+
+function pickerTile(e) { // 3D: THE CANVAS TILE WHEN IT'S ON A PIECE OF THE OPEN PROMOTION PICKER, null OTHERWISE
+	if (!game.currPromotion) { return null; }
+	const tile = canvasTile(e);
+	const picker = (game.playerColor == 'w' ? game.bTakenPieces : game.wTakenPieces) || [];
+	return picker.some((p) => p.x === tile.x && p.y === tile.y) ? tile : null;
+}
+
+function setPointerTile(e) { // game.tileX & game.tileY = THE SCREEN COLUMN & ROW UNDER THE POINTER
+	const tile = pointerTile(e);
+	game.tileX = tile.x;
+	game.tileY = tile.y;
+}
+
+function squareUnder(e) { // THE BOARD SQUARE UNDER THE MOUSE, null OFF THE BOARD
+	const tile = pointerTile(e);
+	return tileToSquare(tile.x, tile.y, game.viewColor);
 }
 
 /* ---------------------------------------------------------------- */
@@ -208,9 +247,8 @@ export async function handleCanvasClick(e) {
 		handleMouseMove(e);
 		return;
 	}
-	const point = getCanvasPoint(e);
-	game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth); // SCREEN COLUMN CLICKED
-	game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // SCREEN ROW CLICKED
+	if (e.clientX !== undefined && isCameraGesture()) { return; } // THE CLICK ENDING A CAMERA GESTURE (THE TV REMOTE'S ENTER HAS NO clientX)
+	setPointerTile(e); // SCREEN COLUMN & ROW CLICKED
 
 	if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (TV REMOTE) ENTER HAS NO POINTER POSITION
 		game.tileX = remoteNavBox.x; game.tileY = remoteNavBox.y;
@@ -233,6 +271,13 @@ export async function handleCanvasClick(e) {
 			}
 		}
 	} else if (!game.currSlide) {
+		if (e.clientX !== undefined && !tileToSquare(game.tileX, game.tileY, game.viewColor)) { // LET GO OR CLICKED OFF THE BOARD: NOT A MOVE, THE PIECE GOES BACK TO ITS SQUARE
+			for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isClicked = false; game.tiles[i].isMousedown = false; }
+			game.clickedTile = false;
+			game.mousedownTile = false;
+			game.refresh = true;
+			return;
+		}
 		game.revert = game.response;
 		for (let i = 0; i < game.tiles.length; i++) {
 			let tile = game.tiles[i];
@@ -313,10 +358,8 @@ export async function handleCanvasClick(e) {
 export function handleMouseMove(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	// IF PIECE IS CLICK TO BE MOVED MOUSE POSITION
-	const point = getCanvasPoint(e);
-	game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth); // SCREEN COLUMN (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
-	game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // SCREEN ROW
+	if (isCameraGesture()) { return; } // THE CAMERA OWNS THE POINTER
+	setPointerTile(e); // IF PIECE IS CLICK TO BE MOVED MOUSE POSITION (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
 	if (!((game.tileX < 0 || game.tileX > 7) && (game.tileY < 0 || game.tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
 		if (game.currPromotion) { // HOVER THE PICKER
 			let takenPieces
@@ -357,17 +400,17 @@ export function handleMouseMove(e) {
 export async function handleMouseDown(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	if (isCameraGesture()) { return; } // THE CAMERA OWNS THE POINTER
 	if (e.button == 2) { annotationStart = game.menuToggled ? null : squareUnder(e); return; }
 	if (game.annotations.length) { game.annotations = []; game.refresh = true; }
-	const point = getCanvasPoint(e);
-	game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth);
-	game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // IF HOVER IS TRUE
+	setPointerTile(e); // IF HOVER IS TRUE
 	for (let i = 0; i < game.tiles.length; i++) {
 		let tile = game.tiles[i];
 		if ((tile.isHovering && tile.type && tile.color == game.playerColor)) { // GRAB THE HOVERED PIECE
 			tile.isMousedown = true;
 			game.mousedownTile = tile;
 			game.mouseDownTime = null;
+			game.refresh = true; // DRAWN LIFTED NOW, NOT ON THE FIRST MOVE (3D LIFTS IT ON THIS FRAME)
 			for (let j = 0; j < game.tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
 				if (game.tiles[j].isClicked && (game.tiles[j].x != game.tileX || game.tiles[j].y != game.tileY) && game.tiles[j].color == game.playerColor) {
 					game.tiles[j].isClicked = false
@@ -391,18 +434,21 @@ export async function handleMouseDown(e) {
 export async function handleMouseUp(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	if (isCameraGesture()) { return; } // THE CAMERA OWNS THE POINTER
 	if (e.button == 2) {
 		const to = squareUnder(e);
 		if (annotationStart && to) { game.annotations = toggleAnnotation(game.annotations, annotationStart, to); game.refresh = true; }
 		annotationStart = null;
 		return;
 	}
-	const point = getCanvasPoint(e);
-	game.tileX = Math.floor((point.x - game.xBoardOff) / game.tileWidth);
-	game.tileY = Math.floor((point.y - game.yBoardOff) / game.tileHeight); // IF HOVER IS TRUE
+	setPointerTile(e); // IF HOVER IS TRUE
+	letGo(true);
+}
+
+function letGo(hoveredOnly) { // LETS GO OF THE HELD PIECE (hoveredOnly: ONLY WHEN IT'S UNDER THE POINTER), BACK TO ITS SQUARE UNTIL A CLICK DROPS IT
 	for (let i = 0; i < game.tiles.length; i++) {
 		let tile = game.tiles[i];
-		if (tile.isMousedown && tile.isHovering && tile.type && tile.color == game.playerColor) { // LET GO OF THE HELD PIECE
+		if (tile.isMousedown && (tile.isHovering || !hoveredOnly) && tile.type && tile.color == game.playerColor) {
 			tile.isMousedown = false;
 			game.mousedownTile = false;
 			game.tileX = tile.originX
@@ -437,6 +483,7 @@ function unlockAudio() { // IOS ONLY PLAYS AUDIO STARTED BY A USER GESTURE, PLAY
 
 export function handleTouchStart(e) { // FINGER DOWN = HOVER + MOUSE DOWN
 	e.preventDefault(); // STOPS SCROLL / ZOOM & THE BROWSER'S EMULATED MOUSE EVENTS
+	if (currentView() === VIEWS.THREE_D && (e.touches.length > 1 || isCameraGesture())) { handleTouchCancel(); return; } // 3D: A SECOND FINGER IS A CAMERA GESTURE, LET GO OF THE PIECE WITHOUT A CLICK
 	if (touchState) { return; } // IGNORE EXTRA FINGERS
 	const touch = e.changedTouches[0];
 	const point = touchToMouseEvent(touch);
@@ -448,6 +495,7 @@ export function handleTouchStart(e) { // FINGER DOWN = HOVER + MOUSE DOWN
 export function handleTouchMove(e) { // FINGER MOVES = MOUSE MOVE, ONCE IT'S MOVED FAR ENOUGH TO BE A DRAG
 	e.preventDefault();
 	if (!touchState) { return; }
+	if (isCameraGesture()) { handleTouchCancel(); return; } // THE CAMERA TOOK THIS FINGER
 	const touch = findActiveTouch(e.changedTouches);
 	if (!touch) { return; }
 	touchState.point = touchToMouseEvent(touch);
@@ -478,8 +526,8 @@ export function handleTouchEnd(e) { // FINGER UP = MOUSE UP + CLICK
 
 export function clearTouch() { touchState = null; } // THE MENU OPENED: THIS FINGER'S RELEASE ISN'T A CLICK
 
-export function handleTouchCancel() { // THE BROWSER TOOK THE TOUCH (A SYSTEM GESTURE): LET GO WITHOUT A CLICK
+export function handleTouchCancel() { // THE BROWSER (A SYSTEM GESTURE) OR THE 3D CAMERA TOOK THE TOUCH: LET GO WITHOUT A CLICK
 	if (!touchState) { return; }
-	handleMouseUp(touchState.point);
+	letGo(false); // NOT handleMouseUp: IT SITS OUT CAMERA GESTURES, WHICH WOULD LEAVE THE PIECE HELD
 	touchState = null;
 }

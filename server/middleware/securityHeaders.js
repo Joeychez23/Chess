@@ -24,12 +24,12 @@ function contentSecurityPolicy() {
 	const sources = (...list) => list.filter(Boolean).join(" ");
 	return [
 		"default-src 'self'",
-		"script-src 'self'",
+		"script-src 'self' 'wasm-unsafe-eval'", // WASM ONLY, STILL NO JS eval: THE 3D PIECES' MESHOPT DECODER (client/.../three/pieces.js)
 		`style-src ${sources("'self'", "'unsafe-inline'", "https://fonts.googleapis.com")}`,
 		`font-src ${sources("'self'", "https://fonts.gstatic.com")}`,
 		`img-src ${sources("'self'", "data:", assets)}`,
 		`media-src ${sources("'self'", assets)}`,
-		"connect-src 'self'", // fetch() & SOCKET.IO, BOTH SAME ORIGIN
+		`connect-src ${sources("'self'", assets)}`, // fetch() & SOCKET.IO SAME ORIGIN, THE ASSETS DOMAIN FOR THE 3D PIECES' .glb (GLTFLoader FETCHES IT)
 		"object-src 'none'",
 		"base-uri 'self'",
 		"form-action 'self'",

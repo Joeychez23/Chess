@@ -1,0 +1,54 @@
+/*
+ *  load.js  --  chess frontend
+ *	3D Board Loader
+ *	The only way into the 3D board (three/index.js). Downloads the "three" chunk the first time 3D is turned on, shows
+ *	"Loading 3D board..." meanwhile & on a failure says why, so the caller stays on 2D. This file stays in the play bundle
+ *
+ */
+
+import { showStatus, clearStatus, MESSAGE_TIME } from "../status/index.js";
+import { reportError } from "../../pages/utils/reportErrors.js";
+
+const PERF = new URLSearchParams(window.location.search).has("perf"); // ?perf=1: three/perf.js'S READOUT (#430), READ NOW, A NEW GAME'S URL DROPS IT
+let loading = null; // THE PENDING OR FINISHED import(), SO TURNING 3D ON TWICE DOWNLOADS ONCE
+
+/**
+ * @description Can this browser draw WebGL? Checked before downloading, no point fetching three.js otherwise
+ * @return {[boolean]}
+ */
+function hasWebGL() {
+	try {
+		const canvas = document.createElement("canvas");
+		return !!(window.WebGLRenderingContext && (canvas.getContext("webgl2") || canvas.getContext("webgl")));
+	} catch (e) {
+		return false;
+	}
+}
+
+/**
+ * @description Loads the 3D board module
+ * @return {[Promise<object|null>]} [the module (mount, unmount, ...), or null when it couldn't load: stay on 2D]
+ */
+export function load3D() {
+	if (!hasWebGL()) {
+		reportError("3D board unavailable: no WebGL", "3d-board");
+		showStatus("view", "3D board unavailable: this browser can't use WebGL. Staying on 2D.", MESSAGE_TIME);
+		return Promise.resolve(null);
+	}
+	if (!loading) {
+		showStatus("view", "Loading 3D board...");
+		const start = performance.now();
+		loading = import(/* webpackChunkName: "three" */ "./index.js").then(function (board) {
+			board.perfLoaded(performance.now() - start, PERF); // ?perf=1 SHOWS IT (#430)
+			clearStatus("view");
+			return board;
+		}, function (error) {
+			loading = null; // A LATER TRY DOWNLOADS AGAIN (BACK ONLINE)
+			const why = navigator.onLine === false ? "you're offline" : "it didn't download";
+			showStatus("view", `3D board couldn't load (${why}). Staying on 2D.`, MESSAGE_TIME);
+			console.warn("3D board failed to load", error);
+			return null;
+		});
+	}
+	return loading;
+}

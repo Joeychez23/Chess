@@ -41,12 +41,12 @@ describe("security headers", () => {
 	test("the CSP allows this site's scripts only, the assets domain & Google Fonts", () => {
 		const csp = contentSecurityPolicy();
 		const assets = new URL(config.assetsUrl).origin;
-		assert.match(csp, /script-src 'self'(;|$)/);
+		assert.match(csp, /script-src 'self' 'wasm-unsafe-eval'(;|$)/); // WASM ONLY (THE 3D PIECES' DECODER), NO JS eval
 		assert.ok(csp.includes(`img-src 'self' data: ${assets}`));
 		assert.ok(csp.includes(`media-src 'self' ${assets}`));
 		assert.match(csp, /style-src [^;]*https:\/\/fonts\.googleapis\.com/);
 		assert.match(csp, /font-src [^;]*https:\/\/fonts\.gstatic\.com/);
-		assert.match(csp, /connect-src 'self'(;|$)/);
+		assert.ok(csp.includes(`connect-src 'self' ${assets}`));
 		assert.match(csp, /object-src 'none'/);
 	});
 

@@ -27,3 +27,4 @@ auth0-jwks.json
 *.pem
 /commands/
 tfplan
+docs/pieces

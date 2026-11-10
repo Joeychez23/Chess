@@ -75,6 +75,24 @@ export function lastMoveBy(board, moves, color) {
 
 
 /* ---------------------------------------------------------------- */
+// moveBetween()
+/* ---------------------------------------------------------------- */
+/**
+ * @description The one legal move that turns one position into another (same pieces & side to move), so the 3D board can slide it
+ * @param  {[object]} board [chess.js board, it's loaded with before]
+ * @param  {[string]} before [FEN shown now]
+ * @param  {[string]} after [FEN to show]
+ * @return {[object]} { from, to, promotion }, null when it's not one move (load, takeback, restart, failed move)
+ */
+export function moveBetween(board, before, after) {
+	const spot = (fen) => fen.split(" ", 2).join(" "); // PIECES & SIDE TO MOVE, THE COUNTERS DON'T MATTER
+	board.load(before);
+	const move = board.moves({ verbose: true }).find((m) => spot(m.after) === spot(after));
+	return move ? { from: move.from, to: move.to, promotion: move.promotion } : null;
+}
+
+
+/* ---------------------------------------------------------------- */
 // tileToSquare()
 /* ---------------------------------------------------------------- */
 /**
@@ -89,6 +107,16 @@ export function tileToSquare(x, y, viewColor) {
 	return viewColor == 'b' ? `${String.fromCharCode(104 - x)}${y + 1}` : `${String.fromCharCode(97 + x)}${8 - y}`;
 }
 
+/**
+ * @description The screen column & row of a board square, the reverse of tileToSquare()
+ * @param  {[string]} square ["e4"]
+ * @param  {[string]} viewColor ['w' | 'b', the side at the bottom of the screen]
+ * @return {[object]} { x, y } [screen column & row]
+ */
+export function squareToTile(square, viewColor) {
+	const file = square.charCodeAt(0) - 97, rank = Number(square[1]);
+	return viewColor == 'b' ? { x: 7 - file, y: rank - 1 } : { x: file, y: 8 - rank };
+}
 
 /* ---------------------------------------------------------------- */
 // toggleAnnotation()
