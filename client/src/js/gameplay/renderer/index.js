@@ -28,6 +28,7 @@ let board3D = null; // THE 3D MODULE WHILE IT'S MOUNTED, null ON 2D
 let container = null; // WHAT THE 3D CANVAS FILLS, IN #main NEXT TO THE (HIDDEN) 2D CANVAS
 let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT TWICE
 let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
+let shownFacings = null; // THE POSITION & PIECE FACINGS THE 3D BOARD WAS LAST TURNED TO (syncFacing3D)
 let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
 const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
 let viewListener = () => {}; // onViewChange()'S, TOLD WHEN 3D FALLS BACK TO 2D BY ITSELF
@@ -58,6 +59,7 @@ export function drawBoard() {
 		if (move) { board3D.animateMove(move.from, move.to, move.promotion); }
 		else { board3D.syncFromBoard(chessInst); }
 	}
+	syncFacing3D(fen);
 	const held = heldPiece();
 	board3D.setHeld(held && held.square, held && held.dragging); // AFTER THE MOVE: A DROPPED PIECE SLIDES FROM WHERE IT WAS LET GO
 }
@@ -102,6 +104,26 @@ function syncMarks3D() {
 	if (key === shownMarks) { return; }
 	shownMarks = key;
 	Object.keys(marks).forEach((kind) => board3D.highlight([...new Set(marks[kind])], kind));
+}
+
+/**
+ * @description Which way each king, queen, bishop & rook faces, from the same piece lists the 2D board draws them by (w_piece / b_piece):
+ * an entry with a from last moved up or down, "up" toward rank 8. null when there's no game from the server yet
+ * @return {[object|null]} { w: { square: "up" | "down" | null }, b: { ... } }
+ */
+function facings3D() {
+	if (!game.response || !game.response.w_piece || !game.response.b_piece) { return null; }
+	const side = (list) => Object.fromEntries(JSON.parse(list).filter((p) => p.to).map((p) => [p.to, p.from ? (p.to[1] > p.from[1] ? "up" : "down") : null]));
+	return { w: side(game.response.w_piece), b: side(game.response.b_piece) };
+}
+
+// PUTS facings3D() ON THE 3D BOARD WHEN THEY OR THE POSITION CHANGED (A SYNC CAN MOVE MESHES ONTO OTHER SQUARES)
+function syncFacing3D(fen) {
+	const facings = facings3D();
+	const key = facings && fen + JSON.stringify(facings);
+	if (!facings || key === shownFacings) { return; }
+	shownFacings = key;
+	board3D.setFacing(facings);
 }
 
 /**
@@ -278,6 +300,8 @@ async function show3D() {
 	board3D.setSide(game.viewColor, false);
 	board3D.syncFromBoard(chessInst);
 	shownFen = chessInst.fen();
+	shownFacings = null;
+	syncFacing3D(shownFen);
 	shownMarks = null;
 	game.refresh = true;
 	requestFrame();
