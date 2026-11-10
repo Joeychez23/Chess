@@ -187,7 +187,7 @@ export function createPiece(type, color, size) {
 	const geometry = pieceGeometry(type);
 	const mesh = new Mesh(geometry, pieceMaterials(type, color));
 	mesh.scale.setScalar(size);
-	if (color === "b" && !models[type]) { mesh.rotation.y = Math.PI; } // BLACK'S KNIGHTS FACE THE OTHER WAY
+	mesh.rotation.y = (color === "w" ? Math.PI : 0) - (type === "n" ? Math.PI / 2 : 0); // EACH SIDE FACES THE OTHER: FRONTS ARE BUILT FACING +Z (WHITE'S CAMERA), THE KNIGHT'S NOSE +X
 	mesh.userData.type = type;
 	mesh.userData.color = color;
 	if (!geometry.boundingBox) { geometry.computeBoundingBox(); }
