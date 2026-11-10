@@ -58,6 +58,7 @@ export const frameWood = wood(0x2E1B10, 0x000000); // DARKER THAN BLACK'S PIECES
 // ITS DIRECTIONS ARE THE SPRITE CAMERA'S, SO THEY TURN WITH THE CAMERA AROUND THE BOARD (toSprite): THE LAMP STAYS OVER THE PLAYER'S RIGHT SHOULDER FROM EITHER SIDE
 const SPRITE_LIGHTING = `
 	uniform sampler2D spriteLight;
+	uniform float spriteBackShadow;
 	varying vec2 vPieceFront;
 	const vec3 SPRITE_LAMP = normalize(vec3(0.59, 1.8, 0.71));
 	vec3 toSprite(vec3 v, vec2 cam) { return vec3(v.x * cam.y - v.z * cam.x, v.y, v.x * cam.x + v.z * cam.y); } // TURNS A WORLD DIRECTION BY THE CAMERA'S ANGLE AROUND THE BOARD (cam: ITS SIN & COS)
@@ -89,6 +90,27 @@ const SPRITE_LIGHTING = `
 `;
 
 /**
+ * @description Whether a light atlas carries the shadow baked with the lamp behind (B). One baked before it has B empty, & reading
+ * that as "all in shadow" leaves every piece that faces away from the player unlit (the CDN serving an older atlas than the code)
+ * @param  {[Texture]} light [the light atlas, loaded with CORS]
+ * @return {[boolean]}
+ */
+function hasBackShadow(light) {
+	try {
+		const canvas = document.createElement("canvas");
+		canvas.width = canvas.height = 32;
+		const context = canvas.getContext("2d", { willReadFrequently: true });
+		context.drawImage(light.image, 0, 0, 32, 32);
+		const data = context.getImageData(0, 0, 32, 32).data;
+		let blue = 0;
+		for (let i = 2; i < data.length; i += 4) { blue += data[i]; }
+		return blue / (data.length / 4) > 24; // AN EMPTY CHANNEL READS ~5 AFTER WEBP, A BAKED ONE ~80
+	} catch (error) {
+		return false; // CAN'T READ IT: NO BAKED SHADOW FOR BACKS BEATS BLACK BACKS
+	}
+}
+
+/**
  * @description A piece side's material for the baked models: the sprites' lighting over its atlases
  * @param  {[object]} maps { color, roughMetal (R subsurface, G roughness, B metalness), normal, light (R occlusion, G the lamp's shadow, B its shadow with the lamp behind) }
  * @return {[MeshStandardMaterial]}
@@ -96,8 +118,10 @@ const SPRITE_LIGHTING = `
 export function atlasMaterial({ color, roughMetal, normal, light }) {
 	const material = new MeshStandardMaterial({ map: color, normalMap: normal, roughnessMap: roughMetal, metalnessMap: roughMetal, roughness: 1, metalness: 1 });
 	material.userData.light = { value: light };
+	material.userData.backShadow = { value: hasBackShadow(light) ? 1 : 0 };
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms.spriteLight = material.userData.light;
+		shader.uniforms.spriteBackShadow = material.userData.backShadow;
 		shader.vertexShader = shader.vertexShader
 			.replace("void main() {", "varying vec2 vPieceFront;\nvoid main() {")
 			.replace("#include <project_vertex>", "#include <project_vertex>\n\tvPieceFront = (modelMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xz; // WHERE THE MODEL'S FRONT (+Z) POINTS ON THE BOARD");
@@ -108,9 +132,10 @@ export function atlasMaterial({ color, roughMetal, normal, light }) {
 				vec3 back = vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]); // THE CAMERA'S +Z ON THE BOARD: FROM WHAT IT LOOKS AT TOWARD IT
 				vec2 cam = dot(back.xz, back.xz) > 1e-6 ? normalize(back.xz) : vec2(0.0, 1.0);
 				// THE SHADOWS ARE BAKED WITH THE LAMP IN FRONT OF THE MODEL (G) & BEHIND IT (B). THE LAMP FOLLOWS THE CAMERA, SO A PIECE FACING THE PLAYER
-				// TAKES G LIKE ITS SPRITE, ONE FACING AWAY TAKES B, & ONE TURNED SIDEWAYS FADES TO NO BAKED SHADOW RATHER THAN ONE ON THE WRONG SIDE
+				// TAKES G LIKE ITS SPRITE, ONE FACING AWAY TAKES B (NONE IF THE ATLAS HAS NO B, hasBackShadow), & ONE TURNED SIDEWAYS FADES TO NO BAKED
+				// SHADOW RATHER THAN ONE ON THE WRONG SIDE
 				float facing = dot(normalize(vPieceFront), cam);
-				float shadow = baked.g * saturate(facing) + baked.b * saturate(-facing) + 1.0 - abs(facing);
+				float shadow = baked.g * saturate(facing) + mix(1.0, baked.b, spriteBackShadow) * saturate(-facing) + 1.0 - abs(facing);
 				outgoingLight = spriteShade(diffuseColor.rgb, toSprite(inverseTransformDirection(normal, viewMatrix), cam), toSprite(inverseTransformDirection(geometryViewDir, viewMatrix), cam),
 					roughnessFactor, metalnessFactor, baked.r, shadow, texture2D(roughnessMap, vRoughnessMapUv).r);
 			}

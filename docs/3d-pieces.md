@@ -41,7 +41,7 @@ Bake (Cycles, CPU):
 
 ## Budgets
 
-- About 1.7 MB for the set, fetched only with 3D on and cached after: `pieces.glb` 670 KB (Meshopt) + the six `pieces-*.webp` atlases 1.04 MB.
+- About 1.6 MB for the set, fetched only with 3D on and cached after: `pieces.glb` 624 KB (Meshopt) + the six `pieces-*.webp` atlases 1.0 MB. The atlases are 40% covered (charted unwraps), about 250 texels per square on the colour atlas (the sprites draw 214 px per square), 420 on the pawn.
 - About 100k triangles for 32 pieces: 104,068 (pawn 1,600, knight 5,559, bishop 3,319, rook 3,120, queen 7,720, king 7,518). Pawns get the smallest share because there are 16 of them. The round bases are lathed at 40 segments, so their silhouettes stay round.
 
 The Meshopt decoder is WebAssembly, so the page's CSP needs `'wasm-unsafe-eval'` in `script-src` (`server/middleware/securityHeaders.js`).
