@@ -88,14 +88,19 @@ function place(mesh, square) {
 	view.pieces.set(square, mesh);
 	mesh.userData.square = square;
 	mesh.position.set(center(fileOf(square)), 0, center(rowOf(square)));
+	if (mesh.userData.type === "n" && mesh.userData.yaw === undefined) { mesh.rotation.y = startYaw(mesh); } // AN UNMOVED KNIGHT FACES THE MIDDLE OF ITS SQUARE'S ROW
 	updateShadow(mesh);
 }
 
 // KING, QUEEN, BISHOP & ROOK FACE THE WAY THEY LAST MOVED UP OR DOWN THE BOARD LIKE 2D (handlePieceDirectionW / B): TOWARD RANK 8 (-Z) IS
-// rotation.y PI (MODEL FRONTS FACE +Z), TOWARD RANK 1 IS 0. ONE THAT HASN'T FACES THE OTHER SIDE (createPiece). WORLD SIDES, SO A FLIP CHANGES NOTHING
-const TURNS = /[kqbr]/;
+// rotation.y PI (MODEL FRONTS FACE +Z), TOWARD RANK 1 IS 0. ONE THAT HASN'T FACES THE OTHER SIDE (createPiece). WORLD SIDES, SO A FLIP CHANGES NOTHING.
+// KNIGHTS FACE THE WAY THEY LAST MOVED LEFT OR RIGHT (handleKnightDirectionW / B): THE NOSE IS +X, SO TOWARD THE h-FILE IS 0, TOWARD THE a-FILE PI.
+// ONE THAT HASN'T MOVED FACES THE MIDDLE (a - d FACE THE h-FILE, e - h THE a-FILE), LIKE 2D's START (setSlidePiece)
+const TURNS = /[kqbrn]/;
 const yawToward = (rankUp) => (rankUp ? Math.PI : 0);
-const storedYaw = (mesh) => mesh.userData.yaw ?? yawToward(mesh.userData.color === "w");
+const yawSide = (towardH) => (towardH ? 0 : Math.PI);
+const startYaw = (mesh) => (mesh.userData.type === "n" ? yawSide(fileOf(mesh.userData.square) < 4) : yawToward(mesh.userData.color === "w"));
+const storedYaw = (mesh) => mesh.userData.yaw ?? startYaw(mesh);
 
 function setYaw(mesh, yaw, store) {
 	if (!TURNS.test(mesh.userData.type)) { return; }
@@ -103,9 +108,10 @@ function setYaw(mesh, yaw, store) {
 	mesh.rotation.y = yaw;
 }
 
-// TURNS A KING, QUEEN, BISHOP OR ROOK THE WAY A MOVE GOES UP OR DOWN, A SIDEWAYS MOVE KEEPS ITS FACING
+// TURNS A KING, QUEEN, BISHOP OR ROOK THE WAY A MOVE GOES UP OR DOWN, A SIDEWAYS MOVE KEEPS ITS FACING. A KNIGHT TURNS LEFT OR RIGHT
 function faceTravel(mesh, from, to) {
-	if (from[1] !== to[1]) { setYaw(mesh, yawToward(Number(to[1]) > Number(from[1])), true); }
+	if (mesh.userData.type === "n") { setYaw(mesh, yawSide(fileOf(to) > fileOf(from)), true); }
+	else if (from[1] !== to[1]) { setYaw(mesh, yawToward(Number(to[1]) > Number(from[1])), true); }
 }
 
 function addPiece(type, color) {
@@ -502,9 +508,9 @@ export function syncFromBoard(chessInst) {
 }
 
 /**
- * @description Turns the kings, queens, bishops & rooks the way the 2D board's piece lists say (w_piece / b_piece). A piece on a square
+ * @description Turns the kings, queens, bishops, rooks & knights the way the 2D board's lists say (w_piece / b_piece, w_knight / b_knight). A piece on a square
  * its color's list doesn't name keeps its facing (a move the list hasn't caught up with yet already turned it, animateMove)
- * @param  {[object]} facings [{ w: { square: "up" | "down" | null }, b: { ... } }, "up" toward rank 8, null hasn't moved up or down]
+ * @param  {[object]} facings [{ w: { square: "up" | "down" | "left" | "right" | null }, b: { ... } }, "up" toward rank 8, "right" toward the h-file, null hasn't moved]
  */
 export function setFacing(facings) {
 	if (!view) { return; }
@@ -512,7 +518,7 @@ export function setFacing(facings) {
 		const list = facings[mesh.userData.color] || {};
 		if (!(square in list)) { continue; }
 		const dir = list[square];
-		mesh.userData.yaw = dir ? yawToward(dir === "up") : undefined;
+		mesh.userData.yaw = !dir ? undefined : dir === "left" || dir === "right" ? yawSide(dir === "right") : yawToward(dir === "up");
 		if (!view.held || view.held.mesh !== mesh || !view.held.following) { setYaw(mesh, storedYaw(mesh), false); }
 	}
 	requestRender();
@@ -621,7 +627,7 @@ export function highlight(squares, kind) {
 /**
  * @description Lifts the piece the player picked up, like the 2D board: clicked, it floats over its square until it's put down or moved,
  * dragged (pressed & moved past the drag threshold), it floats over the square under the pointer, the one a drop lands on (squareUnder),
- * or under the pointer on the table off the board. No animation, the 2D lift is instant too, so reduce motion needs nothing.
+ * or over the edge square nearest the pointer off the board (a drop there puts it back). No animation, the 2D lift is instant too, so reduce motion needs nothing.
  * A dropped piece that's moving slides down from where it was let go (animateMove), call this after it
  * @param  {[string|null]} square [the held piece's square, null when nothing is held (it's put back down)]
  * @param  {[boolean]} dragging [the press is still down, so moving the pointer drags it]
@@ -654,21 +660,25 @@ function liftHeld() {
 	const at = following ? dragPoint() : null;
 	const square = mesh.userData.square;
 	mesh.position.set(at ? at.x : center(fileOf(square)), LIFT_HEIGHT, at ? at.z : center(rowOf(square)));
-	const dz = at ? at.z - center(rowOf(square)) : 0; // DRAGGED OFF ITS RANK: FACES THE WAY IT'S DRAGGED (2D's drawPiece)
-	setYaw(mesh, Math.abs(dz) > CELL_SIZE / 2 ? yawToward(dz < 0) : storedYaw(mesh), false);
+	if (mesh.userData.type === "n") { // DRAGGED OFF ITS FILE: FACES THE WAY IT'S DRAGGED (2D's drawKnight)
+		const dx = at ? at.x - center(fileOf(square)) : 0;
+		setYaw(mesh, Math.abs(dx) > CELL_SIZE / 2 ? yawSide(dx > 0) : storedYaw(mesh), false);
+	} else { // DRAGGED OFF ITS RANK: FACES THE WAY IT'S DRAGGED (2D's drawPiece)
+		const dz = at ? at.z - center(rowOf(square)) : 0;
+		setYaw(mesh, Math.abs(dz) > CELL_SIZE / 2 ? yawToward(dz < 0) : storedYaw(mesh), false);
+	}
 	updateShadow(mesh);
 	requestRender();
 }
 
-// WHERE A DRAGGED PIECE FLOATS: THE CENTER OF THE SQUARE UNDER THE POINTER (2D SNAPS IT TO SQUARES TOO), OFF THE BOARD THE POINT UNDER
-// THE POINTER ON THE TABLE, KEPT WITHIN A SQUARE OF THE EDGE. null WHEN THE POINTER ISN'T OVER THE TABLE (AT THE HORIZON)
+// WHERE A DRAGGED PIECE FLOATS: THE CENTER OF THE SQUARE UNDER THE POINTER (2D SNAPS IT TO SQUARES TOO), OFF THE BOARD THE EDGE SQUARE
+// NEAREST THE POINT UNDER THE POINTER ON THE TABLE, SO IT STAYS ON THE BOARD. null WHEN THE POINTER ISN'T OVER THE TABLE (AT THE HORIZON)
 function dragPoint() {
 	const pointerEvent = { clientX: view.pointerAt.x, clientY: view.pointerAt.y };
 	const square = squareUnder(pointerEvent);
 	if (square) { return { x: center(fileOf(square)), z: center(rowOf(square)) }; }
 	if (!raycaster.ray.intersectPlane(table, tablePoint)) { return null; } // squareUnder() JUST AIMED THE RAY AT THE POINTER
-	const edge = BOARD_SIZE / 2 + CELL_SIZE;
-	return { x: MathUtils.clamp(tablePoint.x, -edge, edge), z: MathUtils.clamp(tablePoint.z, -edge, edge) };
+	return { x: center(toCell(tablePoint.x)), z: center(toCell(tablePoint.z)) };
 }
 
 /* ---------------------------------------------------------------- */

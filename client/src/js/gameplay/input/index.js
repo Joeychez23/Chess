@@ -271,6 +271,13 @@ export async function handleCanvasClick(e) {
 			}
 		}
 	} else if (!game.currSlide) {
+		if (e.clientX !== undefined && !tileToSquare(game.tileX, game.tileY, game.viewColor)) { // LET GO OR CLICKED OFF THE BOARD: NOT A MOVE, THE PIECE GOES BACK TO ITS SQUARE
+			for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isClicked = false; game.tiles[i].isMousedown = false; }
+			game.clickedTile = false;
+			game.mousedownTile = false;
+			game.refresh = true;
+			return;
+		}
 		game.revert = game.response;
 		for (let i = 0; i < game.tiles.length; i++) {
 			let tile = game.tiles[i];

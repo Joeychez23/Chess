@@ -124,8 +124,9 @@ export function renderBoard() {
 	placeMoveList(xBoardStart, yBoardStart, boardHeight);
 	placeEvalBar(xBoardStart, yBoardStart, boardHeight);
 
-	let clickX = game.tileX * game.tileWidth; // SQUARE UNDER THE MOUSE IN PIXELS
-	let clickY = game.tileY * game.tileHeight;
+	const onBoard = (tile) => Math.min(Math.max(tile, 0), 7); // A DRAGGED PIECE STAYS ON THE BOARD: THE EDGE SQUARE NEAREST THE MOUSE
+	let clickX = onBoard(game.tileX) * game.tileWidth; // SQUARE UNDER THE MOUSE IN PIXELS
+	let clickY = onBoard(game.tileY) * game.tileHeight;
 	game.wPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF THE PIECES ON THE BOARD FOR WHITE, COUNTED AS THEY'RE DRAWN (TAKEN = START COUNT - THIS)
 	game.bPieceCount = { king: 0, queen: 0, bishop: 0, knight: 0, rook: 0, pawn: 0 }; // OBJECT STORE OF THE PIECES ON THE BOARD FOR BLACK
 

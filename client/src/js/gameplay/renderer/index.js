@@ -107,14 +107,18 @@ function syncMarks3D() {
 }
 
 /**
- * @description Which way each king, queen, bishop & rook faces, from the same piece lists the 2D board draws them by (w_piece / b_piece):
- * an entry with a from last moved up or down, "up" toward rank 8. null when there's no game from the server yet
- * @return {[object|null]} { w: { square: "up" | "down" | null }, b: { ... } }
+ * @description Which way each king, queen, bishop, rook & knight faces, from the same lists the 2D board draws them by (w_piece / b_piece,
+ * w_knight / b_knight): an entry with a from last moved up or down ("up" toward rank 8), a knight's left or right ("right" toward the h-file).
+ * null when there's no game from the server yet
+ * @return {[object|null]} { w: { square: "up" | "down" | "left" | "right" | null }, b: { ... } }
  */
 function facings3D() {
 	if (!game.response || !game.response.w_piece || !game.response.b_piece) { return null; }
-	const side = (list) => Object.fromEntries(JSON.parse(list).filter((p) => p.to).map((p) => [p.to, p.from ? (p.to[1] > p.from[1] ? "up" : "down") : null]));
-	return { w: side(game.response.w_piece), b: side(game.response.b_piece) };
+	const side = (list, dir) => (list ? JSON.parse(list).filter((p) => p.to).map((p) => [p.to, p.from ? dir(p.from, p.to) : null]) : []);
+	const upDown = (from, to) => (to[1] > from[1] ? "up" : "down");
+	const leftRight = (from, to) => (to[0] > from[0] ? "right" : "left");
+	const color = (c) => Object.fromEntries([...side(game.response[c + "_piece"], upDown), ...side(game.response[c + "_knight"], leftRight)]);
+	return { w: color("w"), b: color("b") };
 }
 
 // PUTS facings3D() ON THE 3D BOARD WHEN THEY OR THE POSITION CHANGED (A SYNC CAN MOVE MESHES ONTO OTHER SQUARES)
