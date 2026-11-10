@@ -91,6 +91,23 @@ function place(mesh, square) {
 	updateShadow(mesh);
 }
 
+// KING, QUEEN, BISHOP & ROOK FACE THE WAY THEY LAST MOVED UP OR DOWN THE BOARD LIKE 2D (handlePieceDirectionW / B): TOWARD RANK 8 (-Z) IS
+// rotation.y PI (MODEL FRONTS FACE +Z), TOWARD RANK 1 IS 0. ONE THAT HASN'T FACES THE OTHER SIDE (createPiece). WORLD SIDES, SO A FLIP CHANGES NOTHING
+const TURNS = /[kqbr]/;
+const yawToward = (rankUp) => (rankUp ? Math.PI : 0);
+const storedYaw = (mesh) => mesh.userData.yaw ?? yawToward(mesh.userData.color === "w");
+
+function setYaw(mesh, yaw, store) {
+	if (!TURNS.test(mesh.userData.type)) { return; }
+	if (store) { mesh.userData.yaw = yaw; }
+	mesh.rotation.y = yaw;
+}
+
+// TURNS A KING, QUEEN, BISHOP OR ROOK THE WAY A MOVE GOES UP OR DOWN, A SIDEWAYS MOVE KEEPS ITS FACING
+function faceTravel(mesh, from, to) {
+	if (from[1] !== to[1]) { setYaw(mesh, yawToward(Number(to[1]) > Number(from[1])), true); }
+}
+
 function addPiece(type, color) {
 	const mesh = createPiece(type, color, PIECE_SIZE);
 	view.scene.add(mesh);
@@ -485,6 +502,23 @@ export function syncFromBoard(chessInst) {
 }
 
 /**
+ * @description Turns the kings, queens, bishops & rooks the way the 2D board's piece lists say (w_piece / b_piece). A piece on a square
+ * its color's list doesn't name keeps its facing (a move the list hasn't caught up with yet already turned it, animateMove)
+ * @param  {[object]} facings [{ w: { square: "up" | "down" | null }, b: { ... } }, "up" toward rank 8, null hasn't moved up or down]
+ */
+export function setFacing(facings) {
+	if (!view) { return; }
+	for (const [square, mesh] of view.pieces) {
+		const list = facings[mesh.userData.color] || {};
+		if (!(square in list)) { continue; }
+		const dir = list[square];
+		mesh.userData.yaw = dir ? yawToward(dir === "up") : undefined;
+		if (!view.held || view.held.mesh !== mesh || !view.held.following) { setYaw(mesh, storedYaw(mesh), false); }
+	}
+	requestRender();
+}
+
+/**
  * @description Which square a pointer event is over (the piece's square when it's over a piece, so tall pieces are easy to hit)
  * @param  {[PointerEvent|MouseEvent]} e [any event with clientX & clientY]
  * @return {[string|null]} ["e4", or null when it's off the board or nothing is mounted]
@@ -610,6 +644,7 @@ function putDownHeld() {
 	const { mesh } = held;
 	if ([...view.anims].some((anim) => anim.mesh === mesh) || view.pieces.get(mesh.userData.square) !== mesh) { requestRender(); return; }
 	place(mesh, mesh.userData.square);
+	setYaw(mesh, storedYaw(mesh), false); // A DRAG MAY HAVE TURNED IT
 	requestRender();
 }
 
@@ -619,6 +654,8 @@ function liftHeld() {
 	const at = following ? dragPoint() : null;
 	const square = mesh.userData.square;
 	mesh.position.set(at ? at.x : center(fileOf(square)), LIFT_HEIGHT, at ? at.z : center(rowOf(square)));
+	const dz = at ? at.z - center(rowOf(square)) : 0; // DRAGGED OFF ITS RANK: FACES THE WAY IT'S DRAGGED (2D's drawPiece)
+	setYaw(mesh, Math.abs(dz) > CELL_SIZE / 2 ? yawToward(dz < 0) : storedYaw(mesh), false);
 	updateShadow(mesh);
 	requestRender();
 }
@@ -699,6 +736,7 @@ export function animateMove(from, to, promotion) {
 	let captured = view.pieces.get(to);
 	if (type === "p" && fileStep !== 0 && !captured) { captured = view.pieces.get(to[0] + from[1]); } // EN PASSANT: THE PAWN BESIDE IT
 	const knight = type === "n";
+	faceTravel(mesh, from, to); // TURNS AS IT STARTS SLIDING, LIKE 2D
 	const moves = [slide(mesh, to, { hop: knight, delay: slideDelay(knight), onEnd: function () {
 		if (promotion && type === "p") {
 			removePiece(mesh);
