@@ -754,7 +754,7 @@ export function animateMove(from, to, promotion) {
 		}
 	} })];
 	if (captured) { // FADES & DROPS AWAY WHILE THE PIECE COMES IN, GONE AS IT LANDS
-		view.pieces.delete(captured.userData.square);
+		if (view.pieces.get(captured.userData.square) === captured) { view.pieces.delete(captured.userData.square); } // NOT THE PIECE THAT JUST SLID IN THERE
 		const { x, z } = captured.position;
 		moves.push(animate(captured, x, z, { fade: -1, delay: slideDelay(knight), duration: slideDuration(Math.max(Math.abs(fileStep), Math.abs(rowOf(to) - rowOf(from))), knight), onEnd: () => removePiece(captured) }));
 	}
