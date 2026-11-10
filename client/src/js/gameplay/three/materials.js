@@ -54,10 +54,14 @@ export const walnut = wood(0x3A2416, 0x5A4430); // BLACK'S PIECES: A WARM RIM KE
 export const gold = new MeshStandardMaterial({ color: 0xD4A63A, metalness: 0.8, roughness: 0.3 }); // CROWNS, COLLARS, FRAME INLAY
 export const frameWood = wood(0x2E1B10, 0x000000); // DARKER THAN BLACK'S PIECES SO THEY STAND OUT AGAINST IT
 
-// THE 2D PIECES' shade() (images/_ideas/generator/glsl-common.js), SO THE MODELS MATCH THE SPRITES: ITS OWN LAMP & SKY, THE SCENE'S LIGHTS ONLY TOUCH THE BOARD
+// THE 2D PIECES' shade() (images/_ideas/generator/glsl-common.js), SO THE MODELS MATCH THE SPRITES: ITS OWN LAMP & SKY, THE SCENE'S LIGHTS ONLY TOUCH THE BOARD.
+// ITS DIRECTIONS ARE THE SPRITE CAMERA'S, SO THEY TURN WITH THE CAMERA AROUND THE BOARD (toSprite): THE LAMP STAYS OVER THE PLAYER'S RIGHT SHOULDER FROM EITHER SIDE
 const SPRITE_LIGHTING = `
 	uniform sampler2D spriteLight;
+	uniform float spriteBackShadow;
+	varying vec2 vPieceFront;
 	const vec3 SPRITE_LAMP = normalize(vec3(0.59, 1.8, 0.71));
+	vec3 toSprite(vec3 v, vec2 cam) { return vec3(v.x * cam.y - v.z * cam.x, v.y, v.x * cam.x + v.z * cam.y); } // TURNS A WORLD DIRECTION BY THE CAMERA'S ANGLE AROUND THE BOARD (cam: ITS SIN & COS)
 	vec3 spriteSky(vec3 R) {
 		vec3 c = mix(vec3(0.05, 0.032, 0.02), vec3(0.24, 0.20, 0.17), smoothstep(-0.3, 0.9, R.y));
 		c += vec3(1.0, 0.78, 0.5) * pow(saturate(dot(R, SPRITE_LAMP)), 40.0) * 6.0;
@@ -86,21 +90,54 @@ const SPRITE_LIGHTING = `
 `;
 
 /**
+ * @description Whether a light atlas carries the shadow baked with the lamp behind (B). One baked before it has B empty, & reading
+ * that as "all in shadow" leaves every piece that faces away from the player unlit (the CDN serving an older atlas than the code)
+ * @param  {[Texture]} light [the light atlas, loaded with CORS]
+ * @return {[boolean]}
+ */
+function hasBackShadow(light) {
+	try {
+		const canvas = document.createElement("canvas");
+		canvas.width = canvas.height = 32;
+		const context = canvas.getContext("2d", { willReadFrequently: true });
+		context.drawImage(light.image, 0, 0, 32, 32);
+		const data = context.getImageData(0, 0, 32, 32).data;
+		let blue = 0;
+		for (let i = 2; i < data.length; i += 4) { blue += data[i]; }
+		return blue / (data.length / 4) > 24; // AN EMPTY CHANNEL READS ~5 AFTER WEBP, A BAKED ONE ~80
+	} catch (error) {
+		return false; // CAN'T READ IT: NO BAKED SHADOW FOR BACKS BEATS BLACK BACKS
+	}
+}
+
+/**
  * @description A piece side's material for the baked models: the sprites' lighting over its atlases
- * @param  {[object]} maps { color, roughMetal (R subsurface, G roughness, B metalness), normal, light (R occlusion, G the lamp's shadow) }
+ * @param  {[object]} maps { color, roughMetal (R subsurface, G roughness, B metalness), normal, light (R occlusion, G the lamp's shadow, B its shadow with the lamp behind) }
  * @return {[MeshStandardMaterial]}
  */
 export function atlasMaterial({ color, roughMetal, normal, light }) {
 	const material = new MeshStandardMaterial({ map: color, normalMap: normal, roughnessMap: roughMetal, metalnessMap: roughMetal, roughness: 1, metalness: 1 });
 	material.userData.light = { value: light };
+	material.userData.backShadow = { value: hasBackShadow(light) ? 1 : 0 };
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms.spriteLight = material.userData.light;
+		shader.uniforms.spriteBackShadow = material.userData.backShadow;
+		shader.vertexShader = shader.vertexShader
+			.replace("void main() {", "varying vec2 vPieceFront;\nvoid main() {")
+			.replace("#include <project_vertex>", "#include <project_vertex>\n\tvPieceFront = (modelMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xz; // WHERE THE MODEL'S FRONT (+Z) POINTS ON THE BOARD");
 		shader.fragmentShader = shader.fragmentShader
 			.replace("void main() {", `${SPRITE_LIGHTING}\nvoid main() {`)
 			.replace("#include <opaque_fragment>", `{
-				vec2 baked = texture2D(spriteLight, vMapUv).rg;
-				outgoingLight = spriteShade(diffuseColor.rgb, inverseTransformDirection(normal, viewMatrix), inverseTransformDirection(geometryViewDir, viewMatrix),
-					roughnessFactor, metalnessFactor, baked.r, baked.g, texture2D(roughnessMap, vRoughnessMapUv).r);
+				vec3 baked = texture2D(spriteLight, vMapUv).rgb;
+				vec3 back = vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]); // THE CAMERA'S +Z ON THE BOARD: FROM WHAT IT LOOKS AT TOWARD IT
+				vec2 cam = dot(back.xz, back.xz) > 1e-6 ? normalize(back.xz) : vec2(0.0, 1.0);
+				// THE SHADOWS ARE BAKED WITH THE LAMP IN FRONT OF THE MODEL (G) & BEHIND IT (B). THE LAMP FOLLOWS THE CAMERA, SO A PIECE FACING THE PLAYER
+				// TAKES G LIKE ITS SPRITE, ONE FACING AWAY TAKES B (NONE IF THE ATLAS HAS NO B, hasBackShadow), & ONE TURNED SIDEWAYS FADES TO NO BAKED
+				// SHADOW RATHER THAN ONE ON THE WRONG SIDE
+				float facing = dot(normalize(vPieceFront), cam);
+				float shadow = baked.g * saturate(facing) + mix(1.0, baked.b, spriteBackShadow) * saturate(-facing) + 1.0 - abs(facing);
+				outgoingLight = spriteShade(diffuseColor.rgb, toSprite(inverseTransformDirection(normal, viewMatrix), cam), toSprite(inverseTransformDirection(geometryViewDir, viewMatrix), cam),
+					roughnessFactor, metalnessFactor, baked.r, shadow, texture2D(roughnessMap, vRoughnessMapUv).r);
 			}
 			#include <opaque_fragment>`);
 	};
