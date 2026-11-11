@@ -48,7 +48,7 @@ module.exports = [
 
 	// NODE CODE (COMMONJS): SERVER, DATA SERVICE AND BUILD CONFIGS
 	{
-		files: ['server/**/*.js', 'data-service/**/*.js', 'client/webpack.config.js', 'eslint.config.js'],
+		files: ['server/**/*.js', 'data-service/**/*.js', 'client/webpack.config.js', 'client/test/**/*.js', 'eslint.config.js'],
 		languageOptions: {
 			ecmaVersion: 'latest',
 			sourceType: 'commonjs',

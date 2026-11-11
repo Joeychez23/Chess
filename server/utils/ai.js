@@ -13,6 +13,7 @@
 const { Chess } = require("chess.js");
 const { aiMove: jsChessEngineMove } = require("js-chess-engine");
 const config = require("../config");
+const { BOTS } = require("./bots.js");
 
 const ENGINE_WAIT = 5000; // EXTRA TIME FOR THE ENGINE'S QUEUE BEFORE GIVING UP ON IT (ms)
 
@@ -44,6 +45,7 @@ for (let elo = LOWEST; elo <= FULL_STRENGTH; elo += STEP) {
 		LEVELS.push({ level: elo, elo: `${elo}+`, depth: 20, time: 2000 }); // FULL STRENGTH
 	}
 }
+for (const { level } of LEVELS) { if (!BOTS[level]) { throw new Error(`AI level ${level} has no bot (server/utils/bots.js)`); } } // A NEW LEVEL NEEDS ITS BOT
 const DEFAULT_LEVEL = 1300;
 const OLD_LEVELS = { 1: 800, 2: 1100, 3: 1300, 4: 1600, 5: 1900, 6: 2200, 7: 2600, 8: 3200 }; // GAMES & SETTINGS SAVED WHEN THERE WERE 8 LEVELS -> THE CLOSEST ONE NOW
 const DRAW_CHECK = { depth: 12, time: 1000 }; // A DRAW OFFER IS JUDGED AT FULL STRENGTH WHATEVER THE LEVEL (A SKILL LEVEL'S WEAKER PICK COMES WITHOUT A SCORE)
@@ -55,11 +57,12 @@ const analyses = new Map(); // FEN -> THE ANSWER (A PROMISE), THE SAME POSITION 
 // Levels
 /* ---------------------------------------------------------------- */
 /**
- * @description The levels for the Home dropdown
- * @return {[object]} { levels: [{ level, elo }], default_level }
+ * @description The levels for the Home dropdown, each one a bot (server/utils/bots.js). old_levels lets the client show the bot of a game saved with an old level (1 - 8)
+ * @return {[object]} { levels: [{ level, elo, name, bio, avatar, lines }], default_level, old_levels }
  */
 function levelList() {
-	return { levels: LEVELS.map(({ level, elo }) => ({ level, elo })), default_level: DEFAULT_LEVEL };
+	const levels = LEVELS.map(({ level, elo }) => ({ level, elo, ...BOTS[level], avatar: `images/bots/${level}.webp` })); // avatar: ON S3 UNDER CHESS_ASSETS_URL
+	return { levels, default_level: DEFAULT_LEVEL, old_levels: OLD_LEVELS };
 }
 
 /**

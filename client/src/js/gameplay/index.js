@@ -17,6 +17,8 @@
 /* ---------------------------------------------------------------- */
 const { game, canvas, chessInst, validateState, startFrames, requestFrame, fillTiles, OVERRIDE_TV } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
+const { momentFor } = require("./bots/index.js"); // WHAT THE AI'S BOT SAYS ABOUT ITS MOVE (#76)
+const { sayLine } = require("./bots/say.js"); // & SAYS IT BESIDE THE BOARD
 const { imageProgress } = require("./images/index.js"); // HOW MANY OF THE GAME'S IMAGES HAVE LOADED (0 - 1)
 const { handleWindowResize } = require("./layout/index.js"); // REDRAWS THE GAME WHEN THE WINDOW IS RESIZED
 const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // DRAWS EACH FRAME (drawScreen), THE TAKEN PIECE TRAYS
@@ -193,7 +195,8 @@ async function startAiSlide() {
 		game.moveObj = await playAi(game.GAME_URL, game.GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
 
 		validateState.load(game.response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
-		validateState.move(game.moveObj);
+		const played = validateState.move(game.moveObj);
+		sayLine(momentFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // A CAPTURE, CHECK OR MATE
 		clearStatus("ai");
 		fillTiles();
 		for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from

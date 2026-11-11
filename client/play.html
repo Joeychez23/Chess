@@ -89,6 +89,10 @@
 	<div id="gameInfo"> <!-- BOTTOM LEFT, THE MOVE LIST STAYS CLEAR OF IT -->
 		<p id="openingDisplay" hidden></p> <!-- "B90 Sicilian Defense: Najdorf Variation" (gameplay/movelist/index.js) -->
 		<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
+		<div id="botDisplay" hidden> <!-- AI GAMES: THE BOT'S AVATAR, NAME & LINES (gameplay/bots/say.js, #76) -->
+			<p id="botLine" aria-live="polite"></p>
+			<div id="botTag"><img id="botAvatar" alt="" width="40" height="40"><span id="botInitial" aria-hidden="true" hidden></span><span id="botName"></span></div>
+		</div>
 	</div>
 
 	<div id="evalBar" role="img" aria-label="Evaluation" hidden><div id="evalBarFill"></div></div> <!-- BESIDE THE BOARD, TURNED ON FROM THE MENU (gameplay/analysis/index.js) -->

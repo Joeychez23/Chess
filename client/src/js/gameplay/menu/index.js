@@ -24,6 +24,8 @@ const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js");
 const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
 const { setView, currentView, resetCamera, onViewChange, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA
+const { endMomentFor } = require("../bots/index.js"); // WHAT THE AI'S BOT SAYS WHEN THE GAME ENDS (#76)
+const { sayLine } = require("../bots/say.js"); // & SAYS IT BESIDE THE BOARD
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -768,10 +770,12 @@ function placeEndGroup(top) {
 /**
  * @description Locks the board & opens the menu with the server's result. AI games offer Restart, friend games offer Rematch
  * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
+ * @param  {[boolean]} onLoad [true: the game was already over when it loaded, the bot doesn't speak about it again]
  */
-export function showGameOver(result) {
+export function showGameOver(result, onLoad) {
 	if (game.gameOver) { return; } // ALREADY SHOWN
 	game.gameOver = true;
+	if (game.ai && !onLoad) { sayLine(endMomentFor(result, game.playerColor == "w" ? "b" : "w")); } // THE BOT WON OR LOST, A DRAW SAYS NOTHING
 	syncDeadline(null);
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY

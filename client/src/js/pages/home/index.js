@@ -20,7 +20,7 @@ const { validate, newAiGame, getUserGameData, initMultiplayerGame, searchPlayers
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { timeLeftText } = require("../utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT ON YOUR GAMES
-const { startNav, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
+const { startNav, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, botLevels, botName, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
 const USER_URL = "/api/user"; // server/routes/api/userRoutes.js
@@ -150,15 +150,15 @@ function refreshHome(firstLoad) {
  * @param  {[boolean]} firstLoad [true also reads the default start settings & loads the AI game]
  */
 async function drawHome(firstLoad) {
-	const [gameData, friendData] = await Promise.all([getUserGameData(CHESS_URL, PLAYER_ID), getFriends(USER_URL)]);
+	const [gameData, friendData, levels] = await Promise.all([getUserGameData(CHESS_URL, PLAYER_ID), getFriends(USER_URL), botLevels(CHESS_URL)]); // levels: THE AI GAMES SHOW THEIR BOT'S NAME
 	if (firstLoad) { SETTINGS = gameData?.settings || null; } // ONLY ON LOAD, A REDRAW DOESN'T UNDO A PICK
 	const releaseHeight = holdPageHeight(); // THE PAGE DOESN'T GET SHORTER WHILE IT'S REDRAWN, SO THE SCROLL STAYS PUT (#240)
 	try {
 		showRating(gameData?.rating); // A FINISHED FRIEND GAME REDRAWS HOME (SOCKET "games"), SO THE NEW RATING SHOWS
 		const friendGame = await openGame(gameData?.friend_game_id);
 		const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
-		listGames(gameData);
-		listFinishedGames(gameData);
+		listGames(gameData, levels);
+		listFinishedGames(gameData, levels);
 		loadInvites(gameData);
 		loadFriends(friendData);
 		await loadFriendBox(gameData, friendGame);
@@ -206,16 +206,17 @@ async function openGame(gameId) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Lists the player's open games, each one is a link to /play/:gameId with its opponent & start settings:
- * "vs AI // Level 1300 // You play white (random)", "vs Bob // You play black // C20 King's Pawn Game". They're also shown in their boxes
+ * "vs Ada // You play white (random)", "vs Bob // You play black // C20 King's Pawn Game". They're also shown in their boxes
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
+ * @param  {[object]} levels [GET /levels, botLevels(): an AI game shows its bot's name]
  */
-function listGames(gameData) {
+function listGames(gameData, levels) {
 	const openGames = gameData?.open_game_list || []; // NEW USERS HAVE NO GAMES YET
 	const rows = [];
 	for (let i = 0; i < openGames.length; i++) {
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
-		const opponent = openGames[i].ai ? `vs AI // Level ${openGames[i].ai_level}` : `vs ${openGames[i].opponent_name || "Friend"}`;
+		const opponent = openGames[i].ai ? `vs ${botName(levels, openGames[i].ai_level) || `AI // Level ${openGames[i].ai_level}`}` : `vs ${openGames[i].opponent_name || "Friend"}`;
 		gameLink.href = `/play/${encodeURIComponent(openGames[i].game_id)}`;
 		gameLink.innerHTML = `<span class="label">Game ${i + 1}</span><span class="spec gameInfo"></span><span class="label gameOpen">Open</span>`;
 		const opening = openGames[i].opening ? ` // ${openGames[i].opening.eco} ${openGames[i].opening.name}` : "";
@@ -235,15 +236,16 @@ function listGames(gameData) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Lists the player's last 20 finished games, newest first, each one is a link to /play/:gameId with its final board:
- * "Won" & "vs AI // Level 1300 // You play white (random) // Checkmate"
+ * "Won" & "vs Ada // You play white (random) // Checkmate"
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
+ * @param  {[object]} levels [GET /levels, botLevels(): an AI game shows its bot's name]
  */
-function listFinishedGames(gameData) {
+function listFinishedGames(gameData, levels) {
 	const games = gameData?.closed_game_list || []; // NEW USERS HAVE NO GAMES YET
 	const rows = games.map(function (game) {
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
-		const opponent = game.ai ? `vs AI // Level ${game.ai_level}` : `vs ${game.opponent_name || "Friend"}`;
+		const opponent = game.ai ? `vs ${botName(levels, game.ai_level) || `AI // Level ${game.ai_level}`}` : `vs ${game.opponent_name || "Friend"}`;
 		const reason = game.reason ? ` // ${game.reason[0].toUpperCase()}${game.reason.slice(1)}` : "";
 		gameLink.href = `/play/${encodeURIComponent(game.game_id)}`;
 		gameLink.innerHTML = `<span class="label"></span><span class="spec gameInfo"></span>`;

@@ -22,11 +22,12 @@ const list = (item, name) => JSON.parse(item[name].S);
 // Levels
 /* ---------------------------------------------------------------- */
 
-test("GET /levels lists the 27 AI levels", async () => {
+test("GET /levels lists the 27 AI levels as bots", async () => {
 	const response = await call("GET", "/api/chess/levels");
 	assert.equal(response.status, 200);
 	assert.equal(response.levels.length, 27);
-	assert.deepEqual(response.levels[0], { level: 600, elo: "≈600" });
+	const [first] = response.levels;
+	assert.deepEqual([first.level, first.elo, typeof first.name, first.avatar], [600, "≈600", "string", "images/bots/600.webp"]);
 	assert.equal(response.default_level, 1300);
 });
 

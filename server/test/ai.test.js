@@ -36,6 +36,23 @@ describe("levels", () => {
 		assert.equal(default_level, 1300);
 	});
 
+	test("every level is a bot with a name, bio, avatar and lines for each moment", () => {
+		const { levels } = levelList();
+		const moments = ["start", "capture", "check", "win", "lose"];
+		for (const bot of levels) {
+			assert.ok(bot.name.trim() && bot.bio.trim(), `${bot.level} has a name and bio`);
+			assert.ok(bot.bio.length <= 120, `${bot.level}'s bio is short`);
+			assert.equal(bot.avatar, `images/bots/${bot.level}.webp`);
+			assert.deepEqual(Object.keys(bot.lines).sort(), [...moments].sort());
+			assert.ok(moments.every((m) => bot.lines[m].length >= 2 && bot.lines[m].every((line) => line.trim() && line.length <= 80)), `${bot.level} has 2+ lines a moment`);
+		}
+		assert.equal(new Set(levels.map((bot) => bot.name)).size, 27); // NO TWO BOTS SHARE A NAME
+	});
+
+	test("the old levels go to the client so it shows their bot", () => {
+		assert.deepEqual(levelList().old_levels, { 1: 800, 2: 1100, 3: 1300, 4: 1600, 5: 1900, 6: 2200, 7: 2600, 8: 3200 });
+	});
+
 	test("readLevel keeps real levels and turns anything else into the default", () => {
 		assert.equal(readLevel(700), 700);
 		assert.equal(readLevel("2400"), 2400);
