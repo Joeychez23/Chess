@@ -366,7 +366,7 @@ async function getRatings(req, res) {
  * @description A signed in player's new game vs the AI: they're one side & CHESS_AI the other, at a real level, from the standard position
  * or a checked set position. The game id is always made here, the response has it (a signed in player's Restart is a forfeit & a new game).
  * One AI game at a time stays on the chess server, it forfeits the open one first
- * @param  {[object]} req.body [{ color ("w" | "b" | "random" | "alternate"), level (1 - 8, left out = 3), start_fen (optional) }]
+ * @param  {[object]} req.body [{ color ("w" | "b" | "random" | "alternate"), level (600 - 3200 in steps of 100, left out = 1300), start_fen (optional) }]
  * @return {[object]} response [initalizeGame's { status, game_data (game_id is the new id), message }]
  */
 async function newAiGame(req, res) {

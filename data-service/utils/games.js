@@ -13,8 +13,9 @@
 
 const crypto = require("crypto");
 
-const AI_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]; // THE LEVELS IN server/utils/ai.js (LEVELS), THE ENGINE SETTINGS STAY ON THE CHESS SERVER
-const DEFAULT_LEVEL = 3;
+const AI_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]; // THE 8 LEVELS FROM BEFORE, STILL TAKEN (THE CHESS SERVER READS THEM AS THE CLOSEST OF TODAY'S)
+for (let elo = 600; elo <= 3200; elo += 100) { AI_LEVELS.push(elo); } // THE LEVELS IN server/utils/ai.js (LEVELS): THEIR ELO, THE ENGINE SETTINGS STAY ON THE CHESS SERVER
+const DEFAULT_LEVEL = 1300;
 const ID = /^[A-Za-z0-9_-]{1,64}$/; // GAME IDS (newGameId'S, OLDER OBJECT IDS, THE TESTS' "game1") & PLAYER IDS (AUTH0 IDS WITHOUT "auth0|")
 const OPEN_SEAT = "OPEN_SEAT"; // THE EMPTY SIDE OF A CHALLENGE LINK'S GAME, THE FIRST SIGNED IN PLAYER TO JOIN TAKES IT
 
@@ -223,7 +224,7 @@ function isColor(value) {
 
 /**
  * @description An AI level from a body
- * @param  {[number]} value [1 - 8, left out = DEFAULT_LEVEL]
+ * @param  {[number]} value [600 - 3200 in steps of 100 (or 1 - 8 from before), left out = DEFAULT_LEVEL]
  * @return {[number]} level [null when it isn't a level]
  */
 function readAiLevel(value) {

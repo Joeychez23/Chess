@@ -37,31 +37,31 @@ describe("default start settings", () => {
 		const alice = player("alice");
 		await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } }); // SO SHE HAS A ROW
 
-		const saved = await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 6, ai_color: "b", friend_color: "w" } });
+		const saved = await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 2200, ai_color: "b", friend_color: "w" } });
 		assert.equal(saved.status, 200);
-		assert.deepEqual(saved.settings, { ai_level: 6, ai_color: "b", friend_color: "w" });
+		assert.deepEqual(saved.settings, { ai_level: 2200, ai_color: "b", friend_color: "w" });
 
 		const home = await call("GET", "/api/chess/user/alice", { as: alice });
-		assert.deepEqual(home.settings, { ai_level: 6, ai_color: "b", friend_color: "w" });
+		assert.deepEqual(home.settings, { ai_level: 2200, ai_color: "b", friend_color: "w" });
 		assert.equal(home.games_finished, 0);
 	});
 
 	test("anything that isn't a level or a color gets the default", async () => {
 		const alice = player("alice");
 		const saved = await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 42, ai_color: "purple" } });
-		assert.deepEqual(saved.settings, { ai_level: 3, ai_color: "alternate", friend_color: "alternate" });
+		assert.deepEqual(saved.settings, { ai_level: 1300, ai_color: "alternate", friend_color: "alternate" });
 	});
 
 	test("a player who hasn't played yet gets a full row, so their first game still finds its lists", async () => {
 		const alice = player("alice");
-		await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 2 } });
+		await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 1100 } });
 		const row = peek("user_db", "alice");
 		assert.deepEqual(list(row, "open_games"), []);
 		assert.deepEqual(list(row, "closed_games"), []);
 
 		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
 		assert.deepEqual(list(peek("user_db", "alice"), "open_games"), [game.game_id]);
-		assert.equal(JSON.parse(peek("user_db", "alice").settings.S).ai_level, 2); // THE GAME LIST SAVE KEPT THE SETTINGS
+		assert.equal(JSON.parse(peek("user_db", "alice").settings.S).ai_level, 1100); // THE GAME LIST SAVE KEPT THE SETTINGS
 	});
 
 	test("games_finished counts closed games", async () => {
@@ -148,12 +148,12 @@ describe("delete my data", () => {
 
 	test("a row made after the delete starts fresh", async () => {
 		const alice = player("alice");
-		await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 7 } });
+		await call("PUT", "/api/user/settings", { as: alice, body: { ai_level: 2600 } });
 		await call("DELETE", "/api/user", { as: alice });
 
 		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
 		assert.equal(game.status, 200);
 		const home = await call("GET", "/api/chess/user/alice", { as: alice });
-		assert.deepEqual(home.settings, { ai_level: 3, ai_color: "alternate", friend_color: "alternate" }); // THE OLD SETTINGS WENT WITH THE ROW
+		assert.deepEqual(home.settings, { ai_level: 1300, ai_color: "alternate", friend_color: "alternate" }); // THE OLD SETTINGS WENT WITH THE ROW
 	});
 });

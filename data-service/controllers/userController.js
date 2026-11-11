@@ -37,7 +37,7 @@ async function getMe(req, res) {
 /* ---------------------------------------------------------------- */
 /**
  * @description The requester's Default start settings (the settings page). All three must be real values, the chess server defaults bad ones before this
- * @param  {[object]} req.body [{ ai_level (1 - 8), ai_color, friend_color ("w" | "b" | "random") }]
+ * @param  {[object]} req.body [{ ai_level (600 - 3200 in steps of 100), ai_color, friend_color ("w" | "b" | "random") }]
  * @return {[object]} response [updateUserSettings' { status, user_data, message }]
  */
 async function saveSettings(req, res) {
