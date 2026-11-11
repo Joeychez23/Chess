@@ -113,7 +113,7 @@ export async function loadLevels(gameUrl, select) {
 	for (let i = 0; i < response.levels.length; i++) {
 		const option = document.createElement("option");
 		option.value = response.levels[i].level;
-		option.innerText = `Level ${response.levels[i].level} (${response.levels[i].elo})`;
+		option.innerText = `${response.levels[i].elo} Elo`; // THE LEVEL IS ITS ELO
 		if (response.levels[i].level == response.default_level) { option.selected = true; }
 		select.append(option);
 	}

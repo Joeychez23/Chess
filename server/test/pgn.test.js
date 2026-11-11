@@ -64,23 +64,23 @@ describe("GET /game/:gameId/pgn", () => {
 	});
 
 	test("a guest's AI game: Stockfish at the game's level & the guest", async () => {
-		await call("POST", "/api/chess/game", { body: { game_id: "guest1", start_color: "w", ai_level: 4 } });
+		await call("POST", "/api/chess/game", { body: { game_id: "guest1", start_color: "w", ai_level: 1600 } });
 		await call("PUT", "/api/chess/game/guest1", { body: { move: ["e2", "e4"] } });
 		engineWillPlay("e7", "e5");
 		await call("POST", "/api/chess/game/guest1/ai-move");
 
 		const response = await call("GET", "/api/chess/game/guest1/pgn");
-		assert.equal(response.filename, "Guest-vs-Stockfish_level_4.pgn");
+		assert.equal(response.filename, "Guest-vs-Stockfish_level_1600.pgn");
 		const { headers, moves } = readPgn(response.pgn);
-		assert.deepEqual([headers.Event, headers.White, headers.Black], ["AI Game", "Guest", "Stockfish level 4"]);
+		assert.deepEqual([headers.Event, headers.White, headers.Black], ["AI Game", "Guest", "Stockfish level 1600"]);
 		assert.deepEqual(moves, ["e4", "e5"]);
 	});
 
 	test("a signed in player's AI game uses their screenname, on the side they play", async () => {
 		const alice = player("alice");
-		const created = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "b", ai_level: 2 } });
+		const created = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "b", ai_level: 1100 } });
 		const { headers } = readPgn((await call("GET", `/api/chess/game/${created.game_id}/pgn`, { as: alice })).pgn);
-		assert.deepEqual([headers.White, headers.Black], ["Stockfish level 2", "Alice"]);
+		assert.deepEqual([headers.White, headers.Black], ["Stockfish level 1100", "Alice"]);
 	});
 
 	test("a set position replays from its FEN & says so in the headers", async () => {

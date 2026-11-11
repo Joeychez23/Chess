@@ -22,11 +22,12 @@ const list = (item, name) => JSON.parse(item[name].S);
 // Levels
 /* ---------------------------------------------------------------- */
 
-test("GET /levels lists the 8 AI levels", async () => {
+test("GET /levels lists the 27 AI levels", async () => {
 	const response = await call("GET", "/api/chess/levels");
 	assert.equal(response.status, 200);
-	assert.equal(response.levels.length, 8);
-	assert.equal(response.default_level, 3);
+	assert.equal(response.levels.length, 27);
+	assert.deepEqual(response.levels[0], { level: 600, elo: "≈600" });
+	assert.equal(response.default_level, 1300);
 });
 
 /* ---------------------------------------------------------------- */
@@ -39,7 +40,7 @@ describe("a guest's AI game", () => {
 		assert.equal(created.status, 200);
 		assert.equal(created.game_id, "guest1");
 		assert.equal(created.ai, true);
-		assert.equal(created.ai_level, 4);
+		assert.equal(created.ai_level, 1600); // 4, A LEVEL FROM WHEN THERE WERE 8, IS THE CLOSEST OF TODAY'S
 
 		const loaded = await call("GET", "/api/chess/game/guest1");
 		assert.equal(loaded.player_color, "w");
@@ -172,13 +173,13 @@ describe("a signed-in player's AI games", () => {
 
 	test("restarting mid-game forfeits it and starts a new game at the same level", async () => {
 		const alice = player("alice");
-		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 6 } });
+		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 2200 } });
 		await call("PUT", `/api/chess/game/${game.game_id}`, { as: alice, body: { move: ["e2", "e4"] } });
 
 		const restarted = await call("POST", `/api/chess/game/${game.game_id}/restart`, { as: alice });
 		assert.equal(restarted.status, 200);
 		assert.notEqual(restarted.game_id, game.game_id);
-		assert.equal(restarted.ai_level, 6);
+		assert.equal(restarted.ai_level, 2200);
 
 		const old = await call("GET", `/api/chess/game/${game.game_id}`, { as: alice });
 		assert.equal(old.reason, "forfeit");
@@ -186,7 +187,7 @@ describe("a signed-in player's AI games", () => {
 
 	test("forfeiting closes the game without starting a new one, then Restart starts one at the same level", async () => {
 		const alice = player("alice");
-		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 6 } });
+		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 2200 } });
 
 		const forfeit = await call("POST", `/api/chess/game/${game.game_id}/forfeit`, { as: alice });
 		assert.equal(forfeit.state, "CLOSED");
@@ -201,7 +202,7 @@ describe("a signed-in player's AI games", () => {
 		const restarted = await call("POST", `/api/chess/game/${game.game_id}/restart`, { as: alice });
 		assert.equal(restarted.status, 200);
 		assert.notEqual(restarted.game_id, game.game_id);
-		assert.equal(restarted.ai_level, 6);
+		assert.equal(restarted.ai_level, 2200);
 	});
 
 	test("a guest can forfeit their AI game & restart it, but not a game that isn't theirs", async () => {

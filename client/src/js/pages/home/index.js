@@ -206,7 +206,7 @@ async function openGame(gameId) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Lists the player's open games, each one is a link to /play/:gameId with its opponent & start settings:
- * "vs AI // Level 3 // You play white (random)", "vs Bob // You play black // C20 King's Pawn Game". They're also shown in their boxes
+ * "vs AI // Level 1300 // You play white (random)", "vs Bob // You play black // C20 King's Pawn Game". They're also shown in their boxes
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  */
 function listGames(gameData) {
@@ -235,7 +235,7 @@ function listGames(gameData) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Lists the player's last 20 finished games, newest first, each one is a link to /play/:gameId with its final board:
- * "Won" & "vs AI // Level 3 // You play white (random) // Checkmate"
+ * "Won" & "vs AI // Level 1300 // You play white (random) // Checkmate"
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  */
 function listFinishedGames(gameData) {

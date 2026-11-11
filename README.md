@@ -25,7 +25,7 @@
 
 A chess game drawn on an HTML5 canvas: sprite pieces with shadows and
 reflections on a wooden table, sliding moves and move sounds. Play Stockfish at
-8 levels or a friend by username or challenge link.
+27 levels, 100 Elo apart, or a friend by username or challenge link.
 
 Every move is checked three times: by chess.js in the browser, by the Express
 server, and by the private **data service**, the only code that can touch
@@ -45,7 +45,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | --- | --- |
 | **Canvas** | Board, table and pieces are layered sprites (reflection, shadow, piece). Pieces face the way they last moved, and knights hop. |
 | **Moving** | Drag and drop or click to move, with legal moves and check highlighted, or press `/` and type a move like `e4`, choosing from the legal moves it lists. Promote by clicking one of your captured pieces. Touch and a TV remote mode (`TV_DEV` in `client/src/js/pages/play/index.js`) work too. |
-| **Play the AI** | 8 levels with approximate Elo ([AI levels](server/README.md#ai-levels)) and a color (Alternate, the default: random at first, then switching each game; Random, White, Black). The server picks and saves the AI's moves. Forfeit ends an unfinished game after a second press, then Restart starts a new game with the same level and color. One open AI game per player. |
+| **Play the AI** | 27 levels, 100 Elo apart from about 600 to full strength ([AI levels](server/README.md#ai-levels)) and a color (Alternate, the default: random at first, then switching each game; Random, White, Black). The server picks and saves the AI's moves. Forfeit ends an unfinished game after a second press, then Restart starts a new game with the same level and color. One open AI game per player. |
 | **Play a friend** | Invite by username with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
 | **Set positions** | An optional FEN in **Start position**. The server refuses broken or finished positions with the reason, and Restart and Rematch keep it. |
 | **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition, a forfeit, a draw by agreement or running out of time (`timeout`). Both boards show the result. |
@@ -180,7 +180,7 @@ changes to its source have to be released under GPL v3 too.
   Sharing it, or making it public, distributes Stockfish, and then
   `Copying.txt` and a link to the `sf_19` source have to go with it.
 - **The local `stockfish/` folder** (the unmodified Stockfish 17.1 source and
-  the build used to measure the [AI levels](server/README.md#ai-levels)) is in `.gitignore`,
+  a build of it; the [AI levels](server/README.md#ai-levels) are measured on a local build of 19 now) is in `.gitignore`,
   so it's never committed. If you share it, or a binary built from it, keep
   its `Copying.txt` and source with it.
 
