@@ -40,7 +40,7 @@ Chess should be playable by as many people as possible, including people who use
 - Screen readers hear the 3D board as one image named "Chess board, 3D. To play with the keyboard, press / and type a move." The 2D layer over it, which only shows the taken pieces, is hidden from them so there's only one board.
 - Flip Board and Reset View move the camera without a mouse. Turning, tilting and zooming the camera by hand need a mouse or touch.
 - In TV remote mode the square the arrow keys are on has a gold ring around it on the 3D board.
-- With "reduce motion" on you keep the 3D board, without its motion: pieces are set on their squares without sliding, hopping or fading, Restart and Rematch set them straight away, and Flip Board and Reset View put the camera on its side at once instead of turning it. Turning the setting on mid-game lands a move or camera turn that's already going. The camera only moves when you drag it yourself.
+- With "reduce motion" on you keep the 3D board, without its motion: pieces are set on their squares without sliding, hopping or fading, Restart and Rematch set them straight away, and Flip Board and Reset View put the camera on its side at once instead of turning it. Turning the setting on mid-game lands a move or camera turn that's already going. The camera only moves when you drag it yourself. The library's fire is still: its flames don't sway, its light doesn't flicker and no embers rise.
 - A device that can't show 3D (no WebGL) stays on the 2D board and says why.
 
 ## Known limitations

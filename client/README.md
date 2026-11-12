@@ -191,11 +191,12 @@ client/
     bots/say.js              Shows the bot beside the board (#botDisplay) & its lines
     renderer/index.js        Picks the 2D canvas or the 3D board. On 3D it keeps the pieces, camera side, highlights & the room's monitor (screen3D, setFace) in step with the game
     three/load.js            load3D(): downloads the lazy "three" chunk the first time 3D is turned on
-    three/index.js           The 3D board: mount / unmount, camera, picking, piece slides, highlights. Loads the library room after the board is up (addRoom)
+    three/index.js           The 3D board: mount / unmount, camera, picking, piece slides, highlights. Loads the library room & lights its fire after the board is up (addRoom)
     three/board.js           The board's frame, gold inlay & labels, and the baize table (the fallback when the room doesn't load)
     three/pieces.js          Piece meshes from pieces.glb (docs/3d-pieces.md), blob shadows
     three/materials.js       Piece & board materials
     three/room.js            The library room & CRT monitor from library.glb & library-room.glb (docs/3d-room.md): detail texture x baked light map, unlit
+    three/fire.js            The library's fire: swaying flames, embers & the flicker of its light on the room, 30 frames a second
     three/screen.js          What the monitor shows, on a canvas used as its glass's texture: test card, name & status, the opponent's picture through a retro filter, the face
     three/faces.js           The monitor's pixel faces as data: PARTS (pixel grids) & FACES (frames, timings). No DOM, tested in client/test
     three/pixelFont.js       The monitor's 5 x 7 font. No DOM, tested in client/test

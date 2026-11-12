@@ -3,7 +3,8 @@
  *	3D Library Room
  *	The desk, CRT monitor & library around the board, from the Blender models (library.glb & library-room.glb, rebuilt as docs/3d-room.md says).
  *	Nothing here is lit by the scene: the game has no shadow maps, so every surface is its tiling detail texture (first UV set) times a light
- *	map baked in Blender (second UV set), which carries the surface's colour, the lamp pools, the fire glow & the shadows.
+ *	map baked in Blender (second UV set), which carries the surface's colour, the lamp pools & the shadows. The fire's light on the room
+ *	is a light map of its own, added times a glow that fire.js flickers (the desk's share of it is still in the desk's map).
  *	Loaded after the board is up, it never holds the first frame. Phones get the desk & monitor only
  *
  */
@@ -16,10 +17,12 @@ const ASSETS = `${process.env.CHESS_ASSETS_URL}/images/3d`; // S3 / CLOUDFRONT L
 const TIMEOUT_MS = 15000; // LIKE THE PIECE MODELS: A STALLED DOWNLOAD LEAVES THE BAIZE TABLE UP
 const PARTS = { // EACH .glb, ITS LIGHT MAP & THE DETAIL TEXTURES ITS MATERIALS ARE NAMED AFTER. THEIR OWN FILES: AN IMAGE INSIDE A .glb LOADS FROM A blob: URL, WHICH THE CSP BLOCKS
 	desk: { model: "blend/library.glb", light: "library-light-near.webp", details: ["wood", "plastic", "leather", "cloth"] },
-	room: { model: "blend/library-room.glb", light: "library-light-room.webp", details: ["wood", "plastic", "leather", "cloth", "floor", "wallpaper", "books"] },
+	room: { model: "blend/library-room.glb", light: "library-light-room.webp", fire: "library-light-fire.webp", details: ["wood", "plastic", "leather", "cloth", "floor", "wallpaper", "books"] },
 };
 const LIGHT_GAIN = { books: 4 }; // THE BOOKS BAKE AT A FIFTH OF WHITE SO THEY DON'T FLOOD THE ROOM WITH BOUNCE LIGHT (build_library.py HAS THE SAME TABLE)
 const SCREEN = "screen"; // THE MONITOR'S GLASS, screen.js DRAWS ON IT
+const FIRE = "fire"; // THE FIREPLACE'S & CANDLES' FLAMES, fire.js MOVES THEM
+const LIGHT_TEXEL = "vec4 lightMapTexel = texture2D( lightMap, vLightMapUv );"; // WHERE three.js's BASIC MATERIAL READS ITS LIGHT MAP
 
 /* ---------------------------------------------------------------- */
 // Load
@@ -41,17 +44,29 @@ function loadTexture(file, anisotropy, repeat) {
 	return textures.get(url);
 }
 
-// ONE PART: ITS MODEL WITH A MATERIAL PER DETAIL TEXTURE (THE .glb'S MATERIALS ARE NAMED "wood", "plastic", ...)
-async function loadPart({ model, light, details }, anisotropy) {
+// A MATERIAL'S LIGHT BECOMES ITS LIGHT MAP PLUS THE FIRE'S TIMES glow. THE FIRE'S MAP SHARES THE LIGHT MAP'S UVs
+function addFirelight(material, fireMap, glow) {
+	material.userData.fireMap = fireMap; // FOR unmount(), WHICH FREES IT
+	material.onBeforeCompile = function (shader) {
+		if (!shader.fragmentShader.includes(LIGHT_TEXEL)) { console.warn("3D library: three.js's light map code changed, the room has no firelight"); return; }
+		shader.uniforms.fireMap = { value: fireMap };
+		shader.uniforms.fireGlow = glow;
+		shader.fragmentShader = `uniform sampler2D fireMap;\nuniform float fireGlow;\n${shader.fragmentShader}`.replace(LIGHT_TEXEL, `${LIGHT_TEXEL}\n\t\tlightMapTexel.rgb += texture2D( fireMap, vLightMapUv ).rgb * fireGlow;`);
+	};
+}
+
+// ONE PART: ITS MODEL WITH A MATERIAL PER DETAIL TEXTURE (THE .glb'S MATERIALS ARE NAMED "wood", "plastic", ...). glow: THE FIRELIGHT'S UNIFORM, FOR A PART WITH A FIRE MAP
+async function loadPart({ model, light, fire, details }, anisotropy, glow) {
 	const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-	const [gltf, lightMap, ...maps] = await Promise.all([loader.loadAsync(`${ASSETS}/${model}`), loadTexture(light, 1, false), ...details.map((name) => loadTexture(`library-${name}.webp`, anisotropy, true))]);
+	const [gltf, lightMap, fireMap, ...maps] = await Promise.all([loader.loadAsync(`${ASSETS}/${model}`), loadTexture(light, 1, false), fire ? loadTexture(fire, 1, false) : null, ...details.map((name) => loadTexture(`library-${name}.webp`, anisotropy, true))]);
 	lightMap.channel = 1; // THE SECOND UV SET
 	const materials = {};
 	details.forEach(function (name, i) {
 		materials[name] = new MeshBasicMaterial({ map: maps[i], lightMap, lightMapIntensity: Math.PI * (LIGHT_GAIN[name] || 1) }); // PI: three.js DIVIDES A LIGHT MAP BY IT
+		if (fireMap) { addFirelight(materials[name], fireMap, glow); }
 	});
 	gltf.scene.traverse(function (o) {
-		if (!o.isMesh || o.name === SCREEN) { return; }
+		if (!o.isMesh || o.name === SCREEN || o.name === FIRE) { return; }
 		if (!materials[o.material.name]) { throw new Error(`${model}: no detail texture for material "${o.material.name}"`); }
 		o.material = materials[o.material.name];
 	});
@@ -61,16 +76,20 @@ async function loadPart({ model, light, details }, anisotropy) {
 /**
  * @description Downloads the room & builds it. Rejects when a file fails or it takes over TIMEOUT_MS: the caller stays on the baize table
  * @param  {[object]} options { phone (the desk & monitor only), anisotropy (for the detail textures) }
- * @return {[Promise<object>]} { group (add it to the scene, turn it with turnRoom), screen (the monitor's glass mesh) }
+ * @return {[Promise<object>]} { group (add it to the scene, turn it with turnRoom), screen (the monitor's glass mesh), fire (for fire.js's
+ * createFire: { mesh (the flames), glow (the uniform the room's firelight is multiplied by, 1 is the baked fire) }, null on a phone) }
  */
 export async function createRoom({ phone, anisotropy }) {
 	const timeout = new Promise((resolve, reject) => setTimeout(reject, TIMEOUT_MS, new Error("timed out")));
-	const parts = await Promise.race([Promise.all((phone ? [PARTS.desk] : [PARTS.desk, PARTS.room]).map((part) => loadPart(part, anisotropy))), timeout]);
+	const glow = { value: 1 };
+	const parts = await Promise.race([Promise.all((phone ? [PARTS.desk] : [PARTS.desk, PARTS.room]).map((part) => loadPart(part, anisotropy, glow))), timeout]);
 	const group = new Group();
 	group.add(...parts);
 	const screen = group.getObjectByName(SCREEN);
 	if (!screen) { throw new Error("library.glb has no screen"); }
-	return { group, screen };
+	const flames = group.getObjectByName(FIRE);
+	if (!phone && !flames) { throw new Error("library-room.glb has no fire"); }
+	return { group, screen, fire: flames ? { mesh: flames, glow } : null };
 }
 
 /**

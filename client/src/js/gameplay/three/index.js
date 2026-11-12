@@ -20,6 +20,7 @@ import { createSurroundings, orientLabels } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
 import { createRoom, turnRoom, disposeRoom } from "./room.js"; // THE LIBRARY AROUND THE BOARD & ITS CRT MONITOR
 import { createScreen, setScreen as showOnScreen, setFace as showFace, pauseScreen, disposeScreen } from "./screen.js"; // WHAT THE MONITOR SHOWS
+import { createFire, stepFire, pauseFire, disposeFire } from "./fire.js"; // THE FIREPLACE'S FLAMES, EMBERS & FLICKER
 import { reportError } from "../../pages/utils/reportErrors.js";
 import { showHint, dismissHint, removeHint } from "./hint.js";
 import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"; // ?perf=1's READOUT FOR PHONE TESTS (#430)
@@ -267,7 +268,7 @@ function setRoomSide(color) {
  */
 async function addRoom(v) {
 	try {
-		const { group, screen } = await createRoom({ phone: v.phone, anisotropy: Math.min(v.renderer.capabilities.getMaxAnisotropy(), 4) });
+		const { group, screen, fire } = await createRoom({ phone: v.phone, anisotropy: Math.min(v.renderer.capabilities.getMaxAnisotropy(), 4) });
 		if (view !== v) { return; } // UNMOUNTED (OR REBUILT) WHILE IT LOADED
 		v.room = group;
 		v.scene.add(group);
@@ -280,6 +281,10 @@ async function addRoom(v) {
 		if (v.screenState) { showOnScreen(v.screenState); }
 		if (v.screenFace) { showFace(v.screenFace); }
 		pauseScreen(document.hidden || v.lost);
+		if (fire) { // NOT ON PHONES: THEY HAVE NO FIREPLACE
+			createFire(fire, requestRender);
+			pauseFire(document.hidden || v.lost);
+		}
 		requestRender();
 	} catch (error) {
 		console.warn("3D library didn't load, staying on the baize table", error);
@@ -378,6 +383,7 @@ function frame(now) {
 	for (const anim of [...view.anims]) { stepAnim(anim, now); }
 	if (view.cameraTurn) { stepCamera(now); }
 	if (view.controls.enableDamping) { view.controls.update(); } // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME
+	stepFire(now, view.renderer.domElement.height); // ITS OWN TIMER ASKS FOR ITS FRAMES (fire.js)
 	view.renderer.render(view.scene, view.camera);
 	if (view.textureReady) { view.markDrawn(); } // ONLY THE FIRST CALL COUNTS
 	perfFrame(now);
@@ -386,6 +392,7 @@ function frame(now) {
 
 function onVisibility() {
 	pauseScreen(document.hidden); // THE MONITOR'S FACE STOPS BLINKING IN A HIDDEN TAB
+	pauseFire(document.hidden); // & THE FIRE STOPS ASKING FOR FRAMES
 	if (!document.hidden) { requestRender(); return; }
 	cancelAnimationFrame(view.frameId);
 	view.frameId = null;
@@ -398,6 +405,7 @@ function onContextLost(e) {
 	perfLost();
 	view.lost = true;
 	pauseScreen(true);
+	pauseFire(true);
 	cancelAnimationFrame(view.frameId);
 	view.frameId = null;
 	finishAnims(); // THEIR PROMISES RESOLVE, THE GAME DOESN'T WAIT ON A BOARD THAT CAN'T DRAW
@@ -505,6 +513,7 @@ export function unmount() {
 	removeHint();
 	perfStop();
 	disposeScreen();
+	disposeFire();
 	disposeRoom();
 	const { renderer, scene, observer, controls, container } = view;
 	cancelAnimationFrame(view.frameId);
@@ -525,6 +534,7 @@ export function unmount() {
 			freed.add(m);
 			if (m.map) { freed.add(m.map); }
 			if (m.lightMap) { freed.add(m.lightMap); } // THE ROOM'S BAKED LIGHT
+			if (m.userData.fireMap) { freed.add(m.userData.fireMap); } // & ITS BAKED FIRELIGHT
 		}
 	});
 	freed.forEach((r) => r.dispose()); // SHARED ONES (PIECE GEOMETRY, WOODS) ONLY LOSE THEIR GPU COPY, THE NEXT mount() RE-UPLOADS THEM
