@@ -1,34 +1,35 @@
 /*
  *  screen.js  --  chess frontend
  *	The CRT Monitor's Screen
- *	Draws what the monitor in the library room shows (three/room.js has the monitor) on one 2D canvas, used as the glass's texture: colour bars
- *	before a game has loaded, the opponent's name & a status line, the opponent's picture through a retro filter &, in AI games, a pixel face
- *	that reacts to the moves (three/faces.js has the faces). Everything is drawn on a 160 x 120 grid & scaled up 4 times, then scanlines,
- *	phosphor stripes & a vignette go over it. It only redraws when something changes: the face steps on a timer of its own, there's no animation loop
+ *	Draws what the monitor in the library room shows (three/room.js has the monitor) on one 2D canvas, used as the glass's texture: the view the
+ *	monitor's state machine gives it (three/monitor/monitor.js, setMonitorView) through its channels (three/monitor/channels), with the tab row,
+ *	buttons & banner when zoomed. Without one it shows what it always has: colour bars before a game has loaded, the opponent's name & a status
+ *	line, the opponent's picture through a retro filter &, in AI games, a pixel face that reacts to the moves (three/faces.js has the faces).
+ *	Everything is drawn on a 160 x 120 grid & scaled up 4 times, then scanlines, phosphor stripes & a vignette go over it. It only redraws when
+ *	something changes: the face steps on a timer of its own, a channel that animates & the banner's blink on another, there's no animation loop
  *
  */
 
 import { CanvasTexture, MeshBasicMaterial, SRGBColorSpace, NearestFilter, LinearMipmapLinearFilter } from "three";
 import { FACES, cellsFor, nextStep, frameMs, mainFrame } from "./faces.js";
-import { HEIGHT as FONT_HEIGHT, textWidth, textCells, fitText } from "./pixelFont.js";
+import { HEIGHT as FONT_HEIGHT, textWidth, fitText } from "./pixelFont.js";
+import { W, H, STRIP_H, TUBE, TEXT, DIM, HOT, drawText, drawButton, drawTab, body, tabRow } from "./monitor/kit.js";
+import { CHANNEL } from "./monitor/channels/index.js";
 
-const W = 160, H = 120, UP = 4; // THE SCREEN'S GRID & HOW MANY TIMES IT'S SCALED UP FOR THE TEXTURE
-const FACE_PX = 4; // ONE FACE PIXEL ON THE GRID
-const STRIP_H = 24; // THE NAME & STATUS STRIP ALONG THE BOTTOM, IN GRID PIXELS
-const TUBE = "#050806"; // AN UNLIT TUBE, NEVER PURE BLACK
-const TEXT = "#d8f0e0";
-const DIM = "#7fa890";
-const BARS = ["#c0c0c0", "#c0c000", "#00c0c0", "#00c000", "#c000c0", "#c00000", "#0000c0"]; // THE IDLE TEST CARD
+const UP = 4; // HOW MANY TIMES THE SCREEN'S GRID (kit.js) IS SCALED UP FOR THE TEXTURE
 const LEVELS = 6; // COLOUR STEPS PER CHANNEL AFTER THE DITHER
 const DITHER = 0.7;
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 4 x 4 ORDERED DITHER
 const BARS_MS = 700; // A NEW OPPONENT: THE TEST CARD THIS LONG...
 const INTRO_MS = 3000; // ...THEN ITS PICTURE & NAME THIS LONG, THEN THE FACE
+const BLINK_MS = 500; // THE BANNER: THIS LONG ON, THIS LONG OFF
+const BURST_MS = 120; // A CHANNEL SWITCH: STATIC THIS LONG, THEN THE CHANNEL
 const ASSETS_ORIGIN = originOf(process.env.CHESS_ASSETS_URL);
 const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 let screen = null; // EVERYTHING ONE createScreen() MADE, null WHEN THERE'S NO MONITOR
 const pictures = new Map(); // URL -> ITS FILTERED 160 x 120 CANVAS (OR null: IT FAILED), ONCE PER IMAGE
+let getView = null; // THE MONITOR'S view() (setMonitorView), null: THE SCREEN SHOWS WHAT IT DID BEFORE THE MONITOR HAD CHANNELS
 
 function originOf(url) {
 	try { return new URL(url, window.location.href).origin; } catch (e) { return null; }
@@ -132,31 +133,6 @@ function makeOverlay() {
 	return canvas;
 }
 
-function fillCells(ctx, cells, x, y, size, color) {
-	ctx.fillStyle = color;
-	for (const [cx, cy] of cells) { ctx.fillRect(x + cx * size, y + cy * size, size, size); }
-}
-
-// A LINE OF PIXEL TEXT, align -1 FROM x RIGHTWARD, 0 CENTERED ON x, 1 ENDING AT x
-function drawText(ctx, text, x, y, color, align = -1, size = 1) {
-	const width = textWidth(text) * size;
-	fillCells(ctx, textCells(text), Math.round(align < 0 ? x : align > 0 ? x - width : x - width / 2), y, size, color);
-}
-
-function drawBars(ctx) {
-	const bw = W / BARS.length;
-	BARS.forEach(function (color, i) {
-		ctx.fillStyle = color;
-		ctx.fillRect(Math.round(i * bw), 0, Math.ceil(bw), 80);
-		ctx.fillStyle = BARS[BARS.length - 1 - i]; // THE NARROW BAND UNDER THEM, THE COLOURS THE OTHER WAY ROUND
-		ctx.fillRect(Math.round(i * bw), 80, Math.ceil(bw), 10);
-	});
-	["#101010", "#f0f0f0", "#202060", "#101010", "#303030"].forEach(function (color, i) {
-		ctx.fillStyle = color;
-		ctx.fillRect(i * W / 5, 90, W / 5, H - 90);
-	});
-}
-
 // THE NAME (LEFT) & STATUS (RIGHT) ON THEIR OWN STRIP CANVAS, PUT ON LAST SO NO SCANLINE CROSSES THE TEXT
 function drawStrip() {
 	const { strip, name, status } = screen;
@@ -180,32 +156,121 @@ function mode() {
 	return screen.image && pictures.get(screen.image) ? "picture" : "text";
 }
 
+// THE VIEW TO DRAW: THE MONITOR'S ONCE IT HAS A GAME'S DATA, ELSE TODAY'S SCREEN (THE FACE WHEN IT SHOWS, ELSE THE OPPONENT'S CARD) ON THE DESK.
+// ONE CALL PER DRAW: view() HANDS OUT ITS burst ONLY ONCE
+function currentView() {
+	const view = getView ? getView() : null;
+	if (view && view.data && CHANNEL[view.channel]) { return view; }
+	return { channel: mode() === "face" ? "face" : "opponent", zoomed: false, tabs: [], buttons: [], focus: null, hover: null, banner: null, burst: false, data: null };
+}
+
+// WHAT A VIEW DRAWS, TO TELL WHETHER redrawScreen() HAS ANYTHING NEW (THE PICTURE ISN'T IN IT, A LOADED ONE DRAWS BY ITSELF). burst IS LEFT
+// OUT: IT'S TRUE ONCE, SO THE NEXT VIEW WOULD NEVER MATCH
+function keyOf(view) {
+	return JSON.stringify({ ...view, burst: false });
+}
+
+// WHERE THE POINTER IS ON THE DESK, { x, y } IN GRID PIXELS, OR null
+function deskPointer(view) {
+	const hover = view.hover;
+	return !view.zoomed && hover && typeof hover === "object" && Number.isFinite(hover.x) ? hover : null;
+}
+
+// THE FACE'S CELLS & COLOUR NOW. ON THE DESK ITS EYES FOLLOW THE POINTER BY THIRDS OF THE GRID, UNLESS MOTION IS REDUCED
+function faceNow(view) {
+	const { name, index } = screen.face;
+	let frame = screen.reduce ? mainFrame(name) : FACES[name].frames[index];
+	const pointer = view.channel === "face" && !screen.reduce ? deskPointer(view) : null;
+	if (pointer) { frame = { ...frame, look: pointer.x < W / 3 ? -1 : pointer.x >= W * 2 / 3 ? 1 : 0 }; }
+	return { cells: cellsFor(frame), colour: FACES[name].colour };
+}
+
+// THE CHANNELS' DATA: THE MONITOR'S, WITH WHAT THE SCREEN KNOWS ADDED. THE FACE CHANNEL GETS THE PICTURE ONLY DURING THE AI'S INTRO
+function channelData(view) {
+	const showing = mode();
+	const loaded = (screen.image && pictures.get(screen.image)) || null;
+	const picture = showing === "bars" || (view.channel === "face" && !screen.intro) ? null : loaded; // NO PICTURE (& SO NO STRIP) OVER THE TEST CARD
+	return {
+		...(view.data || {}),
+		screen: { name: screen.name, status: screen.status, picture, bars: showing === "bars", face: faceNow(view) },
+		frame: screen.reduce ? 0 : screen.frame, reduce: screen.reduce, zoomed: view.zoomed,
+	};
+}
+
+// ONE FRAME OF STATIC OVER THE BODY, AS A CHANNEL SWITCH CUTS IN
+function drawStatic(ctx, zoomed) {
+	const area = body({ zoomed });
+	const pixels = ctx.createImageData(area.w, area.h);
+	const d = pixels.data;
+	for (let i = 0; i < d.length; i += 4) {
+		const v = Math.floor(Math.random() * 200) + 20;
+		d[i] = d[i + 1] = d[i + 2] = v;
+		d[i + 3] = 255;
+	}
+	ctx.putImageData(pixels, area.x, area.y);
+}
+
+// THE ZOOMED SCREEN'S CHROME OVER THE CHANNEL: THE TAB ROW (THE SHOWING CHANNEL'S TAB LIT), THE CHANNEL'S BUTTONS (THE FOCUSED ONE LIT) & THE
+// BANNER ALONG THE BODY'S TOP RIGHT, BLINKING UNLESS MOTION IS REDUCED
+function drawChrome(ctx, view) {
+	const row = tabRow(), area = body({ zoomed: true });
+	ctx.fillStyle = TUBE;
+	ctx.fillRect(0, 0, W, row.y + row.h); // EVERYTHING ABOVE THE BODY, UNDER THE BEZEL TOO
+	ctx.fillStyle = DIM;
+	ctx.fillRect(row.x, row.y + row.h - 1, row.w, 1); // A RULE UNDER THE TABS, IN PLACE OF THEIR BOXES
+	view.tabs.slice(1).forEach((tab) => ctx.fillRect(tab.x - 1, row.y + row.h - 3, 1, 2)); // A TICK UP FROM THE RULE BETWEEN TABS, UNDER THE LETTERS, SO NEIGHBOURING LABELS DON'T RUN TOGETHER
+	for (const tab of view.tabs) { drawTab(ctx, tab, tab.id === view.focus || tab.id === `tab:${view.channel}`); }
+	for (const button of view.buttons) { drawButton(ctx, button, button.id === view.focus); }
+	if (view.banner && (screen.reduce || screen.blinkOn)) { drawText(ctx, fitText(view.banner, area.w - 4), area.x + area.w - 2, area.y + 2, HOT, 1); } // INSIDE THE BODY'S TOP RIGHT, CLEAR OF THE BEZEL
+}
+
+// A 1 px BORDER ROUND THE GRID WHILE THE POINTER IS ON THE GLASS (THE FACE LOOKS AT IT INSTEAD)
+function drawHover(ctx) {
+	ctx.fillStyle = HOT;
+	ctx.fillRect(0, 0, W, 1);
+	ctx.fillRect(0, H - 1, W, 1);
+	ctx.fillRect(0, 1, 1, H - 2);
+	ctx.fillRect(W - 1, 1, 1, H - 2);
+}
+
 /**
- * @description Redraws the screen's canvas from its state & asks the board for a frame
+ * @description Redraws the screen's canvas from the view & the screen's state, asks the board for a frame & reschedules the tick
+ * @param  {[object]} view [from currentView(), taken once per draw]
  */
-function draw() {
+function draw(view = currentView()) {
 	if (!screen) { return; }
 	const { small, canvas, strip, overlay } = screen;
 	const sctx = small.getContext("2d");
 	const ctx = canvas.getContext("2d");
-	const showing = mode();
+	const channel = CHANNEL[view.channel];
+	const data = channelData(view);
+	const changed = view.channel !== screen.channel;
+	if (changed) { // A NEW CHANNEL STARTS ITS ANIMATION OVER
+		screen.channel = view.channel;
+		screen.frame = 0;
+		screen.frameAt = null;
+		screen.blinkAt = null; // THE OLD CHANNEL'S BLINK DEADLINE ISN'T THIS ONE'S
+		screen.blinkOn = true;
+		data.frame = 0;
+	}
+	screen.lastKey = keyOf(view);
+	if (view.burst) {
+		clearTimeout(screen.burstTimer);
+		screen.burstTimer = setTimeout(function () { if (screen) { screen.burstTimer = null; draw(); } }, BURST_MS);
+	}
+	const bursting = view.burst || screen.burstTimer !== null;
+	const lit = view.channel === "face" && !data.screen.bars && !data.screen.picture; // THE FACE'S CELLS SHOW
 	sctx.fillStyle = TUBE;
 	sctx.fillRect(0, 0, W, H);
-	if (showing === "bars") { drawBars(sctx); }
-	else if (showing === "picture") { sctx.drawImage(pictures.get(screen.image), 0, 0); }
-	else if (showing === "face") {
-		const frame = screen.reduce ? mainFrame(screen.face.name) : FACES[screen.face.name].frames[screen.face.index];
-		fillCells(sctx, cellsFor(frame), 0, 0, FACE_PX, FACES[screen.face.name].colour);
-	} else {
-		const big = textWidth(screen.name) * 2 <= W - 12; // THE NAME, DOUBLE SIZE WHEN IT FITS
-		drawText(sctx, big ? screen.name : fitText(screen.name, W - 12), W / 2, big ? 34 : 40, TEXT, 0, big ? 2 : 1);
-		if (screen.status) { drawText(sctx, screen.status, W / 2, 62, DIM, 0); }
-	}
+	if (bursting) { drawStatic(sctx, view.zoomed); } // ANY DRAW INSIDE THE BURST'S 120 ms STAYS STATIC
+	else { channel.draw(sctx, data); }
+	if (view.zoomed) { drawChrome(sctx, view); }
+	else if (view.channel !== "face" && deskPointer(view)) { drawHover(sctx); }
 	ctx.globalCompositeOperation = "source-over";
 	ctx.globalAlpha = 1;
 	ctx.imageSmoothingEnabled = false; // CHUNKY PIXELS
 	ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
-	if (showing === "face") { // A SOFT GLOW: THE LIT PIXELS AGAIN, SMOOTHED & ADDED, SO THEY READ AS LIGHT ON A TUBE
+	if (lit && !bursting && !view.zoomed) { // ZOOMED: THE TABS, BUTTONS & BANNER WOULD GLOW TOO. A SOFT GLOW: THE LIT PIXELS AGAIN, SMOOTHED & ADDED, SO THEY READ AS LIGHT ON A TUBE
 		ctx.globalCompositeOperation = "lighter";
 		ctx.imageSmoothingEnabled = true;
 		ctx.globalAlpha = 0.35;
@@ -218,24 +283,29 @@ function draw() {
 	ctx.fillStyle = "rgb(6, 7, 6)";
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
 	ctx.globalCompositeOperation = "source-over";
-	if (showing === "picture" || showing === "face") {
+	if (!view.zoomed && !bursting && !data.screen.bars && (data.screen.picture || lit)) { // THE DESK'S FACE & OPPONENT CARD: THE STRIP GOES ON AFTER THE SCANLINES
 		ctx.imageSmoothingEnabled = false;
 		ctx.drawImage(strip, 0, (H - STRIP_H) * UP, W * UP, STRIP_H * UP);
 	}
 	screen.texture.needsUpdate = true;
 	screen.requestRender();
+	screen.tickMs = bursting || typeof channel.tick !== "function" ? null : channel.tick(data);
+	screen.blinking = Boolean(view.zoomed && view.banner && !screen.reduce);
+	if (!screen.blinking) { screen.blinkOn = true; } // THE NEXT BANNER STARTS LIT
+	scheduleTick();
+	if (changed) { schedule(); } // THE FACE'S TIMER RUNS ONLY WHILE ITS CHANNEL SHOWS
 }
 
 /* ---------------------------------------------------------------- */
 // Face Timer
 /* ---------------------------------------------------------------- */
 
-// ONE TIMER FOR THE FACE'S NEXT STEP. NOTHING WHILE THE TAB IS HIDDEN, THE CONTEXT IS LOST (pauseScreen) OR NO FACE SHOWS.
+// ONE TIMER FOR THE FACE'S NEXT STEP. NOTHING WHILE THE TAB IS HIDDEN, THE CONTEXT IS LOST (pauseScreen) OR NO FACE SHOWS (NOT YET, OR ANOTHER CHANNEL).
 // REDUCED MOTION: A REACTION HOLDS ITS MAIN FRAME FOR ITS WHOLE LENGTH THEN GIVES WAY, AN IDLE FACE JUST HOLDS
 function schedule() {
 	clearTimeout(screen.timer);
 	screen.timer = null;
-	if (screen.paused || mode() !== "face") { return; }
+	if (screen.paused || mode() !== "face" || screen.channel !== "face") { return; }
 	const face = FACES[screen.face.name];
 	if (screen.reduce) {
 		if (face.loop) { return; }
@@ -278,6 +348,44 @@ function boot() {
 	}, BARS_MS);
 }
 
+/* ---------------------------------------------------------------- */
+// Tick
+/* ---------------------------------------------------------------- */
+
+// THE OTHER TIMER: THE SHOWING CHANNEL'S NEXT FRAME (ITS tick() SAYS WHEN, null: IT STANDS STILL) & THE BANNER'S BLINK, WHICHEVER IS DUE FIRST.
+// EACH KEEPS ITS OWN DEADLINE SO A DRAW IN BETWEEN DOESN'T PUT EITHER OFF. NOTHING WHILE PAUSED
+function scheduleTick() {
+	clearTimeout(screen.tickTimer);
+	screen.tickTimer = null;
+	if (screen.paused) {
+		screen.frameAt = null;
+		screen.blinkAt = null;
+		return;
+	}
+	const now = performance.now();
+	if (typeof screen.tickMs !== "number") { screen.frameAt = null; }
+	else if (screen.frameAt === null) { screen.frameAt = now + screen.tickMs; }
+	if (!screen.blinking) { screen.blinkAt = null; }
+	else if (screen.blinkAt === null) { screen.blinkAt = now + BLINK_MS; }
+	const due = [screen.frameAt, screen.blinkAt].filter((at) => at !== null);
+	if (due.length) { screen.tickTimer = setTimeout(onTick, Math.max(0, Math.min(...due) - now)); }
+}
+
+function onTick() {
+	if (!screen) { return; }
+	screen.tickTimer = null;
+	const now = performance.now();
+	if (screen.frameAt !== null && now >= screen.frameAt) {
+		screen.frame++;
+		screen.frameAt = null;
+	}
+	if (screen.blinkAt !== null && now >= screen.blinkAt) {
+		screen.blinkOn = !screen.blinkOn;
+		screen.blinkAt = null;
+	}
+	draw(); // RESCHEDULES
+}
+
 function onReduce() {
 	if (!screen) { return; }
 	screen.reduce = REDUCE.matches;
@@ -307,6 +415,7 @@ export function createScreen(mesh, requestRender) {
 		canvas, texture, requestRender, small: makeCanvas(W, H), strip: makeCanvas(W, STRIP_H), overlay: makeOverlay(),
 		name: "", status: "", image: null, ai: false, idle: "neutral", face: { name: "neutral", index: 0 },
 		booting: false, intro: false, timer: null, bootTimer: null, paused: false, reduce: REDUCE.matches,
+		channel: null, frame: 0, frameAt: null, tickMs: null, tickTimer: null, blinkOn: true, blinkAt: null, blinking: false, burstTimer: null, lastKey: null,
 	};
 	REDUCE.addEventListener("change", onReduce);
 	drawStrip();
@@ -344,13 +453,39 @@ export function setFace(name) {
 }
 
 /**
- * @description Stops the face's timer (the tab is hidden, the WebGL context is lost) or picks it back up
+ * @description Hands the screen the monitor's view() to draw from (monitor/monitor.js); null goes back to the screen on its own: the opponent & the face
+ * @param  {[function|null]} view [returns { channel, zoomed, tabs, buttons, focus, hover, banner, burst, data }]
+ */
+export function setMonitorView(view) {
+	getView = typeof view === "function" ? view : null;
+	if (!screen) { return; }
+	draw();
+	schedule();
+}
+
+/**
+ * @description The monitor's show(): redraws when its view changed since the last draw & reschedules the tick
+ */
+export function redrawScreen() {
+	if (!screen) { return; }
+	const view = currentView();
+	if (!view.burst && keyOf(view) === screen.lastKey) { return; }
+	draw(view);
+}
+
+/**
+ * @description Stops the face's & the channel's timers (the tab is hidden, the WebGL context is lost) or picks them back up
  * @param  {[boolean]} paused
  */
 export function pauseScreen(paused) {
 	if (!screen) { return; }
 	screen.paused = paused;
 	if (!paused) { draw(); }
+	else {
+		clearTimeout(screen.burstTimer); // A BURST CUT OFF BY A PAUSE: THE CHANNEL SHOWS ON RESUME
+		screen.burstTimer = null;
+		scheduleTick(); // STOPS IT
+	}
 	schedule();
 }
 
@@ -361,6 +496,9 @@ export function disposeScreen() {
 	if (!screen) { return; }
 	clearTimeout(screen.timer);
 	clearTimeout(screen.bootTimer);
+	clearTimeout(screen.tickTimer);
+	clearTimeout(screen.burstTimer);
+	getView = null; // THE NEXT createScreen() NEVER ASKS A GONE MONITOR FOR ITS VIEW
 	REDUCE.removeEventListener("change", onReduce);
 	screen = null;
 }

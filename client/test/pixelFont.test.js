@@ -9,6 +9,10 @@ const assert = require("node:assert/strict");
 const { GLYPHS, WIDTH, HEIGHT, ADVANCE, textWidth, textCells, fitText } = require("../src/js/gameplay/three/pixelFont.js");
 
 describe("pixel font", () => {
+	test("the font has the glyphs the monitor needs", () => {
+		for (const char of "+#=%()◀▶…") { assert.ok(Object.hasOwn(GLYPHS, char), char); }
+	});
+
 	test("every glyph is 7 rows of 5, of # and .", () => {
 		for (const [char, glyph] of Object.entries(GLYPHS)) {
 			const rows = glyph.split(" ");

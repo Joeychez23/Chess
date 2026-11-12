@@ -45,6 +45,7 @@
 				<li hidden><button class="menuButton" id="optTakeback">Takeback</button></li> <!-- WHILE THE GAME IS GOING, FRIEND GAMES WITH TAKEBACKS LEFT -->
 				<li hidden><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
 				<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
+				<li hidden><button class="menuButton" id="optMonitor">Monitor</button></li> <!-- 3D: ZOOMS IN TO THE ROOM'S MONITOR, SHOWN WHILE IT'S UP (gameplay/monitor/index.js) -->
 			</ul>
 			<ul role="group" aria-label="View">
 				<li><button class="menuButton" id="optSound">Turn Sound: Off</button></li>
@@ -75,6 +76,7 @@
 	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
 	<p id="moveDeadline"></p> <!-- FRIEND GAMES WITH A TIME LIMIT: THE TIME LEFT, NOT A LIVE REGION: IT CHANGES EVERY MINUTE (gameplay/menu/index.js) -->
 	<p id="resultAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE RESULT WHEN A GAME ENDS (gameplay/menu/index.js) -->
+	<p id="monitorAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE 3D ROOM'S MONITOR, ITS FOCUSED BUTTON & CHANNEL (gameplay/monitor/index.js) -->
 
 	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
 		<button id="drawAccept" type="button">Accept Draw</button>

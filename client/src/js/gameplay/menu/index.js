@@ -23,7 +23,7 @@ const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT,
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
-const { setView, currentView, resetCamera, onViewChange, setFace, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA
+const { setView, currentView, resetCamera, onViewChange, setFace, monitorState3D, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA, THE 3D ROOM'S MONITOR (NOT gameplay/monitor: IT REQUIRES THIS FILE)
 const { endMomentFor, endFaceFor } = require("../bots/index.js"); // WHAT THE AI'S BOT SAYS WHEN THE GAME ENDS (#76)
 const { sayLine } = require("../bots/say.js"); // & SAYS IT BESIDE THE BOARD
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
@@ -768,7 +768,16 @@ function placeEndGroup(top) {
 }
 
 /**
- * @description Locks the board & opens the menu with the server's result. AI games offer Restart, friend games offer Rematch
+ * @description The camera is going to or is at the 3D room's monitor. Not while leaving: a game that ends then opens the menu as on the desk
+ * @return {[boolean]}
+ */
+function monitorZoomed() {
+	const state = monitorState3D();
+	return state === "zooming" || state === "zoomed";
+}
+
+/**
+ * @description Locks the board & opens the menu with the server's result (not while the player is at the 3D room's monitor, it shows the result). AI games offer Restart, friend games offer Rematch
  * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
  * @param  {[boolean]} onLoad [true: the game was already over when it loaded, the bot doesn't speak about it again]
  */
@@ -781,7 +790,12 @@ export function showGameOver(result, onLoad) {
 	syncDeadline(null);
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY
-	openMenu();
+	const zoomed = monitorZoomed(); // THE PLAYER IS AT THE 3D ROOM'S MONITOR: IT SHOWS THE RESULT, THE MENU STAYS SHUT UNTIL THEY OPEN IT
+	if (!zoomed) { openMenu(); }
+	else { // WHAT OPENING THE MENU DOES (onOpen): A HELD PIECE OR OPEN PROMOTION PICKER GOES BACK NOW, NOT AT THE NEXT OPEN (IT WOULD UNLOCK THE BOARD)
+		clearTouch();
+		revertUnfinishedMove();
+	}
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
 	optResumeBtn.parentElement.hidden = true;
 	placeEndGroup(true);
@@ -803,8 +817,10 @@ export function showGameOver(result, onLoad) {
 	resultReason.innerText = RESULT_REASONS[result?.reason] || "";
 	resultReason.hidden = !resultReason.innerText;
 	optRestartBtn.innerHTML = game.ai ? "Restart" : "Rematch";
-	handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
-	if (!game.TV_BOOL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS
+	if (!zoomed) {
+		handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
+		if (!game.TV_BOOL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS
+	}
 	resultAnnouncement.textContent = `${resultDisplay.innerText} ${resultReason.innerText}`.trim(); // AFTER THE FOCUS MOVES, A SCREEN READER READS THE BUTTON THEN THIS
 }
 

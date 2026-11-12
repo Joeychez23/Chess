@@ -19,12 +19,12 @@ const NOT_TYPED_IN = ["button", "submit", "reset", "checkbox", "radio", "file", 
 const KEEP_SIDE_KEYS = ["radio", "range"]; // INPUTS THAT USE LEFT & RIGHT THEMSELVES
 
 /**
- * @description The menu's items in the order on screen, read from the page so a new item needs no list of its own. Hidden items (menuItem.js) & turned off buttons are skipped
+ * @description The menu's items in the order on screen, read from the page so a new item needs no list of its own. Hidden items (menuItem.js), the ones moved to the 3D room's monitor & turned off buttons are skipped
  * @return {[array]} items [the links & buttons that can take focus]
  */
 export function menuItems() {
 	const items = document.getElementById("menuContainer").querySelectorAll("a[href], button:not([disabled])");
-	return [...items].filter((item) => !item.closest("[hidden]"));
+	return [...items].filter((item) => !item.closest("[hidden], [data-on-monitor]")); // data-on-monitor: SHOWN ON THE 3D ROOM'S MONITOR INSTEAD (gameplay/monitor)
 }
 
 /**

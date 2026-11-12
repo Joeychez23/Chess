@@ -123,7 +123,7 @@ leaveGame();
 
 ## The 3D room's monitor
 
-With 3D on, a CRT monitor across the board shows the opponent (`three/screen.js`, fed by `screen3D()` in `gameplay/renderer`):
+With 3D on, a CRT monitor across the board shows the opponent (`three/screen.js`, fed by `screen3D()` in `gameplay/renderer`). It is also the game's menu in 3D (channels, zoom, keys, what it hides, its `MONITOR` localStorage setting): see `docs/3d-room.md`, "The monitor". On the desk it shows:
 
 - **Before a game has loaded:** colour bars.
 - **Friend games:** the opponent's username and `your move` / `their move`, or the result. Players have no pictures.
@@ -154,7 +154,7 @@ client/
   login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home)
   signup.html                Signup markup: Create account, link to login, menu (Home), shares the login bundle
   guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Play the AI / Login/Signup)
-  play.html                  Game menu markup, in groups (Resume / Hint, Takeback, Offer Draw, Type a Move / Sound, Flip Board, Eval Bar, Download PGN / Forfeit or Restart or Rematch, Cancel / Home, Settings / Exit). At game over the Restart group moves under the result
+  play.html                  Game menu markup, in groups (Resume / Hint, Takeback, Offer Draw, Type a Move, Monitor (3D, while the room's monitor is up) / Sound, Flip Board, Eval Bar, Download PGN / Forfeit or Restart or Rematch, Cancel / Home, Settings / Exit). At game over the Restart group moves under the result
   webpack.config.js          One entry + HTML page each (home, guest, play, settings, login; signup shares login's entry), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles
@@ -189,7 +189,9 @@ client/
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     bots/index.js            The AI's bot: botFor(), when it speaks (momentFor, endMomentFor, pickLine) & the face the 3D room's monitor makes (faceFor, endFaceFor). No DOM, tested in client/test
     bots/say.js              Shows the bot beside the board (#botDisplay) & its lines
-    renderer/index.js        Picks the 2D canvas or the 3D board. On 3D it keeps the pieces, camera side, highlights & the room's monitor (screen3D, setFace) in step with the game
+    renderer/index.js        Picks the 2D canvas or the 3D board. On 3D it keeps the pieces, camera side, highlights & the room's monitor (screen3D, setFace, syncMonitor3D) in step with the game
+    monitor/index.js         The game's side of the 3D room's monitor (docs/3d-room.md): its data, its actions (they press the menu's buttons), what it hides from the page (data-on-monitor) & the menu's Monitor item
+    monitor/data.js          Its pure part: actionsFrom(), resultText(), trimScores(), plyOf(), startPlyFor(). No DOM, tested in client/test
     three/load.js            load3D(): downloads the lazy "three" chunk the first time 3D is turned on
     three/index.js           The 3D board: mount / unmount, camera, picking, piece slides, highlights. Loads the library room & lights its fire after the board is up (addRoom)
     three/board.js           The board's frame, gold inlay & labels, and the baize table (the fallback when the room doesn't load)

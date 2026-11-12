@@ -161,12 +161,12 @@ describe("the menu's controller", () => {
 	describe("the keyboard", () => {
 		let items;
 
-		function item(hidden, disabled) {
+		function item(hidden, disabled, onMonitor) {
 			const el = {
 				...fakeElement(),
 				inside: menu,
 				disabled,
-				closest() { return hidden ? {} : null; },
+				closest(selector) { return hidden || (onMonitor && selector.includes("[data-on-monitor]")) ? {} : null; }, // onMonitor: INSIDE WHAT THE 3D ROOM'S MONITOR SHOWS INSTEAD
 				focus() { global.document.activeElement = el; },
 			};
 			return el;
@@ -187,6 +187,11 @@ describe("the menu's controller", () => {
 			assert.deepEqual(menuItems(), [items[0], items[2], items[3]]);
 			items = [items[0]];
 			assert.deepEqual(menuItems(), [items[0]]);
+		});
+
+		test("the list skips items the 3D room's monitor shows instead, like hidden ones", () => {
+			items = [item(), item(false, false, true), item()];
+			assert.deepEqual(menuItems(), [items[0], items[2]]);
 		});
 
 		test("a key on the button focuses the first item, a mouse doesn't", () => {

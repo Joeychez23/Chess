@@ -25,7 +25,7 @@ describe("the menus' groups", () => {
 	const expected = {
 		play: [
 			["Current game", ["Resume"]],
-			["Game actions", ["Hint", "Takeback", "Offer Draw", "Type a Move"]],
+			["Game actions", ["Hint", "Takeback", "Offer Draw", "Type a Move", "Monitor"]],
 			["View", ["Turn Sound: Off", "Flip Board", "View: 3D", "Reset View", "Turn Eval Bar: On", "Download PGN"]],
 			["End the game", ["Restart", "Cancel"]],
 			["Navigation", ["Home", "Settings"]],

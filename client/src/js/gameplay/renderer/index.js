@@ -32,6 +32,8 @@ let shownFacings = null; // THE POSITION & PIECE FACINGS THE 3D BOARD WAS LAST T
 let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
 let shownScreen = null; // WHAT THE 3D ROOM'S MONITOR WAS LAST TOLD TO SHOW (screen3D() AS JSON)
 let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
+let monitorHooks = null; // gameplay/monitor'S { handlers, announce, tv, onChange, data } (setMonitorHooks), GIVEN TO EVERY 3D BOARD
+let shownMonitor = null; // WHAT THE MONITOR'S CHANNELS WERE LAST SENT (monitorHooks.data() AS JSON)
 const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
 let viewListener = () => {}; // onViewChange()'S, TOLD WHEN 3D FALLS BACK TO 2D BY ITSELF
 
@@ -55,6 +57,7 @@ export function drawBoard() {
 	board3D.setSide(game.viewColor, !game.reduceMotion); // FLIP BOARD TURNS THE CAMERA
 	syncMarks3D();
 	syncScreen3D();
+	syncMonitor3D();
 	const fen = chessInst.fen();
 	if (fen !== shownFen) { // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
 		const move = game.reduceMotion ? null : moveBetween(scratch, shownFen, fen);
@@ -136,6 +139,52 @@ function syncScreen3D() {
 	if (key === shownScreen) { return; }
 	shownScreen = key;
 	board3D.setScreen(state);
+}
+
+/* ---------------------------------------------------------------- */
+// Monitor
+/* ---------------------------------------------------------------- */
+/**
+ * @description What the 3D room's monitor works with, from gameplay/monitor (it can't be required here, it requires the menu, which requires this file).
+ * Every 3D board put up from now on gets them
+ * @param  {[object]} hooks [{ handlers, announce(text), tv, onChange({ ready, state }) } (three/index.js mount()'s monitor option) & data(): the channels' data]
+ */
+export function setMonitorHooks(hooks) {
+	monitorHooks = hooks;
+}
+
+// PUTS THE CHANNELS' DATA ON THE MONITOR WHEN IT CHANGED
+function syncMonitor3D() {
+	if (!monitorHooks) { return; }
+	const data = monitorHooks.data();
+	const key = JSON.stringify(data);
+	if (key === shownMonitor) { return; }
+	shownMonitor = key;
+	board3D.setMonitor(data);
+}
+
+/**
+ * @description Zooms in to the 3D room's monitor (the menu's Monitor item)
+ * @return {[boolean]} [false on 2D, with no monitor or before it has the game's data]
+ */
+export function enterMonitor3D() {
+	return board3D ? board3D.enterMonitor() : false;
+}
+
+/**
+ * @description Back to the desk from the monitor
+ * @return {[Promise<void>]} [resolves once it's on the desk, at once on 2D or when it already is]
+ */
+export function leaveMonitor3D() {
+	return board3D ? board3D.leaveMonitor() : Promise.resolve();
+}
+
+/**
+ * @description The 3D room's monitor's state
+ * @return {[string|null]} ["idle", "zooming", "zoomed" or "leaving", null on 2D or with no monitor]
+ */
+export function monitorState3D() {
+	return board3D ? board3D.monitorState() : null;
 }
 
 /**
@@ -332,7 +381,8 @@ async function show3D() {
 	boardListeners.forEach(([type, handler, options]) => container.addEventListener(type, handler, options));
 	canvas.after(container);
 	try {
-		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
+		const monitor = monitorHooks && { handlers: monitorHooks.handlers, announce: monitorHooks.announce, tv: monitorHooks.tv, onChange: monitorHooks.onChange };
+		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D, monitor }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
 	} catch (err) {
 		console.warn("3D board failed to start", err);
 		reportError(`3D board couldn't start: ${err.message}`, "3d-board");
@@ -352,6 +402,8 @@ async function show3D() {
 	shownMarks = null;
 	shownScreen = null;
 	syncScreen3D();
+	shownMonitor = null; // A NEW BOARD (ONE REBUILT AFTER A LOST CONTEXT TOO) GETS THE DATA AGAIN
+	syncMonitor3D();
 	if (heldFace) { board3D.setFace(heldFace); } // THE GAME ENDED BEFORE THIS BOARD WENT UP
 	game.refresh = true;
 	requestFrame();

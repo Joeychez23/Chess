@@ -228,7 +228,7 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	display: none;
 }
 
-#resultAnnouncement { /* ONLY FOR SCREEN READERS, THE MENU'S TITLE SHOWS THE RESULT. NOT display: none, THEY WOULDN'T READ IT */
+#resultAnnouncement, #monitorAnnouncement { /* ONLY FOR SCREEN READERS, THE MENU'S TITLE & THE MONITOR'S GLASS SHOW WHAT THEY SAY. NOT display: none, THEY WOULDN'T READ IT */
 	position: fixed;
 	width: 1px;
 	height: 1px;
@@ -236,6 +236,10 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	overflow: hidden;
 	clip-path: inset(50%);
 	white-space: nowrap;
+}
+
+[data-on-monitor] { /* 3D: SHOWN ON THE ROOM'S MONITOR INSTEAD (gameplay/monitor/index.js). ITS OWN ATTRIBUTE, THE CODE THAT SETS hidden KEEPS ITS RULES */
+	display: none !important;
 }
 
 #moveDeadline { /* BOTTOM LEFT, CLICKS GO THROUGH TO THE BOARD */

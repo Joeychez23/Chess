@@ -7,7 +7,7 @@
  *	state (the shared game object), images & sprites (loading & image numbers), layout (board size), draw (each frame),
  *	animate (knight hop, slide home), input (mouse, touch, TV remote), moves (server moves & the socket's), menu (menu & game over),
  *	status (the message area for refused moves & connection problems), movelist (the panel of the game's moves), movebox (typed moves),
- *	analysis (the hint & the evaluation bar).
+ *	analysis (the hint & the evaluation bar), monitor (the 3D room's monitor: its data, actions & what it hides).
  *	Moves are checked locally with chess.js, then saved by the chess server (validate/index.js)
  *
  */
@@ -31,6 +31,7 @@ const { showStatus, clearStatus, MESSAGE_TIME } = require("./status/index.js"); 
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
+const { startMonitor } = require("./monitor/index.js"); // THE 3D ROOM'S MONITOR: ITS DATA, ACTIONS & HIDE RULES
 const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D, setFace } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
 export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
@@ -177,6 +178,7 @@ async function startGame(view) {
 	optExitBtn.addEventListener("click", handleExit);
 	if (!game.TV_BOOL || OVERRIDE_TV) { addMoveListListeners(); } // THE TOGGLE & ITS KEYS
 	addMoveBoxListeners(); // ON IN TV MODE TOO, A KEYBOARD CAN STILL TYPE. THE TV REMOTE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE
+	startMonitor(); // TV MODE TOO (THE REMOTE REACHES THE MENU'S MONITOR ITEM). STILL BEFORE THE 3D BOARD MOUNTS: show3D WAITS FOR ITS CHUNK FIRST
 }
 
 /* ################################################################ */

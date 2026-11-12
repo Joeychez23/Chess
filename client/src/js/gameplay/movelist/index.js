@@ -32,6 +32,7 @@ const MOVE_KEYS = ["ArrowUp", "ArrowDown", "Home", "End"]; // THE KEYS THAT MOVE
 let moves = []; // THE GAME'S SAN MOVES
 let startFen = null; // A SET POSITION'S FEN, null = THE STANDARD POSITION
 let placedFor = null; // THE BOARD SIZE THE PANEL WAS LAST PLACED FOR
+let opening = null; // THE GAME'S OPENING { eco, name } (showOpening), THE 3D ROOM'S MONITOR SHOWS IT TOO
 
 /* ---------------------------------------------------------------- */
 // Moves
@@ -169,14 +170,27 @@ export function addMoveListListeners() {
 /* ---------------------------------------------------------------- */
 /**
  * @description Shows the game's opening under the panel. textContent, it's never read as HTML. The panel is placed again when its room changed
- * @param  {[object]} opening [{ eco, name } from the server, null = none yet]
+ * @param  {[object]} next [{ eco, name } from the server, null = none yet]
  */
-export function showOpening(opening) {
-	const text = opening ? `${opening.eco} ${opening.name}` : "";
+export function showOpening(next) {
+	const text = next ? `${next.eco} ${next.name}` : "";
+	opening = next ? { eco: next.eco, name: next.name } : null;
 	if (openingDisplay.textContent == text) { return; }
+	game.refresh = true; // THE MONITOR'S MOVES CHANNEL SHOWS IT
 	openingDisplay.textContent = text;
 	openingDisplay.hidden = !opening;
 	placedFor = null;
+}
+
+/* ---------------------------------------------------------------- */
+// Monitor
+/* ---------------------------------------------------------------- */
+/**
+ * @description What the 3D room's monitor's moves channel shows: the panel's rows & the opening
+ * @return {[object]} { rows, opening } [rows: [{ number, white, black }], opening: { eco, name } or null]
+ */
+export function moveListState() {
+	return { rows: moveRows(moves, startFen), opening };
 }
 
 /* ---------------------------------------------------------------- */
