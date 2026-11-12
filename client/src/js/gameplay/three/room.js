@@ -18,8 +18,9 @@ const ASSETS = `${process.env.CHESS_ASSETS_URL}/images/3d`; // S3 / CLOUDFRONT L
 const TIMEOUT_MS = 15000; // LIKE THE PIECE MODELS: A STALLED DOWNLOAD LEAVES THE BAIZE TABLE UP
 const PARTS = { // EACH .glb, ITS LIGHT MAP & THE DETAIL TEXTURES ITS MATERIALS ARE NAMED AFTER. THEIR OWN FILES: AN IMAGE INSIDE A .glb LOADS FROM A blob: URL, WHICH THE CSP BLOCKS
 	desk: { model: "blend/library.glb", light: "library-light-near.webp", details: ["wood", "plastic", "leather", "cloth"] },
-	room: { model: "blend/library-room.glb", light: "library-light-room.webp", fire: "library-light-fire.webp", details: ["wood", "plastic", "leather", "cloth", "floor", "wallpaper", "books"] },
+	room: { model: "blend/library-room.glb", light: "library-light-room.webp", fire: "library-light-fire.webp", details: ["wood", "plastic", "leather", "cloth", "floor", "wallpaper", "books", "painting1", "painting2", "painting3", "painting4"] },
 };
+const PAINTING = /^painting\d$/; // THE FRAMES' CANVASES: EACH ITS OWN PICTURE ACROSS ITS 0 - 1 UVs, NOT A TILING DETAIL (build_library.py SIZES EACH FRAME TO ITS PAINTING)
 const LIGHT_GAIN = { books: 4 }; // THE BOOKS BAKE AT A FIFTH OF WHITE SO THEY DON'T FLOOD THE ROOM WITH BOUNCE LIGHT (build_library.py HAS THE SAME TABLE)
 const SCREEN = "screen"; // THE MONITOR'S GLASS, screen.js DRAWS ON IT
 const FIRE = "fire"; // THE FIREPLACE'S & CANDLES' FLAMES, fire.js MOVES THEM
@@ -59,7 +60,7 @@ function addFirelight(material, fireMap, glow) {
 // ONE PART: ITS MODEL WITH A MATERIAL PER DETAIL TEXTURE (THE .glb'S MATERIALS ARE NAMED "wood", "plastic", ...). glow: THE FIRELIGHT'S UNIFORM, FOR A PART WITH A FIRE MAP
 async function loadPart({ model, light, fire, details }, anisotropy, glow) {
 	const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-	const [gltf, lightMap, fireMap, ...maps] = await Promise.all([loader.loadAsync(`${ASSETS}/${model}`), loadTexture(light, 1, false), fire ? loadTexture(fire, 1, false) : null, ...details.map((name) => loadTexture(`library-${name}.webp`, anisotropy, true))]);
+	const [gltf, lightMap, fireMap, ...maps] = await Promise.all([loader.loadAsync(`${ASSETS}/${model}`), loadTexture(light, 1, false), fire ? loadTexture(fire, 1, false) : null, ...details.map((name) => (PAINTING.test(name) ? loadTexture(`${name}.jpg`, anisotropy, false) : loadTexture(`library-${name}.webp`, anisotropy, true)))]);
 	lightMap.channel = 1; // THE SECOND UV SET
 	const materials = {};
 	details.forEach(function (name, i) {

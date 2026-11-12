@@ -52,6 +52,10 @@ The longcase clock on the south wall shows the viewer's local time like a real o
 - The moving parts are left out of the bake (`hide_render`), so they leave no shadow behind, and have no light map. `clock.js` draws the hands near-black and the pendulum one brass colour. The brass cap over the hands' centre is baked into `room`.
 - They're set from `Date` before every draw, so the clock is right again as soon as a hidden tab comes back. While the room is up a timer asks for 30 frames a second for the swing. With reduced motion the pendulum hangs still and the timer asks once a second, for the tick. It stops while the tab is hidden or the WebGL context is lost. Phones have no room, so no clock.
 
+## The paintings
+
+The four frames hold `painting1.jpg` to `painting4.jpg` from `images/3d/`: 1 over the mantel, then 2, 3 and 4 along the south wall, going left from the fireplace (west to east). Each canvas is a material of its own (`painting1` to `painting4`) with UVs filling 0 to 1, and `room.js` uses the picture as its detail texture instead of a tiling one. The canvases bake as a pale grey, so their light map carries only the light. `build_library.py` sizes each frame to its picture's shape, so a new painting with a different shape needs the room rebuilt and rebaked.
+
 The `screen` mesh has no light map. `three/screen.js` draws on a canvas and uses it as the glass's texture. Its UVs fill 0 to 1.
 
 ## Source
