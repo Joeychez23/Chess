@@ -19,7 +19,7 @@
 **Images and audio aren't in the repo** (`client/src/images` and `client/src/audio`
 are git-ignored). They're in the `aws-prac-chess-s3` bucket and CloudFront serves
 them; every asset url starts with `CHESS_ASSETS_URL`. That includes the 3D board's
-textures and `pieces.glb`, under `images/3d/`. Those need CloudFront's CORS headers
+textures, `pieces.glb` and the library room (`library*.glb`, `library-*.webp`, [docs/3d-room.md](../docs/3d-room.md)), under `images/3d/`. Those need CloudFront's CORS headers
 (`terraform/modules/cloudfront`). The `.blend` sources in `images/3d/blend/` stay local.
 
 To use local copies instead of CloudFront, put them in `client/dist`, which the
@@ -121,6 +121,30 @@ joinGame(gameId, playerId, {
 leaveGame();
 ```
 
+## The 3D room's monitor
+
+With 3D on, a CRT monitor across the board shows the opponent (`three/screen.js`, fed by `screen3D()` in `gameplay/renderer`):
+
+- **Before a game has loaded:** colour bars.
+- **Friend games:** the opponent's username and `your move` / `their move`, or the result. Players have no pictures.
+- **AI games:** the colour bars, then the bot's avatar and name for 3 seconds, then a pixel face for the rest of the game, with the name and status on a strip along the bottom.
+
+The face is data in `three/faces.js`. `faceFor()` and `endFaceFor()` in `gameplay/bots/index.js` pick it, and the game calls `setFace()` (`gameplay/renderer`) where the bot speaks:
+
+| Event | Face |
+| --- | --- |
+| The bot captures or gives check | `happy` |
+| The player captures a pawn, knight or bishop | `sad` |
+| The player captures a rook or queen, or gives check | `angry` |
+| A quiet move | no change |
+| The bot wins | `won`: happy, held until the next game |
+| The bot loses | `lost`: angry for 1.5 seconds, then sad, held |
+| A draw, or a new game | `neutral` |
+
+Mate beats check, and check beats a capture. While it is the bot's turn the idle face is `thinking` (the eyes look left and right). A reaction lasts 2.5 seconds and a newer one replaces it at once. The idle face blinks every 3 to 7 seconds. With reduced motion on, each face shows its main frame and holds still.
+
+To add an expression: add its parts to `PARTS` if it needs new ones, add an entry to `FACES` (`colour`, `frames`, and `loop` or `then`), and return its name from `faceFor()` for the event it reacts to. The drawing code doesn't change. `client/test/faces.test.js` checks the table.
+
 ## Layout
 
 ```text
@@ -163,6 +187,20 @@ client/
     movebox/suggestions.js   What the list shows & when the player can move (no page state, the server tests run it)
     validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, player search, friends, accept, decline, save settings, save username, delete my data
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
+    bots/index.js            The AI's bot: botFor(), when it speaks (momentFor, endMomentFor, pickLine) & the face the 3D room's monitor makes (faceFor, endFaceFor). No DOM, tested in client/test
+    bots/say.js              Shows the bot beside the board (#botDisplay) & its lines
+    renderer/index.js        Picks the 2D canvas or the 3D board. On 3D it keeps the pieces, camera side, highlights & the room's monitor (screen3D, setFace) in step with the game
+    three/load.js            load3D(): downloads the lazy "three" chunk the first time 3D is turned on
+    three/index.js           The 3D board: mount / unmount, camera, picking, piece slides, highlights. Loads the library room after the board is up (addRoom)
+    three/board.js           The board's frame, gold inlay & labels, and the baize table (the fallback when the room doesn't load)
+    three/pieces.js          Piece meshes from pieces.glb (docs/3d-pieces.md), blob shadows
+    three/materials.js       Piece & board materials
+    three/room.js            The library room & CRT monitor from library.glb & library-room.glb (docs/3d-room.md): detail texture x baked light map, unlit
+    three/screen.js          What the monitor shows, on a canvas used as its glass's texture: test card, name & status, the opponent's picture through a retro filter, the face
+    three/faces.js           The monitor's pixel faces as data: PARTS (pixel grids) & FACES (frames, timings). No DOM, tested in client/test
+    three/pixelFont.js       The monitor's 5 x 7 font. No DOM, tested in client/test
+    three/hint.js            The controls hint, the first time 3D opens
+    three/perf.js            The ?perf=1 readout (docs/3d-phone-test.md)
     user/index.js            Converts a dropped tile into a { from, to, promotion } move
     utils/index.js           Per-square tile state
 ```

@@ -7,7 +7,7 @@
 const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
 const { Chess } = require("chess.js");
-const { botFor, momentFor, endMomentFor, pickLine } = require("../src/js/gameplay/bots/index.js");
+const { botFor, momentFor, endMomentFor, pickLine, faceFor, endFaceFor } = require("../src/js/gameplay/bots/index.js");
 
 const bot = (level) => ({ level, name: `Bot ${level}`, lines: { start: ["hi", "hello"], capture: ["took", "mine"], check: ["check!", "check?"], win: ["won", "yay"], lose: ["lost", "gg"] } });
 const LEVELS = { levels: [bot(600), bot(1300), bot(1600)], default_level: 1300, old_levels: { 3: 1300, 4: 1600 } };
@@ -79,5 +79,49 @@ describe("pickLine", () => {
 		assert.equal(pickLine(b, "check", () => 0.99), "check?");
 		assert.equal(pickLine(b, "nope"), null);
 		assert.equal(pickLine(null, "start"), null);
+	});
+});
+
+describe("faceFor", () => {
+	const QUIET = "4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1"; // WHITE CAN TAKE d5 OR PUSH
+
+	test("the bot is happy to capture or give check", () => {
+		const take = play(QUIET, "exd5");
+		assert.equal(faceFor(take.move, take.chess, "w"), "happy");
+		const check = play("4k3/8/8/8/8/8/8/4KQ2 w - - 0 1", "Qb5+");
+		assert.equal(faceFor(check.move, check.chess, "w"), "happy");
+	});
+
+	test("the bot is sad to lose a piece, angry to lose a rook or queen or to be checked", () => {
+		const pawn = play(QUIET, "exd5");
+		assert.equal(faceFor(pawn.move, pawn.chess, "b"), "sad");
+		const rook = play("4k3/r7/8/8/8/8/8/R3K3 w - - 0 1", "Rxa7");
+		assert.equal(faceFor(rook.move, rook.chess, "b"), "angry");
+		const queen = play("4k3/q7/8/8/8/8/8/R3K3 w - - 0 1", "Rxa7");
+		assert.equal(faceFor(queen.move, queen.chess, "b"), "angry");
+		const check = play("4k3/8/8/8/8/8/8/4KQ2 w - - 0 1", "Qb5+");
+		assert.equal(faceFor(check.move, check.chess, "b"), "angry");
+	});
+
+	test("mate beats check: the bot won or lost", () => {
+		const mate = play("rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2", "Qh4#");
+		assert.equal(faceFor(mate.move, mate.chess, "b"), "won");
+		assert.equal(faceFor(mate.move, mate.chess, "w"), "lost");
+	});
+
+	test("a quiet move by either side changes nothing", () => {
+		const quiet = play(QUIET, "e5");
+		assert.equal(faceFor(quiet.move, quiet.chess, "w"), null);
+		assert.equal(faceFor(quiet.move, quiet.chess, "b"), null);
+		assert.equal(faceFor(null, quiet.chess, "b"), null);
+	});
+});
+
+describe("endFaceFor", () => {
+	test("won, lost, or neutral for a draw", () => {
+		assert.equal(endFaceFor({ winner: "b" }, "b"), "won");
+		assert.equal(endFaceFor({ winner: "w" }, "b"), "lost");
+		assert.equal(endFaceFor({ winner: "draw" }, "b"), "neutral");
+		assert.equal(endFaceFor(undefined, "b"), null);
 	});
 });

@@ -17,7 +17,7 @@
 /* ---------------------------------------------------------------- */
 const { game, canvas, chessInst, validateState, startFrames, requestFrame, fillTiles, OVERRIDE_TV } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
-const { momentFor } = require("./bots/index.js"); // WHAT THE AI'S BOT SAYS ABOUT ITS MOVE (#76)
+const { momentFor, faceFor } = require("./bots/index.js"); // WHAT THE AI'S BOT SAYS ABOUT ITS MOVE (#76) & THE FACE THE 3D ROOM'S MONITOR MAKES AT IT
 const { sayLine } = require("./bots/say.js"); // & SAYS IT BESIDE THE BOARD
 const { imageProgress } = require("./images/index.js"); // HOW MANY OF THE GAME'S IMAGES HAVE LOADED (0 - 1)
 const { handleWindowResize } = require("./layout/index.js"); // REDRAWS THE GAME WHEN THE WINDOW IS RESIZED
@@ -31,7 +31,7 @@ const { showStatus, clearStatus, MESSAGE_TIME } = require("./status/index.js"); 
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
-const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
+const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D, setFace } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
 export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -197,6 +197,7 @@ async function startAiSlide() {
 		validateState.load(game.response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
 		const played = validateState.move(game.moveObj);
 		sayLine(momentFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // A CAPTURE, CHECK OR MATE
+		setFace(faceFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // THE MONITOR'S FACE IS PLEASED WITH IT (3D ONLY)
 		clearStatus("ai");
 		fillTiles();
 		for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from

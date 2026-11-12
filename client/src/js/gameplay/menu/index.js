@@ -23,8 +23,8 @@ const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT,
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
-const { setView, currentView, resetCamera, onViewChange, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA
-const { endMomentFor } = require("../bots/index.js"); // WHAT THE AI'S BOT SAYS WHEN THE GAME ENDS (#76)
+const { setView, currentView, resetCamera, onViewChange, setFace, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA
+const { endMomentFor, endFaceFor } = require("../bots/index.js"); // WHAT THE AI'S BOT SAYS WHEN THE GAME ENDS (#76)
 const { sayLine } = require("../bots/say.js"); // & SAYS IT BESIDE THE BOARD
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -775,7 +775,9 @@ function placeEndGroup(top) {
 export function showGameOver(result, onLoad) {
 	if (game.gameOver) { return; } // ALREADY SHOWN
 	game.gameOver = true;
+	game.result = result; // THE 3D ROOM'S MONITOR SHOWS IT (gameplay/renderer)
 	if (game.ai && !onLoad) { sayLine(endMomentFor(result, game.playerColor == "w" ? "b" : "w")); } // THE BOT WON OR LOST, A DRAW SAYS NOTHING
+	if (game.ai) { setFace(endFaceFor(result, game.playerColor == "w" ? "b" : "w")); } // & ITS FACE HOLDS THE RESULT, ON A GAME THAT LOADED OVER TOO
 	syncDeadline(null);
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY

@@ -30,6 +30,8 @@ let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT T
 let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
 let shownFacings = null; // THE POSITION & PIECE FACINGS THE 3D BOARD WAS LAST TURNED TO (syncFacing3D)
 let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
+let shownScreen = null; // WHAT THE 3D ROOM'S MONITOR WAS LAST TOLD TO SHOW (screen3D() AS JSON)
+let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
 const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
 let viewListener = () => {}; // onViewChange()'S, TOLD WHEN 3D FALLS BACK TO 2D BY ITSELF
 
@@ -52,6 +54,7 @@ export function drawBoard() {
 	if (!board3D) { return; } // 3D: SIZES ITSELF (ResizeObserver) & DRAWS ITS OWN FRAMES, ONLY THE PIECES, CAMERA SIDE & HIGHLIGHTS ARE SET HERE
 	board3D.setSide(game.viewColor, !game.reduceMotion); // FLIP BOARD TURNS THE CAMERA
 	syncMarks3D();
+	syncScreen3D();
 	const fen = chessInst.fen();
 	if (fen !== shownFen) { // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
 		const move = game.reduceMotion ? null : moveBetween(scratch, shownFen, fen);
@@ -104,6 +107,46 @@ function syncMarks3D() {
 	if (key === shownMarks) { return; }
 	shownMarks = key;
 	Object.keys(marks).forEach((kind) => board3D.highlight([...new Set(marks[kind])], kind));
+}
+
+/**
+ * @description What the library's monitor shows: the opponent (the AI's bot with its avatar, a friend by name) & a status line. Before a
+ * game has loaded there's no name, the monitor shows its test card
+ * @return {[object]} { name, status, image, ai, thinking }
+ */
+function screen3D() {
+	const response = game.response;
+	if (!response || response.status != 200) { return { name: "", status: "", image: null, ai: false, thinking: false }; }
+	const ai = Boolean(response.ai);
+	const name = ai ? game.bot?.name || "Computer" : response.opponent_name || "Opponent";
+	const image = ai && game.bot?.avatar ? `${process.env.CHESS_ASSETS_URL}/${game.bot.avatar}` : null;
+	const theirTurn = chessInst.turn() !== game.playerColor;
+	let status = theirTurn ? (ai ? "thinking..." : "their move") : "your move";
+	if (game.gameOver || response.state == "CLOSED") {
+		const winner = (game.result || response).winner;
+		status = winner !== "w" && winner !== "b" ? "draw" : winner === game.playerColor ? "you win" : ai ? "i win" : "you lose";
+	}
+	return { name, status, image, ai, thinking: ai && theirTurn && !game.gameOver };
+}
+
+// PUTS screen3D() ON THE MONITOR WHEN IT CHANGED
+function syncScreen3D() {
+	const state = screen3D();
+	const key = JSON.stringify(state);
+	if (key === shownScreen) { return; }
+	shownScreen = key;
+	board3D.setScreen(state);
+}
+
+/**
+ * @description The monitor's face reacts to a move or the result (AI games, gameplay/bots faceFor & endFaceFor). Does nothing on 2D,
+ * but a result's face is remembered for a 3D board put up later
+ * @param  {[string]} name ["happy" | "sad" | "angry" | "won" | "lost" | "neutral" | null (no change)]
+ */
+export function setFace(name) {
+	if (!name || name === heldFace) { return; } // THE MATING MOVE ALREADY SHOWED THE RESULT, GAME OVER DOESN'T START IT AGAIN
+	heldFace = name === "won" || name === "lost" ? name : null;
+	if (board3D) { board3D.setFace(name); }
 }
 
 /**
@@ -307,6 +350,9 @@ async function show3D() {
 	shownFacings = null;
 	syncFacing3D(shownFen);
 	shownMarks = null;
+	shownScreen = null;
+	syncScreen3D();
+	if (heldFace) { board3D.setFace(heldFace); } // THE GAME ENDED BEFORE THIS BOARD WENT UP
 	game.refresh = true;
 	requestFrame();
 	return VIEWS.THREE_D;

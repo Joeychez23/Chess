@@ -1,7 +1,7 @@
 /*
  *  board.js  --  chess frontend
  *	3D Board Surroundings
- *	A walnut frame with gold inlay & a-h / 1-8 labels, on a green baize table. Proportions follow the 2D board (gameplay/layout):
+ *	A walnut frame with gold inlay & a-h / 1-8 labels, on a green baize table (the library's desk takes the table's place once it loads, three/room.js). Proportions follow the 2D board (gameplay/layout):
  *	labels sit COORD_BORDER_RATIO squares out from the playing area, in the band between the frame's two gold lines
  *
  */
@@ -78,6 +78,7 @@ export function createSurroundings(boardSize) {
 	table.rotation.x = -0.5 * Math.PI;
 	table.position.y = -depth - 0.01;
 	group.add(table);
+	group.userData.table = table; // HIDDEN ONCE THE LIBRARY'S DESK IS IN (three/room.js), THE FALLBACK WHEN IT ISN'T
 	const labelMaterial = new MeshBasicMaterial({ map: labelAtlas(), transparent: true, depthWrite: false });
 	const labels = { w: labelsFor("w", cell, half, labelMaterial), b: labelsFor("b", cell, half, labelMaterial) };
 	group.add(labels.w, labels.b);

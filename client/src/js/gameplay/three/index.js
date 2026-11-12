@@ -18,6 +18,9 @@ import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js
 import { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } from "../animate/timing.js"; // THE 2D BOARD'S TIMINGS, SO A MOVE TAKES THE SAME TIME ON BOTH
 import { createSurroundings, orientLabels } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
+import { createRoom, turnRoom, disposeRoom } from "./room.js"; // THE LIBRARY AROUND THE BOARD & ITS CRT MONITOR
+import { createScreen, setScreen as showOnScreen, setFace as showFace, pauseScreen, disposeScreen } from "./screen.js"; // WHAT THE MONITOR SHOWS
+import { reportError } from "../../pages/utils/reportErrors.js";
 import { showHint, dismissHint, removeHint } from "./hint.js";
 import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"; // ?perf=1's READOUT FOR PHONE TESTS (#430)
 export { perfLoaded } from "./perf.js"; // load.js GIVES IT THE CHUNK'S DOWNLOAD TIME
@@ -34,6 +37,10 @@ const FILES = "abcdefgh";
 const HOP_HEIGHT = CELL_SIZE * 0.6; // HOW HIGH A KNIGHT HOPS
 const CAMERA_HEIGHT = 32; // THE CAMERA LOOKS DOWN AT THE CENTER FROM THIS HIGH...
 const CAMERA_DISTANCE = 26; // ...& THIS FAR BACK FROM IT, ON THE SIDE AT THE BOTTOM OF THE SCREEN
+const ROOM_CAMERA_HEIGHT = 24.5; // IN THE LIBRARY THE CAMERA OPENS LOWER, FARTHER BACK...
+const ROOM_CAMERA_DISTANCE = 30.5;
+const ROOM_CAMERA_AIM = 6.5; // ...& LOOKS THIS FAR PAST THE CENTER TOWARD THE MONITOR, SO ITS WHOLE SCREEN IS IN THE OPENING VIEW
+const ROOM_BACKGROUND = 0x120B07; // DARK & WARM, BEHIND THE ROOM & UNDER THE DESK ON PHONES
 const MIN_DISTANCE = 12; // ZOOM LIMITS: CLOSE ENOUGH TO READ A SQUARE...
 const MAX_DISTANCE = 70; // ...FAR ENOUGH TO SEE THE WHOLE TABLE, BEFORE THE FOG SWALLOWS THE BOARD (DEFAULT IS ~41)
 const MAX_TILT = MathUtils.degToRad(80); // FROM STRAIGHT DOWN (0): STAYS ABOVE THE TABLE, NEVER LEVEL WITH OR BELOW IT
@@ -73,6 +80,7 @@ const fitCamera = new PerspectiveCamera(); // smallScreenCamera()'S STAND-IN, TH
 const corner = new Vector3();
 const table = new Plane(new Vector3(0, 1, 0), 0); // THE BOARD'S SURFACE, A DRAGGED PIECE OFF THE BOARD FOLLOWS THE POINTER ON IT
 const tablePoint = new Vector3();
+const UP = new Vector3(0, 1, 0);
 
 /* ---------------------------------------------------------------- */
 // Squares
@@ -209,7 +217,11 @@ function smallestSquarePx(h) {
 function placeCamera(angle) {
 	view.controls.target.set(0, 0, 0); // UNDOES ANY PAN
 	if (view.small) { view.camera.position.setFromSpherical(spherical.set(view.small.distance, view.small.tilt, angle)); }
-	else { view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle)); }
+	else if (view.phone) { view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle)); }
+	else { // THE LIBRARY'S VIEW: THE MONITOR ACROSS THE BOARD IS IN IT
+		view.controls.target.set(-ROOM_CAMERA_AIM * Math.sin(angle), 0, -ROOM_CAMERA_AIM * Math.cos(angle));
+		view.camera.position.set(ROOM_CAMERA_DISTANCE * Math.sin(angle), ROOM_CAMERA_HEIGHT, ROOM_CAMERA_DISTANCE * Math.cos(angle));
+	}
 	view.controls.update(); // LOOKS AT THE TARGET
 }
 
@@ -219,11 +231,13 @@ function cameraAzimuth() {
 	return Math.atan2(offset.x, offset.z);
 }
 
-// TURNS THE CAMERA AROUND WHAT IT LOOKS AT TO angle, KEEPING THE PLAYER'S ZOOM, TILT & PAN
-function turnCamera(angle) {
+// TURNS THE CAMERA AROUND WHAT IT LOOKS AT TO angle, KEEPING THE PLAYER'S ZOOM, TILT & PAN. turn (FLIP BOARD'S) ALSO CARRIES WHAT IT LOOKS AT
+// ROUND THE BOARD'S CENTER BY THE SAME ANGLE: THE LIBRARY'S VIEW LOOKS PAST THE CENTER, & FROM THE OTHER SIDE THAT POINT IS ON THE OTHER SIDE TOO
+function turnCamera(angle, turn) {
 	const { camera, controls } = view;
 	spherical.setFromVector3(offset.copy(camera.position).sub(controls.target));
 	spherical.theta = angle;
+	if (turn) { controls.target.copy(turn.target).applyAxisAngle(UP, angle - turn.from); }
 	camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));
 	camera.lookAt(controls.target);
 }
@@ -233,9 +247,44 @@ function stepCamera(now) {
 	const turn = view.cameraTurn;
 	if (turn.start === null) { turn.start = now; }
 	const t = MathUtils.clamp((now - turn.start) / FLIP_MS, 0, 1);
-	turnCamera(turn.from + (turn.to - turn.from) * easeInOut(t));
+	turnCamera(turn.from + (turn.to - turn.from) * easeInOut(t), turn);
+	if (view.room) { turnRoom(view.room, turn.roomFrom + (turn.roomTo - turn.roomFrom) * easeInOut(t)); } // THE ROOM COMES ROUND WITH THE CAMERA: THE BOARD LOOKS TO TURN ON THE DESK
 	if (t >= 0.5) { setLabels(view.side); } // SIDE ON TO THE BOARD: THE LABELS SWAP UNSEEN
 	if (t === 1) { view.cameraTurn = null; }
+}
+
+const sideAngle = (color) => (color === "b" ? Math.PI : 0); // AROUND THE BOARD FROM WHITE'S SIDE
+
+// THE ROOM TURNS WITH THE PLAYER'S SIDE, SO THE MONITOR IS ALWAYS ACROSS THE BOARD FROM THEM
+function setRoomSide(color) {
+	if (view.room) { turnRoom(view.room, sideAngle(color)); }
+}
+
+/**
+ * @description Downloads the library & puts it around the board in place of the baize table. The board is already up & playable: one that
+ * fails or times out is reported & the baize stays. Phones get the desk & monitor only
+ * @param  {[object]} v [the view it's for, a board unmounted meanwhile gets nothing]
+ */
+async function addRoom(v) {
+	try {
+		const { group, screen } = await createRoom({ phone: v.phone, anisotropy: Math.min(v.renderer.capabilities.getMaxAnisotropy(), 4) });
+		if (view !== v) { return; } // UNMOUNTED (OR REBUILT) WHILE IT LOADED
+		v.room = group;
+		v.scene.add(group);
+		v.surroundings.userData.table.visible = false; // THE DESK TAKES THE BAIZE'S PLACE
+		v.scene.fog = null; // THE WALLS ARE THE EDGE NOW, FOG WOULD HIDE THEM
+		v.scene.background = new Color(ROOM_BACKGROUND);
+		v.container.style.backgroundColor = v.scene.background.getStyle();
+		turnRoom(group, v.cameraTurn ? v.cameraTurn.roomFrom : sideAngle(v.side));
+		createScreen(screen, requestRender);
+		if (v.screenState) { showOnScreen(v.screenState); }
+		if (v.screenFace) { showFace(v.screenFace); }
+		pauseScreen(document.hidden || v.lost);
+		requestRender();
+	} catch (error) {
+		console.warn("3D library didn't load, staying on the baize table", error);
+		reportError(`3D library couldn't load: ${error.message}`, "3d-board");
+	}
 }
 
 // TURNS THE a-h / 1-8 LABELS TO READ FROM color'S SIDE, LIKE THE 2D BOARD'S
@@ -264,6 +313,7 @@ function createControls(camera, canvas) {
 	controls.addEventListener("start", function () {
 		view.controlsActive = true;
 		view.cameraTurn = null; // THE PLAYER TOOK THE CAMERA MID FLIP
+		setRoomSide(view.side);
 		setLabels(view.side);
 		if (view.pointerType === "touch") { startGesture(); } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
 	});
@@ -335,6 +385,7 @@ function frame(now) {
 }
 
 function onVisibility() {
+	pauseScreen(document.hidden); // THE MONITOR'S FACE STOPS BLINKING IN A HIDDEN TAB
 	if (!document.hidden) { requestRender(); return; }
 	cancelAnimationFrame(view.frameId);
 	view.frameId = null;
@@ -346,6 +397,7 @@ function onContextLost(e) {
 	e.preventDefault();
 	perfLost();
 	view.lost = true;
+	pauseScreen(true);
 	cancelAnimationFrame(view.frameId);
 	view.frameId = null;
 	finishAnims(); // THEIR PROMISES RESOLVE, THE GAME DOESN'T WAIT ON A BOARD THAT CAN'T DRAW
@@ -404,7 +456,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 		marks[kind] = { geometry: kind === "focus" ? ringGeometry : markGeometry, material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
 	view = { phone, container, renderer, scene, camera, plane, surroundings, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
-	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored, held: null }); // held: THE PICKED UP PIECE (setHeld) { mesh, dragging, following }
+	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored, held: null, room: null, screenState: null, screenFace: null }); // room: THE LIBRARY ONCE IT'S LOADED (addRoom), screenState & screenFace: WHAT ITS MONITOR WAS LAST TOLD // held: THE PICKED UP PIECE (setHeld) { mesh, dragging, following }
 	view.drawn = new Promise((resolve) => { view.markDrawn = resolve; }); // whenDrawn(): THE FIRST FRAME WITH THE SQUARES IN (textureReady)
 	view.textureReady = false;
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
@@ -425,6 +477,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	requestRender();
 	showHint(); // THE FIRST TIME 3D OPENS
 	perfStart({ renderer, camera, squareCorners });
+	addRoom(view); // NOT AWAITED: THE BOARD NEVER WAITS ON THE ROOM
 }
 
 // A SQUARE'S 4 CORNERS ON THE BOARD, FOR perf.js
@@ -451,6 +504,8 @@ export function unmount() {
 	finishAnims();
 	removeHint();
 	perfStop();
+	disposeScreen();
+	disposeRoom();
 	const { renderer, scene, observer, controls, container } = view;
 	cancelAnimationFrame(view.frameId);
 	document.removeEventListener("visibilitychange", onVisibility);
@@ -469,6 +524,7 @@ export function unmount() {
 		for (const m of [].concat(o.material || [])) {
 			freed.add(m);
 			if (m.map) { freed.add(m.map); }
+			if (m.lightMap) { freed.add(m.lightMap); } // THE ROOM'S BAKED LIGHT
 		}
 	});
 	freed.forEach((r) => r.dispose()); // SHARED ONES (PIECE GEOMETRY, WOODS) ONLY LOSE THEIR GPU COPY, THE NEXT mount() RE-UPLOADS THEM
@@ -570,10 +626,12 @@ export function setSide(color, animate) {
 		view.cameraTurn = null;
 		placeCamera(angle);
 		setLabels(color);
+		setRoomSide(color);
 		return;
 	}
 	const from = cameraAzimuth();
-	view.cameraTurn = { from, to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)), start: null };
+	const roomFrom = view.room ? view.room.rotation.y : sideAngle(color === "b" ? "w" : "b"); // PRESSED AGAIN MID-TURN: THE ROOM TURNS BACK FROM WHERE IT IS
+	view.cameraTurn = { from, to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)), start: null, roomFrom, roomTo: angle, target: view.controls.target.clone() }; // target: WHAT THE CAMERA LOOKED AT AS THE TURN BEGAN
 	requestRender();
 }
 
@@ -584,8 +642,9 @@ export function stopMotion() {
 	if (!view) { return; }
 	finishAnims();
 	if (view.cameraTurn) {
-		turnCamera(view.cameraTurn.to);
+		turnCamera(view.cameraTurn.to, view.cameraTurn);
 		setLabels(view.side);
+		setRoomSide(view.side);
 		view.cameraTurn = null;
 	}
 	requestRender();
@@ -601,7 +660,28 @@ export function resetCamera(color) {
 	view.side = color;
 	placeCamera(color === "b" ? Math.PI : 0);
 	setLabels(color);
+	setRoomSide(color);
 	requestRender();
+}
+
+/**
+ * @description What the library's monitor shows (three/screen.js setScreen). Kept until the room has loaded, nothing on a board with no monitor
+ * @param  {[object]} state { name, status, image, ai, thinking }
+ */
+export function setScreen(state) {
+	if (!view) { return; }
+	view.screenState = state;
+	showOnScreen(state);
+}
+
+/**
+ * @description The monitor's face reacts (AI games, three/screen.js setFace). The last one is kept until the room has loaded
+ * @param  {[string]} name [a face in three/faces.js]
+ */
+export function setFace(name) {
+	if (!view) { return; }
+	view.screenFace = name;
+	showFace(name);
 }
 
 /**
