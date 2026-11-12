@@ -197,6 +197,7 @@ client/
     three/materials.js       Piece & board materials
     three/room.js            The library room & CRT monitor from library.glb & library-room.glb (docs/3d-room.md): detail texture x baked light map, unlit
     three/fire.js            The library's fire: swaying flames, embers & the flicker of its light on the room, 30 frames a second
+    three/clock.js           The library's longcase clock: its hands show the local time, stepping each second, & its pendulum swings
     three/screen.js          What the monitor shows, on a canvas used as its glass's texture: test card, name & status, the opponent's picture through a retro filter, the face
     three/faces.js           The monitor's pixel faces as data: PARTS (pixel grids) & FACES (frames, timings). No DOM, tested in client/test
     three/pixelFont.js       The monitor's 5 x 7 font. No DOM, tested in client/test

@@ -12,6 +12,7 @@
 import { Group, MeshBasicMaterial, TextureLoader, SRGBColorSpace, RepeatWrapping } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { findClock, CLOCK_NAMES } from "./clock.js";
 
 const ASSETS = `${process.env.CHESS_ASSETS_URL}/images/3d`; // S3 / CLOUDFRONT LIKE THE PIECES, ONLY FETCHED WITH 3D ON
 const TIMEOUT_MS = 15000; // LIKE THE PIECE MODELS: A STALLED DOWNLOAD LEAVES THE BAIZE TABLE UP
@@ -66,7 +67,7 @@ async function loadPart({ model, light, fire, details }, anisotropy, glow) {
 		if (fireMap) { addFirelight(materials[name], fireMap, glow); }
 	});
 	gltf.scene.traverse(function (o) {
-		if (!o.isMesh || o.name === SCREEN || o.name === FIRE) { return; }
+		if (!o.isMesh || o.name === SCREEN || o.name === FIRE || CLOCK_NAMES.includes(o.name)) { return; } // THEIR OWN MATERIALS: screen.js, fire.js & clock.js
 		if (!materials[o.material.name]) { throw new Error(`${model}: no detail texture for material "${o.material.name}"`); }
 		o.material = materials[o.material.name];
 	});
@@ -77,7 +78,8 @@ async function loadPart({ model, light, fire, details }, anisotropy, glow) {
  * @description Downloads the room & builds it. Rejects when a file fails or it takes over TIMEOUT_MS: the caller stays on the baize table
  * @param  {[object]} options { phone (the desk & monitor only), anisotropy (for the detail textures) }
  * @return {[Promise<object>]} { group (add it to the scene, turn it with turnRoom), screen (the monitor's glass mesh), fire (for fire.js's
- * createFire: { mesh (the flames), glow (the uniform the room's firelight is multiplied by, 1 is the baked fire) }, null on a phone) }
+ * createFire: { mesh (the flames), glow (the uniform the room's firelight is multiplied by, 1 is the baked fire) }, null on a phone), clock (for
+ * clock.js's createClock: { hour, minute, pendulum }, null on a phone) }
  */
 export async function createRoom({ phone, anisotropy }) {
 	const timeout = new Promise((resolve, reject) => setTimeout(reject, TIMEOUT_MS, new Error("timed out")));
@@ -89,7 +91,9 @@ export async function createRoom({ phone, anisotropy }) {
 	if (!screen) { throw new Error("library.glb has no screen"); }
 	const flames = group.getObjectByName(FIRE);
 	if (!phone && !flames) { throw new Error("library-room.glb has no fire"); }
-	return { group, screen, fire: flames ? { mesh: flames, glow } : null };
+	const clock = findClock(group);
+	if (!phone && !clock) { throw new Error("library-room.glb has no clock"); }
+	return { group, screen, fire: flames ? { mesh: flames, glow } : null, clock };
 }
 
 /**

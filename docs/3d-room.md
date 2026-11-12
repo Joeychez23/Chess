@@ -9,7 +9,7 @@ The game loads it after the board and pieces are up (`three/room.js`). If a file
 Models, in `images/3d/blend/` (Meshopt compressed, no images inside, no normals):
 
 - `library.glb` (181 KB): `desk`, `monitor`, `props` (lamp, book stack, cables, jack plate) and `screen`, the monitor's glass.
-- `library-room.glb` (410 KB): `room`, everything else as one mesh, and `fire`, the flames in the fireplace and on the candles.
+- `library-room.glb` (412 KB): `room`, everything else as one mesh, `fire`, the flames in the fireplace and on the candles, and `clockHour`, `clockMinute` and `clockPendulum`, the longcase clock's moving parts (see The clock).
 
 Textures, in `images/3d/`:
 
@@ -43,6 +43,14 @@ The fire moves (`three/fire.js`), so its light is kept out of the room's light m
 - The embers are 40 points made in `fire.js`. They start among the fireplace's flames, which it finds from the `fire` mesh.
 
 The board only draws when something changes, so while the fire is up a timer asks for 30 frames a second. It stops while the tab is hidden or the WebGL context is lost. With reduced motion the fire is still and at its baked brightness. Phones have no fireplace, so none of this runs there.
+
+## The clock
+
+The longcase clock on the south wall shows the viewer's local time like a real one (`three/clock.js`): it has no second hand, the hour and minute hands step on each tick, once a second, and the pendulum swings, reaching the end of its swing on each tick.
+
+- Each hand is its own object, built pointing at 12 with its origin on the dial's centre, so turning it about its own z turns it on the dial. The dial faces the room's -z, so a positive turn is clockwise as it's seen. The pendulum (rod and bob, in front of the trunk's dark glass) hangs straight down from its origin at the window's top and swings 3 degrees each way, once every 2 seconds.
+- The moving parts are left out of the bake (`hide_render`), so they leave no shadow behind, and have no light map. `clock.js` draws the hands near-black and the pendulum one brass colour. The brass cap over the hands' centre is baked into `room`.
+- They're set from `Date` before every draw, so the clock is right again as soon as a hidden tab comes back. While the room is up a timer asks for 30 frames a second for the swing. With reduced motion the pendulum hangs still and the timer asks once a second, for the tick. It stops while the tab is hidden or the WebGL context is lost. Phones have no room, so no clock.
 
 The `screen` mesh has no light map. `three/screen.js` draws on a canvas and uses it as the glass's texture. Its UVs fill 0 to 1.
 
@@ -99,7 +107,7 @@ Export, from `export_scene.gltf`: the settings in `docs/3d-pieces.md`, with `exp
 
 ## Budgets
 
-- About 36,000 triangles: desk 1,534, monitor 1,702, props 8,408, screen 384, room 20,206, fire 3,776. The pieces are about 104,000.
+- About 36,000 triangles: desk 1,534, monitor 1,702, props 8,408, screen 384, room 20,122, fire 3,776, clock 156. The pieces are about 104,000.
 - About 1.4 MB, fetched only with 3D on and cached after: the two models 591 KB, the three light maps about 250 KB, the detail textures about 570 KB. Phones fetch about 700 KB of it.
 - Detail textures: wood 85 texels per unit, plastic and cloth 128, leather 85, floor 32, wallpaper 32, books 25 across and 17 up. The pieces' colour atlas is about 83.
 - Light maps: 11.9 texels per unit on the desk top, monitor and props, 3.6 under the desk, 3.8 on the furniture, 2.4 on the floor and fireplace, about 1.2 on the walls, shelves and books.
