@@ -81,7 +81,7 @@ export function nextStop(stops, current, key) {
 }
 
 /**
- * @description A list of stops with one more put directly before another, for a stop with no place of its own on screen (the 3D room's monitor, left of the menu button)
+ * @description A list of stops with one more put directly before another, for a stop with no place of its own on screen (the 3D room's monitor, before the leftmost stop)
  * @param  {[array]} stops [the elements, in order]
  * @param  {[object]} stop [the one to add, nothing is added without it]
  * @param  {[object]} anchor [the one it goes before, nothing is added when it isn't in the list]

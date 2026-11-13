@@ -3,7 +3,7 @@
  *	Monitor
  *	The game's side of the 3D room's CRT monitor (three/monitor, in the lazily loaded three chunk, so nothing here requires it): the data its
  *	channels show (monitorData), its actions (they press the menu's own buttons, so the menu's rules run), the screen reader's line, the focus while
- *	zoomed (#monitorFocus), the keyboard's stop for the screen on the desk (#monitorStop: Left from the menu button reaches it, the glass shows a border, Enter zooms in,
+ *	zoomed (#monitorFocus), the keyboard's stop for the screen on the desk (#monitorStop: the leftmost of Left & Right's stops, after the type-move box, the glass shows a border, Enter zooms in,
  *	Escape drops the focus) & the hide rules.
  *	While the room & its monitor are up & reduced motion is off, what it shows (the eval bar, the move list, the opening, the opponent's name, the menu's
  *	Hint, Takeback, Offer Draw & Eval Bar) leaves the page with data-on-monitor (style.css), & the menu's Monitor item zooms in to it.

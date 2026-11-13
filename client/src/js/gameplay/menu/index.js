@@ -116,10 +116,10 @@ const nav = createNav({
 	},
 	onClose() { game.menuToggled = false; clearRemoteSelection(); },
 	canClose() { return !game.boardReset; }, // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS, THE OLD BOARD UNDER IT IS LOCKED
-	arrowStops() { // LEFT & RIGHT GO THAT WAY ON SCREEN (THE BOX CAN BE DRAGGED), THE ONES NOT ON SCREEN ARE SKIPPED. THE 3D MONITOR'S STOP HAS NO PLACE ON SCREEN: ALWAYS JUST LEFT OF THE MENU BUTTON
+	arrowStops() { // LEFT & RIGHT GO THAT WAY ON SCREEN (THE BOX CAN BE DRAGGED), THE ONES NOT ON SCREEN ARE SKIPPED. THE 3D MONITOR'S STOP HAS NO PLACE ON SCREEN: ALWAYS THE LEFTMOST, SO LEFT FROM THE MENU BUTTON GOES THROUGH THE PAGE'S STOPS (THE TYPE-MOVE BOX) LIKE 2D, THEN THE SCREEN, THEN WRAPS BACK
 		const stops = ["optBtn", "moveBoxInput", "moveListToggle"].map((id) => document.getElementById(id));
 		stops.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
-		return placeBefore(stops, document.getElementById("monitorStop"), document.getElementById("optBtn"));
+		return placeBefore(stops, document.getElementById("monitorStop"), stops[0]);
 	},
 });
 
