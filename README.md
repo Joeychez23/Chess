@@ -6,7 +6,7 @@
 
 [![Play live](https://img.shields.io/badge/play-live-2ea44f?style=for-the-badge)](https://chess.aws-prac-route53.com/)
 
-<a href="https://chess.aws-prac-route53.com/"><img src="docs/board.webp" alt="The chess board on a wooden table" width="560"></a>
+<a href="https://chess.aws-prac-route53.com/"><img src="board.webp" alt="The chess board on a wooden table" width="560"></a>
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)
 ![Canvas](https://img.shields.io/badge/HTML5_Canvas-E34F26?logo=html5&logoColor=white)
