@@ -356,9 +356,9 @@ describe("monitor", () => {
 		m.deskFocus(false);
 		assert.equal(m.view().deskFocus, false);
 	});
-	test("zoomed, the arrows move the focus without TV mode", () => {
+	test("zoomed, the arrows move the focus", () => {
 		const m = make();
-		m.update(base); // base.tv IS FALSE
+		m.update(base);
 		m.enter(); m.arrived();
 		const was = m.focus;
 		assert.equal(m.key("ArrowDown"), true);

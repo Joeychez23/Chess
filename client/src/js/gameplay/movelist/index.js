@@ -159,7 +159,7 @@ function handlePanelKey(e) {
 }
 
 /**
- * @description Adds the panel's listeners, startGame (gameplay/index.js) calls this. A TV remote can't reach the panel
+ * @description Adds the panel's listeners, startGame (gameplay/index.js) calls this. Remote-only mode can't reach the panel
  */
 export function addMoveListListeners() {
 	toggleBtn.addEventListener("click", handleMoveListToggle);

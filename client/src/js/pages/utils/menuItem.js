@@ -46,7 +46,7 @@ export function stopFill(item) {
 }
 
 /**
- * @description Is it waiting? .loading only stops clicks, a keyboard or the TV remote can still press it
+ * @description Is it waiting? .loading only stops clicks, a keyboard or remote-only mode can still press it
  * @param  {[object]} item [the button or link]
  * @return {[boolean]} busy
  */

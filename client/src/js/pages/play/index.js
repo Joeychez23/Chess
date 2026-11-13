@@ -21,7 +21,7 @@ const { InternalAuth } = require("../../auth/index.js");
 const { startNav, startLogoutButtons, showTable, showPage } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js), SAME ORIGIN AS THE AUTH ROUTES
-const TV_DEV = false; // TRUE = TV REMOTE CONTROLS (ARROW KEYS & ENTER) INSTEAD OF THE MOUSE
+const REMOTE_ONLY = false; // TRUE = REMOTE-ONLY MODE: ARROW KEYS & ENTER INSTEAD OF THE MOUSE
 
 const resultDisplay = document.getElementById("resultDisplay");
 const ratingDisplay = document.getElementById("ratingDisplay"); // FRIEND GAMES: BOTH PLAYERS' RATINGS UNDER THE TITLE
@@ -68,7 +68,7 @@ window.addEventListener("load", async function () {
 		if (!guestId) { return gameNotFound(); } // NO SAVED ID & THE SERVER COULDN'T MAKE A GAME
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: guestId, PLAYER_ID: guestId }
 	}
-	playerData.TV_BOOL = TV_DEV; // TV CONDITIONAL
+	playerData.REMOTE_ONLY_CONDITIONAL = REMOTE_ONLY; // REMOTE-ONLY MODE CONDITIONAL
 	playerData.SIGNED_IN = !!sessionUser; // EXIT: LOGOUT OR LOGIN, A NEW GAME ID GOES IN THE URL
 
 	optExitBtn.innerHTML = sessionUser ? "Logout" : "Login/Signup"; // HOME IS FOR EVERYONE, GUESTS HAVE A HOMEPAGE TOO

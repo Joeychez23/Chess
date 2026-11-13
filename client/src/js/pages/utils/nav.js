@@ -4,9 +4,10 @@
  *	Every page's menu opens & closes here. The menu button, a click away & Escape close it, the button says if it's open (aria-expanded)
  *	& its 3 lines turn into an X while it's open (nav.css). The game passes hooks for its own logic (gameplay/menu/index.js).
  *	A link on this page (#games) closes it, a link that leaves the page fills up first (menuItem.js).
- *	Keyboard: opening with a key moves focus to the first item, closing gives focus back to the button & Delete or Backspace close it like Escape. While it's open Tab, Up, Down, Left, Right, Home & End stay in its items.
+ *	Keyboard: opening with a key moves focus to the first item, closing gives focus back to the button. Site wide, Delete & Backspace are Escape anywhere a letter isn't typed (deleteAsEscape). While it's open Tab, Up, Down, Left, Right, Home & End stay in its items.
  *	While it's closed Tab goes around the page's elements, never out to the browser, & Left & Right move between the page's elements (the game picks its own, arrowStops).
- *	W, A, S & D are Up, Left, Down & Right (arrowKey), except where a letter is typed. Enter with nothing focused (Escape dropped it) goes to the menu button
+ *	W, A, S & D are Up, Left, Down & Right (arrowKey), except where a letter is typed. Enter with nothing focused (Escape dropped it) goes to the menu button.
+ *	Home, Login, Signup & Settings pass boxKeys (boxNav.js) & so turn off the browser's own keyboard scrolling (scrollsPage): only moving the focus moves the page
  *
  */
 
@@ -19,6 +20,11 @@ const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([ty
 const NOT_TYPED_IN = ["button", "submit", "reset", "checkbox", "radio", "file", "color", "range"]; // INPUTS WITHOUT A CURSOR
 const KEEP_SIDE_KEYS = ["radio", "range"]; // INPUTS THAT USE LEFT & RIGHT THEMSELVES
 const LETTER_KEYS = { w: "ArrowUp", a: "ArrowLeft", s: "ArrowDown", d: "ArrowRight" }; // THE LETTERS THAT STAND FOR AN ARROW
+const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", " "]; // THE KEYS THE BROWSER SCROLLS THE PAGE WITH
+const SPACE_PRESSES = "a[href], button, input, select, textarea, summary, [contenteditable]"; // SPACE PRESSES OR TYPES IN THESE, IT ONLY SCROLLS FROM ANYTHING ELSE
+const ESCAPE_KEYS = ["Delete", "Backspace"]; // ESCAPE TOO, OUTSIDE A TEXT BOX (deleteAsEscape). A MAC'S delete KEY IS Backspace
+
+let deleteKeyOn = false; // ONE LISTENER FOR THE PAGE, HOWEVER MANY MENUS START
 
 /**
  * @description The menu's items in the order on screen, read from the page so a new item needs no list of its own. Hidden items (menuItem.js), the ones moved to the 3D room's monitor & turned off buttons are skipped
@@ -31,7 +37,7 @@ export function menuItems() {
 
 /**
  * @description The item a key moves to. It stops at the ends, from outside the list Down starts at the top & Up at the bottom
- * @param  {[array]} items [menuItems(), or the part of it a TV remote can press]
+ * @param  {[array]} items [menuItems(), or the part of it remote-only mode can press]
  * @param  {[object]} current [the item it moves from]
  * @param  {[string]} key [ArrowUp, ArrowDown, Home or End]
  * @return {[object]} item [undefined at the ends]
@@ -46,11 +52,12 @@ export function itemForKey(items, current, key) {
 }
 
 /**
- * @description The elements on the page the Tab key can reach, in the order on screen. A closed menu or anything else not drawn is skipped
+ * @description The elements in the root the Tab key can reach, in the order on screen. A closed menu or anything else not drawn is skipped
+ * @param  {[object]} root [optional: where to look, the whole page without it]
  * @return {[array]} elements
  */
-export function pageElements() {
-	return [...document.querySelectorAll(TABBABLE)].filter((element) => element.getClientRects().length > 0 && !element.closest("[inert]"));
+export function pageElements(root = document) {
+	return [...root.querySelectorAll(TABBABLE)].filter((element) => element.getClientRects().length > 0 && !element.closest("[inert]"));
 }
 
 /**
@@ -120,7 +127,30 @@ export function sideItem(items, rects, current, key) {
 	return best;
 }
 
-function typedIn(element) {
+/* ---------------------------------------------------------------- */
+// isMoving
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description Is this element in the moving state (boxNav.js: a field the keys move past, not type in)?
+ * @param  {[object]} element [what has focus]
+ * @return {[boolean]} moving [true: data-moving is set]
+ */
+export function isMoving(element) {
+	return element?.dataset?.moving !== undefined;
+}
+
+/* ---------------------------------------------------------------- */
+// typedIn
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description Does this element take typing? A field in the moving state doesn't, the keys move past it
+ * @param  {[object]} element [what has focus]
+ * @return {[boolean]} typed [true: a text box, text area or editable element that is not moving]
+ */
+export function typedIn(element) {
+	if (isMoving(element)) { return false; }
 	if (element?.isContentEditable || element?.tagName == "TEXTAREA") { return true; }
 	return element?.tagName == "INPUT" && !NOT_TYPED_IN.includes(element.type);
 }
@@ -135,7 +165,43 @@ export function arrowKey(e) {
 	const arrow = typeof e.key == "string" && e.key.length == 1 ? LETTER_KEYS[e.key.toLowerCase()] : undefined;
 	if (!arrow || e.altKey || e.ctrlKey || e.metaKey) { return e.key; }
 	const focused = document.activeElement;
-	return typedIn(focused) || focused?.tagName == "SELECT" ? e.key : arrow;
+	return !isMoving(focused) && (typedIn(focused) || focused?.tagName == "SELECT") ? e.key : arrow;
+}
+
+/* ---------------------------------------------------------------- */
+// scrollsPage
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description Would the browser scroll the page for this key? Arrows, Page Up & Down, Home, End & Space, except where the focused element uses them itself
+ * (a text box's cursor, a dropdown, radio buttons, a slider, Space on a button). Alt, Ctrl & Cmd are the browser's shortcuts & stay
+ * @param  {[object]} e [the keydown]
+ * @return {[boolean]} scrolls [true: boxKeys pages stop it]
+ */
+export function scrollsPage(e) {
+	if (!SCROLL_KEYS.includes(e.key) || e.altKey || e.ctrlKey || e.metaKey) { return false; }
+	const focused = document.activeElement;
+	if (typedIn(focused) || focused?.tagName == "SELECT" || (focused?.tagName == "INPUT" && KEEP_SIDE_KEYS.includes(focused.type))) { return false; }
+	if (e.key == " ") { return !focused?.closest?.(SPACE_PRESSES); } // SPACE PRESSES A BUTTON OR LINK, IT ONLY SCROLLS FROM THE PAGE ITSELF
+	return true;
+}
+
+/* ---------------------------------------------------------------- */
+// Delete As Escape
+/* ---------------------------------------------------------------- */
+/**
+ * @description Delete & Backspace do what Escape does wherever a letter isn't typed: the menu, the boxes, a dropdown, a moving text box, the game & the 3D monitor.
+ * The key is swapped for an Escape at the same element, so every Escape listener runs as it is. A text box in use keeps its Delete & a modifier leaves the key alone
+ * @param  {[object]} e [the keydown, on the window in the capture phase]
+ * @return {[boolean]} swapped
+ */
+export function deleteAsEscape(e) {
+	if (!ESCAPE_KEYS.includes(e.key) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) { return false; }
+	if (typedIn(e.target)) { return false; } // A TEXT BOX IN USE KEEPS ITS DELETE
+	e.preventDefault();
+	e.stopImmediatePropagation(); // NO OTHER LISTENER SEES THE DELETE, ONLY THE ESCAPE
+	e.target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true, composed: true, repeat: e.repeat }));
+	return true;
 }
 
 /**
@@ -153,11 +219,12 @@ export function canLeave(element, key) {
 }
 
 /**
- * @description The menu's controller, without its listeners. The game uses this so a finished game can open the menu while it loads & a TV remote can open it without the mouse
- * @param  {[object]} hooks [optional: onOpen() before it opens, onClose() when it closes, canClose() false keeps it open, arrowStops() the elements Left & Right move between (every element on the page without it)]
+ * @description The menu's controller, without its listeners. The game uses this so a finished game can open the menu while it loads & remote-only mode can open it without the mouse
+ * @param  {[object]} hooks [optional: onOpen() before it opens, onClose() when it closes, canClose() false keeps it open, arrowStops() the elements Left & Right move between (every element on the page without it),
+ * boxKeys(e, key) true when it used the key (Home, Login, Signup & Settings: boxNav.js, only while the menu is closed), & with it the browser's keyboard scrolling is off (scrollsPage)]
  * @return {[object]} nav [toggleNav(true) opens, toggleNav(false) closes, toggleNav(false, true) closes even if canClose() says no. addListeners() turns on the button, a click away & Escape]
  */
-export function createNav({ onOpen, onClose, canClose, arrowStops = pageElements } = {}) {
+export function createNav({ onOpen, onClose, canClose, arrowStops = pageElements, boxKeys } = {}) {
 	const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES)
 	const menu = document.getElementById("menuContainer");
 
@@ -216,6 +283,10 @@ export function createNav({ onOpen, onClose, canClose, arrowStops = pageElements
 	}
 
 	function addListeners() {
+		if (!deleteKeyOn && typeof window != "undefined" && window.addEventListener) { // CAPTURE ON THE WINDOW: BEFORE THE GAME'S & THE 3D MONITOR'S OWN KEYS
+			window.addEventListener("keydown", deleteAsEscape, true);
+			deleteKeyOn = true;
+		}
 		optBtn.addEventListener("click", function (e) {
 			e.preventDefault();
 			e.stopPropagation();
@@ -234,12 +305,14 @@ export function createNav({ onOpen, onClose, canClose, arrowStops = pageElements
 		document.addEventListener("click", function (e) { if (!menu.contains(e.target)) { toggleNav(false); } }); // CLICK OUTSIDE
 		document.addEventListener("keydown", function (e) {
 			const key = arrowKey(e); // W, A, S & D ARE THE ARROWS
+			if (boxKeys && menu.style.display != "flex" && boxKeys(e, key)) { return; } // THE PAGE'S BOXES TAKE THE KEY, AN OPEN MENU KEEPS ITS OWN
 			if (e.key == "Escape") { toggleNav(false); }
 			else if (e.key == "Delete" || e.key == "Backspace") { closeWithDelete(e); }
 			else if (e.key == "Tab") { moveTab(e); }
 			else if (MOVE_KEYS.includes(key)) { moveFocus(e, key); }
 			else if (SIDE_KEYS.includes(key)) { moveSide(e, key); }
 			else if (e.key == "Enter" && menu.style.display != "flex" && document.body && document.activeElement == document.body) { e.preventDefault(); optBtn.focus(); } // NOTHING HAS THE FOCUS (ESCAPE DROPPED IT): THE MENU BUTTON FIRST, THE NEXT ENTER OPENS IT
+			if (boxKeys && scrollsPage(e)) { e.preventDefault(); } // AFTER THE MOVES ABOVE: ONLY THE FOCUS MOVES THE PAGE
 		});
 	}
 

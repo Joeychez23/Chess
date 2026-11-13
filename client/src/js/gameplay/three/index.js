@@ -67,7 +67,7 @@ const ZOOM_MS = 400; // HOW LONG THE CAMERA TAKES TO GO UP TO THE MONITOR'S GLAS
 const NEAR = 0.1; // THE CAMERA'S NEAR PLANE ON THE DESK...
 const GLASS_CLEAR = 4; // ...& AT THE MONITOR, THIS FAR IN FRONT OF THE GLASS: A NARROW VIEW BACKS THE CAMERA ACROSS THE BOARD, & THE PIECES IN BETWEEN WOULD HIDE THE GLASS
 const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)"); // THE ZOOM CUTS STRAIGHT THERE (monitor.js ASKS reduce())
-const NO_MONITOR = { handlers: {}, announce() {}, tv: false, onChange() {} }; // mount()'S monitor OPTION WHEN THE CALLER GIVES NONE
+const NO_MONITOR = { handlers: {}, announce() {}, onChange() {} }; // mount()'S monitor OPTION WHEN THE CALLER GIVES NONE
 const LABEL = "Chess board, 3D. To play with the keyboard, press / and type a move."; // THE CANVAS'S ACCESSIBLE NAME (role img)
 
 const PHONE_PIXEL_RATIO = 1.5; // PHONES DRAW AT MOST THIS MANY PIXELS PER CSS PIXEL (2 ELSEWHERE)
@@ -415,10 +415,10 @@ function monitorIdle() {
 	return !view.monitor || view.monitor.state === "idle";
 }
 
-// THE DATA THE MONITOR GETS: setMonitor()'S, TV FROM EITHER IT OR mount()'S OPTION, & THE OPPONENT'S NAME & STATUS (setScreen) FOR THE SCREEN READER
+// THE DATA THE MONITOR GETS: setMonitor()'S & THE OPPONENT'S NAME & STATUS (setScreen) FOR THE SCREEN READER
 function monitorInput(data) {
 	const state = view.screenState || {};
-	return { ...data, tv: Boolean(data.tv || view.monitorOptions.tv), screen: { name: state.name || "", status: state.status || "" } };
+	return { ...data, screen: { name: state.name || "", status: state.status || "" } };
 }
 
 // THE MONITOR'S show(): REDRAWS THE GLASS, THEN MOVES THE CAMERA FOR A NEW STATE. monitor.js CHANGES STATE BY ITSELF TOO (BACK, ESCAPE),
@@ -585,7 +585,7 @@ function monitorTap(e) {
 }
 
 // CAPTURE PHASE, BEFORE gameplay/input'S CLICK: THE MOUSE'S TAP. AT THE MONITOR NO CLICK REACHES THE BOARD. A FINGER'S OR PEN'S IS onTouchTap()'S: gameplay'S
-// touchstart CANCELS THE CLICK A TOUCH (OR AN APPLE PENCIL) WOULD MAKE, & ONE THE BROWSER MAKES ANYWAY (NO TOUCH LISTENERS IN TV MODE, A WINDOWS PEN) WOULD BE THE SAME TAP TWICE
+// touchstart CANCELS THE CLICK A TOUCH (OR AN APPLE PENCIL) WOULD MAKE, & ONE THE BROWSER MAKES ANYWAY (NO TOUCH LISTENERS IN REMOTE-ONLY MODE, A WINDOWS PEN) WOULD BE THE SAME TAP TWICE
 function onClick(e) {
 	if (!view.monitor) { return; }
 	const idle = view.monitor.state === "idle";
@@ -617,7 +617,7 @@ function onKeyDown(e) {
 
 /**
  * @description The game's data for the monitor (common shapes). Kept until the room has loaded, nothing on a board with no monitor
- * @param  {[object]} data { ai, over, yourTurn, tv, result, moves, opening, eval, actions }
+ * @param  {[object]} data { ai, over, yourTurn, result, moves, opening, eval, actions }
  */
 export function setMonitor(data) {
 	if (!view) { return; }
@@ -725,7 +725,7 @@ function onContextRestored() {
  * @param  {[HTMLElement]} container [what the 3D canvas fills, sized by CSS]
  * @param  {[object]} events [{ onContextLost, onContextRestored, monitor }: the WebGL context went away / came back, the board stops drawing
  * when it's lost & the caller puts up a new one (unmount() then mount()). monitor: { handlers (what its buttons call, monitor.js), announce(text)
- * (for the screen reader), tv (TV mode, part of the monitor's data), onChange({ ready, state }) (the monitor came up, went away or changed state) }]
+ * (for the screen reader), onChange({ ready, state }) (the monitor came up, went away or changed state) }]
  */
 export function mount(container, { onContextLost: lost = () => {}, onContextRestored: restored = () => {}, monitor = null } = {}) {
 	if (view) { return; }

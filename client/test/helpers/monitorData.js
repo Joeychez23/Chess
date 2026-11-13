@@ -17,7 +17,7 @@ function acts(spec = {}) {
 }
 
 const base = {
-	ai: true, over: false, yourTurn: true, tv: false, offline: false,
+	ai: true, over: false, yourTurn: true, offline: false,
 	result: "",
 	moves: [{ number: 1, white: "e4", black: "e5" }, { number: 2, white: "Nf3", black: "Nc6" }, { number: 3, white: "Bb5", black: "" }],
 	opening: { eco: "C60", name: "Ruy Lopez" },

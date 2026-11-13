@@ -18,7 +18,7 @@ export const ctx = canvas.getContext("2d"); // EVERYTHING IS DRAWN WITH THIS
 export const chessInst = new Chess(); // THE BOARD THAT'S DRAWN, LOADED FROM THE SERVER'S FEN
 export const validateState = new Chess(); // SCRATCH BOARD, TESTS A MOVE WITHOUT CHANGING chessInst
 export const EVAL_BAR_ROOM = 20; // THE EVALUATION BAR & ITS GAP NEXT TO THE BOARD (PX)
-export const OVERRIDE_TV = false; // TRUE TURNS ON THE TV REMOTE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
+export const OVERRIDE_REMOTE_ONLY = false; // TRUE TURNS ON REMOTE-ONLY MODE (ARROW KEYS & ENTER) & THE MOUSE TOGETHER, FOR TESTING
 
 /* ---------------------------------------------------------------- */
 // Frames
@@ -70,7 +70,7 @@ export const game = {
 	GAME_ID: undefined, // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
 	GAME_URL: undefined, // CHESS API, "/api/chess" (SET BY renderCanvas)
 	PLAYER_ID: undefined, // THIS PLAYER (A GUEST'S PLAYER ID IS THEIR GAME ID)
-	TV_BOOL: undefined, // TV REMOTE CONTROLS INSTEAD OF THE MOUSE
+	REMOTE_ONLY_CONDITIONAL: undefined, // REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE
 	SIGNED_IN: undefined, // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
 	moveAudio: undefined, // MOVE SOUND (MADE IN renderCanvas)
 	soundOn: true, // THE PLAYER'S SOUND BUTTON, SAVED IN localStorage (SET BY loadSound, CHANGED BY handleSound IN gameplay/menu/index.js)
@@ -87,7 +87,7 @@ export const game = {
 	moveObj: [null, null], // MOVE BEING PLAYED { from, to, promotion }, THE AI'S ALSO HAS response
 	lastOpponentMove: null, // [from, to] OF THE OPPONENT'S LAST MOVE, HIGHLIGHTED BY drawLastMove(), null UNTIL THEY'VE MOVED
 	hint: null, // [from, to] OF THE HINT, HIGHLIGHTED BY drawHint() UNTIL THE NEXT MOVE, null WITHOUT ONE
-	keyboardTile: null, // { x, y } SCREEN COLUMN & ROW OF THE TV REMOTE'S SELECT BOX, null BEFORE A KEY IS PRESSED OR WHILE IT'S ON THE MENU BUTTON. THE 3D BOARD RINGS IT (#431)
+	keyboardTile: null, // { x, y } SCREEN COLUMN & ROW OF REMOTE-ONLY MODE'S SELECT BOX, null BEFORE A KEY IS PRESSED OR WHILE IT'S ON THE MENU BUTTON. THE 3D BOARD RINGS IT (#431)
 	traysOnly: false, // 3D IS ON: THE 2D CANVAS LIES OVER THE 3D BOARD & DRAWS ONLY THE TAKEN PIECE TRAYS (gameplay/renderer)
 	evalBarShown: false, // THE EVALUATION BAR IS ON SCREEN, THE MOVE LIST MAKES ROOM FOR IT (gameplay/analysis/index.js)
 	annotations: [], // THE PLAYER'S RIGHT-CLICK MARKS & ARROWS { from, to } IN BOARD SQUARES (from == to IS A MARK), DRAWN BY drawAnnotations()

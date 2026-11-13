@@ -19,6 +19,8 @@ const { setFill } = require("./menuItem.js"); // LOGOUT IN THE MENU FILLS WHILE 
 const { timeLeftText } = require("./timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 
 export { startNav } from "./nav.js"; // THE MENU BUTTON, pages/utils/nav.js
+export { startBoxNav } from "./boxNav.js"; // THE MENU BUTTON & THE BOXES' KEYS (HOME, LOGIN, SIGNUP & SETTINGS), pages/utils/boxNav.js
+export { startDropdowns } from "./dropdown.js"; // THE <select>S AS A BUTTON & LIST THAT ENTER OPENS (HOME, SETTINGS & GUEST), pages/utils/dropdown.js
 
 let loadingBtn = null; // THE BUTTON OR LINK THAT SAYS LOADING (ONE AT A TIME), stopLoading() PUTS IT BACK
 let loadingText; // ITS TEXT BEFORE IT SAID LOADING

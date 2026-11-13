@@ -55,7 +55,7 @@ let said = []; // THE TEXTS WAITING TO BE WRITTEN TO THE LIVE REGION (announce)
 /* ---------------------------------------------------------------- */
 /**
  * @description What the monitor's channels show (the shared data shape, up to actions). renderer/index.js sends it when it changed
- * @return {[object]} { ai, over, yourTurn, tv, offline, result, moves, opening, eval, actions }
+ * @return {[object]} { ai, over, yourTurn, offline, result, moves, opening, eval, actions }
  */
 function monitorData() {
 	const over = Boolean(game.gameOver);
@@ -65,7 +65,6 @@ function monitorData() {
 		ai: Boolean(game.ai),
 		over,
 		yourTurn: chessInst.turn() === game.playerColor && !over,
-		tv: Boolean(game.TV_BOOL),
 		offline: Boolean(game.offline),
 		result: over ? resultText(resultDisplay.textContent.trim(), resultReason.textContent.trim()) : "", // TEXT ONLY (innerText / innerHTML OF PLAIN WORDS)
 		moves: rows,
@@ -156,7 +155,7 @@ function syncHideRules() {
 	const on = ready && !game.reduceMotion;
 	ON_MONITOR.forEach((element) => element.toggleAttribute("data-on-monitor", on));
 	optMonitorBtn.parentElement.hidden = !on;
-	const stop = on && !game.TV_BOOL; // A TV REMOTE HAS NO TAB OR PAGE STOPS, ITS WAY IN IS THE MENU'S MONITOR ITEM
+	const stop = on && !game.REMOTE_ONLY_CONDITIONAL; // REMOTE-ONLY MODE HAS NO TAB OR PAGE STOPS, ITS WAY IN IS THE MENU'S MONITOR ITEM
 	if (!stop && document.activeElement === monitorStop) { optBtn.focus({ preventScroll: true }); } // BEFORE IT'S HIDDEN, THAT WOULD DROP FOCUS TO THE PAGE
 	monitorStop.hidden = !stop;
 	hideEvalBar(on); // THE BAR & ITS MENU ITEM ARE OFF THE PAGE: A BAR SAVED ON COUNTS AS OFF
@@ -202,7 +201,7 @@ async function handleMenuButton(e) {
 
 /**
  * @description Starts the monitor's side of the game: gives renderer/index.js the hooks every 3D board's monitor gets, watches the menu's
- * items so a label or state change reaches the monitor & adds the Monitor item's listeners. startGame (gameplay/index.js) calls this once, TV mode too,
+ * items so a label or state change reaches the monitor & adds the Monitor item's listeners. startGame (gameplay/index.js) calls this once, remote-only mode too,
  * before any 3D board goes up
  */
 export function startMonitor() {
@@ -216,7 +215,6 @@ export function startMonitor() {
 			watchEval,
 		},
 		announce,
-		tv: Boolean(game.TV_BOOL),
 		onChange({ ready: up, state }) {
 			ready = Boolean(up);
 			hideKinds(ready ? ["connection"] : []); // ONLY IN THE 3D ROOM: ON 2D THE MESSAGE IS THE ONLY SIGN

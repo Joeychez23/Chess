@@ -6,7 +6,7 @@
 
 const { test, describe, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
-const { createNav, startNav, menuItems, itemForKey, wrapTab, nextStop, canLeave, sideItem, arrowKey, placeBefore } = require("../../client/src/js/pages/utils/nav.js");
+const { createNav, startNav, menuItems, itemForKey, wrapTab, nextStop, canLeave, sideItem, arrowKey, placeBefore, scrollsPage, typedIn, isMoving, deleteAsEscape } = require("../../client/src/js/pages/utils/nav.js");
 
 function fakeElement() {
 	const listeners = {};
@@ -356,6 +356,62 @@ describe("the menu's controller", () => {
 			page.fire("keydown", { key: "Enter" });
 			assert.equal(global.document.activeElement, other); // A FOCUSED BUTTON KEEPS ITS ENTER
 		});
+
+		describe("boxKeys", () => {
+			const keyPress = (key) => { let prevented = 0; page.fire("keydown", { key, preventDefault() { prevented++; } }); return prevented; };
+
+			test("it gets the keys with the menu closed & a true answer skips the menu's own", () => {
+				const seen = [];
+				const nav = createNav({ boxKeys(e, key) { seen.push([e.key, key]); return true; } });
+				nav.addListeners();
+				global.document.activeElement = global.document.body;
+				for (const key of ["ArrowLeft", "d", "Enter", "Escape"]) { page.fire("keydown", { key }); }
+				assert.deepEqual(seen, [["ArrowLeft", "ArrowLeft"], ["d", "ArrowRight"], ["Enter", "Enter"], ["Escape", "Escape"]]);
+				assert.notEqual(global.document.activeElement, optBtn); // THE OLD ENTER RULE DID NOT RUN
+			});
+
+			test("the open menu keeps its keys before boxKeys", () => {
+				let called = 0;
+				const nav = createNav({ boxKeys() { called++; return true; } });
+				nav.addListeners();
+				nav.toggleNav(true);
+				page.fire("keydown", { key: "ArrowDown" });
+				assert.equal(called, 0);
+				assert.equal(global.document.activeElement, items[0]);
+			});
+
+			test("answering false leaves the menu's own handling", () => {
+				const nav = createNav({ boxKeys() { return false; } });
+				nav.addListeners();
+				global.document.activeElement = global.document.body;
+				page.fire("keydown", { key: "Enter" });
+				assert.equal(global.document.activeElement, optBtn);
+			});
+
+			test("with it the browser's keyboard scrolling stays off, without it the browser scrolls", () => {
+				for (const boxKeys of [() => false, undefined]) {
+					createNav({ boxKeys }).addListeners();
+					global.document.activeElement = global.document.body;
+					for (const key of ["ArrowDown", "PageDown", "End", " "]) { assert.equal(keyPress(key), boxKeys ? 1 : 0, key); }
+				}
+			});
+
+			test("a moving field is not typed in & W, A, S & D move from it", () => {
+				const field = (tagName, moving) => ({ tagName, type: "text", dataset: moving ? { moving: "" } : {} });
+				assert.equal(typedIn(field("INPUT", true)), false);
+				assert.equal(typedIn(field("INPUT", false)), true);
+				assert.equal(isMoving(field("INPUT", true)), true);
+				assert.equal(isMoving(field("INPUT", false)), false);
+				assert.equal(isMoving({}), false);
+				assert.equal(isMoving(null), false);
+				global.document.activeElement = field("INPUT", true);
+				assert.equal(arrowKey({ key: "w" }), "ArrowUp");
+				global.document.activeElement = field("SELECT", true);
+				assert.equal(arrowKey({ key: "w" }), "ArrowUp");
+				global.document.activeElement = field("SELECT", false);
+				assert.equal(arrowKey({ key: "w" }), "w");
+			});
+		});
 	});
 
 	test("Tab only goes around at the ends of the page", () => {
@@ -416,5 +472,85 @@ describe("the menu's controller", () => {
 		assert.equal(sideItem(items, rects, "c", "ArrowRight"), undefined);
 		assert.equal(sideItem(items, rects, "page", "ArrowRight"), "a");
 		assert.equal(sideItem(items, rects, "page", "ArrowLeft"), "c");
+	});
+});
+
+describe("the browser's keyboard scrolling", () => {
+	const button = { tagName: "BUTTON", closest(selector) { return selector.includes("button") ? this : null; } };
+	const page = { closest() { return null; } }; // document.body
+	const text = { tagName: "INPUT", type: "text" };
+
+	function pressOn(focused, e) {
+		global.document = { activeElement: focused };
+		return scrollsPage(e);
+	}
+
+	test("the arrows, Page Up & Down, Home & End scroll from the page or a button", () => {
+		for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End"]) {
+			assert.equal(pressOn(page, { key }), true, key);
+			assert.equal(pressOn(button, { key }), true, key);
+		}
+		assert.equal(pressOn(page, { key: "x" }), false);
+	});
+
+	test("Space scrolls from the page, not from a button it presses", () => {
+		assert.equal(pressOn(page, { key: " " }), true);
+		assert.equal(pressOn(button, { key: " " }), false);
+	});
+
+	test("a text box, dropdown, radio button & slider keep their keys", () => {
+		for (const focused of [text, { tagName: "TEXTAREA" }, { tagName: "SELECT" }, { tagName: "INPUT", type: "radio" }, { tagName: "INPUT", type: "range" }]) {
+			assert.equal(pressOn(focused, { key: "ArrowDown" }), false);
+			assert.equal(pressOn(focused, { key: " " }), false);
+		}
+	});
+
+	test("Alt, Ctrl & Cmd stay the browser's shortcuts", () => {
+		assert.equal(pressOn(page, { key: "ArrowDown", metaKey: true }), false);
+		assert.equal(pressOn(page, { key: "Home", ctrlKey: true }), false);
+		assert.equal(pressOn(page, { key: "ArrowLeft", altKey: true }), false);
+	});
+});
+
+describe("Delete & Backspace are Escape outside a text box", () => {
+	function press(key, target, extra = {}) {
+		const e = { key, target, repeat: false, prevented: false, stopped: false, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...extra,
+			preventDefault() { this.prevented = true; }, stopImmediatePropagation() { this.stopped = true; } };
+		e.swapped = deleteAsEscape(e);
+		return e;
+	}
+	function element(tagName, extra = {}) {
+		const fake = { tagName, type: "text", dataset: {}, sent: [], dispatchEvent(event) { fake.sent.push(event); return true; }, ...extra };
+		return fake;
+	}
+	global.KeyboardEvent = class { constructor(type, init) { Object.assign(this, { type }, init); } };
+
+	test("on a button, the page or a moving text box the key is swapped for an Escape there", () => {
+		for (const [name, target] of [["button", element("BUTTON")], ["body", element("BODY")], ["moving", element("INPUT", { dataset: { moving: "" } })]]) {
+			for (const key of ["Delete", "Backspace"]) {
+				target.sent = [];
+				const e = press(key, target);
+				assert.equal(e.swapped, true, `${name} ${key}`);
+				assert.equal(e.prevented && e.stopped, true, `${name} ${key}`);
+				assert.equal(target.sent.length, 1);
+				assert.equal(target.sent[0].type, "keydown");
+				assert.equal(target.sent[0].key, "Escape");
+				assert.equal(target.sent[0].bubbles, true);
+			}
+		}
+	});
+
+	test("a text box in use keeps its Delete & Backspace, a modifier or another key is left alone", () => {
+		for (const target of [element("INPUT"), element("TEXTAREA"), element("DIV", { isContentEditable: true })]) {
+			const e = press("Backspace", target);
+			assert.equal(e.swapped, false);
+			assert.equal(e.prevented, false);
+			assert.equal(target.sent.length, 0);
+		}
+		const button = element("BUTTON");
+		for (const extra of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }, { shiftKey: true }]) { assert.equal(press("Backspace", button, extra).swapped, false); }
+		assert.equal(press("Escape", button).swapped, false);
+		assert.equal(press("x", button).swapped, false);
+		assert.equal(button.sent.length, 0);
 	});
 });

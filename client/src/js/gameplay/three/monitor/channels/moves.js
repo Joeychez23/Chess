@@ -98,7 +98,7 @@ export function press(id, handlers, data) {
 export { ROWS };
 
 /**
- * @description W & S (the arrows in TV mode) while the focus is on this channel's buttons: one row up or down. The monitor moves the focus when this says no
+ * @description W & S (the arrows in remote-only mode) while the focus is on this channel's buttons: one row up or down. The monitor moves the focus when this says no
  * @param  {[string]} action [up, down, left or right (monitor.js keyAction)]
  * @param  {[object]} data [the channels' data]
  * @param  {[object]} handlers [ui(patch)]

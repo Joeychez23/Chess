@@ -12,11 +12,9 @@ audio
 *.hcl
 *.backup
 workbench
-sony
 *.yml
 !.github/workflows/*.yml
 !.github/dependabot.yml
-sony
 *.zip
 .env
 stockfish
@@ -27,9 +25,9 @@ auth0-jwks.json
 *.pem
 /commands/
 tfplan
-docs/pieces
-docs/ai
 art
 CLAUDE.md
-docs/3d-library-scene
-docs/superpowers
+docs
+!docs/board.webp
+.claude
+.superpowers

@@ -165,7 +165,9 @@ client/
     guest/index.js           Guest homepage menu, re-ups an expired session, the guest's game board, Play AI / New game
     settings/index.js        Username (first pick goes Home), account info, saves the Default start settings, Delete my account (two presses, then logout)
     play/index.js            Finds the player + game (url or guest localStorage, a missing guest game is made as Random), starts renderCanvas()
-    utils/nav.js             createNav() (opens & closes every page's menu, its keyboard focus, arrow keys, Tab around the page & Left and Right between the page's elements, the game passes hooks), arrowKey() (W, A, S & D are the arrows except where a letter is typed), placeBefore() (the 3D monitor's stop, the leftmost), menuItems() (the visible items, the TV remote uses them too), startNav() (pages without the game)
+    utils/boxNav.js          startBoxNav() (Home, Login, Signup & Settings: arrows between the boxes, Enter goes in, Escape comes out, fields move then use, the arrow keys still leave a text box in use), boxKeys() (the hook it passes to createNav), watchMoving() (a click, losing focus & other ways of typing into a moving field), rowsOf(), rowStep(), sideStep(), menuRow()
+    utils/dropdown.js        startDropdowns() (Home, Settings & Guest: each <select> drawn as a button & list that Enter, Space or a click opens; Up, Down, W & S move & loop, Enter picks, Escape, Backspace or Delete closes; the hidden <select> keeps the value), stepOption(), listAction()
+    utils/nav.js             createNav() (opens & closes every page's menu, its keyboard focus, arrow keys, Tab around the page & Left and Right between the page's elements, the game passes hooks), arrowKey() (W, A, S & D are the arrows except where a letter is typed), isMoving() & typedIn() (a field the keys move past, not type in), scrollsPage() (the keys the browser scrolls with, stopped on pages that pass createNav a boxKeys hook: Home, Login, Signup & Settings), placeBefore() (the 3D monitor's stop, the leftmost), menuItems() (the visible items, remote-only mode uses them too), startNav() (pages without the game)
     utils/index.js           table background, showCurrentGame() / hideCurrentGame(), loadLevels(), colorText()
     utils/boardPicture.js    drawBoardPicture(): a still of a game's board, drawn like the play page
   src/js/auth/index.js       login() / logout() / getUser() / refresh() → server auth routes
@@ -178,7 +180,7 @@ client/
     layout/index.js          renderBoard(): sizes the canvas & board to the window, draws the table, board & coordinates; resize
     draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays & material count, right-click marks & arrows, which way pieces face
     animate/index.js         stepSlide(): where a sliding piece is from the time, knight hop height, the pieces sliding home after Restart & Rematch
-    input/index.js           Mouse, touch & TV remote handlers
+    input/index.js           Mouse, touch & remote-only mode handlers
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
     menu/index.js            Menu buttons, draw offers, Forfeit / Restart / Rematch (loads the new board in place), game over, socketHandlers
     status/index.js          The play page's message area (#gameStatus): refused moves, lost connection, server or AI not answering
@@ -189,7 +191,7 @@ client/
     ai/index.js              playAi(): asks the server for the AI's move (the server picks and saves it)
     bots/index.js            The AI's bot: botFor(), when it speaks (momentFor, endMomentFor, pickLine) & the face the 3D room's monitor makes (faceFor, endFaceFor). No DOM, tested in client/test
     bots/say.js              Shows the bot beside the board (#botDisplay) & its lines
-    renderer/index.js        Picks the 2D canvas or the 3D board. On 3D it keeps the pieces, camera side, highlights & the room's monitor (screen3D, setFace, syncMonitor3D) in step with the game
+    renderer/index.js        Picks the 2D canvas or the 3D board (not on a phone, tablet or in remote-only mode yet: can3D(), the menu's View button says "3D touch in progress..." or "3D remote in progress..."). On 3D it keeps the pieces, camera side, highlights & the room's monitor (screen3D, setFace, syncMonitor3D) in step with the game
     monitor/index.js         The game's side of the 3D room's monitor (docs/3d-room.md): its data, its actions (they press the menu's buttons), what it hides from the page (data-on-monitor) & the menu's Monitor item
     monitor/data.js          Its pure part: actionsFrom(), resultText(), trimScores(), plyOf(), startPlyFor(). No DOM, tested in client/test
     three/load.js            load3D(): downloads the lazy "three" chunk the first time 3D is turned on
