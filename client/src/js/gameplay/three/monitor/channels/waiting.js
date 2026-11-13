@@ -6,13 +6,14 @@
  *
  */
 
-import { TUBE, TEXT, DIM, HOT, BARS, fillCells, drawText, body } from "../kit.js";
+import { TUBE, TEXT, DIM, HOT, BARS, fillCells, drawText, sentence, body } from "../kit.js";
 import { HEIGHT as FONT_HEIGHT, fitText } from "../../pixelFont.js";
 
 const STARS = 28; // HOW MANY STARS
 const PIPE_STEP = 4; // ONE PIPE SEGMENT, GRID PIXELS
 const PIPE_LEN = 160; // SEGMENTS BEFORE THE PIPE STARTS AGAIN
 const TICKS = { stars: 80, pipes: 120 }; // MS BETWEEN FRAMES, A STILL PICTURE HAS NONE
+const STILL_PIPE = 90; // REDUCED MOTION: THE PIPE AS IT IS AT THIS FRAME, NOT A LONE SEGMENT
 
 // A REPEATABLE NUMBER FROM A SEED, 0 UP TO (BUT NOT) 4294967296
 function hash(n) {
@@ -88,7 +89,7 @@ export function draw(ctx, data) {
 	ctx.fillRect(area.x, area.y, area.w, area.h);
 	const idle = data.prefs.idle;
 	if (idle === "stars") { drawStars(ctx, area, data.frame); }
-	else if (idle === "pipes") { drawPipes(ctx, area, data.frame); }
+	else if (idle === "pipes") { drawPipes(ctx, area, data.reduce ? STILL_PIPE : data.frame); }
 	else { drawCard(ctx, area); }
 	const text = fitText(caption(data), area.w - 16);
 	const w = text.length * 6 + 8;
@@ -118,4 +119,13 @@ export function press() {}
  */
 export function tick(data) {
 	return data.reduce ? null : TICKS[data.prefs.idle] || null;
+}
+
+/**
+ * @description What the screen reader says for the channel
+ * @param  {[object]} data [the channels' data]
+ * @return {[string]} the caption in sentence case
+ */
+export function speak(data) {
+	return sentence(caption(data));
 }

@@ -45,4 +45,18 @@ describe("pixel font", () => {
 		assert.equal(cut, "A_VE.");
 		assert.ok(textWidth(cut) <= 5 * ADVANCE - 1);
 	});
+
+	test("accents are dropped, not drawn as boxes", () => {
+		assert.deepEqual(textCells("Réti"), textCells("RETI"));
+		assert.deepEqual(textCells("Grünfeld"), textCells("GRUNFELD")); // A COMBINING MARK, ALREADY DECOMPOSED
+		assert.equal(textWidth("Grünfeld"), textWidth("GRUNFELD"));
+		assert.equal(fitText("Réti", 100), "Reti");
+	});
+
+	test("text with spaces is cut at the last whole word that fits, ending in an ellipsis", () => {
+		const cut = fitText("A30 English Opening: Symmetrical Variation", 136);
+		assert.equal(cut, "A30 English Opening…");
+		assert.ok(textWidth(cut) <= 136);
+		assert.equal(fitText("WHITE WINS! BY CHECKMATE", 12 * ADVANCE - 1), "WHITE WINS!…");
+	});
 });

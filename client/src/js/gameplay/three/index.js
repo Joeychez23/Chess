@@ -380,7 +380,7 @@ function onPointerDown(e) {
 	}
 	view.pointerAt = { x: e.clientX, y: e.clientY };
 	view.pointerType = e.pointerType;
-	if (e.pointerType === "touch") { // EVERY FINGER DOWN: A SECOND ONE MAKES THIS TOUCH A PINCH OR ORBIT, NEVER A TAP
+	if (e.pointerType !== "mouse") { // EVERY FINGER (OR PEN) DOWN: A SECOND ONE MAKES THIS TOUCH A PINCH OR ORBIT, NEVER A TAP
 		view.touches.add(e.pointerId);
 		if (view.touches.size > 1) { view.multiTouch = true; }
 	}
@@ -401,7 +401,7 @@ function onPointerMove(e) {
 function onPointerUp(e) {
 	if (!view) { return; }
 	view.controls.enabled = monitorIdle();
-	if (e.pointerType !== "touch") { return; }
+	if (e.pointerType === "mouse") { return; }
 	view.touches.delete(e.pointerId);
 	if (!view.touches.size) { view.multiTouch = false; }
 }
@@ -415,9 +415,10 @@ function monitorIdle() {
 	return !view.monitor || view.monitor.state === "idle";
 }
 
-// THE DATA THE MONITOR GETS: setMonitor()'S, TV FROM EITHER IT OR mount()'S OPTION
+// THE DATA THE MONITOR GETS: setMonitor()'S, TV FROM EITHER IT OR mount()'S OPTION, & THE OPPONENT'S NAME & STATUS (setScreen) FOR THE SCREEN READER
 function monitorInput(data) {
-	return { ...data, tv: Boolean(data.tv || view.monitorOptions.tv) };
+	const state = view.screenState || {};
+	return { ...data, tv: Boolean(data.tv || view.monitorOptions.tv), screen: { name: state.name || "", status: state.status || "" } };
 }
 
 // THE MONITOR'S show(): REDRAWS THE GLASS, THEN MOVES THE CAMERA FOR A NEW STATE. monitor.js CHANGES STATE BY ITSELF TOO (BACK, ESCAPE),
@@ -575,7 +576,7 @@ function onPointerLeave() {
  */
 function monitorTap(e) {
 	const monitor = view.monitor;
-	if (!monitor || view.cameraGesture || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType)) { return false; }
+	if (!monitor || view.lost || view.cameraGesture || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType)) { return false; } // A LOST CONTEXT DRAWS NO ZOOM, IT WOULD STICK IN zooming
 	const at = glassHit(e);
 	if (monitor.state === "idle") { return Boolean(at) && enterMonitor(); }
 	if (at && monitor.state === "zoomed") { monitor.pointer("press", at.x, at.y); }
@@ -583,27 +584,29 @@ function monitorTap(e) {
 	return true;
 }
 
-// CAPTURE PHASE, BEFORE gameplay/input'S CLICK: THE MOUSE'S TAP. AT THE MONITOR NO CLICK REACHES THE BOARD. A FINGER'S IS onTouchTap()'S: gameplay'S
-// touchstart CANCELS THE CLICK A TOUCH WOULD MAKE, & ONE THE BROWSER MAKES ANYWAY (NO TOUCH LISTENERS IN TV MODE) WOULD BE THE SAME TAP TWICE
+// CAPTURE PHASE, BEFORE gameplay/input'S CLICK: THE MOUSE'S TAP. AT THE MONITOR NO CLICK REACHES THE BOARD. A FINGER'S OR PEN'S IS onTouchTap()'S: gameplay'S
+// touchstart CANCELS THE CLICK A TOUCH (OR AN APPLE PENCIL) WOULD MAKE, & ONE THE BROWSER MAKES ANYWAY (NO TOUCH LISTENERS IN TV MODE, A WINDOWS PEN) WOULD BE THE SAME TAP TWICE
 function onClick(e) {
 	if (!view.monitor) { return; }
 	const idle = view.monitor.state === "idle";
 	if (!idle) { e.stopPropagation(); }
-	if (view.pointerType === "touch") { return; }
+	if (view.pointerType !== "mouse") { return; }
 	if (monitorTap(e) && idle) { e.stopPropagation(); }
 }
 
-// CAPTURE PHASE: A LIFTED FINGER IS A TAP WHEN IT WAS THE ONLY ONE DOWN THE WHOLE TIME (NOT A PINCH OR ORBIT) & DIDN'T MOVE. IT RUNS BEFORE gameplay'S
+// CAPTURE PHASE: A LIFTED FINGER (OR PEN) IS A TAP WHEN IT WAS THE ONLY ONE DOWN THE WHOLE TIME (NOT A PINCH OR ORBIT) & DIDN'T MOVE. IT RUNS BEFORE gameplay'S
 // touchend, WHICH THEN SEES THE MONITOR BUSY (isCameraGesture) & LEAVES THE BOARD ALONE. NOT STOPPED: THE CAMERA CONTROLS NEED THEIR pointerup
 function onTouchTap(e) {
-	if (e.pointerType !== "touch" || !view.monitor || view.multiTouch || view.touches.size !== 1 || !view.touches.has(e.pointerId)) { return; }
+	if (e.pointerType === "mouse" || !view.monitor || view.multiTouch || view.touches.size !== 1 || !view.touches.has(e.pointerId)) { return; }
 	monitorTap(e);
 }
 
-// CAPTURE PHASE ON THE WINDOW: ZOOMED, THE MONITOR'S KEYS (WASD, ENTER, SPACE, ESCAPE, THE ARROWS IN TV MODE) ARE ITS ALONE. NOT WHILE TYPING, NOT SHORTCUTS
+// CAPTURE PHASE ON THE WINDOW: ZOOMED, THE MONITOR'S KEYS (WASD, ENTER, SPACE, ESCAPE, THE ARROWS IN TV MODE) ARE ITS ALONE, ESCAPE WHILE ZOOMING IN TOO.
+// NOT WHILE TYPING, NOT SHORTCUTS. THE MONITOR'S FOCUS ELEMENT (#monitorFocus, A DIV) IS NO TYPING TARGET, SO ITS KEYS COME HERE
 function onKeyDown(e) {
 	const monitor = view && view.monitor;
-	if (!monitor || monitor.state !== "zoomed" || e.altKey || e.ctrlKey || e.metaKey) { return; }
+	if (!monitor || e.altKey || e.ctrlKey || e.metaKey) { return; }
+	if (monitor.state !== "zoomed" && !(monitor.state === "zooming" && e.key === "Escape")) { return; }
 	const target = e.target;
 	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return; }
 	if (monitor.key(e.key)) {
@@ -624,10 +627,10 @@ export function setMonitor(data) {
 
 /**
  * @description Zooms the camera in to the monitor (a tap on its glass does too)
- * @return {[boolean]} [false with no monitor, or before it has a game's data]
+ * @return {[boolean]} [false with no monitor, while the GPU context is lost, or before it has a game's data]
  */
 export function enterMonitor() {
-	if (!view || !view.monitor) { return false; }
+	if (!view || !view.monitor || view.lost) { return false; } // NO FRAMES WHILE THE CONTEXT IS LOST: THE ZOOM WOULD NEVER ARRIVE
 	view.monitor.enter();
 	return view.monitor.state !== "idle";
 }
@@ -994,6 +997,7 @@ export function setScreen(state) {
 	if (!view) { return; }
 	view.screenState = state;
 	showOnScreen(state);
+	if (view.monitor && view.monitorData) { view.monitor.update(monitorInput(view.monitorData)); } // ITS NAME & STATUS ARE THE MONITOR'S DATA TOO
 }
 
 /**

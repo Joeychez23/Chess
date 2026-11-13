@@ -13,7 +13,7 @@
 import { CanvasTexture, MeshBasicMaterial, SRGBColorSpace, NearestFilter, LinearMipmapLinearFilter } from "three";
 import { FACES, cellsFor, nextStep, frameMs, mainFrame } from "./faces.js";
 import { HEIGHT as FONT_HEIGHT, textWidth, fitText } from "./pixelFont.js";
-import { W, H, STRIP_H, TUBE, TEXT, DIM, HOT, drawText, drawButton, drawTab, body, tabRow } from "./monitor/kit.js";
+import { W, H, SAFE, STRIP_H, TUBE, TEXT, DIM, HOT, drawText, drawButton, drawTab, body, tabRow } from "./monitor/kit.js";
 import { CHANNEL } from "./monitor/channels/index.js";
 
 const UP = 4; // HOW MANY TIMES THE SCREEN'S GRID (kit.js) IS SCALED UP FOR THE TEXTURE
@@ -211,7 +211,7 @@ function drawStatic(ctx, zoomed) {
 }
 
 // THE ZOOMED SCREEN'S CHROME OVER THE CHANNEL: THE TAB ROW (THE SHOWING CHANNEL'S TAB LIT), THE CHANNEL'S BUTTONS (THE FOCUSED ONE LIT) & THE
-// BANNER ALONG THE BODY'S TOP RIGHT, BLINKING UNLESS MOTION IS REDUCED
+// YOUR MOVE BANNER ON ITS OWN DARK PLATE IN THE BODY'S TOP RIGHT CORNER (IT COVERS WHAT IS UNDER IT CLEANLY), BLINKING UNLESS MOTION IS REDUCED
 function drawChrome(ctx, view) {
 	const row = tabRow(), area = body({ zoomed: true });
 	ctx.fillStyle = TUBE;
@@ -221,16 +221,30 @@ function drawChrome(ctx, view) {
 	view.tabs.slice(1).forEach((tab) => ctx.fillRect(tab.x - 1, row.y + row.h - 3, 1, 2)); // A TICK UP FROM THE RULE BETWEEN TABS, UNDER THE LETTERS, SO NEIGHBOURING LABELS DON'T RUN TOGETHER
 	for (const tab of view.tabs) { drawTab(ctx, tab, tab.id === view.focus || tab.id === `tab:${view.channel}`); }
 	for (const button of view.buttons) { drawButton(ctx, button, button.id === view.focus); }
-	if (view.banner && (screen.reduce || screen.blinkOn)) { drawText(ctx, fitText(view.banner, area.w - 4), area.x + area.w - 2, area.y + 2, HOT, 1); } // INSIDE THE BODY'S TOP RIGHT, CLEAR OF THE BEZEL
+	if (view.banner && view.channel !== "setup" && (screen.reduce || screen.blinkOn)) { drawBanner(ctx, fitText(view.banner, area.w - 4), area); } // NOT ON SETUP: THE PLATE WOULD COVER THE FACE ROW'S BUTTONS, "YOUR MOVE" IS STILL ANNOUNCED
 }
 
-// A 1 px BORDER ROUND THE GRID WHILE THE POINTER IS ON THE GLASS (THE FACE LOOKS AT IT INSTEAD)
-function drawHover(ctx) {
+// THE BANNER: A 1 px HOT OUTLINE ROUND A TUBE PLATE, 1 px OF PADDING, HOT TEXT, IN THE BODY'S TOP RIGHT CORNER
+function drawBanner(ctx, text, area) {
+	const w = textWidth(text) + 4, h = FONT_HEIGHT + 4;
+	const x = area.x + area.w - w, y = area.y;
 	ctx.fillStyle = HOT;
-	ctx.fillRect(0, 0, W, 1);
-	ctx.fillRect(0, H - 1, W, 1);
-	ctx.fillRect(0, 1, 1, H - 2);
-	ctx.fillRect(W - 1, 1, 1, H - 2);
+	ctx.fillRect(x, y, w, h);
+	ctx.fillStyle = TUBE;
+	ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+	drawText(ctx, text, x + 2, y + 2, HOT);
+}
+
+// A 1 px BORDER WHILE THE POINTER IS ON THE GLASS (THE FACE LOOKS AT IT INSTEAD), ROUND THE SAFE AREA: THE BEZEL HIDES THE GRID'S EDGE. IT STOPS
+// ABOVE THE NAME STRIP WHEN THAT SHOWS
+function drawHover(ctx, strip) {
+	const x = SAFE.left, y = SAFE.top, w = W - SAFE.left - SAFE.right;
+	const h = (strip ? H - STRIP_H : H - SAFE.bottom) - y;
+	ctx.fillStyle = HOT;
+	ctx.fillRect(x, y, w, 1);
+	ctx.fillRect(x, y + h - 1, w, 1);
+	ctx.fillRect(x, y + 1, 1, h - 2);
+	ctx.fillRect(x + w - 1, y + 1, 1, h - 2);
 }
 
 /**
@@ -260,12 +274,13 @@ function draw(view = currentView()) {
 	}
 	const bursting = view.burst || screen.burstTimer !== null;
 	const lit = view.channel === "face" && !data.screen.bars && !data.screen.picture; // THE FACE'S CELLS SHOW
+	const named = !view.zoomed && !bursting && !data.screen.bars && (data.screen.picture || lit); // THE DESK'S FACE & OPPONENT CARD: THE NAME STRIP GOES ON AFTER THE SCANLINES
 	sctx.fillStyle = TUBE;
 	sctx.fillRect(0, 0, W, H);
 	if (bursting) { drawStatic(sctx, view.zoomed); } // ANY DRAW INSIDE THE BURST'S 120 ms STAYS STATIC
 	else { channel.draw(sctx, data); }
 	if (view.zoomed) { drawChrome(sctx, view); }
-	else if (view.channel !== "face" && deskPointer(view)) { drawHover(sctx); }
+	else if (view.channel !== "face" && deskPointer(view)) { drawHover(sctx, named); }
 	ctx.globalCompositeOperation = "source-over";
 	ctx.globalAlpha = 1;
 	ctx.imageSmoothingEnabled = false; // CHUNKY PIXELS
@@ -283,7 +298,7 @@ function draw(view = currentView()) {
 	ctx.fillStyle = "rgb(6, 7, 6)";
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
 	ctx.globalCompositeOperation = "source-over";
-	if (!view.zoomed && !bursting && !data.screen.bars && (data.screen.picture || lit)) { // THE DESK'S FACE & OPPONENT CARD: THE STRIP GOES ON AFTER THE SCANLINES
+	if (named) {
 		ctx.imageSmoothingEnabled = false;
 		ctx.drawImage(strip, 0, (H - STRIP_H) * UP, W * UP, STRIP_H * UP);
 	}

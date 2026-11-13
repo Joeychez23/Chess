@@ -1,7 +1,8 @@
 /*
  *  moves.js  --  chess frontend
  *	The CRT Monitor's Moves Channel
- *	The opening's line, then the game's move list as `N. WHITE BLACK`. On the desk the newest 12 rows & no buttons; zoomed 9 rows, scrolled by UP, DOWN & LIVE (back to the newest)
+ *	The opening's line, then the game's move list as `N. WHITE BLACK`. On the desk the newest 12 rows & no buttons; zoomed 9 rows, scrolled by UP, DOWN & LIVE (back to the newest),
+ *	or by W & S while the focus is on those buttons (keys())
  *
  */
 
@@ -90,8 +91,41 @@ export function buttons(data) {
 export function press(id, handlers, data) {
 	const top = topFor(data);
 	if (id === "up") { handlers.ui({ top: Math.max(0, top - 1) }); }
-	else if (id === "down") { handlers.ui({ top: Math.min(last(data), top + 1) }); }
+	else if (id === "down") { handlers.ui({ top: top + 1 >= last(data) ? undefined : top + 1 }); } // ON THE NEWEST ROW IT FOLLOWS NEW MOVES AGAIN
 	else if (id === "live") { handlers.ui({ top: undefined }); }
 }
 
 export { ROWS };
+
+/**
+ * @description W & S (the arrows in TV mode) while the focus is on this channel's buttons: one row up or down. The monitor moves the focus when this says no
+ * @param  {[string]} action [up, down, left or right (monitor.js keyAction)]
+ * @param  {[object]} data [the channels' data]
+ * @param  {[object]} handlers [ui(patch)]
+ * @return {[boolean]} handled [false for W at the top (the focus goes up to the tabs) & for A/D (the focus moves between the buttons)]
+ */
+export function keys(action, data, handlers) {
+	const top = topFor(data);
+	if (action === "up") {
+		if (top <= 0) { return false; }
+		press("up", handlers, data);
+		return true;
+	}
+	if (action === "down") {
+		if (top < last(data)) { press("down", handlers, data); } // AT THE BOTTOM: NOTHING
+		return true;
+	}
+	return false;
+}
+
+/**
+ * @description What the screen reader says for the channel: the opening, then the last move
+ * @param  {[object]} data [the channels' data]
+ * @return {[string]} e.g. "C60 Ruy Lopez. Last move 3. Bb5" or "No moves yet"
+ */
+export function speak(data) {
+	const parts = data.opening ? [`${data.opening.eco} ${data.opening.name}`] : [];
+	const row = data.moves[data.moves.length - 1];
+	parts.push(row ? `Last move ${row.number}. ${row.black || row.white}` : "No moves yet");
+	return parts.join(". ");
+}

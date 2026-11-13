@@ -228,7 +228,7 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	display: none;
 }
 
-#resultAnnouncement, #monitorAnnouncement { /* ONLY FOR SCREEN READERS, THE MENU'S TITLE & THE MONITOR'S GLASS SHOW WHAT THEY SAY. NOT display: none, THEY WOULDN'T READ IT */
+#resultAnnouncement, #monitorAnnouncement, #monitorFocus { /* ONLY FOR SCREEN READERS, THE MENU'S TITLE & THE MONITOR'S GLASS SHOW WHAT THEY SAY (#monitorFocus HOLDS THE FOCUS WHILE ZOOMED). NOT display: none, THEY WOULDN'T READ IT */
 	position: fixed;
 	width: 1px;
 	height: 1px;

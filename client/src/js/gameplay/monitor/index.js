@@ -2,7 +2,8 @@
  *  index.js  --  chess frontend
  *	Monitor
  *	The game's side of the 3D room's CRT monitor (three/monitor, in the lazily loaded three chunk, so nothing here requires it): the data its
- *	channels show (monitorData), its actions (they press the menu's own buttons, so the menu's rules run), the screen reader's line & the hide rules.
+ *	channels show (monitorData), its actions (they press the menu's own buttons, so the menu's rules run), the screen reader's line, the focus while
+ *	zoomed (#monitorFocus) & the hide rules.
  *	While the room & its monitor are up & reduced motion is off, what it shows (the eval bar, the move list, the opening, the opponent's name, the menu's
  *	Hint, Takeback, Offer Draw & Eval Bar) leaves the page with data-on-monitor (style.css), & the menu's Monitor item zooms in to it.
  *	The hidden attributes stay the menu code's: an action shows on the monitor exactly when its menu <li> isn't hidden (data.js actionsFrom)
@@ -24,7 +25,9 @@ const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES): AT T
 const optMonitorBtn = document.getElementById("optMonitor"); // MENU: MONITOR, ZOOMS IN
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT
-const monitorAnnouncement = document.getElementById("monitorAnnouncement"); // SCREEN READERS: THE MONITOR'S FOCUSED BUTTON & CHANNEL
+const monitorAnnouncement = document.getElementById("monitorAnnouncement"); // SCREEN READERS: THE MONITOR'S CHANNEL, WHAT IT SHOWS, ITS FOCUSED BUTTON & THE BANNER
+const monitorFocus = document.getElementById("monitorFocus"); // WHERE THE FOCUS GOES WHILE ZOOMED (role="application": A SCREEN READER PASSES THE KEYS ON)
+const ANNOUNCE_MS = 50; // WHAT IS SAID IN ONE GO IS WRITTEN TOGETHER THIS LONG AFTER THE FIRST
 const ACTION_BUTTONS = { // THE MONITOR'S ACTIONS -> THE MENU BUTTONS THEY PRESS
 	hint: document.getElementById("optHint"),
 	takeback: document.getElementById("optTakeback"),
@@ -41,6 +44,8 @@ const ON_MONITOR = [ // WHAT LEAVES THE PAGE WHILE THE MONITOR SHOWS IT
 ];
 
 let ready = false; // THE ROOM & ITS MONITOR ARE UP (three/index.js onChange)
+let opener = null; // WHAT HAD THE FOCUS BEFORE THE ZOOM, IT GETS IT BACK ON THE DESK
+let said = []; // THE TEXTS WAITING TO BE WRITTEN TO THE LIVE REGION (announce)
 
 /* ---------------------------------------------------------------- */
 // Data
@@ -88,6 +93,52 @@ function press(id) {
 export function monitorZoomed() {
 	const state = monitorState3D();
 	return state !== null && state !== "idle";
+}
+
+/* ---------------------------------------------------------------- */
+// Screen Reader
+/* ---------------------------------------------------------------- */
+/**
+ * @description Says a text in the monitor's live region. Texts said together (the channel, then its focused tab) are written as one, after the region
+ * was emptied, so none overwrites another & a repeated one is read again
+ * @param  {[string]} text
+ */
+function announce(text) {
+	if (!text) { return; }
+	if (!said.length) {
+		monitorAnnouncement.textContent = ""; // EMPTY FIRST: THE SAME TEXT AGAIN IS STILL A CHANGE
+		setTimeout(function () {
+			monitorAnnouncement.textContent = said.map((t) => t.trim()).map((t) => (/[.!?]$/.test(t) ? t : `${t}.`)).join(" "); // JOINED BY ". ", NO DOUBLE STOP AFTER "SURE?"
+			said = [];
+		}, ANNOUNCE_MS);
+	}
+	said.push(text);
+}
+
+// WHETHER AN ELEMENT CAN TAKE THE FOCUS BACK: STILL ON THE PAGE, SHOWN & NOT THE PAGE ITSELF
+function canFocus(element) {
+	return Boolean(element) && element !== document.body && element.isConnected && element.getClientRects().length > 0;
+}
+
+/**
+ * @description The focus follows the camera: on #monitorFocus while zooming in or zoomed (the window's key listener drives the monitor), back to what had
+ * it (else the menu button) on the desk. Only taken back when it is still on #monitorFocus, the player may have moved it meanwhile
+ * @param  {[boolean]} up [the monitor is there]
+ * @param  {[string|null]} state [its state]
+ */
+function syncFocus(up, state) {
+	if (up && (state === "zooming" || state === "zoomed")) {
+		if (!monitorFocus.hidden) { return; }
+		opener = document.activeElement;
+		monitorFocus.hidden = false;
+		monitorFocus.focus({ preventScroll: true });
+		return;
+	}
+	if ((up && state !== "idle") || monitorFocus.hidden) { return; } // LEAVING: IT KEEPS THE FOCUS UNTIL THE DESK
+	const had = document.activeElement === monitorFocus || document.activeElement === document.body;
+	monitorFocus.hidden = true;
+	if (had) { (canFocus(opener) ? opener : optBtn).focus({ preventScroll: true }); }
+	opener = null;
 }
 
 /* ---------------------------------------------------------------- */
@@ -148,10 +199,11 @@ export function startMonitor() {
 			pgn: () => press("pgn"),
 			watchEval,
 		},
-		announce(text) { monitorAnnouncement.textContent = text; },
+		announce,
 		tv: Boolean(game.TV_BOOL),
-		onChange({ ready: up }) {
+		onChange({ ready: up, state }) {
 			ready = Boolean(up);
+			syncFocus(ready, state);
 			if (!ready) { watchEval(false); } // GONE (2D, A FAILED ROOM): NO EVAL CHANNEL IS SHOWING, WHATEVER ITS LAST STATE WAS
 			syncHideRules();
 		},

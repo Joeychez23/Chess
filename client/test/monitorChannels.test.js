@@ -6,11 +6,13 @@
 
 const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
-const { W, H, SAFE, body } = require("../src/js/gameplay/three/monitor/kit.js");
+const { W, H, SAFE, TUBE, TEXT, DIM, body, drawText } = require("../src/js/gameplay/three/monitor/kit.js");
 const { CHANNEL, NAMES, SHORT } = require("../src/js/gameplay/three/monitor/channels/index.js");
 const { topFor } = require("../src/js/gameplay/three/monitor/channels/moves.js");
 const { points } = require("../src/js/gameplay/three/monitor/channels/eval.js");
 const { caption } = require("../src/js/gameplay/three/monitor/channels/waiting.js");
+const { resultLines } = require("../src/js/gameplay/three/monitor/channels/actions.js");
+const { status } = require("../src/js/gameplay/three/monitor/channels/opponent.js");
 const { defaults } = require("../src/js/gameplay/three/monitor/prefs.js");
 const { base, acts } = require("./helpers/monitorData.js");
 
@@ -52,6 +54,10 @@ describe("monitor channels", () => {
 		{ ...base, moves: rows(20), ui: { top: 0 } },
 		{ ...base, ui: { confirm: "draw" } },
 		{ ...base, over: true, result: "WHITE WINS! BY CHECKMATE", actions: acts({ restart: [true, true], pgn: [true, true] }) },
+		{ ...base, over: true, result: "DRAW BY THREEFOLD REPETITION", actions: acts({ restart: [true, true], pgn: [true, true] }) },
+		{ ...base, over: true, result: "WHITE FORFEITS", actions: acts({ restart: [true, true], pgn: [true, true] }) },
+		{ ...base, screen: { ...base.screen, picture: {} } },
+		{ ...base, ai: false, yourTurn: false, opening: { eco: "A30", name: "English Opening: Symmetrical Variation, Hedgehog Defence" } },
 		{ ...base, prefs: { ...defaults(), defaultChannel: "eval" } },
 		{ ...base, prefs: { ...defaults(), defaultChannel: "moves", idle: "pipes" } },
 		{ ...base, screen: { ...base.screen, bars: true } },
@@ -271,5 +277,80 @@ describe("monitor channels", () => {
 		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "stars" }, reduce: true }), null);
 		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "card" } }), null);
 		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "stars" } }), 80);
+	});
+
+	test("actions: a long result wraps onto two whole lines at a space, a short one stays on one", () => {
+		assert.deepEqual(resultLines("WHITE WINS! BY CHECKMATE", 136), ["WHITE WINS!", "BY CHECKMATE"]);
+		assert.deepEqual(resultLines("DRAW BY THREEFOLD REPETITION", 136), ["DRAW BY THREEFOLD", "REPETITION"]);
+		assert.deepEqual(resultLines("WHITE FORFEITS", 136), ["WHITE FORFEITS"]);
+	});
+
+	test("actions: the draw prompt asks SURE?", () => {
+		const data = { ...base, zoomed: true, ui: { confirm: "draw" } };
+		const ctx = fakeCtx(), want = fakeCtx();
+		CHANNEL.actions.draw(ctx, data);
+		const area = body(data);
+		drawText(want, "SURE?", area.x + area.w / 2, area.y + 28, TEXT, 0);
+		assert.deepEqual(ctx.calls, want.calls);
+	});
+
+	test("opponent: zoomed with a picture, the name and status sit on a dark plate along the body's bottom", () => {
+		for (const id of ["opponent", "face"]) {
+			const ctx = fakeCtx();
+			CHANNEL[id].draw(ctx, { ...base, zoomed: true, screen: { ...base.screen, picture: {} } });
+			const plate = ctx.calls.find((c) => c[0] === "rect" && c[1] === TUBE && c[2] === SAFE_BODY.x && c[4] === SAFE_BODY.w);
+			assert.ok(plate, id);
+			assert.equal(plate[3] + plate[5], SAFE_BODY.y + SAFE_BODY.h, id);
+			assert.ok(ctx.calls.some((c) => c[0] === "rect" && c[1] === TEXT && c[3] > plate[3]), `${id}: the name`);
+		}
+	});
+
+	test("opponent: a friend's card reads WAITING FOR OPPONENT on their turn", () => {
+		assert.equal(status({ ...base, ai: false, yourTurn: false }), "WAITING FOR OPPONENT");
+		assert.equal(status({ ...base, ai: false, yourTurn: true }), "your move");
+		assert.equal(status({ ...base, ai: false, yourTurn: false, over: true }), "your move");
+		assert.equal(status({ ...base, ai: true, yourTurn: false }), "your move");
+	});
+
+	test("waiting: under reduced motion the pipes are a still picture, not an empty screen", () => {
+		const ctx = fakeCtx();
+		CHANNEL.waiting.draw(ctx, { ...base, zoomed: true, frame: 0, reduce: true, prefs: { ...defaults(), idle: "pipes" } });
+		assert.ok(ctx.calls.filter((c) => c[1] === DIM).length >= 20);
+	});
+
+	test("moves: DOWN onto the newest row follows new moves again", () => {
+		const patches = [];
+		CHANNEL.moves.press("down", { ui: (patch) => patches.push(patch) }, { ...base, zoomed: true, moves: rows(20), ui: { top: 10 } });
+		assert.deepEqual(patches, [{ top: undefined }]);
+	});
+
+	test("moves: W and S scroll from the channel's buttons, W at the top and A/D are left to the monitor", () => {
+		const patches = [];
+		const handlers = { ui: (patch) => patches.push(patch) };
+		const at = (top) => ({ ...base, zoomed: true, moves: rows(20), ui: { top } });
+		assert.equal(CHANNEL.moves.keys("up", at(5), handlers), true);
+		assert.equal(CHANNEL.moves.keys("down", at(5), handlers), true);
+		assert.equal(CHANNEL.moves.keys("up", at(0), handlers), false); // FOCUS GOES UP TO THE TABS
+		assert.equal(CHANNEL.moves.keys("down", at(undefined), handlers), true); // THE BOTTOM: NOTHING, BUT HANDLED
+		assert.equal(CHANNEL.moves.keys("left", at(5), handlers), false);
+		assert.equal(CHANNEL.moves.keys("right", at(5), handlers), false);
+		assert.deepEqual(patches, [{ top: 4 }, { top: 6 }]);
+	});
+
+	test("every channel speaks its content", () => {
+		const z = { ...base, zoomed: true };
+		assert.equal(CHANNEL.face.speak(z), "Bob, your move");
+		assert.equal(CHANNEL.face.speak({ ...z, screen: undefined }), "");
+		assert.equal(CHANNEL.opponent.speak(z), "Bob, your move");
+		assert.equal(CHANNEL.opponent.speak({ ...z, ai: false, yourTurn: false }), "Bob, waiting for opponent");
+		assert.equal(CHANNEL.eval.speak(z), "White's win chance 61 percent");
+		assert.equal(CHANNEL.eval.speak({ ...z, eval: { allowed: true, scores: [null], failed: false } }), "No evaluation yet");
+		assert.equal(CHANNEL.eval.speak({ ...z, eval: { allowed: true, scores: [50], failed: true } }), "No signal");
+		assert.equal(CHANNEL.moves.speak(z), "C60 Ruy Lopez. Last move 3. Bb5");
+		assert.equal(CHANNEL.moves.speak({ ...z, moves: [], opening: null }), "No moves yet");
+		assert.equal(CHANNEL.waiting.speak({ ...z, ai: false, yourTurn: false }), "Waiting for opponent");
+		assert.equal(CHANNEL.actions.speak({ ...z, actions: acts({ hint: [true, true], takeback: [true, false], draw: [true, true] }) }), "Hint, Offer draw");
+		assert.equal(CHANNEL.actions.speak({ ...z, over: true, result: "WHITE WINS! BY CHECKMATE", actions: acts({ restart: [true, true], pgn: [true, true] }) }), "White wins! By checkmate. Restart, Download pgn");
+		assert.equal(CHANNEL.setup.speak(z), "Setup");
 	});
 });

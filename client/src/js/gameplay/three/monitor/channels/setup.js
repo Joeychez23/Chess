@@ -88,3 +88,11 @@ export function press(id, handlers, data) {
 		handlers.prefs({ idle: value });
 	}
 }
+
+/**
+ * @description What the screen reader says for the channel; its buttons speak for themselves
+ * @return {[string]}
+ */
+export function speak() {
+	return "Setup";
+}

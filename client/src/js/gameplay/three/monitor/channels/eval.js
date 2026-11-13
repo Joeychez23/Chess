@@ -123,3 +123,15 @@ export function press() {}
 export function tick(data) {
 	return data.eval.failed && !data.reduce ? TICK : null;
 }
+
+/**
+ * @description What the screen reader says for the channel
+ * @param  {[object]} data [the channels' data]
+ * @return {[string]} "White's win chance 54 percent", "No evaluation yet" or "No signal"
+ */
+export function speak(data) {
+	const { scores, failed } = data.eval;
+	if (failed) { return "No signal"; }
+	const now = scores.filter((s) => s !== null && s !== undefined).pop();
+	return now === undefined ? "No evaluation yet" : `White's win chance ${now} percent`;
+}

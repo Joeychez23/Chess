@@ -104,7 +104,7 @@ describe("monitor", () => {
 		assert.equal(m.pointer("press", 80, 60), "zoom");
 		m.enter();
 		assert.equal(m.state, "zooming");
-		assert.equal(m.key("d"), false); // KEYS ONLY WHILE ZOOMED
+		assert.equal(m.key("d"), false); // KEYS ONLY WHILE ZOOMED, BUT ESCAPE
 		m.arrived();
 		assert.equal(m.state, "zoomed");
 		assert.equal(m.focus, "tab:face");
@@ -135,10 +135,63 @@ describe("monitor", () => {
 		m.enter(); m.arrived();
 		m.key("d"); m.key("d");
 		m.update({ ...base, yourTurn: true });
-		assert.ok(m.said.includes("Evaluation channel"));
+		assert.ok(m.said.includes("Evaluation channel. White's win chance 61 percent"));
 		assert.ok(m.said.some((text) => /^Evaluation, tab, 3 of 7, selected$/.test(text)));
 		assert.ok(m.said.includes("Your move"));
 		assert.equal(m.view().banner, "▶ YOUR MOVE");
+		m.update({ ...base, yourTurn: true, moves: [...base.moves.slice(0, 2), { number: 3, white: "Bb5", black: "a6" }] });
+		assert.equal(m.said.filter((text) => text === "Your move").length, 1); // ONCE, NOT ON EVERY UPDATE
+	});
+	test("arriving says the channel and what it shows", () => {
+		const m = make();
+		m.update(base);
+		m.enter(); m.arrived();
+		assert.ok(m.said.includes("Face channel. Bob, your move"));
+		assert.equal(m.said.at(-1), "Face, tab, 1 of 7, selected");
+	});
+	test("a change to what the showing channel says is announced once per change", () => {
+		const m = make();
+		m.update(base);
+		m.enter(); m.arrived();
+		m.handlers.tab("moves");
+		assert.ok(m.said.includes("Moves channel. C60 Ruy Lopez. Last move 3. Bb5"));
+		const before = m.said.length;
+		const next = { ...base, moves: [...base.moves.slice(0, 2), { number: 3, white: "Bb5", black: "a6" }] };
+		m.update(next);
+		assert.deepEqual(m.said.slice(before), ["C60 Ruy Lopez. Last move 3. a6"]);
+		m.update({ ...next });
+		assert.equal(m.said.length, before + 1); // THE SAME DATA AGAIN SAYS NOTHING
+	});
+	test("Escape while zooming in goes back", () => {
+		const m = make();
+		m.update(base);
+		m.enter();
+		assert.equal(m.key("w"), false);
+		assert.equal(m.key("Escape"), true);
+		assert.equal(m.state, "leaving");
+	});
+	test("moves: W and S scroll from its buttons, W at the top goes to the tabs, S at the bottom does nothing", () => {
+		const m = make();
+		const many = Array.from({ length: 12 }, (_, i) => ({ number: i + 1, white: "e4", black: "e5" }));
+		m.update({ ...base, moves: many });
+		m.enter(); m.arrived();
+		m.handlers.tab("moves");
+		m.key("s");
+		assert.ok(["up", "down", "live"].includes(m.focus)); // INTO THE BUTTONS AS ON ANY CHANNEL
+		const focus = m.focus;
+		const top = () => m.view().data.ui.top;
+		m.key("s");
+		assert.equal(top(), undefined); // THE BOTTOM ALREADY
+		assert.equal(m.focus, focus);
+		m.key("w"); m.key("w"); m.key("w");
+		assert.equal(top(), 0);
+		assert.equal(m.focus, focus);
+		m.key("s");
+		assert.equal(top(), 1);
+		m.key("w"); m.key("w");
+		assert.equal(m.focus, "tab:moves");
+		m.key("d");
+		assert.equal(m.channel, "waiting"); // A/D ON THE TABS STILL CHANGE CHANNEL
 	});
 	test("an action that goes away greys out and cancels its prompt, a lost context goes back to idle", () => {
 		const m = make();
@@ -157,8 +210,40 @@ describe("monitor", () => {
 		m.update(base);
 		m.enter(); m.arrived();
 		m.update({ ...base, over: true, result: "WHITE WINS! BY CHECKMATE", actions: acts({ restart: [true, true], pgn: [true, true] }) });
-		assert.equal(m.view().banner, "WHITE WINS! BY CHECKMATE");
+		assert.equal(m.channel, "actions"); // THE RESULT, RESTART & DOWNLOAD PGN
+		assert.equal(m.view().banner, null);
 		assert.equal(m.state, "zoomed");
+		assert.equal(m.focus, "restart");
+		assert.ok(m.said.some((text) => text.includes("White wins! By checkmate")));
+	});
+	test("a game that ends during the zoom-in lands on the actions channel", () => {
+		const m = make();
+		m.update(base);
+		m.enter();
+		m.update({ ...base, over: true, result: "WHITE WINS! BY CHECKMATE", actions: acts({ restart: [true, true], pgn: [true, true] }) });
+		assert.equal(m.state, "zooming");
+		m.arrived();
+		assert.equal(m.channel, "actions"); // THE SAME AS ENDING WHILE ZOOMED
+		assert.equal(m.focus, "restart");
+		assert.ok(m.said.some((text) => text.includes("White wins! By checkmate")));
+	});
+	test("a zoom-in that turns back forgets the game that ended during it", () => {
+		const m = make();
+		m.update(base);
+		m.enter();
+		m.update({ ...base, over: true, result: "DRAW", actions: acts({ restart: [true, true], pgn: [true, true] }) });
+		m.leave(); m.left();
+		m.enter(); m.arrived();
+		assert.notEqual(m.focus, "restart"); // ALREADY OVER WHEN ZOOMING IN: THE DEFAULT CHANNEL, AS BEFORE
+	});
+	test("the game ending with the actions channel off stays put and says the result", () => {
+		const m = make({ loadPrefs: () => ({ ...defaults(), enabled: CHANNELS.filter((id) => id !== "actions") }) });
+		m.update(base);
+		m.enter(); m.arrived();
+		m.update({ ...base, over: true, result: "DRAW BY STALEMATE", actions: acts({ restart: [true, true], pgn: [true, true] }) });
+		assert.equal(m.channel, "face");
+		assert.equal(m.view().banner, null);
+		assert.equal(m.said.at(-1), "Draw by stalemate");
 	});
 	test("turning the showing channel off in setup lands on setup", () => {
 		const m = make();

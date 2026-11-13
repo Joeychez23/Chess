@@ -76,7 +76,8 @@
 	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
 	<p id="moveDeadline"></p> <!-- FRIEND GAMES WITH A TIME LIMIT: THE TIME LEFT, NOT A LIVE REGION: IT CHANGES EVERY MINUTE (gameplay/menu/index.js) -->
 	<p id="resultAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE RESULT WHEN A GAME ENDS (gameplay/menu/index.js) -->
-	<p id="monitorAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE 3D ROOM'S MONITOR, ITS FOCUSED BUTTON & CHANNEL (gameplay/monitor/index.js) -->
+	<p id="monitorAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE 3D ROOM'S MONITOR, ITS CHANNEL, WHAT IT SHOWS, ITS FOCUSED BUTTON & THE BANNER (gameplay/monitor/index.js) -->
+	<div id="monitorFocus" role="application" tabindex="-1" aria-label="Monitor" aria-describedby="monitorAnnouncement" hidden></div> <!-- THE FOCUS WHILE ZOOMED ON THE MONITOR, SO ITS KEYS REACH IT (gameplay/monitor/index.js) -->
 
 	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
 		<button id="drawAccept" type="button">Accept Draw</button>

@@ -771,7 +771,7 @@ function placeEndGroup(top) {
  * @description The camera is going to or is at the 3D room's monitor. Not while leaving: a game that ends then opens the menu as on the desk
  * @return {[boolean]}
  */
-function monitorZoomed() {
+function monitorHoldsMenu() {
 	const state = monitorState3D();
 	return state === "zooming" || state === "zoomed";
 }
@@ -790,7 +790,7 @@ export function showGameOver(result, onLoad) {
 	syncDeadline(null);
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY
-	const zoomed = monitorZoomed(); // THE PLAYER IS AT THE 3D ROOM'S MONITOR: IT SHOWS THE RESULT, THE MENU STAYS SHUT UNTIL THEY OPEN IT
+	const zoomed = monitorHoldsMenu(); // THE PLAYER IS AT THE 3D ROOM'S MONITOR: IT SHOWS THE RESULT, THE MENU STAYS SHUT UNTIL THEY OPEN IT
 	if (!zoomed) { openMenu(); }
 	else { // WHAT OPENING THE MENU DOES (onOpen): A HELD PIECE OR OPEN PROMOTION PICKER GOES BACK NOW, NOT AT THE NEXT OPEN (IT WOULD UNLOCK THE BOARD)
 		clearTouch();

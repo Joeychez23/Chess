@@ -6,7 +6,7 @@
  *
  */
 
-import { HEIGHT as FONT_HEIGHT, textWidth, textCells } from "../pixelFont.js";
+import { HEIGHT as FONT_HEIGHT, textWidth, textCells, fitText } from "../pixelFont.js";
 
 const W = 160, H = 120; // THE SCREEN'S GRID
 const TAB_H = 12; // THE TAB ROW ALONG THE TOP WHEN ZOOMED
@@ -113,6 +113,35 @@ function drawTab(ctx, tab, lit) {
 	drawText(ctx, label, x + w / 2, y + Math.floor((h - 1 - FONT_HEIGHT) / 2), lit ? TUBE : TEXT, 0);
 }
 
+/**
+ * @description The opponent's name (left) & status (right) on a dark plate along the bottom of an area, for a picture zoomed in (the page's name is hidden then)
+ * @param  {[CanvasRenderingContext2D]} ctx
+ * @param  {[object]} area [{ x, y, w, h }, in grid pixels]
+ * @param  {[string]} name
+ * @param  {[string]} status
+ */
+function drawNamePlate(ctx, area, name, status) {
+	const h = FONT_HEIGHT + 4, y = area.y + area.h - h;
+	ctx.fillStyle = TUBE;
+	ctx.fillRect(area.x, y, area.w, h);
+	const statusW = status ? textWidth(status) + 6 : 0;
+	drawText(ctx, fitText(name || "", area.w - 6 - statusW), area.x + 3, y + 2, TEXT);
+	if (status) { drawText(ctx, fitText(status, area.w - 6), area.x + area.w - 3, y + 2, DIM, 1); }
+}
+
+/* ---------------------------------------------------------------- */
+// Speech
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description Text in sentence case for the screen reader: the pixel font's capitals lowered, each sentence's first letter raised & the arrows dropped
+ * @param  {[string]} text ["WHITE WINS! BY CHECKMATE"]
+ * @return {[string]} ["White wins! By checkmate"]
+ */
+function sentence(text) {
+	return String(text || "").replace(/[◀▶]/g, "").trim().toLowerCase().replace(/(^|[.!?]\s+)([a-z])/g, (_, gap, letter) => gap + letter.toUpperCase());
+}
+
 /* ---------------------------------------------------------------- */
 // Layout
 /* ---------------------------------------------------------------- */
@@ -136,4 +165,4 @@ function body(data) {
 	return { x: row.x, y: row.y + row.h, w: row.w, h: H - row.y - row.h - SAFE.bottom };
 }
 
-export { SAFE, tabRow, W, H, TAB_H, STRIP_H, TUBE, TEXT, DIM, HOT, NAMES, SHORT, BARS, fillCells, drawText, drawBars, drawButton, drawTab, body };
+export { SAFE, tabRow, W, H, TAB_H, STRIP_H, TUBE, TEXT, DIM, HOT, NAMES, SHORT, BARS, fillCells, drawText, drawBars, drawButton, drawTab, drawNamePlate, sentence, body };

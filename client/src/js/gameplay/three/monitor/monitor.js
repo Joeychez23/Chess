@@ -7,7 +7,7 @@
  *
  */
 
-import { W, H, NAMES, SHORT, tabRow } from "./kit.js";
+import { W, H, NAMES, SHORT, tabRow, sentence } from "./kit.js";
 import { CHANNEL } from "./channels/index.js";
 import { slots } from "./channels/actions.js";
 import { CHANNELS, clean, loadPrefs as loadStored, savePrefs as saveStored } from "./prefs.js";
@@ -188,12 +188,6 @@ export function keyAction(key, tv) {
 	return null;
 }
 
-// A LABEL IN SENTENCE CASE, FOR SPEAKING
-function spoken(label) {
-	const text = String(label).replace(/[◀▶]/g, "").trim().toLowerCase();
-	return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 /**
  * @description What the screen reader says for a button
  * @param  {[object]} button
@@ -210,7 +204,7 @@ export function describe(button, buttons) {
 		if (button.selected) { text += ", selected"; }
 	} else {
 		const own = buttons.filter((b) => b.id !== "back" && !b.id.startsWith("tab:"));
-		text = `${spoken(button.label)}, button, ${own.findIndex((b) => b.id === button.id) + 1} of ${own.length}`;
+		text = `${sentence(button.label)}, button, ${own.findIndex((b) => b.id === button.id) + 1} of ${own.length}`;
 	}
 	return button.enabled ? text : `${text}, unavailable`;
 }
@@ -221,7 +215,7 @@ export function describe(button, buttons) {
 
 /**
  * @description Makes the monitor's state machine
- * @param  {[object]} deps [show() when view() changed, announce(text) for the screen reader, handlers (hint, takeback, draw, restart, pgn, watchEval(on)),
+ * @param  {[object]} deps [show() when view() changed, announce(text) for the screen reader (the channel, what it shows, the focused button & the banner), handlers (hint, takeback, draw, restart, pgn, watchEval(on)),
  *                          loadPrefs() & savePrefs(prefs) (prefs.js's by default), reduce() whether motion is reduced]
  * @return {[object]} monitor: state, channel, focus, handlers, update, enter, arrived, leave, left, reset, pointer, key, view
  */
@@ -234,8 +228,10 @@ export function createMonitor(deps) {
 	let uis = {}; // EACH CHANNEL'S OWN STATE, CLEARED BACK ON THE DESK
 	let burst = false;
 	let yourMove = false; // THE YOUR MOVE BANNER IS UP
+	let endedZooming = false; // THE GAME ENDED DURING THE ZOOM-IN, arrived() SHOWS IT
 	let watching = false;
 	let spokenBanner = null;
+	let spokenChannel = null, spokenContent = null; // WHAT THE SCREEN READER WAS LAST TOLD THE SHOWING CHANNEL SHOWS
 
 	const monitor = { state: "idle", channel: null, focus: null, hover: null };
 
@@ -258,22 +254,49 @@ export function createMonitor(deps) {
 		if (button) { deps.announce(describe(button, all)); }
 	}
 
-	// THE BANNER ACROSS THE ZOOMED SCREEN
+	// THE ONLY BANNER ACROSS THE ZOOMED SCREEN: YOUR MOVE. A FINISHED GAME HAS NONE, THE ACTIONS CHANNEL SHOWS THE RESULT
 	function banner() {
-		if (monitor.state !== "zoomed" || !data) { return null; }
-		if (data.over) { return data.result || null; }
+		if (monitor.state !== "zoomed" || !data || data.over) { return null; }
 		return yourMove ? YOUR_MOVE : null;
 	}
 
-	// SHOWS A CHANNEL WHILE ZOOMED, WITH FOCUS ON ITS TAB
-	function switchTo(id) {
+	// WHAT THE SHOWING CHANNEL SAYS IT SHOWS, "" WHEN IT SAYS NOTHING
+	function speech() {
+		const channel = CHANNEL[monitor.channel];
+		return typeof channel.speak === "function" ? channel.speak(channelData()) : "";
+	}
+
+	// SAYS THE SHOWING CHANNEL'S NAME & WHAT IT SHOWS
+	function sayChannel() {
+		spokenChannel = monitor.channel;
+		spokenContent = speech();
+		deps.announce(spokenContent ? `${NAMES[monitor.channel]} channel. ${spokenContent}` : `${NAMES[monitor.channel]} channel`);
+	}
+
+	// SHOWS A CHANNEL WHILE ZOOMED, WITH FOCUS ON ITS TAB (OR ITS FIRST ENABLED BUTTON)
+	function switchTo(id, intoButtons = false) {
 		if (id === monitor.channel) { return; }
 		monitor.channel = id;
 		if (id === "actions") { uis.actions = { ...uis.actions, slots: slots(undefined, data.actions, data.over), confirm: null }; } // FRESH SLOTS ON ENTERING
 		if (monitor.state === "zoomed") {
-			monitor.focus = `tab:${id}`;
+			const first = intoButtons ? rows().buttons.find((b) => b.enabled) : null;
+			monitor.focus = first ? first.id : `tab:${id}`;
 			burst = !reduce();
-			deps.announce(`${NAMES[id]} channel`);
+			sayChannel();
+			sayFocus();
+		}
+	}
+
+	// THE GAME ENDED WHILE ZOOMED: OVER TO THE ACTIONS CHANNEL (THE RESULT, RESTART & DOWNLOAD PGN) WITH FOCUS ON ITS FIRST BUTTON, ELSE JUST SAY THE RESULT
+	function ended() {
+		if (!available(data, prefs).includes("actions")) {
+			if (data.result) { deps.announce(sentence(data.result)); }
+			return;
+		}
+		if (monitor.channel !== "actions") { switchTo("actions", true); return; }
+		const first = rows().buttons.find((b) => b.enabled); // ALREADY ON IT: THE RESULT IS NEW CONTENT, sync() SAYS IT
+		if (first && first.id !== monitor.focus) {
+			monitor.focus = first.id;
 			sayFocus();
 		}
 	}
@@ -289,6 +312,11 @@ export function createMonitor(deps) {
 				uis.actions = { ...ui, slots: slots(ui.slots, data.actions, data.over), confirm: draw && draw.enabled ? ui.confirm : null }; // A GONE DRAW CANCELS ITS PROMPT
 			}
 			if (monitor.state === "zoomed") {
+				const said = speech();
+				if (monitor.channel === spokenChannel && said !== spokenContent) { // WHAT IT SHOWS CHANGED (A NEW MOVE, A NEW SCORE): ONE LINE
+					spokenContent = said;
+					if (said) { deps.announce(said); }
+				}
 				const { tabs, buttons } = rows();
 				if (![...tabs, ...buttons].some((b) => b.id === monitor.focus)) { // THE FOCUSED BUTTON WENT AWAY
 					const first = buttons.find((b) => b.enabled);
@@ -318,6 +346,8 @@ export function createMonitor(deps) {
 		uis = {};
 		burst = false;
 		yourMove = false;
+		endedZooming = false; // A ZOOM-IN THAT TURNED BACK: THE NEXT ONE FINDS THE GAME ALREADY OVER
+		spokenChannel = spokenContent = null;
 		sync();
 	}
 
@@ -367,11 +397,13 @@ export function createMonitor(deps) {
 		 */
 		update(next) {
 			const was = data ? data.yourTurn : false;
+			const end = Boolean(data && !data.over && next.over); // ONLY FROM THE UPDATE WHERE IT ENDS
 			data = next;
 			if (monitor.state === "zoomed") {
 				if (!next.yourTurn) { yourMove = false; }
 				else if (!was) { yourMove = true; } // ONLY FROM THE UPDATE WHERE IT TURNS TRUE
-			}
+				if (end) { ended(); }
+			} else if (monitor.state === "zooming" && end) { endedZooming = true; } // NOTHING TO SWITCH YET, THE CAMERA IS ON ITS WAY
 			sync();
 		},
 
@@ -392,8 +424,14 @@ export function createMonitor(deps) {
 			if (monitor.state !== "zooming") { return; }
 			monitor.state = "zoomed";
 			monitor.focus = `tab:${monitor.channel}`;
+			sayChannel();
 			sync();
 			sayFocus();
+			if (endedZooming) { // THE SAME AS ENDING WHILE ZOOMED: THE RESULT, RESTART & DOWNLOAD PGN
+				endedZooming = false;
+				ended();
+				sync();
+			}
 		},
 
 		/**
@@ -451,15 +489,16 @@ export function createMonitor(deps) {
 		},
 
 		/**
-		 * @description A key while zoomed
+		 * @description A key while zoomed, or Escape while zooming in
 		 * @param  {[string]} key [KeyboardEvent.key]
 		 * @return {[boolean]} whether the monitor used it
 		 */
 		key(key) {
-			if (monitor.state !== "zoomed" || !data) { return false; }
+			if (!data || (monitor.state !== "zoomed" && monitor.state !== "zooming")) { return false; }
 			const action = keyAction(key, data.tv);
 			if (!action) { return false; }
 			if (action === "leave") { monitor.leave(); return true; }
+			if (monitor.state !== "zoomed") { return false; } // ZOOMING IN: ONLY ESCAPE
 			const { tabs, buttons } = rows();
 			if (action === "press") {
 				const button = [...tabs, ...buttons].find((b) => b.id === monitor.focus);
@@ -467,6 +506,8 @@ export function createMonitor(deps) {
 				return true;
 			}
 			const onTabs = tabs.some((b) => b.id === monitor.focus);
+			const channel = CHANNEL[monitor.channel];
+			if (!onTabs && typeof channel.keys === "function" && channel.keys(action, channelData(), handlers)) { return true; } // THE CHANNEL'S OWN USE (THE MOVES' W & S SCROLL)
 			let to;
 			if (action === "left" || action === "right") {
 				to = nextFocus(onTabs ? tabs : buttons, monitor.focus, action);
