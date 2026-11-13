@@ -16,7 +16,7 @@
 const { game, chessInst, validateState, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
 const { refreshData } = require("../moves/index.js"); // RESETS THE BOARD TO A SERVER GAME
 const { closeMenu } = require("../menu/index.js"); // A KEY ON TYPE A MOVE CLOSES THE MENU, THE CURSOR GOES IN THE BOX
-const { canLeave } = require("../../pages/utils/nav.js"); // LEFT & RIGHT LET GO WITH THE CURSOR AT THAT END
+const { canLeave, arrowKey } = require("../../pages/utils/nav.js"); // LEFT & RIGHT LET GO WITH THE CURSOR AT THAT END
 const { moveBlockReason, suggestMoves, exampleMoves, stepHighlight, countMessage } = require("./suggestions.js"); // WHEN THE PLAYER CAN MOVE & WHAT THE LIST SHOWS
 const box = document.getElementById("moveBox"); // THE FORM
 const input = document.getElementById("moveBoxInput"); // WHERE THE MOVE IS TYPED
@@ -420,9 +420,10 @@ function handleBoxKey(e) {
  * @return {[boolean]} leaves
  */
 function leavesBox(e) {
-	if (e.key != "ArrowLeft" && e.key != "ArrowRight") { return false; }
-	if (e.target == input) { return canLeave(input, e.key); }
-	const end = e.key == "ArrowLeft" ? 0 : input.value.length;
+	const key = arrowKey(e); // FROM THE X, A & D ARE LEFT & RIGHT. IN THE INPUT THEY'RE LETTERS
+	if (key != "ArrowLeft" && key != "ArrowRight") { return false; }
+	if (e.target == input) { return canLeave(input, key); }
+	const end = key == "ArrowLeft" ? 0 : input.value.length;
 	input.focus();
 	input.setSelectionRange(end, end);
 	return true;

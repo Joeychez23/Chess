@@ -6,7 +6,7 @@
 
 const { test, describe, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
-const { createNav, startNav, menuItems, itemForKey, wrapTab, nextStop, canLeave, sideItem } = require("../../client/src/js/pages/utils/nav.js");
+const { createNav, startNav, menuItems, itemForKey, wrapTab, nextStop, canLeave, sideItem, arrowKey, placeBefore } = require("../../client/src/js/pages/utils/nav.js");
 
 function fakeElement() {
 	const listeners = {};
@@ -68,7 +68,7 @@ describe("the menu's controller", () => {
 
 	test("Escape closes it, other keys don't", () => {
 		startNav()(true);
-		page.fire("keydown", { key: "a" });
+		page.fire("keydown", { key: "x" }); // NOT W, A, S OR D: THOSE ARE THE ARROWS
 		assert.ok(isOpen());
 		page.fire("keydown", { key: "Escape" });
 		assert.ok(isClosed());
@@ -306,6 +306,56 @@ describe("the menu's controller", () => {
 			assert.equal(itemForKey(list, optBtn, "ArrowDown"), list[0]);
 			assert.equal(itemForKey(list, optBtn, "ArrowUp"), list[1]);
 		});
+
+		test("W, A, S & D are the arrows, but a letter where one is typed or with a shortcut key", () => {
+			assert.equal(arrowKey({ key: "w" }), "ArrowUp");
+			assert.equal(arrowKey({ key: "A" }), "ArrowLeft"); // CAPS LOCK
+			assert.equal(arrowKey({ key: "s" }), "ArrowDown");
+			assert.equal(arrowKey({ key: "d" }), "ArrowRight");
+			assert.equal(arrowKey({ key: "ArrowDown" }), "ArrowDown");
+			assert.equal(arrowKey({ key: "x" }), "x");
+			for (const held of ["altKey", "ctrlKey", "metaKey"]) { assert.equal(arrowKey({ key: "w", [held]: true }), "w"); }
+			global.document.activeElement = { tagName: "INPUT", type: "text" };
+			assert.equal(arrowKey({ key: "a" }), "a");
+			global.document.activeElement = { tagName: "TEXTAREA" };
+			assert.equal(arrowKey({ key: "s" }), "s");
+			global.document.activeElement = { tagName: "SELECT" };
+			assert.equal(arrowKey({ key: "d" }), "d");
+			global.document.activeElement = { tagName: "INPUT", type: "checkbox" };
+			assert.equal(arrowKey({ key: "d" }), "ArrowRight");
+		});
+
+		test("W, A, S & D move like the arrows, open & closed", () => {
+			const shown = () => [1];
+			const stops = [0, 1].map((i) => ({ getClientRects: shown, focus() { global.document.activeElement = stops[i]; } }));
+			const nav = createNav({ arrowStops: () => stops });
+			nav.addListeners();
+			nav.toggleNav(true);
+			items[0].focus();
+			page.fire("keydown", { key: "s" });
+			assert.equal(global.document.activeElement, items[2]); // THE HIDDEN ITEM IS SKIPPED
+			page.fire("keydown", { key: "w" });
+			assert.equal(global.document.activeElement, items[0]);
+			nav.toggleNav(false);
+			global.document.activeElement = stops[0];
+			page.fire("keydown", { key: "d" });
+			assert.equal(global.document.activeElement, stops[1]);
+			page.fire("keydown", { key: "a" });
+			assert.equal(global.document.activeElement, stops[0]);
+		});
+
+		test("Enter with nothing focused goes to the menu button without opening it", () => {
+			startNav();
+			let stopped = false;
+			page.fire("keydown", { key: "Enter", preventDefault() { stopped = true; } });
+			assert.equal(global.document.activeElement, optBtn);
+			assert.ok(stopped);
+			assert.ok(isClosed());
+			const other = {};
+			global.document.activeElement = other;
+			page.fire("keydown", { key: "Enter" });
+			assert.equal(global.document.activeElement, other); // A FOCUSED BUTTON KEEPS ITS ENTER
+		});
 	});
 
 	test("Tab only goes around at the ends of the page", () => {
@@ -325,6 +375,12 @@ describe("the menu's controller", () => {
 		assert.equal(nextStop(stops, "moves", "ArrowRight"), "button");
 		assert.equal(nextStop(stops, "page", "ArrowRight"), "button");
 		assert.equal(nextStop(stops, "page", "ArrowLeft"), "moves");
+	});
+
+	test("a stop is put directly before another, or left out when either is missing", () => {
+		assert.deepEqual(placeBefore(["a", "menu", "b"], "screen", "menu"), ["a", "screen", "menu", "b"]);
+		assert.deepEqual(placeBefore(["a", "b"], "screen", "menu"), ["a", "b"]);
+		assert.deepEqual(placeBefore(["a", "menu"], null, "menu"), ["a", "menu"]);
 	});
 
 	test("a text box lets go of Left & Right with the cursor at that end, a dropdown doesn't", () => {

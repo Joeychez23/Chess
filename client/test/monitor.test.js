@@ -90,15 +90,15 @@ describe("monitor", () => {
 		}
 		assert.equal(nextFocus([box("only", 5, 5)], "only", "left"), "only");
 	});
-	test("the arrow keys only work in TV mode", () => {
-		assert.equal(keyAction("w", false), "up");
-		assert.equal(keyAction("D", false), "right");
-		assert.equal(keyAction("ArrowUp", false), null);
-		assert.equal(keyAction("ArrowUp", true), "up");
-		assert.equal(keyAction("Enter", false), "press");
-		assert.equal(keyAction(" ", false), "press");
-		assert.equal(keyAction("Escape", true), "leave");
-		assert.equal(keyAction("x", false), null);
+	test("W, A, S, D & the arrows move, Enter & Space press, Escape leaves", () => {
+		assert.equal(keyAction("w"), "up");
+		assert.equal(keyAction("D"), "right");
+		assert.equal(keyAction("ArrowUp"), "up");
+		assert.equal(keyAction("ArrowLeft"), "left");
+		assert.equal(keyAction("Enter"), "press");
+		assert.equal(keyAction(" "), "press");
+		assert.equal(keyAction("Escape"), "leave");
+		assert.equal(keyAction("x"), null);
 	});
 	test("the glass fills 80% of the view", () => {
 		const d = zoomDistance(13.6, 10.2, 45, 16 / 9);
@@ -338,6 +338,32 @@ describe("monitor", () => {
 		assert.equal(m.focus, "tab:face");
 		assert.equal(m.channel, "face");
 		assert.equal(m.said.at(-1), "Face, tab, 1 of 7, selected");
+	});
+	test("the keyboard's focus on the desk is in the view, shown only when it changes & only on the desk", () => {
+		const m = make();
+		m.update(base);
+		assert.equal(m.view().deskFocus, false);
+		const before = m.shown();
+		m.deskFocus(true);
+		assert.equal(m.view().deskFocus, true);
+		assert.equal(m.shown(), before + 1);
+		m.deskFocus(true);
+		assert.equal(m.shown(), before + 1); // NO CHANGE, NO REDRAW
+		m.enter();
+		assert.equal(m.view().deskFocus, false); // THE CAMERA LEFT THE DESK
+		m.reset();
+		assert.equal(m.view().deskFocus, true); // STILL THE PAGE'S FOCUS
+		m.deskFocus(false);
+		assert.equal(m.view().deskFocus, false);
+	});
+	test("zoomed, the arrows move the focus without TV mode", () => {
+		const m = make();
+		m.update(base); // base.tv IS FALSE
+		m.enter(); m.arrived();
+		const was = m.focus;
+		assert.equal(m.key("ArrowDown"), true);
+		m.key("ArrowUp");
+		assert.equal(m.focus, was);
 	});
 	test("on the desk the hover is the pointer's third of the glass, shown only when it changes", () => {
 		const m = make();

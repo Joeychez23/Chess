@@ -5,7 +5,8 @@
  *	& its 3 lines turn into an X while it's open (nav.css). The game passes hooks for its own logic (gameplay/menu/index.js).
  *	A link on this page (#games) closes it, a link that leaves the page fills up first (menuItem.js).
  *	Keyboard: opening with a key moves focus to the first item, closing gives focus back to the button & Delete or Backspace close it like Escape. While it's open Tab, Up, Down, Left, Right, Home & End stay in its items.
- *	While it's closed Tab goes around the page's elements, never out to the browser, & Left & Right move between the page's elements (the game picks its own, arrowStops)
+ *	While it's closed Tab goes around the page's elements, never out to the browser, & Left & Right move between the page's elements (the game picks its own, arrowStops).
+ *	W, A, S & D are Up, Left, Down & Right (arrowKey), except where a letter is typed. Enter with nothing focused (Escape dropped it) goes to the menu button
  *
  */
 
@@ -17,6 +18,7 @@ const SIDE_KEYS = ["ArrowLeft", "ArrowRight"]; // THE KEYS THAT MOVE BETWEEN THE
 const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const NOT_TYPED_IN = ["button", "submit", "reset", "checkbox", "radio", "file", "color", "range"]; // INPUTS WITHOUT A CURSOR
 const KEEP_SIDE_KEYS = ["radio", "range"]; // INPUTS THAT USE LEFT & RIGHT THEMSELVES
+const LETTER_KEYS = { w: "ArrowUp", a: "ArrowLeft", s: "ArrowDown", d: "ArrowRight" }; // THE LETTERS THAT STAND FOR AN ARROW
 
 /**
  * @description The menu's items in the order on screen, read from the page so a new item needs no list of its own. Hidden items (menuItem.js), the ones moved to the 3D room's monitor & turned off buttons are skipped
@@ -79,6 +81,19 @@ export function nextStop(stops, current, key) {
 }
 
 /**
+ * @description A list of stops with one more put directly before another, for a stop with no place of its own on screen (the 3D room's monitor, left of the menu button)
+ * @param  {[array]} stops [the elements, in order]
+ * @param  {[object]} stop [the one to add, nothing is added without it]
+ * @param  {[object]} anchor [the one it goes before, nothing is added when it isn't in the list]
+ * @return {[array]} stops [a new list]
+ */
+export function placeBefore(stops, stop, anchor) {
+	const index = stops.indexOf(anchor);
+	if (!stop || index == -1) { return [...stops]; }
+	return [...stops.slice(0, index), stop, ...stops.slice(index)];
+}
+
+/**
  * @description The item Left or Right moves to in the open menu. A short screen shows the menu in columns (nav.css): the closest item in the next column that way, it stops at the edge.
  * In one column there's nothing to the side, so Right goes down the list & Left goes up
  * @param  {[array]} items [menuItems()]
@@ -108,6 +123,19 @@ export function sideItem(items, rects, current, key) {
 function typedIn(element) {
 	if (element?.isContentEditable || element?.tagName == "TEXTAREA") { return true; }
 	return element?.tagName == "INPUT" && !NOT_TYPED_IN.includes(element.type);
+}
+
+/**
+ * @description The key a press stands for: W, A, S & D are Up, Left, Down & Right. They stay letters where one is typed (a text box, a dropdown jumps to an option)
+ * & with Alt, Ctrl or Cmd down (the browser's shortcuts)
+ * @param  {[object]} e [the keydown]
+ * @return {[string]} key [ArrowUp, ArrowLeft, ArrowDown or ArrowRight for the letters, else e.key]
+ */
+export function arrowKey(e) {
+	const arrow = typeof e.key == "string" && e.key.length == 1 ? LETTER_KEYS[e.key.toLowerCase()] : undefined;
+	if (!arrow || e.altKey || e.ctrlKey || e.metaKey) { return e.key; }
+	const focused = document.activeElement;
+	return typedIn(focused) || focused?.tagName == "SELECT" ? e.key : arrow;
 }
 
 /**
@@ -145,12 +173,12 @@ export function createNav({ onOpen, onClose, canClose, arrowStops = pageElements
 		optBtn.setAttribute("aria-expanded", open);
 	}
 
-	function moveFocus(e) {
+	function moveFocus(e, key) {
 		if (menu.style.display != "flex" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) { return; }
 		const focused = document.activeElement;
 		if (!menu.contains(focused) && focused != optBtn && focused != document.body) { return; } // THE ARROWS STAY WITH A TEXT BOX OR DROPDOWN ON THE PAGE
 		e.preventDefault();
-		itemForKey(menuItems(), focused, e.key)?.focus();
+		itemForKey(menuItems(), focused, key)?.focus();
 	}
 
 	function closeWithDelete(e) {
@@ -173,18 +201,18 @@ export function createNav({ onOpen, onClose, canClose, arrowStops = pageElements
 		if (next) { e.preventDefault(); next.focus(); }
 	}
 
-	function moveSide(e) {
+	function moveSide(e, key) {
 		if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) { return; }
 		const focused = document.activeElement;
 		if (menu.style.display == "flex") {
 			if (typedIn(focused)) { return; }
 			e.preventDefault();
 			const items = menuItems();
-			return sideItem(items, items.map((item) => item.getBoundingClientRect()), focused, e.key)?.focus();
+			return sideItem(items, items.map((item) => item.getBoundingClientRect()), focused, key)?.focus();
 		}
-		if (!canLeave(focused, e.key)) { return; }
+		if (!canLeave(focused, key)) { return; }
 		e.preventDefault();
-		nextStop(arrowStops().filter((stop) => stop.getClientRects().length > 0), focused, e.key)?.focus();
+		nextStop(arrowStops().filter((stop) => stop.getClientRects().length > 0), focused, key)?.focus();
 	}
 
 	function addListeners() {
@@ -205,11 +233,13 @@ export function createNav({ onOpen, onClose, canClose, arrowStops = pageElements
 		});
 		document.addEventListener("click", function (e) { if (!menu.contains(e.target)) { toggleNav(false); } }); // CLICK OUTSIDE
 		document.addEventListener("keydown", function (e) {
+			const key = arrowKey(e); // W, A, S & D ARE THE ARROWS
 			if (e.key == "Escape") { toggleNav(false); }
 			else if (e.key == "Delete" || e.key == "Backspace") { closeWithDelete(e); }
 			else if (e.key == "Tab") { moveTab(e); }
-			else if (MOVE_KEYS.includes(e.key)) { moveFocus(e); }
-			else if (SIDE_KEYS.includes(e.key)) { moveSide(e); }
+			else if (MOVE_KEYS.includes(key)) { moveFocus(e, key); }
+			else if (SIDE_KEYS.includes(key)) { moveSide(e, key); }
+			else if (e.key == "Enter" && menu.style.display != "flex" && document.body && document.activeElement == document.body) { e.preventDefault(); optBtn.focus(); } // NOTHING HAS THE FOCUS (ESCAPE DROPPED IT): THE MENU BUTTON FIRST, THE NEXT ENTER OPENS IT
 		});
 	}
 

@@ -188,6 +188,14 @@ export function monitorState3D() {
 }
 
 /**
+ * @description The keyboard's focus came to the 3D room's monitor or left it (gameplay/monitor's stop). Does nothing on 2D
+ * @param  {[boolean]} on
+ */
+export function focusMonitor3D(on) {
+	if (board3D) { board3D.focusMonitor(on); }
+}
+
+/**
  * @description The monitor's face reacts to a move or the result (AI games, gameplay/bots faceFor & endFaceFor). Does nothing on 2D,
  * but a result's face is remembered for a 3D board put up later
  * @param  {[string]} name ["happy" | "sad" | "angry" | "won" | "lost" | "neutral" | null (no change)]

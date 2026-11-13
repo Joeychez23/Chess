@@ -2,7 +2,7 @@
  *  index.js  --  chess frontend
  *	Input
  *	The board's controls: the mouse (hover, click to pick up & put down, drag & drop), touch on phones (tap & drag, mapped onto
- *	the mouse handlers) & the TV remote (arrow keys move a select box, enter clicks, right from the last column reaches the menu).
+ *	the mouse handlers) & the TV remote (arrow keys or W, A, S & D move a select box, enter clicks, right from the last column reaches the menu).
  *	startGame (gameplay/index.js) adds their listeners to both boards. The only thing that differs on the 3D board is the square under
  *	the pointer (pointerTile), camera gestures there never reach the pieces
  *
@@ -21,6 +21,7 @@ const { menuItems, itemForKey } = require("../../pages/utils/nav.js"); // THE ME
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 
 const REMOTE_SKIPS = ["optPgn", "optTypeMove"]; // A TV HAS NOWHERE TO SAVE A FILE & NO KEYS TO TYPE A MOVE
+const LETTER_CODES = { 87: 38, 65: 37, 83: 40, 68: 39 }; // W, A, S & D ARE THE ARROWS (UP, LEFT, DOWN, RIGHT)
 
 let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
 let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
@@ -110,6 +111,7 @@ export async function handleKeyPress(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	if (!e?.repeat && e?.keyCode) { // HOLDING A KEY DOESN'T REPEAT
+		const code = LETTER_CODES[e.keyCode] || e.keyCode;
 		/**
 		 * @description Hovers the player's piece under the select box (the remote's version of handleMouseMove)
 		 */
@@ -121,7 +123,7 @@ export async function handleKeyPress(e) {
 			}
 		}
 
-		if (e.keyCode == 37) { // LEFT
+		if (code == 37) { // LEFT
 			if (remoteNavBox.x > 0 && !game.menuToggled) {
 				if (remoteNavBox.menuHover) {
 					if (game.TV_BOOL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
@@ -135,7 +137,7 @@ export async function handleKeyPress(e) {
 			checkBoxOverPiece();
 		}
 
-		if (e.keyCode == 39) { // RIGHT
+		if (code == 39) { // RIGHT
 			if (remoteNavBox.x < 7 && !game.menuToggled) {
 				remoteNavBox.x += 1;
 				game.refresh = true;
@@ -150,7 +152,7 @@ export async function handleKeyPress(e) {
 			checkBoxOverPiece();
 		}
 
-		if (e.keyCode == 38) { // UP
+		if (code == 38) { // UP
 			if (remoteNavBox.y > 0 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y -= 1; game.refresh = true; }
 			else if (game.menuToggled) {
 				moveRemoteSelection("ArrowUp");
@@ -158,7 +160,7 @@ export async function handleKeyPress(e) {
 			else { game.refresh = true; }
 			checkBoxOverPiece();
 		}
-		if (e.keyCode == 40) { // DOWN
+		if (code == 40) { // DOWN
 			if (remoteNavBox.y < 7 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y += 1; game.refresh = true; }
 			else if (game.menuToggled) {
 				moveRemoteSelection("ArrowDown");
@@ -166,13 +168,13 @@ export async function handleKeyPress(e) {
 			else { game.refresh = true; }
 			checkBoxOverPiece();
 		}
-		if (e.keyCode == 13) { // ENTER
+		if (code == 13) { // ENTER
 			if (!remoteNavBox.menuHover && !game.menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
 			else if (remoteNavBox.menuHover && !game.menuToggled) { openMenu(); handleRemoteMenuEnter(remoteItems()[0]); } // OPEN THE MENU ON THE TOP ITEM
 			else if (game.menuToggled) { pressRemoteSelection(); }
 		}
-		if (game.menuToggled && e.keyCode == 36) { moveRemoteSelection("Home"); } // HOME
-		if (game.menuToggled && e.keyCode == 35) { moveRemoteSelection("End"); } // END
+		if (game.menuToggled && code == 36) { moveRemoteSelection("Home"); } // HOME
+		if (game.menuToggled && code == 35) { moveRemoteSelection("End"); } // END
 		game.keyboardTile = remoteNavBox.menuHover ? null : { x: remoteNavBox.x, y: remoteNavBox.y }; // THE 3D BOARD RINGS THE SELECTED SQUARE
 		game.refresh = true
 	}

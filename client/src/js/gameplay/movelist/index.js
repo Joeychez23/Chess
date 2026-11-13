@@ -13,7 +13,7 @@
 /* ---------------------------------------------------------------- */
 const { game, EVAL_BAR_ROOM } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE SPACE THE EVALUATION BAR TAKES NEXT TO THE BOARD
 const { trayNudge } = require("../animate/index.js"); // HOW FAR THE BOTTOM TRAY SITS DOWN
-const { itemForKey } = require("../../pages/utils/nav.js"); // THE MENU'S ARROW KEYS, THE ROWS MOVE THE SAME WAY
+const { itemForKey, arrowKey } = require("../../pages/utils/nav.js"); // THE MENU'S ARROW KEYS, THE ROWS MOVE THE SAME WAY
 const panel = document.getElementById("moveList"); // THE PANEL
 const toggleBtn = document.getElementById("moveListToggle"); // COLLAPSES & OPENS IT
 const rowList = document.getElementById("moveListRows"); // THE NUMBERED ROWS, THIS PART SCROLLS
@@ -146,14 +146,15 @@ function handleMoveListToggle(e) {
  */
 function handlePanelKey(e) {
 	if (rowList.hidden) { return; }
-	if ((e.key == "ArrowLeft" || e.key == "ArrowRight") && rowList.contains(document.activeElement)) { toggleBtn.focus(); } // THE PANEL'S STOP IS ITS TOGGLE, THE PAGE'S KEYS MOVE ON FROM THERE
+	const key = arrowKey(e); // W, A, S & D ARE THE ARROWS
+	if ((key == "ArrowLeft" || key == "ArrowRight") && rowList.contains(document.activeElement)) { toggleBtn.focus(); } // THE PANEL'S STOP IS ITS TOGGLE, THE PAGE'S KEYS MOVE ON FROM THERE
 	if (e.key == "Escape") {
 		e.stopPropagation();
 		toggleBtn.focus(); // BEFORE THE ROWS ARE HIDDEN, THAT WOULD DROP FOCUS TO THE PAGE
 		saveCollapsed(true);
-	} else if (MOVE_KEYS.includes(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+	} else if (MOVE_KEYS.includes(key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
 		e.preventDefault();
-		(itemForKey([...rowList.children], document.activeElement, e.key) || toggleBtn).focus(); // PAST EITHER END OF THE ROWS: BACK TO THE TOGGLE
+		(itemForKey([...rowList.children], document.activeElement, key) || toggleBtn).focus(); // PAST EITHER END OF THE ROWS: BACK TO THE TOGGLE
 	}
 }
 

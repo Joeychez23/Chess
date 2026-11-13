@@ -601,7 +601,7 @@ function onTouchTap(e) {
 	monitorTap(e);
 }
 
-// CAPTURE PHASE ON THE WINDOW: ZOOMED, THE MONITOR'S KEYS (WASD, ENTER, SPACE, ESCAPE, THE ARROWS IN TV MODE) ARE ITS ALONE, ESCAPE WHILE ZOOMING IN TOO.
+// CAPTURE PHASE ON THE WINDOW: ZOOMED, THE MONITOR'S KEYS (WASD, THE ARROWS, ENTER, SPACE, ESCAPE) ARE ITS ALONE, ESCAPE WHILE ZOOMING IN TOO.
 // NOT WHILE TYPING, NOT SHORTCUTS. THE MONITOR'S FOCUS ELEMENT (#monitorFocus, A DIV) IS NO TYPING TARGET, SO ITS KEYS COME HERE
 function onKeyDown(e) {
 	const monitor = view && view.monitor;
@@ -652,6 +652,14 @@ export function leaveMonitor() {
  */
 export function monitorState() {
 	return view && view.monitor ? view.monitor.state : null;
+}
+
+/**
+ * @description The keyboard's focus came to the monitor's screen or left it (the page's stop, gameplay/monitor): on the desk the glass shows a border
+ * @param  {[boolean]} on
+ */
+export function focusMonitor(on) {
+	if (view && view.monitor) { view.monitor.deskFocus(Boolean(on)); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -717,7 +725,7 @@ function onContextRestored() {
  * @param  {[HTMLElement]} container [what the 3D canvas fills, sized by CSS]
  * @param  {[object]} events [{ onContextLost, onContextRestored, monitor }: the WebGL context went away / came back, the board stops drawing
  * when it's lost & the caller puts up a new one (unmount() then mount()). monitor: { handlers (what its buttons call, monitor.js), announce(text)
- * (for the screen reader), tv (the arrows are the monitor's when zoomed), onChange({ ready, state }) (the monitor came up, went away or changed state) }]
+ * (for the screen reader), tv (TV mode, part of the monitor's data), onChange({ ready, state }) (the monitor came up, went away or changed state) }]
  */
 export function mount(container, { onContextLost: lost = () => {}, onContextRestored: restored = () => {}, monitor = null } = {}) {
 	if (view) { return; }

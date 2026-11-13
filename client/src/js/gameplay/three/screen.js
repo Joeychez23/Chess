@@ -162,7 +162,7 @@ function mode() {
 function currentView() {
 	const view = getView ? getView() : null;
 	if (view && view.data && CHANNEL[view.channel]) { return view; }
-	return { channel: mode() === "face" ? "face" : "opponent", zoomed: false, tabs: [], buttons: [], focus: null, hover: null, banner: null, burst: false, data: null };
+	return { channel: mode() === "face" ? "face" : "opponent", zoomed: false, tabs: [], buttons: [], focus: null, hover: null, deskFocus: Boolean(view && view.deskFocus), banner: null, burst: false, data: null }; // THE KEYBOARD'S FOCUS SHOWS BEFORE THE GAME'S DATA ARRIVES TOO
 }
 
 // WHAT A VIEW DRAWS, TO TELL WHETHER redrawScreen() HAS ANYTHING NEW (THE PICTURE ISN'T IN IT, A LOADED ONE DRAWS BY ITSELF). burst IS LEFT
@@ -241,7 +241,7 @@ function drawBanner(ctx, text, area) {
 	drawText(ctx, text, x + 2, y + 2, HOT);
 }
 
-// A 1 px BORDER WHILE THE POINTER IS ON THE GLASS (THE FACE LOOKS AT IT INSTEAD), ROUND THE SAFE AREA: THE BEZEL HIDES THE GRID'S EDGE. IT STOPS
+// A 1 px BORDER WHILE THE POINTER IS ON THE GLASS (THE FACE LOOKS AT IT INSTEAD) OR THE KEYBOARD'S FOCUS IS ON THE SCREEN (view.deskFocus), ROUND THE SAFE AREA: THE BEZEL HIDES THE GRID'S EDGE. IT STOPS
 // ABOVE THE NAME STRIP WHEN THAT SHOWS
 function drawHover(ctx, strip) {
 	const x = SAFE.left, y = SAFE.top, w = W - SAFE.left - SAFE.right;
@@ -286,7 +286,7 @@ function draw(view = currentView()) {
 	if (bursting) { drawStatic(sctx, view.zoomed); } // ANY DRAW INSIDE THE BURST'S 120 ms STAYS STATIC
 	else { channel.draw(sctx, data); }
 	if (view.zoomed) { drawChrome(sctx, view); }
-	else if (view.channel !== "face" && deskPointer(view)) { drawHover(sctx, named); }
+	else if (view.deskFocus || (view.channel !== "face" && deskPointer(view))) { drawHover(sctx, named); } // THE KEYBOARD'S FOCUS RINGS THE FACE TOO, IT HAS NOWHERE TO LOOK
 	ctx.globalCompositeOperation = "source-over";
 	ctx.globalAlpha = 1;
 	ctx.imageSmoothingEnabled = false; // CHUNKY PIXELS

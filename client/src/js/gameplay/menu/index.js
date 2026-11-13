@@ -21,7 +21,7 @@ const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAME
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
-const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
+const { createNav, placeBefore } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
 const { setView, currentView, resetCamera, onViewChange, setFace, monitorState3D, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA, THE 3D ROOM'S MONITOR (NOT gameplay/monitor: IT REQUIRES THIS FILE)
 const { endMomentFor, endFaceFor } = require("../bots/index.js"); // WHAT THE AI'S BOT SAYS WHEN THE GAME ENDS (#76)
@@ -116,9 +116,10 @@ const nav = createNav({
 	},
 	onClose() { game.menuToggled = false; clearRemoteSelection(); },
 	canClose() { return !game.boardReset; }, // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS, THE OLD BOARD UNDER IT IS LOCKED
-	arrowStops() { // LEFT & RIGHT GO THAT WAY ON SCREEN (THE BOX CAN BE DRAGGED), THE ONES NOT ON SCREEN ARE SKIPPED
+	arrowStops() { // LEFT & RIGHT GO THAT WAY ON SCREEN (THE BOX CAN BE DRAGGED), THE ONES NOT ON SCREEN ARE SKIPPED. THE 3D MONITOR'S STOP HAS NO PLACE ON SCREEN: ALWAYS JUST LEFT OF THE MENU BUTTON
 		const stops = ["optBtn", "moveBoxInput", "moveListToggle"].map((id) => document.getElementById(id));
-		return stops.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+		stops.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+		return placeBefore(stops, document.getElementById("monitorStop"), document.getElementById("optBtn"));
 	},
 });
 

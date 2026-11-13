@@ -196,14 +196,13 @@ export function nextFocus(buttons, fromId, dir) {
 
 /**
  * @description What a key does on the zoomed monitor
- * @param  {[string]} key [KeyboardEvent.key]
- * @param  {[boolean]} tv [whether the room is in TV mode, the only time the arrows are the monitor's]
+ * @param  {[string]} key [KeyboardEvent.key: W, A, S, D or an arrow moves, Enter or Space presses, Escape leaves]
  * @return {[string|null]} up, down, left, right, press, leave or null
  */
-export function keyAction(key, tv) {
+export function keyAction(key) {
 	if (typeof key !== "string") { return null; }
 	if (KEYS[key.toLowerCase()] && key.length === 1) { return KEYS[key.toLowerCase()]; }
-	if (ARROWS[key]) { return tv ? ARROWS[key] : null; } // OFF TV MODE THE ARROWS ARE THE BOARD'S
+	if (ARROWS[key]) { return ARROWS[key]; }
 	if (key === "Enter" || key === " ") { return "press"; }
 	if (key === "Escape") { return "leave"; }
 	return null;
@@ -238,7 +237,7 @@ export function describe(button, buttons) {
  * @description Makes the monitor's state machine
  * @param  {[object]} deps [show() when view() changed, announce(text) for the screen reader (the channel, what it shows, the focused button & the banner), handlers (hint, takeback, draw, restart, pgn, watchEval(on)),
  *                          loadPrefs() & savePrefs(prefs) (prefs.js's by default), reduce() whether motion is reduced]
- * @return {[object]} monitor: state, channel, focus, handlers, update, enter, arrived, leave, left, reset, pointer, key, view
+ * @return {[object]} monitor: state, channel, focus, handlers, update, enter, arrived, leave, left, reset, pointer, deskFocus, key, view
  */
 export function createMonitor(deps) {
 	const reduce = deps.reduce || (() => false);
@@ -254,6 +253,7 @@ export function createMonitor(deps) {
 	let watching = false;
 	let spokenBanner = null;
 	let spokenChannel = null, spokenContent = null; // WHAT THE SCREEN READER WAS LAST TOLD THE SHOWING CHANNEL SHOWS
+	let keyFocus = false; // THE KEYBOARD'S FOCUS IS ON THE SCREEN (deskFocus). THE PAGE'S FOCUS OWNS IT, SO IT OUTLIVES A ZOOM & A RESET
 
 	const monitor = { state: "idle", channel: null, focus: null, hover: null };
 
@@ -521,13 +521,23 @@ export function createMonitor(deps) {
 		},
 
 		/**
+		 * @description The keyboard's focus came to the screen or left it (the page's stop for the monitor). On the desk the glass shows it, view().deskFocus
+		 * @param  {[boolean]} on
+		 */
+		deskFocus(on) {
+			if (keyFocus === Boolean(on)) { return; }
+			keyFocus = Boolean(on);
+			deps.show();
+		},
+
+		/**
 		 * @description A key while zoomed, or Escape while zooming in
 		 * @param  {[string]} key [KeyboardEvent.key]
 		 * @return {[boolean]} whether the monitor used it
 		 */
 		key(key) {
 			if (!data || (monitor.state !== "zoomed" && monitor.state !== "zooming")) { return false; }
-			const action = keyAction(key, data.tv);
+			const action = keyAction(key);
 			if (!action) { return false; }
 			if (action === "leave") { monitor.leave(); return true; }
 			if (monitor.state !== "zoomed") { return false; } // ZOOMING IN: ONLY ESCAPE
@@ -558,13 +568,13 @@ export function createMonitor(deps) {
 
 		/**
 		 * @description What screen.js draws
-		 * @return {[object]} { channel, zoomed, tabs, buttons, focus, hover, banner, burst (true once after a switch), data }
+		 * @return {[object]} { channel, zoomed, tabs, buttons, focus, hover, deskFocus (the keyboard's focus is on the screen, on the desk), banner, burst (true once after a switch), data }
 		 */
 		view() {
 			const { tabs, buttons } = rows();
 			const once = burst;
 			burst = false;
-			return { channel: monitor.channel, zoomed: monitor.state === "zoomed", tabs, buttons, focus: monitor.focus, hover: monitor.hover, banner: banner(), burst: once, data: data ? channelData() : null };
+			return { channel: monitor.channel, zoomed: monitor.state === "zoomed", tabs, buttons, focus: monitor.focus, hover: monitor.hover, deskFocus: keyFocus && monitor.state === "idle", banner: banner(), burst: once, data: data ? channelData() : null };
 		},
 	});
 }

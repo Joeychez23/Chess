@@ -3,7 +3,8 @@
  *	Monitor
  *	The game's side of the 3D room's CRT monitor (three/monitor, in the lazily loaded three chunk, so nothing here requires it): the data its
  *	channels show (monitorData), its actions (they press the menu's own buttons, so the menu's rules run), the screen reader's line, the focus while
- *	zoomed (#monitorFocus) & the hide rules.
+ *	zoomed (#monitorFocus), the keyboard's stop for the screen on the desk (#monitorStop: Left from the menu button reaches it, the glass shows a border, Enter zooms in,
+ *	Escape drops the focus) & the hide rules.
  *	While the room & its monitor are up & reduced motion is off, what it shows (the eval bar, the move list, the opening, the opponent's name, the menu's
  *	Hint, Takeback, Offer Draw & Eval Bar) leaves the page with data-on-monitor (style.css), & the menu's Monitor item zooms in to it.
  *	The hidden attributes stay the menu code's: an action shows on the monitor exactly when its menu <li> isn't hidden (data.js actionsFrom)
@@ -15,7 +16,7 @@
 /* ---------------------------------------------------------------- */
 const { game, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN
 const { openMenu, closeMenu } = require("../menu/index.js"); // THE MENU BUTTON OPENS IT AFTER THE CAMERA LEAVES THE MONITOR
-const { setMonitorHooks, enterMonitor3D, leaveMonitor3D, monitorState3D } = require("../renderer/index.js"); // THE 3D BOARD'S MONITOR
+const { setMonitorHooks, enterMonitor3D, leaveMonitor3D, monitorState3D, focusMonitor3D } = require("../renderer/index.js"); // THE 3D BOARD'S MONITOR
 const { watchEval, evalState, hideEvalBar } = require("../analysis/index.js"); // THE EVAL CHANNEL'S REQUESTS & SCORES, THE BAR IT REPLACES
 const { moveListState } = require("../movelist/index.js"); // THE MOVES CHANNEL'S ROWS & OPENING
 const { menuItems } = require("../../pages/utils/nav.js"); // A KEY THAT OPENS THE MENU FOCUSES ITS FIRST ITEM
@@ -28,6 +29,7 @@ const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("
 const resultReason = document.getElementById("resultReason"); // THE LINE UNDER THE RESULT
 const monitorAnnouncement = document.getElementById("monitorAnnouncement"); // SCREEN READERS: THE MONITOR'S CHANNEL, WHAT IT SHOWS, ITS FOCUSED BUTTON & THE BANNER
 const monitorFocus = document.getElementById("monitorFocus"); // WHERE THE FOCUS GOES WHILE ZOOMED (role="application": A SCREEN READER PASSES THE KEYS ON)
+const monitorStop = document.getElementById("monitorStop"); // THE KEYBOARD'S STOP FOR THE SCREEN ON THE DESK, ITS FOCUS IS THE GLASS'S BORDER
 const ANNOUNCE_MS = 50; // WHAT IS SAID IN ONE GO IS WRITTEN TOGETHER THIS LONG AFTER THE FIRST
 const ACTION_BUTTONS = { // THE MONITOR'S ACTIONS -> THE MENU BUTTONS THEY PRESS
 	hint: document.getElementById("optHint"),
@@ -154,6 +156,9 @@ function syncHideRules() {
 	const on = ready && !game.reduceMotion;
 	ON_MONITOR.forEach((element) => element.toggleAttribute("data-on-monitor", on));
 	optMonitorBtn.parentElement.hidden = !on;
+	const stop = on && !game.TV_BOOL; // A TV REMOTE HAS NO TAB OR PAGE STOPS, ITS WAY IN IS THE MENU'S MONITOR ITEM
+	if (!stop && document.activeElement === monitorStop) { optBtn.focus({ preventScroll: true }); } // BEFORE IT'S HIDDEN, THAT WOULD DROP FOCUS TO THE PAGE
+	monitorStop.hidden = !stop;
 	hideEvalBar(on); // THE BAR & ITS MENU ITEM ARE OFF THE PAGE: A BAR SAVED ON COUNTS AS OFF
 	game.refresh = true;
 }
@@ -170,6 +175,15 @@ function handleMonitor(e) {
 	closeMenu();
 	if (game.menuToggled) { return; } // IT STAYS OPEN WHILE A NEW BOARD LOADS (canClose)
 	enterMonitor3D();
+}
+
+/**
+ * @description Enter or Space on the screen's stop (a button's click): the camera zooms in. Stopped, so the click away from the menu isn't heard
+ */
+function handleStop(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (!game.menuToggled) { enterMonitor3D(); }
 }
 
 /**
@@ -209,6 +223,7 @@ export function startMonitor() {
 			syncFocus(ready, state);
 			if (!ready) { watchEval(false); } // GONE (2D, A FAILED ROOM): NO EVAL CHANNEL IS SHOWING, WHATEVER ITS LAST STATE WAS
 			syncHideRules();
+			focusMonitor3D(document.activeElement === monitorStop); // A NEW BOARD'S MONITOR (THE ROOM LOADED, A LOST CONTEXT) HASN'T HEARD
 		},
 		data: monitorData,
 	});
@@ -222,5 +237,9 @@ export function startMonitor() {
 
 	window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", syncHideRules); // AFTER startGame'S OWN LISTENER SET game.reduceMotion
 	optMonitorBtn.addEventListener("click", handleMonitor);
+	monitorStop.addEventListener("focus", () => focusMonitor3D(true));
+	monitorStop.addEventListener("blur", () => focusMonitor3D(false));
+	monitorStop.addEventListener("click", handleStop);
+	monitorStop.addEventListener("keydown", function (e) { if (e.key == "Escape") { monitorStop.blur(); } }); // THE BORDER GOES, NOTHING HAS THE FOCUS UNTIL THE NEXT ARROW OR ENTER (pages/utils/nav.js)
 	document.addEventListener("click", handleMenuButton, true);
 }
