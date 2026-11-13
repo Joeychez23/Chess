@@ -16,7 +16,7 @@ require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MOD
 const { InternalAuth } = require("../../auth/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame } = require("../../gameplay/validate/index.js");
-const { startNav, startDropdowns, showCurrentGame, loadLevels, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
+const { startBoxNav, startDropdowns, showCurrentGame, loadLevels, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
 
@@ -36,7 +36,7 @@ const LOGIN_FAILURES = { // ?login= FROM THE LOGIN CALLBACK (server/controllers/
 const auth = new InternalAuth;
 
 showLoginFailure();
-startNav();
+startBoxNav(); // THE ARROWS MOVE BETWEEN THE BOXES LIKE HOME, ENTER ON THE HERO GOES TO SIGN IN
 startDropdowns(); // ENTER OPENS A DROPDOWN, A NATIVE <select> CAN'T BE OPENED BY A SCRIPT IN SAFARI
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
 startGameLinks(); // CONTINUE CURRENT GAME SAYS LOADING TOO

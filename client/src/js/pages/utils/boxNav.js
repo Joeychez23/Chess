@@ -1,7 +1,7 @@
 /*
  *  boxNav.js  --  chess frontend
  *	Box Navigation
- *	The keyboard navigation between the boxes of Home, Login, Signup & Settings.
+ *	The keyboard navigation between the boxes of Guest, Home, Login, Signup & Settings.
  *	The row helpers: the page's elements grouped into rows by where they are on screen, & the steps between them.
  *	boxKeys() is the page's keys, passed to the menu (nav.js): arrows move between the boxes (the hero & .box elements) & the menu button, Enter goes into a box, Escape comes back out.
  *	A text box or dropdown has two states: moving (data-moving: the arrows move past it, typing is blocked) & using (typing, its own arrows). Going to one starts it moving, Enter or Escape in a dropdown & Enter in a text box switch it.
@@ -204,10 +204,8 @@ export function boxKeys(e, key, optBtn) {
 			return taken();
 		}
 		if (key != "Enter" || focused == optBtn) { return false; } // THE BUTTON OPENS THE MENU
-		if (!focused.classList.contains("hero")) {
-			const first = rowsOf(pageElements(focused), rectOf)[0]?.[0];
-			if (first) { goTo(first, optBtn); }
-		}
+		const first = rowsOf(pageElements(focused), rectOf)[0]?.[0]; // NONE IN AN INFO BOX OR A HERO WITH NO LINKS (HOME'S), THE FOCUS STAYS
+		if (first) { goTo(first, optBtn); }
 		return taken();
 	}
 
@@ -260,7 +258,7 @@ export function watchMoving() {
 }
 
 /**
- * @description Home, Login, Signup & Settings: the menu (nav.js) with the page's keys. The boxes can take focus (not Tab), & a field stops moving when it loses focus
+ * @description Guest, Home, Login, Signup & Settings: the menu (nav.js) with the page's keys. The boxes can take focus (not Tab), & a field stops moving when it loses focus
  * @return {[function]} toggleNav [toggleNav(true) opens the menu, toggleNav(false) closes it]
  */
 export function startBoxNav() {

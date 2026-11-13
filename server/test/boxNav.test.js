@@ -196,6 +196,16 @@ describe("the page's keys", () => {
 		}
 	});
 
+	test("Enter on a hero with a link (Guest's Sign in) goes to it, Escape comes back to the hero", () => {
+		const p = page([["hero", at(0, 0, 1000, 500), ["hero"], [["signIn", "A", at(10, 300, 120, 40)]]], A]);
+		p.made.hero.focus();
+		assert.equal(press(p, "Enter").result, true);
+		assert.equal(p.doc.activeElement, p.made.signIn);
+		assert.equal(press(p, "Enter").result, false); // NATIVE PRESS FOLLOWS THE LINK
+		assert.equal(press(p, "Escape").result, true);
+		assert.equal(p.doc.activeElement, p.made.hero);
+	});
+
 	test("Enter on the menu button is left to the button", () => {
 		const p = page([HERO, A]);
 		p.optBtn.focus();

@@ -7,7 +7,7 @@
  *	Keyboard: opening with a key moves focus to the first item, closing gives focus back to the button. Site wide, Delete & Backspace are Escape anywhere a letter isn't typed (deleteAsEscape). While it's open Tab, Up, Down, Left, Right, Home & End stay in its items.
  *	While it's closed Tab goes around the page's elements, never out to the browser, & Left & Right move between the page's elements (the game picks its own, arrowStops).
  *	W, A, S & D are Up, Left, Down & Right (arrowKey), except where a letter is typed. Enter with nothing focused (Escape dropped it) goes to the menu button.
- *	Home, Login, Signup & Settings pass boxKeys (boxNav.js) & so turn off the browser's own keyboard scrolling (scrollsPage): only moving the focus moves the page
+ *	Guest, Home, Login, Signup & Settings pass boxKeys (boxNav.js) & so turn off the browser's own keyboard scrolling (scrollsPage): only moving the focus moves the page
  *
  */
 
@@ -221,7 +221,7 @@ export function canLeave(element, key) {
 /**
  * @description The menu's controller, without its listeners. The game uses this so a finished game can open the menu while it loads & remote-only mode can open it without the mouse
  * @param  {[object]} hooks [optional: onOpen() before it opens, onClose() when it closes, canClose() false keeps it open, arrowStops() the elements Left & Right move between (every element on the page without it),
- * boxKeys(e, key) true when it used the key (Home, Login, Signup & Settings: boxNav.js, only while the menu is closed), & with it the browser's keyboard scrolling is off (scrollsPage)]
+ * boxKeys(e, key) true when it used the key (Guest, Home, Login, Signup & Settings: boxNav.js, only while the menu is closed), & with it the browser's keyboard scrolling is off (scrollsPage)]
  * @return {[object]} nav [toggleNav(true) opens, toggleNav(false) closes, toggleNav(false, true) closes even if canClose() says no. addListeners() turns on the button, a click away & Escape]
  */
 export function createNav({ onOpen, onClose, canClose, arrowStops = pageElements, boxKeys } = {}) {
