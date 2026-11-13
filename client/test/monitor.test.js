@@ -6,7 +6,7 @@
 
 const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
-const { ORDER, uvToGrid, available, idleChannel, tabButtons, hit, nextFocus, keyAction, zoomDistance, isTap, describe: say, createMonitor } = require("../src/js/gameplay/three/monitor/monitor.js");
+const { ORDER, uvToGrid, available, idleChannel, tabButtons, litTab, hit, nextFocus, keyAction, zoomDistance, isTap, describe: say, createMonitor } = require("../src/js/gameplay/three/monitor/monitor.js");
 const { defaults, CHANNELS } = require("../src/js/gameplay/three/monitor/prefs.js");
 const { base, acts } = require("./helpers/monitorData.js");
 
@@ -47,6 +47,28 @@ describe("monitor", () => {
 		}
 		assert.equal(tabButtons(["face", "setup"])[0].label, "◀ BACK");
 		assert.equal(tabButtons(ORDER)[0].label, "◀");
+	});
+	test("tabs leave a gap between them when the row has room, so two lit tabs don't merge", () => {
+		const friend = tabButtons(["opponent", "moves", "waiting", "actions", "setup"], "opponent");
+		assert.equal(friend[0].label, "◀ BACK");
+		friend.forEach((b, i) => { if (i) { assert.ok(b.x - (friend[i - 1].x + friend[i - 1].w) >= 1, `${b.id} touches`); } });
+		const two = tabButtons(["face", "setup"]);
+		two.forEach((b, i) => { if (i) { assert.ok(b.x - (two[i - 1].x + two[i - 1].w) <= 3, "the gap is capped"); } });
+		friend.forEach((b, i) => { // A PRESS ANYWHERE IN A GAP STILL FINDS A TAB
+			if (!i) { return; }
+			for (let x = friend[i - 1].x + friend[i - 1].w; x < b.x; x++) {
+				const got = hit(friend, x, b.y + 5);
+				assert.ok(got && [friend[i - 1].id, b.id].includes(got.id), `${x} between ${friend[i - 1].id} & ${b.id}`);
+			}
+		});
+	});
+	test("only one tab is lit: the focused one on the tab row, else the showing channel's", () => {
+		const tabs = tabButtons(["opponent", "moves", "setup"], "opponent");
+		assert.equal(litTab(tabs, "back", "opponent"), "back");
+		assert.equal(litTab(tabs, "tab:moves", "opponent"), "tab:moves");
+		assert.equal(litTab(tabs, "tab:opponent", "opponent"), "tab:opponent");
+		assert.equal(litTab(tabs, "hint", "opponent"), "tab:opponent"); // FOCUS ON THE CHANNEL'S OWN BUTTONS
+		assert.equal(litTab(tabs, null, "opponent"), "tab:opponent");
 	});
 	test("a near miss presses the only button in reach, never a disabled one, never a guess between two", () => {
 		const one = [{ id: "a", x: 10, y: 20, w: 20, h: 10, enabled: true }];

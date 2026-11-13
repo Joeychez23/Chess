@@ -14,7 +14,7 @@ import { CHANNELS, clean, loadPrefs as loadStored, savePrefs as saveStored } fro
 import { textWidth } from "../pixelFont.js";
 
 const ORDER = [...CHANNELS]; // CHANNEL IDS, IN TAB ORDER; A COPY SO NOTHING HERE CAN CHANGE PREFS.JS'S LIST
-const TAB = { pad: 2, gap: 0 }; // A TAB IS ITS LABEL PLUS A 1 px BORDER EACH SIDE, BORDERS SIDE BY SIDE: ALL SEVEN & ◀ FIT THE SAFE AREA'S 144 px
+const TAB = { pad: 2, maxGap: 3 }; // A TAB IS ITS LABEL PLUS A 1 px BORDER EACH SIDE. THE ROW'S SPARE WIDTH GOES BETWEEN TABS, UP TO maxGap, SO TWO LIT TABS DON'T MERGE; ALL SEVEN & ◀ FILL THE SAFE AREA'S 144 px WITH NONE TO SPARE
 const BACK = "◀ BACK", BACK_SHORT = "◀";
 const YOUR_MOVE = "▶ YOUR MOVE";
 const KEYS = { w: "up", a: "left", s: "down", d: "right" };
@@ -107,19 +107,36 @@ export function idleChannel(data, prefs) {
  */
 export function tabButtons(ids, active) {
 	const tabW = (label) => textWidth(label) + TAB.pad;
-	const row = (back) => tabW(back) + ids.reduce((sum, id) => sum + TAB.gap + tabW(SHORT[id]), 0);
+	const row = (back) => tabW(back) + ids.reduce((sum, id) => sum + tabW(SHORT[id]), 0);
 	const area = tabRow();
 	const back = row(BACK) <= area.w ? BACK : BACK_SHORT; // THE SHORT ARROW WHEN THE WORD WON'T FIT
-	let x = area.x + Math.floor((area.w - row(back)) / 2);
+	const room = ids.length ? Math.min(TAB.maxGap, Math.floor((area.w - row(back)) / ids.length)) : 0; // ONE GAP AFTER BACK & EACH TAB BUT THE LAST
+	const gap = room > 0 && room % 2 === 0 ? room - 1 : room; // ODD, SO NO COLUMN IN A GAP IS EQUALLY NEAR BOTH TABS (hit() WOULD CALL IT A MISS)
+	let x = area.x + Math.floor((area.w - row(back) - gap * ids.length) / 2);
 	const list = [];
 	for (const [id, label] of [["back", back], ...ids.map((c) => [`tab:${c}`, SHORT[c]])]) {
 		const w = tabW(label);
 		const button = { id, x, y: area.y, w, h: area.h, label, enabled: true };
 		if (id === `tab:${active}`) { button.selected = true; }
 		list.push(button);
-		x += w + TAB.gap;
+		x += w + gap;
 	}
 	return list;
+}
+
+/* ---------------------------------------------------------------- */
+// litTab
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description The one tab to light: the focused one while the focus is on the tab row, else the showing channel's (never two at once, they'd read as one)
+ * @param  {[object[]]} tabs [from tabButtons]
+ * @param  {[string|null]} focus [the focused button's id]
+ * @param  {[string]} channel [the showing channel]
+ * @return {[string]} id
+ */
+export function litTab(tabs, focus, channel) {
+	return tabs.some((b) => b.id === focus) ? focus : `tab:${channel}`;
 }
 
 // HOW FAR A POINT IS FROM A BUTTON'S BOX, 0 INSIDE (CHEBYSHEV)
@@ -133,14 +150,16 @@ function distance(b, x, y) {
  * @param  {[number]} x [grid pixels]
  * @param  {[number]} y
  * @param  {[number]} slop [how far a near miss may be]
- * @return {[object|null]} the enabled button containing the point, else the single enabled one within slop, else null (two in reach is a miss)
+ * @return {[object|null]} the enabled button containing the point, else the nearest enabled one within slop, else null (two equally near is a miss)
  */
 export function hit(buttons, x, y, slop = 4) {
 	const live = buttons.filter((b) => b.enabled);
 	const inside = live.find((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
 	if (inside) { return inside; }
 	const near = live.filter((b) => distance(b, x, y) <= slop);
-	return near.length === 1 ? near[0] : null;
+	const best = Math.min(...near.map((b) => distance(b, x, y)));
+	const nearest = near.filter((b) => distance(b, x, y) === best);
+	return nearest.length === 1 ? nearest[0] : null; // A PRESS IN THE GAP BETWEEN TABS GOES TO THE CLOSER ONE
 }
 
 // A BUTTON'S CENTRE AS [X, Y]

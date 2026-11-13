@@ -15,6 +15,7 @@ import { FACES, cellsFor, nextStep, frameMs, mainFrame } from "./faces.js";
 import { HEIGHT as FONT_HEIGHT, textWidth, fitText } from "./pixelFont.js";
 import { W, H, SAFE, STRIP_H, TUBE, TEXT, DIM, HOT, drawText, drawButton, drawTab, body, tabRow } from "./monitor/kit.js";
 import { CHANNEL } from "./monitor/channels/index.js";
+import { litTab } from "./monitor/monitor.js";
 
 const UP = 4; // HOW MANY TIMES THE SCREEN'S GRID (kit.js) IS SCALED UP FOR THE TEXTURE
 const LEVELS = 6; // COLOUR STEPS PER CHANNEL AFTER THE DITHER
@@ -218,8 +219,13 @@ function drawChrome(ctx, view) {
 	ctx.fillRect(0, 0, W, row.y + row.h); // EVERYTHING ABOVE THE BODY, UNDER THE BEZEL TOO
 	ctx.fillStyle = DIM;
 	ctx.fillRect(row.x, row.y + row.h - 1, row.w, 1); // A RULE UNDER THE TABS, IN PLACE OF THEIR BOXES
-	view.tabs.slice(1).forEach((tab) => ctx.fillRect(tab.x - 1, row.y + row.h - 3, 1, 2)); // A TICK UP FROM THE RULE BETWEEN TABS, UNDER THE LETTERS, SO NEIGHBOURING LABELS DON'T RUN TOGETHER
-	for (const tab of view.tabs) { drawTab(ctx, tab, tab.id === view.focus || tab.id === `tab:${view.channel}`); }
+	const lit = litTab(view.tabs, view.focus, view.channel); // ONE TAB ONLY: THE FOCUSED ONE ON THE ROW, ELSE THE SHOWING CHANNEL'S
+	view.tabs.forEach(function (tab, i) { // A TICK UP FROM THE RULE BETWEEN TABS, UNDER THE LETTERS, IN THE GAP'S MIDDLE, SO NEIGHBOURING LABELS DON'T RUN TOGETHER
+		if (!i) { return; }
+		const end = view.tabs[i - 1].x + view.tabs[i - 1].w;
+		ctx.fillRect(end + Math.floor((tab.x - end - 1) / 2), row.y + row.h - 3, 1, 2);
+	});
+	for (const tab of view.tabs) { drawTab(ctx, tab, tab.id === lit); }
 	for (const button of view.buttons) { drawButton(ctx, button, button.id === view.focus); }
 	if (view.banner && view.channel !== "setup" && (screen.reduce || screen.blinkOn)) { drawBanner(ctx, fitText(view.banner, area.w - 4), area); } // NOT ON SETUP: THE PLATE WOULD COVER THE FACE ROW'S BUTTONS, "YOUR MOVE" IS STILL ANNOUNCED
 }
