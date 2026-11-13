@@ -14,6 +14,7 @@ const { caption } = require("../src/js/gameplay/three/monitor/channels/waiting.j
 const { resultLines } = require("../src/js/gameplay/three/monitor/channels/actions.js");
 const { status } = require("../src/js/gameplay/three/monitor/channels/opponent.js");
 const { defaults } = require("../src/js/gameplay/three/monitor/prefs.js");
+const { HEIGHT: FONT_HEIGHT, textWidth } = require("../src/js/gameplay/three/pixelFont.js");
 const { base, acts } = require("./helpers/monitorData.js");
 
 function rows(n) { return Array.from({ length: n }, (_, i) => ({ number: i + 1, white: "e4", black: "e5" })); }
@@ -277,6 +278,32 @@ describe("monitor channels", () => {
 		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "stars" }, reduce: true }), null);
 		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "card" } }), null);
 		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "stars" } }), 80);
+	});
+
+	test("waiting: offline shows RECONNECTING with counting dots on the bare tube", () => {
+		const off = { ...base, ai: false, offline: true, zoomed: true, prefs: { ...defaults(), idle: "card" } };
+		const area = body(off);
+		const y = area.y + Math.floor((area.h - FONT_HEIGHT) / 2);
+		const x = Math.round(area.x + (area.w - textWidth("RECONNECTING...")) / 2);
+		assert.equal(caption(off), "RECONNECTING");
+		assert.equal(caption({ ...off, over: true, result: "DRAW" }), "DRAW");
+		assert.equal(CHANNEL.waiting.speak(off), "Reconnecting");
+		assert.equal(CHANNEL.waiting.tick(off), 500);
+		assert.equal(CHANNEL.waiting.tick({ ...off, reduce: true }), null);
+		for (const [frame, text] of [[0, "RECONNECTING"], [1, "RECONNECTING."], [3, "RECONNECTING..."], [4, "RECONNECTING"]]) {
+			const ctx = fakeCtx(), want = fakeCtx();
+			CHANNEL.waiting.draw(ctx, { ...off, frame });
+			want.fillStyle = TUBE;
+			want.fillRect(area.x, area.y, area.w, area.h);
+			drawText(want, text, x, y, TEXT, -1);
+			assert.deepEqual(ctx.calls, want.calls, `frame ${frame}: no bars, only the text`);
+		}
+		const still = fakeCtx(), want = fakeCtx();
+		CHANNEL.waiting.draw(still, { ...off, frame: 0, reduce: true });
+		want.fillStyle = TUBE;
+		want.fillRect(area.x, area.y, area.w, area.h);
+		drawText(want, "RECONNECTING...", x, y, TEXT, -1);
+		assert.deepEqual(still.calls, want.calls, "reduced motion: all three dots");
 	});
 
 	test("actions: a long result wraps onto two whole lines at a space, a short one stays on one", () => {

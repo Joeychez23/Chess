@@ -74,6 +74,7 @@ export function isTap(press, release, type) {
 export function available(data, prefs) {
 	return ORDER.filter(function (id) {
 		if (id === "setup") { return true; } // ALWAYS A WAY BACK TO THE SETTINGS
+		if (id === "waiting" && data.offline) { return true; } // A LOST CONNECTION SHOWS ON IT, EVEN WHEN SWITCHED OFF
 		if (!prefs.enabled.includes(id)) { return false; }
 		if (id === "face") { return !!data.ai; }
 		if (id === "eval") { return !!(data.eval && data.eval.allowed); }
@@ -89,6 +90,7 @@ export function available(data, prefs) {
  */
 export function idleChannel(data, prefs) {
 	const offered = available(data, prefs);
+	if (data.offline && !data.over) { return "waiting"; } // THE STILL TEST CARD UNTIL IT RECONNECTS
 	if (prefs.defaultChannel && offered.includes(prefs.defaultChannel)) { return prefs.defaultChannel; }
 	if (data.ai && offered.includes("face")) { return "face"; }
 	if (!data.ai && offered.includes("waiting") && !data.yourTurn && !data.over) { return "waiting"; }
@@ -248,6 +250,7 @@ export function createMonitor(deps) {
 	let burst = false;
 	let yourMove = false; // THE YOUR MOVE BANNER IS UP
 	let endedZooming = false; // THE GAME ENDED DURING THE ZOOM-IN, arrived() SHOWS IT
+	let offlineZooming = false; // THE CONNECTION WAS LOST DURING THE ZOOM-IN, arrived() SHOWS THE WAITING CHANNEL
 	let watching = false;
 	let spokenBanner = null;
 	let spokenChannel = null, spokenContent = null; // WHAT THE SCREEN READER WAS LAST TOLD THE SHOWING CHANNEL SHOWS
@@ -273,9 +276,9 @@ export function createMonitor(deps) {
 		if (button) { deps.announce(describe(button, all)); }
 	}
 
-	// THE ONLY BANNER ACROSS THE ZOOMED SCREEN: YOUR MOVE. A FINISHED GAME HAS NONE, THE ACTIONS CHANNEL SHOWS THE RESULT
+	// THE ONLY BANNER ACROSS THE ZOOMED SCREEN: YOUR MOVE. A FINISHED GAME HAS NONE, THE ACTIONS CHANNEL SHOWS THE RESULT. NONE WHILE THE CONNECTION IS LOST
 	function banner() {
-		if (monitor.state !== "zoomed" || !data || data.over) { return null; }
+		if (monitor.state !== "zoomed" || !data || data.over || data.offline) { return null; }
 		return yourMove ? YOUR_MOVE : null;
 	}
 
@@ -366,6 +369,7 @@ export function createMonitor(deps) {
 		burst = false;
 		yourMove = false;
 		endedZooming = false; // A ZOOM-IN THAT TURNED BACK: THE NEXT ONE FINDS THE GAME ALREADY OVER
+		offlineZooming = false; // THE NEXT ZOOM-IN STARTS FROM THE DESK'S WAITING CHANNEL ANYWAY
 		spokenChannel = spokenContent = null;
 		sync();
 	}
@@ -417,12 +421,17 @@ export function createMonitor(deps) {
 		update(next) {
 			const was = data ? data.yourTurn : false;
 			const end = Boolean(data && !data.over && next.over); // ONLY FROM THE UPDATE WHERE IT ENDS
+			const lost = Boolean(next.offline && !next.over && !(data && data.offline)); // ONLY FROM THE UPDATE WHERE IT DROPS: THE PLAYER CAN CHANGE TABS AFTER
 			data = next;
 			if (monitor.state === "zoomed") {
 				if (!next.yourTurn) { yourMove = false; }
 				else if (!was) { yourMove = true; } // ONLY FROM THE UPDATE WHERE IT TURNS TRUE
 				if (end) { ended(); }
-			} else if (monitor.state === "zooming" && end) { endedZooming = true; } // NOTHING TO SWITCH YET, THE CAMERA IS ON ITS WAY
+				if (lost) { switchTo("waiting"); }
+			} else if (monitor.state === "zooming") { // NOTHING TO SWITCH YET, THE CAMERA IS ON ITS WAY
+				if (end) { endedZooming = true; }
+				if (lost) { offlineZooming = true; }
+			}
 			sync();
 		},
 
@@ -441,6 +450,10 @@ export function createMonitor(deps) {
 		 */
 		arrived() {
 			if (monitor.state !== "zooming") { return; }
+			if (offlineZooming) { // STILL ZOOMING: switchTo() ONLY CHANGES THE CHANNEL, THE LINES BELOW SAY IT
+				offlineZooming = false;
+				if (data.offline) { switchTo("waiting"); }
+			}
 			monitor.state = "zoomed";
 			monitor.focus = `tab:${monitor.channel}`;
 			sayChannel();

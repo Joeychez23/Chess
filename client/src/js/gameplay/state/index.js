@@ -94,6 +94,7 @@ export const game = {
 	tiles: setTiles(), // 64 TILE STATES IN SCREEN ORDER (ROW * 8 + COLUMN), FILLED WITH THE PIECE ON EACH SQUARE WHILE DRAWING
 	startPieceCount: countStartPieces(), // { w, b } PIECES EACH SIDE STARTED WITH (THE STANDARD SET, OR A SET POSITION'S, setInitialData())
 	gameOver: false, // THE SERVER CLOSED THE GAME (CHECKMATE, DRAW OR FORFEIT)
+	offline: false, // THE FRIEND GAME'S SOCKET LOST ITS CONNECTION, THE 3D MONITOR SHOWS ITS STILL TEST CARD UNTIL IT'S BACK
 	result: null, // ITS RESULT { winner, reason } (showGameOver), THE 3D ROOM'S MONITOR SHOWS IT
 	boardReset: false, // TRUE WHILE A NEW BOARD LOADS & ITS PIECES SLIDE HOME (RESTART & REMATCH), STOPS THE NORMAL FRAMES (THE OLD BOARD STAYS ON SCREEN)
 	get restartSlide() { return restartSlide; }, // PIECES SLIDING HOME AFTER RESTART & REMATCH: { pieces, startTime } (startRestartSlide)

@@ -7,13 +7,15 @@
  */
 
 import { TUBE, TEXT, DIM, HOT, BARS, fillCells, drawText, sentence, body } from "../kit.js";
-import { HEIGHT as FONT_HEIGHT, fitText } from "../../pixelFont.js";
+import { HEIGHT as FONT_HEIGHT, fitText, textWidth } from "../../pixelFont.js";
 
 const STARS = 28; // HOW MANY STARS
 const PIPE_STEP = 4; // ONE PIPE SEGMENT, GRID PIXELS
 const PIPE_LEN = 160; // SEGMENTS BEFORE THE PIPE STARTS AGAIN
 const TICKS = { stars: 80, pipes: 120 }; // MS BETWEEN FRAMES, A STILL PICTURE HAS NONE
 const STILL_PIPE = 90; // REDUCED MOTION: THE PIPE AS IT IS AT THIS FRAME, NOT A LONE SEGMENT
+const RECONNECTING = "RECONNECTING"; // WHILE THE CONNECTION IS LOST, ITS DOTS COUNT UP AFTER IT
+const DOTS_MS = 500; // MS BETWEEN THE DOTS
 
 // A REPEATABLE NUMBER FROM A SEED, 0 UP TO (BUT NOT) 4294967296
 function hash(n) {
@@ -67,13 +69,22 @@ function drawPipes(ctx, area, frame) {
 // Channel
 /* ---------------------------------------------------------------- */
 
+// RECONNECTING ON THE BARE TUBE, ITS 0 TO 3 DOTS COUNTING UP. PLACED AS IF ALL THREE WERE THERE SO THE WORD STAYS STILL. REDUCED MOTION: ALL THREE
+function drawReconnecting(ctx, data, area) {
+	const dots = ".".repeat(data.reduce ? 3 : data.frame % 4);
+	const full = fitText(`${RECONNECTING}...`, area.w - 16);
+	const x = Math.round(area.x + (area.w - textWidth(full)) / 2);
+	drawText(ctx, RECONNECTING + dots, x, area.y + Math.floor((area.h - FONT_HEIGHT) / 2), TEXT, -1);
+}
+
 /**
- * @description What the game is waiting for
+ * @description What the game is waiting for: the connection while it's lost
  * @param  {[object]} data [the channels' data]
  * @return {[string]} caption
  */
 export function caption(data) {
 	if (data.over) { return data.result; }
+	if (data.offline) { return RECONNECTING; } // NOTHING IS ANYONE'S MOVE UNTIL IT RECONNECTS
 	if (!data.yourTurn) { return data.ai ? "THINKING" : "WAITING FOR OPPONENT"; }
 	return "YOUR MOVE";
 }
@@ -87,6 +98,7 @@ export function draw(ctx, data) {
 	const area = body(data);
 	ctx.fillStyle = TUBE;
 	ctx.fillRect(area.x, area.y, area.w, area.h);
+	if (data.offline && !data.over) { drawReconnecting(ctx, data, area); return; }
 	const idle = data.prefs.idle;
 	if (idle === "stars") { drawStars(ctx, area, data.frame); }
 	else if (idle === "pipes") { drawPipes(ctx, area, data.reduce ? STILL_PIPE : data.frame); }
@@ -113,11 +125,12 @@ export function buttons() {
 export function press() {}
 
 /**
- * @description The stars & the pipe animate, the test card & reduced motion stand still
+ * @description The stars, the pipe & the reconnecting dots animate, the test card & reduced motion stand still
  * @param  {[object]} data [the channels' data]
  * @return {[number|null]} ms [until the next frame, null for a still screen]
  */
 export function tick(data) {
+	if (data.offline && !data.over) { return data.reduce ? null : DOTS_MS; }
 	return data.reduce ? null : TICKS[data.prefs.idle] || null;
 }
 

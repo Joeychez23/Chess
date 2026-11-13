@@ -20,6 +20,7 @@ const { watchEval, evalState, hideEvalBar } = require("../analysis/index.js"); /
 const { moveListState } = require("../movelist/index.js"); // THE MOVES CHANNEL'S ROWS & OPENING
 const { menuItems } = require("../../pages/utils/nav.js"); // A KEY THAT OPENS THE MENU FOCUSES ITS FIRST ITEM
 const { isBusy } = require("../../pages/utils/menuItem.js"); // A BUSY ITEM (.loading) CAN'T BE PRESSED ON THE MONITOR
+const { hideKinds } = require("../status/index.js"); // THE 3D MONITOR SHOWS A LOST CONNECTION, THE PAGE'S MESSAGE HIDES
 const { actionsFrom, resultText } = require("./data.js"); // THE PURE PART (client/test/monitorData.test.js)
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES): AT THE MONITOR IT ZOOMS OUT FIRST
 const optMonitorBtn = document.getElementById("optMonitor"); // MENU: MONITOR, ZOOMS IN
@@ -52,7 +53,7 @@ let said = []; // THE TEXTS WAITING TO BE WRITTEN TO THE LIVE REGION (announce)
 /* ---------------------------------------------------------------- */
 /**
  * @description What the monitor's channels show (the shared data shape, up to actions). renderer/index.js sends it when it changed
- * @return {[object]} { ai, over, yourTurn, tv, result, moves, opening, eval, actions }
+ * @return {[object]} { ai, over, yourTurn, tv, offline, result, moves, opening, eval, actions }
  */
 function monitorData() {
 	const over = Boolean(game.gameOver);
@@ -63,6 +64,7 @@ function monitorData() {
 		over,
 		yourTurn: chessInst.turn() === game.playerColor && !over,
 		tv: Boolean(game.TV_BOOL),
+		offline: Boolean(game.offline),
 		result: over ? resultText(resultDisplay.textContent.trim(), resultReason.textContent.trim()) : "", // TEXT ONLY (innerText / innerHTML OF PLAIN WORDS)
 		moves: rows,
 		opening,
@@ -203,6 +205,7 @@ export function startMonitor() {
 		tv: Boolean(game.TV_BOOL),
 		onChange({ ready: up, state }) {
 			ready = Boolean(up);
+			hideKinds(ready ? ["connection"] : []); // ONLY IN THE 3D ROOM: ON 2D THE MESSAGE IS THE ONLY SIGN
 			syncFocus(ready, state);
 			if (!ready) { watchEval(false); } // GONE (2D, A FAILED ROOM): NO EVAL CHANNEL IS SHOWING, WHATEVER ITS LAST STATE WAS
 			syncHideRules();

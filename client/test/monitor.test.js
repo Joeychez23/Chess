@@ -151,6 +151,36 @@ describe("monitor", () => {
 		m.leave();
 		assert.equal(m.state, "idle");
 	});
+	test("offline: the desk and the zoomed screen go to the waiting channel, with no banner", () => {
+		const friend = { ...base, ai: false };
+		assert.equal(idleChannel({ ...friend, offline: true }, { ...defaults(), defaultChannel: "moves" }), "waiting");
+		assert.ok(available({ ...friend, offline: true }, { ...defaults(), enabled: ["setup"] }).includes("waiting"));
+		assert.equal(idleChannel({ ...friend, offline: true, over: true }, defaults()), "opponent");
+		const m = make();
+		m.update({ ...friend, yourTurn: false });
+		m.enter(); m.arrived();
+		m.update(friend); // YOUR MOVE BANNER UP
+		assert.equal(m.view().banner, "▶ YOUR MOVE");
+		m.update({ ...friend, offline: true });
+		assert.equal(m.channel, "waiting");
+		assert.equal(m.view().banner, null);
+		m.key("a"); // THE PLAYER CAN STILL CHANGE TABS
+		m.update({ ...friend, offline: true });
+		assert.notEqual(m.channel, "waiting", "only switched once per outage");
+		m.update(friend);
+		assert.equal(m.view().banner, "▶ YOUR MOVE");
+	});
+	test("offline: waiting disabled in the settings still shows while zoomed, and a drop during the zoom-in lands on it", () => {
+		const off = { ...base, ai: false, offline: true };
+		const m = make({ loadPrefs: () => ({ ...defaults(), enabled: ["opponent", "setup"] }) });
+		m.update({ ...base, ai: false });
+		m.enter();
+		m.update(off);
+		m.arrived();
+		assert.equal(m.channel, "waiting");
+		m.update(off);
+		assert.equal(m.channel, "waiting", "sync() doesn't bounce it to setup");
+	});
 	test("the screen reader hears the focused item, the channel and the banner", () => {
 		const m = make();
 		m.update({ ...base, yourTurn: false });

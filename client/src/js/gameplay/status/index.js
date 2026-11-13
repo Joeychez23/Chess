@@ -8,6 +8,7 @@
 
 const statusArea = document.getElementById("gameStatus");
 let messages = []; // [{ kind, text, timer }], THE LAST ONE SHOWS
+let hiddenKinds = []; // KINDS KEPT IN THE LIST BUT NOT SHOWN: SOMETHING ELSE SAYS THEM (THE 3D MONITOR, "connection")
 
 export const MESSAGE_TIME = 6000; // A MESSAGE WITH NOTHING TO WAIT FOR GOES AWAY AFTER THIS (ms)
 
@@ -15,7 +16,8 @@ export const MESSAGE_TIME = 6000; // A MESSAGE WITH NOTHING TO WAIT FOR GOES AWA
  * @description Puts what should show in the message area. Only touches it when the text changes, so it isn't read out twice
  */
 function showNewest() {
-	const text = messages.length ? messages[messages.length - 1].text : "";
+	const shown = messages.filter((message) => !hiddenKinds.includes(message.kind));
+	const text = shown.length ? shown[shown.length - 1].text : "";
 	if (statusArea.textContent != text) { statusArea.textContent = text; }
 }
 
@@ -41,6 +43,15 @@ export function showStatus(kind, text, clearAfter) {
 	const message = { kind, text };
 	if (clearAfter) { message.timer = setTimeout(function () { clearStatus(kind); }, clearAfter); }
 	messages.push(message);
+	showNewest();
+}
+
+/**
+ * @description Stops showing some kinds of message, they stay in the list (& keep their timers) & come back when no longer hidden
+ * @param  {[string[]]} kinds [same as showStatus's kind, [] shows them all again]
+ */
+export function hideKinds(kinds) {
+	hiddenKinds = kinds;
 	showNewest();
 }
 

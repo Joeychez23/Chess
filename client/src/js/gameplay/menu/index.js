@@ -82,10 +82,22 @@ export const socketHandlers = { // SOCKET EVENT -> HANDLER
 	rematch: loadRematch,
 	opponentLeft: showOpponentLeft,
 	opponentBack: function () { clearStatus("rematch"); },
-	connectionLost: function () { showStatus("connection", "Connection lost. Reconnecting…"); },
-	reconnected: function () { showStatus("connection", "Reconnected", 3000); },
-	connectionFailed: function () { showStatus("connection", "Connection lost. Reload the page to reconnect."); },
+	connectionLost: function () { setOffline(true); showStatus("connection", "Connection lost. Reconnecting…"); },
+	reconnected: function () { setOffline(false); showStatus("connection", "Reconnected", 3000); },
+	connectionFailed: function () { setOffline(true); showStatus("connection", "Connection lost. Reload the page to reconnect."); },
 };
+
+/* ---------------------------------------------------------------- */
+// Connection
+/* ---------------------------------------------------------------- */
+/**
+ * @description Marks the friend game's socket as up or down, the next frame sends it to the 3D monitor (renderer/index.js)
+ * @param  {[boolean]} lost [true while it's trying to reconnect, or won't without a reload]
+ */
+function setOffline(lost) {
+	game.offline = lost;
+	game.refresh = true;
+}
 
 /* ---------------------------------------------------------------- */
 // Open & Close
