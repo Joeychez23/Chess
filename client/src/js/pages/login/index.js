@@ -14,7 +14,7 @@ import "../../../css/home.css"; // THE SAME BOXES AS HOME & SETTINGS
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
-const { startNav, showPageWhenDrawn, startLoading, goToPage, stopLoading, startGameLinks } = require("../utils/index.js");
+const { startBoxNav, showPageWhenDrawn, startLoading, goToPage, stopLoading, startGameLinks } = require("../utils/index.js");
 
 const loginForm = document.getElementById("loginForm");
 const emailInput = document.getElementById("loginEmail");
@@ -32,7 +32,7 @@ const forgotNote = document.getElementById("forgotNote"); // THE SAME ANSWER WIT
 
 const auth = new InternalAuth;
 
-startNav();
+startBoxNav();
 preloadImages(); // THE LOADING FILL & goToPage() WAIT ON THESE (THEY'RE ALSO HOME'S & THE GAME'S, SO THE NEXT PAGE OPENS FROM THE BROWSER CACHE)
 startGameLinks(); // CREATE ACCOUNT & SIGN IN LINKS SAY LOADING TOO
 showPageWhenDrawn([checkSession()]);

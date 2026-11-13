@@ -228,7 +228,7 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	display: none;
 }
 
-#resultAnnouncement { /* ONLY FOR SCREEN READERS, THE MENU'S TITLE SHOWS THE RESULT. NOT display: none, THEY WOULDN'T READ IT */
+#resultAnnouncement, #monitorAnnouncement, #monitorFocus, #monitorStop { /* ONLY FOR SCREEN READERS, THE MENU'S TITLE & THE MONITOR'S GLASS SHOW WHAT THEY SAY (#monitorFocus HOLDS THE FOCUS WHILE ZOOMED, #monitorStop ON THE DESK). NOT display: none, THEY WOULDN'T READ IT */
 	position: fixed;
 	width: 1px;
 	height: 1px;
@@ -236,6 +236,20 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	overflow: hidden;
 	clip-path: inset(50%);
 	white-space: nowrap;
+}
+
+#monitorStop { /* A BUTTON: NO PADDING OR BORDER PAST ITS 1PX. ITS FOCUS IS THE BORDER ROUND THE MONITOR'S GLASS, NOT A RING HERE */
+	padding: 0;
+	border: 0;
+	outline: none;
+}
+
+#monitorStop[hidden] { /* OFF 3D, IN TV MODE & WITH REDUCED MOTION: NOT A STOP FOR TAB OR THE ARROWS */
+	display: none;
+}
+
+[data-on-monitor] { /* 3D: SHOWN ON THE ROOM'S MONITOR INSTEAD (gameplay/monitor/index.js). ITS OWN ATTRIBUTE, THE CODE THAT SETS hidden KEEPS ITS RULES */
+	display: none !important;
 }
 
 #moveDeadline { /* BOTTOM LEFT, CLICKS GO THROUGH TO THE BOARD */

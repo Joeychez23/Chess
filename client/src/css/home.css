@@ -54,6 +54,8 @@ body {
 	outline-offset: 2px;
 }
 
+[data-moving] { caret-color: transparent; } /* A MOVING TEXT BOX DOESN'T TAKE TYPING YET */
+
 /* ---------------------------------------------------------------- */
 /* Text */
 /* ---------------------------------------------------------------- */
@@ -301,16 +303,125 @@ body {
 	color: var(--muted);
 }
 
+.field .dropdown { /* SIZED LIKE THE <select> IT DRAWS */
+	flex: 1 1 190px;
+	min-width: 0;
+}
+
 .fieldStack { /* PLAY THE AI & PLAY A FRIEND: LEVEL OR EMAIL, COLOR, THEN THE BUTTON, ONE PER ROW */
 	flex-direction: column;
 	flex-wrap: nowrap;
 }
 
 .fieldStack select,
+.fieldStack .dropdown,
 .fieldStack input,
 .fieldStack .btn {
 	flex: none; /* .field's 190px BASIS WOULD BE A 190px HEIGHT IN A COLUMN */
 	width: 100%;
+}
+
+.field select[hidden] { /* dropdown.js DRAWS IT AS A BUTTON & LIST, THE <select> ONLY HOLDS THE VALUE */
+	display: none;
+}
+
+.dropdown { /* THE BUTTON & ITS LIST, IN THE <select>'S PLACE, THE LIST OPENS UNDER THE BUTTON */
+	position: relative;
+}
+
+.dropdownBtn {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	min-height: 48px;
+	padding: 0 14px;
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	background-color: rgba(0, 0, 0, 0.22);
+	color: var(--maple);
+	font-family: var(--font-mono);
+	font-size: 16px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.dropdownBtn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.dropdownText {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis; /* A LONG LEVEL NAME NEVER WIDENS THE BOX */
+}
+
+.dropdownCaret {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	margin-top: -4px;
+	border-right: 2px solid var(--gold);
+	border-bottom: 2px solid var(--gold);
+	transform: rotate(45deg);
+	transition: transform 150ms ease-out;
+}
+
+.dropdownBtn[aria-expanded="true"] .dropdownCaret {
+	margin-top: 4px;
+	transform: rotate(-135deg); /* POINTS UP WHILE OPEN */
+}
+
+.dropdownList {
+	position: absolute;
+	z-index: 10; /* OVER THE BOXES BELOW */
+	top: calc(100% + 6px);
+	left: 0;
+	right: 0;
+	box-sizing: border-box;
+	max-height: min(280px, 50vh);
+	margin: 0;
+	padding: 6px;
+	overflow-y: auto;
+	border: 1px solid rgba(201, 163, 90, 0.45);
+	border-radius: 12px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+	list-style: none;
+}
+
+.dropdownList:focus-visible {
+	outline: none; /* THE ACTIVE OPTION SHOWS THE FOCUS */
+}
+
+.box:has(.dropdownList:not([hidden])) { /* A LATER BOX WOULD PAINT OVER THE OPEN LIST */
+	position: relative;
+	z-index: 5;
+}
+
+.dropdownList [role="option"] {
+	display: flex;
+	align-items: center;
+	min-height: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	box-sizing: border-box;
+	padding: 0 10px;
+	border-radius: 8px;
+	font-family: var(--font-mono);
+	font-size: 16px;
+	cursor: pointer;
+}
+
+.dropdownList [role="option"]:hover {
+	background-color: var(--walnut-2);
+}
+
+.dropdownList [role="option"][aria-selected="true"] {
+	background-color: var(--walnut-2);
+	outline: 2px solid var(--gold);
+	outline-offset: -2px;
 }
 
 #signupForm {

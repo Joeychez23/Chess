@@ -2,7 +2,7 @@
  *  index.js  --  chess frontend
  *	AI Bots (#76)
  *	Each AI level is a bot (server/utils/bots.js, sent by GET /api/chess/levels). This picks a game's bot & when it speaks, from the moves.
- *	No DOM & no process.env here, so the tests load it in Node (client/test/bots.test.js). The page side is say.js
+ *	& the face the 3D board's monitor makes. No DOM & no process.env here, so the tests load it in Node (client/test/bots.test.js). The page side is say.js
  *
  */
 
@@ -58,4 +58,33 @@ function pickLine(bot, moment, random = Math.random) {
 	return lines[Math.min(lines.length - 1, Math.floor(random() * lines.length))];
 }
 
-module.exports = { botFor, momentFor, endMomentFor, pickLine };
+/**
+ * @description The face the 3D board's monitor makes at a move by either side (three/faces.js has the faces). Mate beats check, check beats a capture, like momentFor
+ * @param  {[object]} move [chess.js verbose move just played]
+ * @param  {[object]} chess [chess.js board after the move]
+ * @param  {[string]} botColor ["w" | "b"]
+ * @return {[string]} face ["happy" | "sad" | "angry" | "won" | "lost" | null (a quiet move: no change)]
+ */
+function faceFor(move, chess, botColor) {
+	if (!move) { return null; }
+	const bots = move.color === botColor;
+	if (chess.isCheckmate()) { return bots ? "won" : "lost"; }
+	if (chess.isCheck()) { return bots ? "happy" : "angry"; }
+	if (!move.captured) { return null; }
+	if (bots) { return "happy"; }
+	return move.captured === "r" || move.captured === "q" ? "angry" : "sad"; // LOSING A ROOK OR QUEEN STINGS
+}
+
+/**
+ * @description The monitor's face when the game ends, held until the next game
+ * @param  {[object]} result [showGameOver's { winner: "w" | "b" | "draw" }]
+ * @param  {[string]} botColor ["w" | "b"]
+ * @return {[string]} face ["won" | "lost" | "neutral" (a draw) | null (no result)]
+ */
+function endFaceFor(result, botColor) {
+	if (result?.winner === "draw") { return "neutral"; }
+	if (result?.winner !== "w" && result?.winner !== "b") { return null; }
+	return result.winner === botColor ? "won" : "lost";
+}
+
+module.exports = { botFor, momentFor, endMomentFor, pickLine, faceFor, endFaceFor };

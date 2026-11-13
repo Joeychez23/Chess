@@ -3,7 +3,7 @@
  *	Move Box
  *	Plays a typed move like e4, Nf3, exd5 or e8=Q (#moveBox on the play page, HTML over the canvas). The / key or the menu's
  *	Type a Move opens it (Type a Move also closes it), chess.js reads the move on the scratch board & it slides like a clicked move, validateMove() sends it
- *	when it lands (sound & server check as usual). It's open when the game loads, without the cursor where that would bring up a phone's keyboard or catch the TV remote's keys.
+ *	when it lands (sound & server check as usual). It's open when the game loads, without the cursor where that would bring up a phone's keyboard or catch remote-only mode's keys.
  *	As the player types it lists the legal moves that start with what they typed, picked with a click, a tap or the arrow keys & Enter
  *	Keyboard: closing gives focus back to where it was when the box opened & Left or Right leave the box with the cursor at that end (pages/utils/nav.js).
  *	It opens at the top right behind the menu button, which covers the X. A mouse or a finger can drag it by anything but the input, the X & the list, it stays inside the window until it's closed
@@ -16,7 +16,7 @@
 const { game, chessInst, validateState, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
 const { refreshData } = require("../moves/index.js"); // RESETS THE BOARD TO A SERVER GAME
 const { closeMenu } = require("../menu/index.js"); // A KEY ON TYPE A MOVE CLOSES THE MENU, THE CURSOR GOES IN THE BOX
-const { canLeave } = require("../../pages/utils/nav.js"); // LEFT & RIGHT LET GO WITH THE CURSOR AT THAT END
+const { canLeave, arrowKey } = require("../../pages/utils/nav.js"); // LEFT & RIGHT LET GO WITH THE CURSOR AT THAT END
 const { moveBlockReason, suggestMoves, exampleMoves, stepHighlight, countMessage } = require("./suggestions.js"); // WHEN THE PLAYER CAN MOVE & WHAT THE LIST SHOWS
 const box = document.getElementById("moveBox"); // THE FORM
 const input = document.getElementById("moveBoxInput"); // WHERE THE MOVE IS TYPED
@@ -385,7 +385,7 @@ function playTypedMove(text) {
 // Listeners
 /* ---------------------------------------------------------------- */
 /**
- * @description The / key opens the box. Not added to handleKeyPress(), that's only on in TV mode
+ * @description The / key opens the box. Not added to handleKeyPress(), that's only on in remote-only mode
  */
 function handleOpenKey(e) {
 	if (e.key != "/" || e.repeat || e.ctrlKey || e.metaKey || e.altKey || game.menuToggled) { return; }
@@ -395,11 +395,11 @@ function handleOpenKey(e) {
 }
 
 /**
- * @description Keys typed in the box stay in the box, so they don't reach the / key's listener or move the TV select box. Escape closes it,
+ * @description Keys typed in the box stay in the box, so they don't reach the / key's listener or move remote-only mode's select box. Escape closes it,
  * the arrow keys move along the list & Enter plays the highlighted move (with nothing highlighted the form plays what was typed)
  */
 function handleBoxKey(e) {
-	if (!game.TV_BOOL && (e.key == "Tab" || leavesBox(e))) { return; } // THE PAGE'S KEYS (pages/utils/nav.js)
+	if (!game.REMOTE_ONLY_CONDITIONAL && (e.key == "Tab" || leavesBox(e))) { return; } // THE PAGE'S KEYS (pages/utils/nav.js)
 	e.stopPropagation();
 	if (e.key == "Escape") { closeMoveBox(); return; }
 	if (e.target != input || suggestions.length == 0) { return; }
@@ -420,9 +420,10 @@ function handleBoxKey(e) {
  * @return {[boolean]} leaves
  */
 function leavesBox(e) {
-	if (e.key != "ArrowLeft" && e.key != "ArrowRight") { return false; }
-	if (e.target == input) { return canLeave(input, e.key); }
-	const end = e.key == "ArrowLeft" ? 0 : input.value.length;
+	const key = arrowKey(e); // FROM THE X, A & D ARE LEFT & RIGHT. IN THE INPUT THEY'RE LETTERS
+	if (key != "ArrowLeft" && key != "ArrowRight") { return false; }
+	if (e.target == input) { return canLeave(input, key); }
+	const end = key == "ArrowLeft" ? 0 : input.value.length;
 	input.focus();
 	input.setSelectionRange(end, end);
 	return true;

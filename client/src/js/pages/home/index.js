@@ -20,7 +20,7 @@ const { validate, newAiGame, getUserGameData, initMultiplayerGame, searchPlayers
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { timeLeftText } = require("../utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT ON YOUR GAMES
-const { startNav, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, botLevels, botName, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
+const { startBoxNav, startDropdowns, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, botLevels, botName, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
 const USER_URL = "/api/user"; // server/routes/api/userRoutes.js
@@ -87,7 +87,8 @@ let searchTurn = 0; // A NEWER KEY PRESS MAKES AN OLDER SEARCH'S ANSWER STALE
 let homeDrawing = Promise.resolve(); // ONE REDRAW AT A TIME (refreshHome)
 let SETTINGS = null; // THE PLAYER'S DEFAULT START SETTINGS (THE SETTINGS PAGE), THE DROPDOWNS START ON THEM
 
-startNav();
+startBoxNav();
+startDropdowns(); // ENTER OPENS A DROPDOWN, A NATIVE <select> CAN'T BE OPENED BY A SCRIPT IN SAFARI
 startLogoutButtons(auth); // LOGOUT IN THE MENU IS A POST (#332)
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
 startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
