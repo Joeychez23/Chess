@@ -999,7 +999,7 @@ export function resetCamera(color) {
 
 /**
  * @description What the library's monitor shows (three/screen.js setScreen). Kept until the room has loaded, nothing on a board with no monitor
- * @param  {[object]} state { name, status, image, ai, thinking }
+ * @param  {[object]} state { name, status, ai, thinking }
  */
 export function setScreen(state) {
 	if (!view) { return; }

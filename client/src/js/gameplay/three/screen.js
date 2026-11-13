@@ -4,7 +4,7 @@
  *	Draws what the monitor in the library room shows (three/room.js has the monitor) on one 2D canvas, used as the glass's texture: the view the
  *	monitor's state machine gives it (three/monitor/monitor.js, setMonitorView) through its channels (three/monitor/channels), with the tab row,
  *	buttons & banner when zoomed. Without one it shows what it always has: colour bars before a game has loaded, the opponent's name & a status
- *	line, the opponent's picture through a retro filter &, in AI games, a pixel face that reacts to the moves (three/faces.js has the faces).
+ *	line &, in AI games, a pixel face that reacts to the moves (three/faces.js has the faces).
  *	Everything is drawn on a 160 x 120 grid & scaled up 4 times, then scanlines, phosphor stripes & a vignette go over it. It only redraws when
  *	something changes: the face steps on a timer of its own, a channel that animates & the banner's blink on another, there's no animation loop
  *
@@ -18,94 +18,19 @@ import { CHANNEL } from "./monitor/channels/index.js";
 import { litTab } from "./monitor/monitor.js";
 
 const UP = 4; // HOW MANY TIMES THE SCREEN'S GRID (kit.js) IS SCALED UP FOR THE TEXTURE
-const LEVELS = 6; // COLOUR STEPS PER CHANNEL AFTER THE DITHER
-const DITHER = 0.7;
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 4 x 4 ORDERED DITHER
-const BARS_MS = 700; // A NEW OPPONENT: THE TEST CARD THIS LONG...
-const INTRO_MS = 3000; // ...THEN ITS PICTURE & NAME THIS LONG, THEN THE FACE
+const BARS_MS = 700; // A NEW OPPONENT: THE TEST CARD THIS LONG
 const BLINK_MS = 500; // THE BANNER: THIS LONG ON, THIS LONG OFF
 const BURST_MS = 120; // A CHANNEL SWITCH: STATIC THIS LONG, THEN THE CHANNEL
-const ASSETS_ORIGIN = originOf(process.env.CHESS_ASSETS_URL);
 const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 let screen = null; // EVERYTHING ONE createScreen() MADE, null WHEN THERE'S NO MONITOR
-const pictures = new Map(); // URL -> ITS FILTERED 160 x 120 CANVAS (OR null: IT FAILED), ONCE PER IMAGE
 let getView = null; // THE MONITOR'S view() (setMonitorView), null: THE SCREEN SHOWS WHAT IT DID BEFORE THE MONITOR HAD CHANNELS
-
-function originOf(url) {
-	try { return new URL(url, window.location.href).origin; } catch (e) { return null; }
-}
 
 function makeCanvas(w, h) {
 	const canvas = document.createElement("canvas");
 	canvas.width = w;
 	canvas.height = h;
 	return canvas;
-}
-
-/* ---------------------------------------------------------------- */
-// Retro Picture
-/* ---------------------------------------------------------------- */
-
-// THE CSP's img-src ONLY ALLOWS THE SITE, data: & THE ASSETS DOMAIN, ANYTHING ELSE WOULD FAIL ANYWAY
-function allowed(url) {
-	if (url.startsWith("data:image/")) { return true; }
-	const origin = originOf(url);
-	return origin !== null && (origin === window.location.origin || origin === ASSETS_ORIGIN);
-}
-
-/**
- * @description The picture's first steps, once per image: crop to 4:3 & shrink to the grid, lift the shadows, raise contrast & saturation,
- * dither down to a small palette & bleed red & blue sideways. The scale up, scanlines, stripes & vignette are the same for everything (overlay)
- * @param  {[HTMLImageElement]} image [loaded with CORS, so its pixels can be read]
- * @return {[HTMLCanvasElement]} [160 x 120]
- */
-function retro(image) {
-	const canvas = makeCanvas(W, H);
-	const ctx = canvas.getContext("2d", { willReadFrequently: true });
-	const cw = Math.min(image.naturalWidth, image.naturalHeight * 4 / 3), ch = cw * 3 / 4; // CENTRE CROP
-	ctx.drawImage(image, (image.naturalWidth - cw) / 2, (image.naturalHeight - ch) / 2, cw, ch, 0, 0, W, H);
-	const pixels = ctx.getImageData(0, 0, W, H);
-	const d = pixels.data;
-	const v = new Float32Array(W * H * 3);
-	for (let i = 0; i < W * H; i++) {
-		const rgb = [0, 1, 2].map((c) => Math.min(1, Math.max(0, ((d[i * 4 + c] / 255) ** 0.8 - 0.5) * 1.1 + 0.5))); // SHADOWS UP, CONTRAST
-		const grey = (rgb[0] + rgb[1] + rgb[2]) / 3;
-		const bayer = BAYER[(Math.floor(i / W) % 4) * 4 + (i % W) % 4] / 16 - 0.5;
-		for (let c = 0; c < 3; c++) {
-			const s = Math.min(1, Math.max(0, grey + (rgb[c] - grey) * 1.2)); // SATURATION
-			v[i * 3 + c] = Math.min(1, Math.max(0, Math.round(s * (LEVELS - 1) + bayer * DITHER) / (LEVELS - 1)));
-		}
-	}
-	for (let i = 0; i < W * H; i++) {
-		const x = i % W;
-		const r = x > 0 ? (v[(i - 1) * 3] + v[i * 3]) / 2 : v[i * 3]; // RED SMEARS RIGHT...
-		const b = x < W - 1 ? (v[(i + 1) * 3 + 2] + v[i * 3 + 2]) / 2 : v[i * 3 + 2]; // ...BLUE LEFT
-		d[i * 4] = 255 * Math.min(1, r * 1.18); // BRIGHTER: THE SCANLINES & STRIPES TAKE IT BACK
-		d[i * 4 + 1] = 255 * Math.min(1, v[i * 3 + 1] * 1.18);
-		d[i * 4 + 2] = 255 * Math.min(1, b * 1.18);
-		d[i * 4 + 3] = 255;
-	}
-	ctx.putImageData(pixels, 0, 0);
-	return canvas;
-}
-
-// STARTS LOADING url'S PICTURE (ONCE), THE SCREEN REDRAWS WHEN IT'S IN OR HAS FAILED
-function loadPicture(url) {
-	if (pictures.has(url)) { return; }
-	pictures.set(url, undefined); // LOADING
-	if (!allowed(url)) { pictures.set(url, null); return; }
-	const image = new Image();
-	image.crossOrigin = "anonymous"; // A CANVAS WITH A CROSS-ORIGIN IMAGE ON IT CAN'T BE READ OR USED AS A TEXTURE OTHERWISE
-	image.onload = function () {
-		try { pictures.set(url, retro(image)); } catch (e) { pictures.set(url, null); } // TAINTED (NO CORS HEADERS): TEXT ONLY
-		draw();
-	};
-	image.onerror = function () {
-		pictures.set(url, null);
-		draw();
-	};
-	image.src = url;
 }
 
 /* ---------------------------------------------------------------- */
@@ -149,12 +74,10 @@ function drawStrip() {
 	if (status) { drawText(ctx, status, W - 4, y, DIM, 1); }
 }
 
-// WHAT THE SCREEN SHOWS NOW: THE TEST CARD BEFORE A GAME (& AS A NEW OPPONENT COMES ON), THE FACE IN AN AI GAME ONCE ITS PICTURE HAS HAD ITS
-// TIME, ELSE THE PICTURE, ELSE TEXT
+// WHAT THE SCREEN SHOWS NOW: THE TEST CARD BEFORE A GAME (& AS A NEW OPPONENT COMES ON), THE FACE IN AN AI GAME, ELSE TEXT
 function mode() {
 	if (!screen.name || screen.booting) { return "bars"; }
-	if (screen.ai && !screen.intro) { return "face"; }
-	return screen.image && pictures.get(screen.image) ? "picture" : "text";
+	return screen.ai ? "face" : "text";
 }
 
 // THE VIEW TO DRAW: THE MONITOR'S ONCE IT HAS A GAME'S DATA, ELSE TODAY'S SCREEN (THE FACE WHEN IT SHOWS, ELSE THE OPPONENT'S CARD) ON THE DESK.
@@ -165,8 +88,7 @@ function currentView() {
 	return { channel: mode() === "face" ? "face" : "opponent", zoomed: false, tabs: [], buttons: [], focus: null, hover: null, deskFocus: Boolean(view && view.deskFocus), banner: null, burst: false, data: null }; // THE KEYBOARD'S FOCUS SHOWS BEFORE THE GAME'S DATA ARRIVES TOO
 }
 
-// WHAT A VIEW DRAWS, TO TELL WHETHER redrawScreen() HAS ANYTHING NEW (THE PICTURE ISN'T IN IT, A LOADED ONE DRAWS BY ITSELF). burst IS LEFT
-// OUT: IT'S TRUE ONCE, SO THE NEXT VIEW WOULD NEVER MATCH
+// WHAT A VIEW DRAWS, TO TELL WHETHER redrawScreen() HAS ANYTHING NEW. burst IS LEFT OUT: IT'S TRUE ONCE, SO THE NEXT VIEW WOULD NEVER MATCH
 function keyOf(view) {
 	return JSON.stringify({ ...view, burst: false });
 }
@@ -186,14 +108,11 @@ function faceNow(view) {
 	return { cells: cellsFor(frame), colour: FACES[name].colour };
 }
 
-// THE CHANNELS' DATA: THE MONITOR'S, WITH WHAT THE SCREEN KNOWS ADDED. THE FACE CHANNEL GETS THE PICTURE ONLY DURING THE AI'S INTRO
+// THE CHANNELS' DATA: THE MONITOR'S, WITH WHAT THE SCREEN KNOWS ADDED
 function channelData(view) {
-	const showing = mode();
-	const loaded = (screen.image && pictures.get(screen.image)) || null;
-	const picture = showing === "bars" || (view.channel === "face" && !screen.intro) ? null : loaded; // NO PICTURE (& SO NO STRIP) OVER THE TEST CARD
 	return {
 		...(view.data || {}),
-		screen: { name: screen.name, status: screen.status, picture, bars: showing === "bars", face: faceNow(view) },
+		screen: { name: screen.name, status: screen.status, bars: mode() === "bars", face: faceNow(view) },
 		frame: screen.reduce ? 0 : screen.frame, reduce: screen.reduce, zoomed: view.zoomed,
 	};
 }
@@ -279,8 +198,8 @@ function draw(view = currentView()) {
 		screen.burstTimer = setTimeout(function () { if (screen) { screen.burstTimer = null; draw(); } }, BURST_MS);
 	}
 	const bursting = view.burst || screen.burstTimer !== null;
-	const lit = view.channel === "face" && !data.screen.bars && !data.screen.picture; // THE FACE'S CELLS SHOW
-	const named = !view.zoomed && !bursting && !data.screen.bars && (data.screen.picture || lit); // THE DESK'S FACE & OPPONENT CARD: THE NAME STRIP GOES ON AFTER THE SCANLINES
+	const lit = view.channel === "face" && !data.screen.bars; // THE FACE'S CELLS SHOW
+	const named = !view.zoomed && !bursting && lit; // THE DESK'S FACE: THE NAME STRIP GOES ON AFTER THE SCANLINES
 	sctx.fillStyle = TUBE;
 	sctx.fillRect(0, 0, W, H);
 	if (bursting) { drawStatic(sctx, view.zoomed); } // ANY DRAW INSIDE THE BURST'S 120 ms STAYS STATIC
@@ -349,23 +268,16 @@ function showFace(name) {
 	schedule();
 }
 
-// A NEW OPPONENT COMES ON: THE TEST CARD, THEN (AI GAMES) ITS PICTURE & NAME BEFORE THE FACE TAKES OVER
+// A NEW OPPONENT COMES ON: THE TEST CARD, THEN ITS CARD OR (AI GAMES) THE FACE
 function boot() {
 	clearTimeout(screen.bootTimer);
 	screen.booting = true;
-	screen.intro = screen.ai;
 	draw();
 	screen.bootTimer = setTimeout(function () {
 		if (!screen) { return; }
 		screen.booting = false;
-		draw();
-		if (!screen.ai) { return; }
-		screen.bootTimer = setTimeout(function () {
-			if (!screen) { return; }
-			screen.intro = false;
-			const face = FACES[screen.face.name];
-			showFace(face.loop ? screen.face.name : face.then ?? screen.idle); // A RESULT THAT CAME MEANWHILE SHOWS ITS HELD FACE, A REACTION IS OLD NEWS
-		}, INTRO_MS);
+		const face = FACES[screen.face.name];
+		showFace(face.loop ? screen.face.name : face.then ?? screen.idle); // A RESULT THAT CAME MEANWHILE SHOWS ITS HELD FACE, A REACTION IS OLD NEWS
 	}, BARS_MS);
 }
 
@@ -434,8 +346,8 @@ export function createScreen(mesh, requestRender) {
 	mesh.material = new MeshBasicMaterial({ map: texture }); // UNLIT, IT GLOWS
 	screen = {
 		canvas, texture, requestRender, small: makeCanvas(W, H), strip: makeCanvas(W, STRIP_H), overlay: makeOverlay(),
-		name: "", status: "", image: null, ai: false, idle: "neutral", face: { name: "neutral", index: 0 },
-		booting: false, intro: false, timer: null, bootTimer: null, paused: false, reduce: REDUCE.matches,
+		name: "", status: "", ai: false, idle: "neutral", face: { name: "neutral", index: 0 },
+		booting: false, timer: null, bootTimer: null, paused: false, reduce: REDUCE.matches,
 		channel: null, frame: 0, frameAt: null, tickMs: null, tickTimer: null, blinkOn: true, blinkAt: null, blinking: false, burstTimer: null, lastKey: null,
 	};
 	REDUCE.addEventListener("change", onReduce);
@@ -445,15 +357,14 @@ export function createScreen(mesh, requestRender) {
 
 /**
  * @description What the monitor shows: the opponent & what they're doing. A new opponent comes on through the test card
- * @param  {[object]} state { name (the opponent's, "" before a game has loaded: the test card), status ("your move", ...), image (its picture's
- * URL or null), ai (an AI game: the face shows once the picture has had its time), thinking (the AI is picking its move: the idle face looks about) }
+ * @param  {[object]} state { name (the opponent's, "" before a game has loaded: the test card), status ("your move", ...),
+ * ai (an AI game: the face shows), thinking (the AI is picking its move: the idle face looks about) }
  */
-export function setScreen({ name = "", status = "", image = null, ai = false, thinking = false }) {
+export function setScreen({ name = "", status = "", ai = false, thinking = false }) {
 	if (!screen) { return; }
 	const fresh = name !== screen.name || ai !== screen.ai;
 	const idle = thinking ? "thinking" : "neutral";
-	Object.assign(screen, { name, status, image: image || null, ai });
-	if (screen.image) { loadPicture(screen.image); }
+	Object.assign(screen, { name, status, ai });
 	drawStrip();
 	if (screen.idle !== idle) {
 		screen.idle = idle;

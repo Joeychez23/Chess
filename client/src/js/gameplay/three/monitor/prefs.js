@@ -1,15 +1,15 @@
 /*
  *  prefs.js  --  chess frontend
  *	The CRT Monitor's Settings
- *	Which channels the monitor offers, which one opens first & what it shows when idle. Kept in localStorage under KEY; this is the only
+ *	Which channels the monitor offers, which one opens first & the opponent channel's background. Kept in localStorage under KEY; this is the only
  *	file that touches it, & every access is in a try, since storage can be blocked or full.
  *	No DOM & no three.js here, so the tests load it in Node (client/test/monitorPrefs.test.js)
  *
  */
 
-const CHANNELS = ["face", "opponent", "eval", "moves", "waiting", "actions", "setup"];
+const CHANNELS = ["face", "opponent", "eval", "moves", "actions", "setup"];
 const LOCKED = ["face", "setup"]; // CAN'T BE TURNED OFF, SO THE MONITOR ALWAYS HAS A FACE & A WAY TO CHANGE ITS SETTINGS
-const IDLES = ["card", "stars", "pipes"];
+const IDLES = ["card", "stars", "pipes"]; // THE OPPONENT CHANNEL'S BACKGROUNDS
 const KEY = "MONITOR";
 
 /* ---------------------------------------------------------------- */
@@ -21,7 +21,7 @@ const KEY = "MONITOR";
  * @return {object} defaultChannel null means by game: the face against a bot, the opponent against a friend
  */
 export function defaults() {
-	return { version: 1, defaultChannel: null, enabled: [...CHANNELS], idle: "card" };
+	return { version: 1, defaultChannel: null, enabled: [...CHANNELS], idle: "stars" };
 }
 
 /**
@@ -37,7 +37,7 @@ export function clean(raw) {
 		version: 1,
 		defaultChannel: enabled.includes(raw.defaultChannel) ? raw.defaultChannel : null,
 		enabled,
-		idle: IDLES.includes(raw.idle) ? raw.idle : "card",
+		idle: IDLES.includes(raw.idle) ? raw.idle : "stars",
 	};
 }
 

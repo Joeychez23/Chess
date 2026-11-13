@@ -39,7 +39,7 @@ test("broken JSON, an old version, null and an array fall back to defaults", () 
 });
 test("an unknown channel id is dropped, face and setup can't be turned off", () => {
 	assert.deepEqual(clean({ version: 1, defaultChannel: "radio", enabled: ["radio", "moves"], idle: "x" }),
-		{ version: 1, defaultChannel: null, enabled: ["face", "moves", "setup"], idle: "card" });
+		{ version: 1, defaultChannel: null, enabled: ["face", "moves", "setup"], idle: "stars" });
 });
 test("a disabled default channel becomes null", () => {
 	assert.equal(clean({ version: 1, defaultChannel: "eval", enabled: ["moves"], idle: "card" }).defaultChannel, null);

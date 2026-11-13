@@ -49,7 +49,7 @@ describe("monitor", () => {
 		assert.equal(tabButtons(ORDER)[0].label, "◀");
 	});
 	test("tabs leave a gap between them when the row has room, so two lit tabs don't merge", () => {
-		const friend = tabButtons(["opponent", "moves", "waiting", "actions", "setup"], "opponent");
+		const friend = tabButtons(["opponent", "moves", "actions", "setup"], "opponent");
 		assert.equal(friend[0].label, "◀ BACK");
 		friend.forEach((b, i) => { if (i) { assert.ok(b.x - (friend[i - 1].x + friend[i - 1].w) >= 1, `${b.id} touches`); } });
 		const two = tabButtons(["face", "setup"]);
@@ -113,9 +113,9 @@ describe("monitor", () => {
 	});
 	test("channels a game doesn't have are never offered", () => {
 		const friend = { ...base, ai: false, eval: { allowed: false, scores: [], failed: false } };
-		assert.deepEqual(available(friend, defaults()), ["opponent", "moves", "waiting", "actions", "setup"]);
+		assert.deepEqual(available(friend, defaults()), ["opponent", "moves", "actions", "setup"]);
 		assert.equal(idleChannel(friend, { ...defaults(), defaultChannel: "face" }), "opponent");
-		assert.equal(idleChannel({ ...friend, yourTurn: false }, defaults()), "waiting");
+		assert.equal(idleChannel({ ...friend, yourTurn: false }, defaults()), "opponent");
 		assert.deepEqual(available(friend, { ...defaults(), enabled: ["face", "setup"] }), ["setup"]);
 		assert.equal(idleChannel(friend, { ...defaults(), enabled: ["face", "setup"] }), "setup");
 		assert.equal(idleChannel(base, defaults()), "face");
@@ -151,35 +151,37 @@ describe("monitor", () => {
 		m.leave();
 		assert.equal(m.state, "idle");
 	});
-	test("offline: the desk and the zoomed screen go to the waiting channel, with no banner", () => {
+	test("offline: the desk and the zoomed screen go to the opponent channel, with no banner", () => {
 		const friend = { ...base, ai: false };
-		assert.equal(idleChannel({ ...friend, offline: true }, { ...defaults(), defaultChannel: "moves" }), "waiting");
-		assert.ok(available({ ...friend, offline: true }, { ...defaults(), enabled: ["setup"] }).includes("waiting"));
+		assert.equal(idleChannel({ ...friend, offline: true }, { ...defaults(), defaultChannel: "moves" }), "opponent");
+		assert.ok(available({ ...friend, offline: true }, { ...defaults(), enabled: ["setup"] }).includes("opponent"));
 		assert.equal(idleChannel({ ...friend, offline: true, over: true }, defaults()), "opponent");
 		const m = make();
 		m.update({ ...friend, yourTurn: false });
 		m.enter(); m.arrived();
 		m.update(friend); // YOUR MOVE BANNER UP
 		assert.equal(m.view().banner, "▶ YOUR MOVE");
+		m.key("d"); // ON ANOTHER TAB WHEN IT DROPS
+		assert.notEqual(m.channel, "opponent");
 		m.update({ ...friend, offline: true });
-		assert.equal(m.channel, "waiting");
+		assert.equal(m.channel, "opponent");
 		assert.equal(m.view().banner, null);
-		m.key("a"); // THE PLAYER CAN STILL CHANGE TABS
+		m.key("d"); // THE PLAYER CAN STILL CHANGE TABS
 		m.update({ ...friend, offline: true });
-		assert.notEqual(m.channel, "waiting", "only switched once per outage");
+		assert.notEqual(m.channel, "opponent", "only switched once per outage");
 		m.update(friend);
 		assert.equal(m.view().banner, "▶ YOUR MOVE");
 	});
-	test("offline: waiting disabled in the settings still shows while zoomed, and a drop during the zoom-in lands on it", () => {
+	test("offline: opponent disabled in the settings still shows while zoomed, and a drop during the zoom-in lands on it", () => {
 		const off = { ...base, ai: false, offline: true };
-		const m = make({ loadPrefs: () => ({ ...defaults(), enabled: ["opponent", "setup"] }) });
+		const m = make({ loadPrefs: () => ({ ...defaults(), enabled: ["moves", "setup"] }) });
 		m.update({ ...base, ai: false });
 		m.enter();
 		m.update(off);
 		m.arrived();
-		assert.equal(m.channel, "waiting");
+		assert.equal(m.channel, "opponent");
 		m.update(off);
-		assert.equal(m.channel, "waiting", "sync() doesn't bounce it to setup");
+		assert.equal(m.channel, "opponent", "sync() doesn't bounce it to setup");
 	});
 	test("the screen reader hears the focused item, the channel and the banner", () => {
 		const m = make();
@@ -188,7 +190,7 @@ describe("monitor", () => {
 		m.key("d"); m.key("d");
 		m.update({ ...base, yourTurn: true });
 		assert.ok(m.said.includes("Evaluation channel. White's win chance 61 percent"));
-		assert.ok(m.said.some((text) => /^Evaluation, tab, 3 of 7, selected$/.test(text)));
+		assert.ok(m.said.some((text) => /^Evaluation, tab, 3 of 6, selected$/.test(text)));
 		assert.ok(m.said.includes("Your move"));
 		assert.equal(m.view().banner, "▶ YOUR MOVE");
 		m.update({ ...base, yourTurn: true, moves: [...base.moves.slice(0, 2), { number: 3, white: "Bb5", black: "a6" }] });
@@ -199,7 +201,7 @@ describe("monitor", () => {
 		m.update(base);
 		m.enter(); m.arrived();
 		assert.ok(m.said.includes("Face channel. Bob, your move"));
-		assert.equal(m.said.at(-1), "Face, tab, 1 of 7, selected");
+		assert.equal(m.said.at(-1), "Face, tab, 1 of 6, selected");
 	});
 	test("a change to what the showing channel says is announced once per change", () => {
 		const m = make();
@@ -243,7 +245,7 @@ describe("monitor", () => {
 		m.key("w"); m.key("w");
 		assert.equal(m.focus, "tab:moves");
 		m.key("d");
-		assert.equal(m.channel, "waiting"); // A/D ON THE TABS STILL CHANGE CHANNEL
+		assert.equal(m.channel, "actions"); // A/D ON THE TABS STILL CHANGE CHANNEL
 	});
 	test("an action that goes away greys out and cancels its prompt, a lost context goes back to idle", () => {
 		const m = make();
@@ -337,7 +339,7 @@ describe("monitor", () => {
 		m.key("d");
 		assert.equal(m.focus, "tab:face");
 		assert.equal(m.channel, "face");
-		assert.equal(m.said.at(-1), "Face, tab, 1 of 7, selected");
+		assert.equal(m.said.at(-1), "Face, tab, 1 of 6, selected");
 	});
 	test("the keyboard's focus on the desk is in the view, shown only when it changes & only on the desk", () => {
 		const m = make();

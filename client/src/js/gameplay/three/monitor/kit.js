@@ -6,7 +6,7 @@
  *
  */
 
-import { HEIGHT as FONT_HEIGHT, textWidth, textCells, fitText } from "../pixelFont.js";
+import { HEIGHT as FONT_HEIGHT, textWidth, textCells } from "../pixelFont.js";
 
 const W = 160, H = 120; // THE SCREEN'S GRID
 const TAB_H = 12; // THE TAB ROW ALONG THE TOP WHEN ZOOMED
@@ -16,9 +16,9 @@ const TUBE = "#050806"; // AN UNLIT TUBE, NEVER PURE BLACK
 const TEXT = "#d8f0e0";
 const DIM = "#7fa890";
 const HOT = "#ffe08a"; // FOCUS & THE BANNER
-const NAMES = { face: "Face", opponent: "Opponent", eval: "Evaluation", moves: "Moves", waiting: "Waiting", actions: "Actions", setup: "Setup" }; // THE CHANNELS' NAMES, FOR THE SETTINGS LIST
-const SHORT = { face: "FAC", opponent: "OPP", eval: "EVL", moves: "MOV", waiting: "WAI", actions: "ACT", setup: "SET" }; // THE THREE LETTERS ON A TAB
-const BARS = ["#c0c0c0", "#c0c000", "#00c0c0", "#00c000", "#c000c0", "#c00000", "#0000c0"]; // THE IDLE TEST CARD
+const NAMES = { face: "Face", opponent: "Opponent", eval: "Evaluation", moves: "Moves", actions: "Actions", setup: "Setup" }; // THE CHANNELS' NAMES, FOR THE SETTINGS LIST
+const SHORT = { face: "FAC", opponent: "OPP", eval: "EVL", moves: "MOV", actions: "ACT", setup: "SET" }; // THE THREE LETTERS ON A TAB
+const BARS = ["#c0c0c0", "#c0c000", "#00c0c0", "#00c000", "#c000c0", "#c00000", "#0000c0"]; // THE TEST CARD
 
 /* ---------------------------------------------------------------- */
 // Drawing
@@ -99,7 +99,7 @@ function drawButton(ctx, button, focused) {
 }
 
 /**
- * @description A tab: its label, no box (seven boxed tabs leave no room between a label & its border in the safe area), filled when lit
+ * @description A tab: its label, no box (boxed tabs leave no room between a label & its border in the safe area), filled when lit
  * @param  {[CanvasRenderingContext2D]} ctx
  * @param  {[object]} tab [{ x, y, w, h, label }, in grid pixels]
  * @param  {[boolean]} lit [the showing channel's tab, or the focused one]
@@ -111,22 +111,6 @@ function drawTab(ctx, tab, lit) {
 		ctx.fillRect(x, y, w, h - 1); // THE ROW'S RULE STAYS UNDER IT
 	}
 	drawText(ctx, label, x + w / 2, y + Math.floor((h - 1 - FONT_HEIGHT) / 2), lit ? TUBE : TEXT, 0);
-}
-
-/**
- * @description The opponent's name (left) & status (right) on a dark plate along the bottom of an area, for a picture zoomed in (the page's name is hidden then)
- * @param  {[CanvasRenderingContext2D]} ctx
- * @param  {[object]} area [{ x, y, w, h }, in grid pixels]
- * @param  {[string]} name
- * @param  {[string]} status
- */
-function drawNamePlate(ctx, area, name, status) {
-	const h = FONT_HEIGHT + 4, y = area.y + area.h - h;
-	ctx.fillStyle = TUBE;
-	ctx.fillRect(area.x, y, area.w, h);
-	const statusW = status ? textWidth(status) + 6 : 0;
-	drawText(ctx, fitText(name || "", area.w - 6 - statusW), area.x + 3, y + 2, TEXT);
-	if (status) { drawText(ctx, fitText(status, area.w - 6), area.x + area.w - 3, y + 2, DIM, 1); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -165,4 +149,4 @@ function body(data) {
 	return { x: row.x, y: row.y + row.h, w: row.w, h: H - row.y - row.h - SAFE.bottom };
 }
 
-export { SAFE, tabRow, W, H, TAB_H, STRIP_H, TUBE, TEXT, DIM, HOT, NAMES, SHORT, BARS, fillCells, drawText, drawBars, drawButton, drawTab, drawNamePlate, sentence, body };
+export { SAFE, tabRow, W, H, TAB_H, STRIP_H, TUBE, TEXT, DIM, HOT, NAMES, SHORT, BARS, fillCells, drawText, drawBars, drawButton, drawTab, sentence, body };

@@ -14,7 +14,7 @@ import { CHANNELS, clean, loadPrefs as loadStored, savePrefs as saveStored } fro
 import { textWidth } from "../pixelFont.js";
 
 const ORDER = [...CHANNELS]; // CHANNEL IDS, IN TAB ORDER; A COPY SO NOTHING HERE CAN CHANGE PREFS.JS'S LIST
-const TAB = { pad: 2, maxGap: 3 }; // A TAB IS ITS LABEL PLUS A 1 px BORDER EACH SIDE. THE ROW'S SPARE WIDTH GOES BETWEEN TABS, UP TO maxGap, SO TWO LIT TABS DON'T MERGE; ALL SEVEN & ◀ FILL THE SAFE AREA'S 144 px WITH NONE TO SPARE
+const TAB = { pad: 2, maxGap: 3 }; // A TAB IS ITS LABEL PLUS A 1 px BORDER EACH SIDE. THE ROW'S SPARE WIDTH GOES BETWEEN TABS, UP TO maxGap, SO TWO LIT TABS DON'T MERGE; ALL SIX & ◀ FIT THE SAFE AREA'S 144 px WITH NONE TO SPARE
 const BACK = "◀ BACK", BACK_SHORT = "◀";
 const YOUR_MOVE = "▶ YOUR MOVE";
 const KEYS = { w: "up", a: "left", s: "down", d: "right" };
@@ -74,7 +74,7 @@ export function isTap(press, release, type) {
 export function available(data, prefs) {
 	return ORDER.filter(function (id) {
 		if (id === "setup") { return true; } // ALWAYS A WAY BACK TO THE SETTINGS
-		if (id === "waiting" && data.offline) { return true; } // A LOST CONNECTION SHOWS ON IT, EVEN WHEN SWITCHED OFF
+		if (id === "opponent" && data.offline) { return true; } // A LOST CONNECTION SHOWS ON IT, EVEN WHEN SWITCHED OFF
 		if (!prefs.enabled.includes(id)) { return false; }
 		if (id === "face") { return !!data.ai; }
 		if (id === "eval") { return !!(data.eval && data.eval.allowed); }
@@ -90,10 +90,9 @@ export function available(data, prefs) {
  */
 export function idleChannel(data, prefs) {
 	const offered = available(data, prefs);
-	if (data.offline && !data.over) { return "waiting"; } // THE STILL TEST CARD UNTIL IT RECONNECTS
+	if (data.offline && !data.over) { return "opponent"; } // RECONNECTING UNTIL IT DOES
 	if (prefs.defaultChannel && offered.includes(prefs.defaultChannel)) { return prefs.defaultChannel; }
 	if (data.ai && offered.includes("face")) { return "face"; }
-	if (!data.ai && offered.includes("waiting") && !data.yourTurn && !data.over) { return "waiting"; }
 	return offered.includes("opponent") ? "opponent" : "setup";
 }
 
@@ -249,7 +248,7 @@ export function createMonitor(deps) {
 	let burst = false;
 	let yourMove = false; // THE YOUR MOVE BANNER IS UP
 	let endedZooming = false; // THE GAME ENDED DURING THE ZOOM-IN, arrived() SHOWS IT
-	let offlineZooming = false; // THE CONNECTION WAS LOST DURING THE ZOOM-IN, arrived() SHOWS THE WAITING CHANNEL
+	let offlineZooming = false; // THE CONNECTION WAS LOST DURING THE ZOOM-IN, arrived() SHOWS THE OPPONENT CHANNEL
 	let watching = false;
 	let spokenBanner = null;
 	let spokenChannel = null, spokenContent = null; // WHAT THE SCREEN READER WAS LAST TOLD THE SHOWING CHANNEL SHOWS
@@ -369,7 +368,7 @@ export function createMonitor(deps) {
 		burst = false;
 		yourMove = false;
 		endedZooming = false; // A ZOOM-IN THAT TURNED BACK: THE NEXT ONE FINDS THE GAME ALREADY OVER
-		offlineZooming = false; // THE NEXT ZOOM-IN STARTS FROM THE DESK'S WAITING CHANNEL ANYWAY
+		offlineZooming = false; // THE NEXT ZOOM-IN STARTS FROM THE DESK'S OPPONENT CHANNEL ANYWAY
 		spokenChannel = spokenContent = null;
 		sync();
 	}
@@ -427,7 +426,7 @@ export function createMonitor(deps) {
 				if (!next.yourTurn) { yourMove = false; }
 				else if (!was) { yourMove = true; } // ONLY FROM THE UPDATE WHERE IT TURNS TRUE
 				if (end) { ended(); }
-				if (lost) { switchTo("waiting"); }
+				if (lost) { switchTo("opponent"); }
 			} else if (monitor.state === "zooming") { // NOTHING TO SWITCH YET, THE CAMERA IS ON ITS WAY
 				if (end) { endedZooming = true; }
 				if (lost) { offlineZooming = true; }
@@ -452,7 +451,7 @@ export function createMonitor(deps) {
 			if (monitor.state !== "zooming") { return; }
 			if (offlineZooming) { // STILL ZOOMING: switchTo() ONLY CHANGES THE CHANNEL, THE LINES BELOW SAY IT
 				offlineZooming = false;
-				if (data.offline) { switchTo("waiting"); }
+				if (data.offline) { switchTo("opponent"); }
 			}
 			monitor.state = "zoomed";
 			monitor.focus = `tab:${monitor.channel}`;

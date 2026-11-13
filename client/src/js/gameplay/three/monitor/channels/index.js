@@ -10,11 +10,10 @@ import * as face from "./face.js";
 import * as opponent from "./opponent.js";
 import * as moves from "./moves.js";
 import * as evaluation from "./eval.js";
-import * as waiting from "./waiting.js";
 import * as actions from "./actions.js";
 import * as setup from "./setup.js";
 import { NAMES, SHORT } from "../kit.js";
 
-const CHANNEL = { face, opponent, eval: evaluation, moves, waiting, actions, setup };
+const CHANNEL = { face, opponent, eval: evaluation, moves, actions, setup };
 
 export { CHANNEL, NAMES, SHORT };

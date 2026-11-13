@@ -10,7 +10,6 @@ const { W, H, SAFE, TUBE, TEXT, DIM, body, drawText } = require("../src/js/gamep
 const { CHANNEL, NAMES, SHORT } = require("../src/js/gameplay/three/monitor/channels/index.js");
 const { topFor } = require("../src/js/gameplay/three/monitor/channels/moves.js");
 const { points } = require("../src/js/gameplay/three/monitor/channels/eval.js");
-const { caption } = require("../src/js/gameplay/three/monitor/channels/waiting.js");
 const { resultLines } = require("../src/js/gameplay/three/monitor/channels/actions.js");
 const { status } = require("../src/js/gameplay/three/monitor/channels/opponent.js");
 const { defaults } = require("../src/js/gameplay/three/monitor/prefs.js");
@@ -31,8 +30,8 @@ function fakeCtx() { // RECORDS fillRect & drawImage, ENOUGH TO CHECK WHAT WAS D
 }
 
 describe("monitor channels", () => {
-	test("names and short names list all seven channels", () => {
-		assert.deepEqual(Object.keys(NAMES), ["face", "opponent", "eval", "moves", "waiting", "actions", "setup"]);
+	test("names and short names list all six channels", () => {
+		assert.deepEqual(Object.keys(NAMES), ["face", "opponent", "eval", "moves", "actions", "setup"]);
 		assert.deepEqual(Object.keys(SHORT), Object.keys(NAMES));
 	});
 
@@ -57,7 +56,7 @@ describe("monitor channels", () => {
 		{ ...base, over: true, result: "WHITE WINS! BY CHECKMATE", actions: acts({ restart: [true, true], pgn: [true, true] }) },
 		{ ...base, over: true, result: "DRAW BY THREEFOLD REPETITION", actions: acts({ restart: [true, true], pgn: [true, true] }) },
 		{ ...base, over: true, result: "WHITE FORFEITS", actions: acts({ restart: [true, true], pgn: [true, true] }) },
-		{ ...base, screen: { ...base.screen, picture: {} } },
+		{ ...base, prefs: { ...defaults(), idle: "stars" } },
 		{ ...base, ai: false, yourTurn: false, opening: { eco: "A30", name: "English Opening: Symmetrical Variation, Hedgehog Defence" } },
 		{ ...base, prefs: { ...defaults(), defaultChannel: "eval" } },
 		{ ...base, prefs: { ...defaults(), defaultChannel: "moves", idle: "pipes" } },
@@ -103,13 +102,6 @@ describe("monitor channels", () => {
 				}
 			}
 		}
-	});
-
-	test("the opponent card draws the picture when there is one", () => {
-		const ctx = fakeCtx();
-		const picture = {};
-		CHANNEL.opponent.draw(ctx, { ...base, screen: { ...base.screen, picture } });
-		assert.ok(ctx.calls.some((c) => c[0] === "image" && c[1] === picture));
 	});
 
 	test("moves: the newest rows show until the player scrolls", () => {
@@ -230,7 +222,7 @@ describe("monitor channels", () => {
 		assert.equal(buttons.find((b) => b.id === "toggle:setup").enabled, false);
 		CHANNEL.setup.press("toggle:face", { prefs: (p) => patches.push(p) }, data);
 		CHANNEL.setup.press("toggle:moves", { prefs: (p) => patches.push(p) }, data);
-		assert.deepEqual(patches, [{ enabled: ["face", "opponent", "eval", "waiting", "actions", "setup"] }]);
+		assert.deepEqual(patches, [{ enabled: ["face", "opponent", "eval", "actions", "setup"] }]);
 	});
 
 	test("setup: default marks one channel, pressing it again clears it", () => {
@@ -254,14 +246,14 @@ describe("monitor channels", () => {
 		assert.equal(buttons.find((b) => b.id === "default:moves").label, "DEF");
 	});
 
-	test("waiting: stars and pipes stay on the grid, repeat per frame, and tick", () => {
+	test("opponent: stars and pipes stay on the grid, repeat per frame, and tick", () => {
 		for (const idle of ["stars", "pipes"]) {
 			for (const zoomed of [false, true]) {
 				for (const frame of [0, 1, 7, 159, 160, 161, 399, 100000]) {
 					const data = { ...base, zoomed, frame, prefs: { ...defaults(), idle } };
 					const a = fakeCtx(), b = fakeCtx();
-					CHANNEL.waiting.draw(a, data);
-					CHANNEL.waiting.draw(b, data);
+					CHANNEL.opponent.draw(a, data);
+					CHANNEL.opponent.draw(b, data);
 					assert.deepEqual(a.calls, b.calls, `${idle} frame ${frame}`);
 					for (const [, , x, y, w, h] of a.calls) {
 						assert.ok(inside({ x, y, w, h }, zoomed), `${idle} ${zoomed} ${frame} ${x},${y},${w},${h}`);
@@ -269,37 +261,36 @@ describe("monitor channels", () => {
 				}
 			}
 		}
-		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "pipes" } }), 120);
+		assert.equal(CHANNEL.opponent.tick({ ...base, prefs: { ...defaults(), idle: "pipes" } }), 120);
 	});
 
-	test("waiting: the caption follows the game, and a still screen doesn't tick", () => {
-		assert.equal(caption({ ...base, ai: false, yourTurn: false }), "WAITING FOR OPPONENT");
-		assert.equal(caption({ ...base, over: true, result: "DRAW" }), "DRAW");
-		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "stars" }, reduce: true }), null);
-		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "card" } }), null);
-		assert.equal(CHANNEL.waiting.tick({ ...base, prefs: { ...defaults(), idle: "stars" } }), 80);
+	test("opponent: a still screen doesn't tick", () => {
+		assert.equal(CHANNEL.opponent.tick({ ...base, screen: { ...base.screen, bars: true }, prefs: { ...defaults(), idle: "stars" } }), null);
+		assert.equal(CHANNEL.opponent.tick({ ...base, prefs: { ...defaults(), idle: "stars" }, reduce: true }), null);
+		assert.equal(CHANNEL.opponent.tick({ ...base, prefs: { ...defaults(), idle: "card" } }), null);
+		assert.equal(CHANNEL.opponent.tick({ ...base, prefs: { ...defaults(), idle: "stars" } }), 80);
 	});
 
-	test("waiting: offline shows RECONNECTING with counting dots on the bare tube", () => {
+	test("opponent: offline shows RECONNECTING with counting dots on the bare tube", () => {
 		const off = { ...base, ai: false, offline: true, zoomed: true, prefs: { ...defaults(), idle: "card" } };
 		const area = body(off);
 		const y = area.y + Math.floor((area.h - FONT_HEIGHT) / 2);
 		const x = Math.round(area.x + (area.w - textWidth("RECONNECTING...")) / 2);
-		assert.equal(caption(off), "RECONNECTING");
-		assert.equal(caption({ ...off, over: true, result: "DRAW" }), "DRAW");
-		assert.equal(CHANNEL.waiting.speak(off), "Reconnecting");
-		assert.equal(CHANNEL.waiting.tick(off), 500);
-		assert.equal(CHANNEL.waiting.tick({ ...off, reduce: true }), null);
+		assert.equal(status(off), "RECONNECTING");
+		assert.equal(status({ ...off, over: true }), "your move");
+		assert.equal(CHANNEL.opponent.speak(off), "Reconnecting");
+		assert.equal(CHANNEL.opponent.tick(off), 500);
+		assert.equal(CHANNEL.opponent.tick({ ...off, reduce: true }), null);
 		for (const [frame, text] of [[0, "RECONNECTING"], [1, "RECONNECTING."], [3, "RECONNECTING..."], [4, "RECONNECTING"]]) {
 			const ctx = fakeCtx(), want = fakeCtx();
-			CHANNEL.waiting.draw(ctx, { ...off, frame });
+			CHANNEL.opponent.draw(ctx, { ...off, frame });
 			want.fillStyle = TUBE;
 			want.fillRect(area.x, area.y, area.w, area.h);
 			drawText(want, text, x, y, TEXT, -1);
 			assert.deepEqual(ctx.calls, want.calls, `frame ${frame}: no bars, only the text`);
 		}
 		const still = fakeCtx(), want = fakeCtx();
-		CHANNEL.waiting.draw(still, { ...off, frame: 0, reduce: true });
+		CHANNEL.opponent.draw(still, { ...off, frame: 0, reduce: true });
 		want.fillStyle = TUBE;
 		want.fillRect(area.x, area.y, area.w, area.h);
 		drawText(want, "RECONNECTING...", x, y, TEXT, -1);
@@ -321,14 +312,14 @@ describe("monitor channels", () => {
 		assert.deepEqual(ctx.calls, want.calls);
 	});
 
-	test("opponent: zoomed with a picture, the name and status sit on a dark plate along the body's bottom", () => {
-		for (const id of ["opponent", "face"]) {
+	test("opponent: the name and status sit on dark plates over the background", () => {
+		for (const idle of ["card", "stars", "pipes"]) {
 			const ctx = fakeCtx();
-			CHANNEL[id].draw(ctx, { ...base, zoomed: true, screen: { ...base.screen, picture: {} } });
-			const plate = ctx.calls.find((c) => c[0] === "rect" && c[1] === TUBE && c[2] === SAFE_BODY.x && c[4] === SAFE_BODY.w);
-			assert.ok(plate, id);
-			assert.equal(plate[3] + plate[5], SAFE_BODY.y + SAFE_BODY.h, id);
-			assert.ok(ctx.calls.some((c) => c[0] === "rect" && c[1] === TEXT && c[3] > plate[3]), `${id}: the name`);
+			CHANNEL.opponent.draw(ctx, { ...base, zoomed: true, frame: 3, prefs: { ...defaults(), idle } });
+			const plates = ctx.calls.filter((c) => c[0] === "rect" && c[1] === TUBE && c[4] < SAFE_BODY.w);
+			assert.equal(plates.length, 2, idle);
+			assert.ok(ctx.calls.some((c) => c[1] === TEXT && c[3] >= plates[0][3]), `${idle}: the name`);
+			assert.ok(ctx.calls.some((c) => c[1] === DIM && c[3] >= plates[1][3]), `${idle}: the status`);
 		}
 	});
 
@@ -339,9 +330,9 @@ describe("monitor channels", () => {
 		assert.equal(status({ ...base, ai: true, yourTurn: false }), "your move");
 	});
 
-	test("waiting: under reduced motion the pipes are a still picture, not an empty screen", () => {
+	test("opponent: under reduced motion the pipes are a still picture, not an empty screen", () => {
 		const ctx = fakeCtx();
-		CHANNEL.waiting.draw(ctx, { ...base, zoomed: true, frame: 0, reduce: true, prefs: { ...defaults(), idle: "pipes" } });
+		CHANNEL.opponent.draw(ctx, { ...base, zoomed: true, frame: 0, reduce: true, prefs: { ...defaults(), idle: "pipes" } });
 		assert.ok(ctx.calls.filter((c) => c[1] === DIM).length >= 20);
 	});
 
@@ -375,7 +366,7 @@ describe("monitor channels", () => {
 		assert.equal(CHANNEL.eval.speak({ ...z, eval: { allowed: true, scores: [50], failed: true } }), "No signal");
 		assert.equal(CHANNEL.moves.speak(z), "C60 Ruy Lopez. Last move 3. Bb5");
 		assert.equal(CHANNEL.moves.speak({ ...z, moves: [], opening: null }), "No moves yet");
-		assert.equal(CHANNEL.waiting.speak({ ...z, ai: false, yourTurn: false }), "Waiting for opponent");
+		assert.equal(CHANNEL.opponent.speak({ ...z, ai: false, offline: true }), "Reconnecting");
 		assert.equal(CHANNEL.actions.speak({ ...z, actions: acts({ hint: [true, true], takeback: [true, false], draw: [true, true] }) }), "Hint, Offer draw");
 		assert.equal(CHANNEL.actions.speak({ ...z, over: true, result: "WHITE WINS! BY CHECKMATE", actions: acts({ restart: [true, true], pgn: [true, true] }) }), "White wins! By checkmate. Restart, Download pgn");
 		assert.equal(CHANNEL.setup.speak(z), "Setup");

@@ -113,23 +113,22 @@ function syncMarks3D() {
 }
 
 /**
- * @description What the library's monitor shows: the opponent (the AI's bot with its avatar, a friend by name) & a status line. Before a
+ * @description What the library's monitor shows: the opponent (the AI's bot or a friend, by name) & a status line. Before a
  * game has loaded there's no name, the monitor shows its test card
- * @return {[object]} { name, status, image, ai, thinking }
+ * @return {[object]} { name, status, ai, thinking }
  */
 function screen3D() {
 	const response = game.response;
-	if (!response || response.status != 200) { return { name: "", status: "", image: null, ai: false, thinking: false }; }
+	if (!response || response.status != 200) { return { name: "", status: "", ai: false, thinking: false }; }
 	const ai = Boolean(response.ai);
 	const name = ai ? game.bot?.name || "Computer" : response.opponent_name || "Opponent";
-	const image = ai && game.bot?.avatar ? `${process.env.CHESS_ASSETS_URL}/${game.bot.avatar}` : null;
 	const theirTurn = chessInst.turn() !== game.playerColor;
 	let status = theirTurn ? (ai ? "thinking..." : "their move") : "your move";
 	if (game.gameOver || response.state == "CLOSED") {
 		const winner = (game.result || response).winner;
 		status = winner !== "w" && winner !== "b" ? "draw" : winner === game.playerColor ? "you win" : ai ? "i win" : "you lose";
 	}
-	return { name, status, image, ai, thinking: ai && theirTurn && !game.gameOver };
+	return { name, status, ai, thinking: ai && theirTurn && !game.gameOver };
 }
 
 // PUTS screen3D() ON THE MONITOR WHEN IT CHANGED

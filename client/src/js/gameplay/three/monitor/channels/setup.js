@@ -1,7 +1,7 @@
 /*
  *  setup.js  --  chess frontend
  *	The CRT Monitor's Setup Channel
- *	One row per channel (its name, ON or OFF, DEF to make it the one that opens first & a marker on the one that does) & a row for what the monitor shows when idle.
+ *	One row per channel (its name, ON or OFF, DEF to make it the one that opens first & a marker on the one that does) & a row for the opponent channel's background.
  *	The face & this channel can't be turned off. Every change goes out as a prefs patch; nothing is kept here
  *
  */
@@ -9,7 +9,7 @@
 import { TEXT, DIM, HOT, NAMES, drawText, body } from "../kit.js";
 import { CHANNELS, LOCKED, IDLES } from "../prefs.js";
 
-const ROW = 12; // ONE ROW'S HEIGHT, 7 CHANNELS & THE IDLE ROW FILL THE BODY
+const ROW = 12; // ONE ROW'S HEIGHT, 6 CHANNELS & THE BACKGROUND ROW
 const BTN_H = 11; // A 7 px LABEL WITH 1 px CLEAR ABOVE & BELOW INSIDE ITS BORDER, 1 px BETWEEN ROWS
 // WHERE THINGS GO ACROSS A ROW, FROM THE BODY'S LEFT EDGE. THE ZOOMED BODY IS 144 px (THE BEZEL'S SAFE AREA), SO ITS DEFAULT MARKER IS AN ARROW AT THE DEF BUTTON
 const DESK = { name: 2, toggle: { x: 62, w: 22 }, def: { x: 88, w: 22 }, mark: { x: 114, text: "DEFAULT" }, idle: { xs: [40, 78, 116], w: 32 } };
@@ -30,7 +30,7 @@ function rowY(data, r) {
 /* ---------------------------------------------------------------- */
 
 /**
- * @description Draws the channel: the names, the default marker & the idle picture's marker
+ * @description Draws the channel: the names, the default marker & the background's marker
  * @param  {[CanvasRenderingContext2D]} ctx
  * @param  {[object]} data [the channels' data]
  */
@@ -43,14 +43,14 @@ export function draw(ctx, data) {
 		if (prefs.defaultChannel === id) { drawText(ctx, at.mark.text, x0 + at.mark.x, y, HOT); }
 	});
 	const y = rowY(data, CHANNELS.length) + 2;
-	drawText(ctx, "IDLE", x0 + at.name, y, TEXT);
+	drawText(ctx, "BG", x0 + at.name, y, TEXT);
 	IDLES.forEach(function (name, i) {
 		if (prefs.idle === name) { drawText(ctx, "▶", x0 + at.idle.xs[i] - 6, y, HOT); }
 	});
 }
 
 /**
- * @description The channel's buttons when zoomed: a toggle per channel, DEF per enabled channel, one per idle picture; none on the desk
+ * @description The channel's buttons when zoomed: a toggle per channel, DEF per enabled channel, one per background; none on the desk
  * @param  {[object]} data [the channels' data]
  * @return {[object[]]} buttons
  */
