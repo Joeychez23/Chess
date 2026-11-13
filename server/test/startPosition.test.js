@@ -117,12 +117,12 @@ describe("AI games from a set position", () => {
 
 	test("Restart starts the next game from the same position", async () => {
 		const alice = player("alice");
-		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 5, start_fen: ROOK_ENDING } });
+		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 1900, start_fen: ROOK_ENDING } });
 		await call("PUT", `/api/chess/game/${game.game_id}`, { as: alice, body: { move: ["a1", "a8"] } });
 
 		const restarted = await call("POST", `/api/chess/game/${game.game_id}/restart`, { as: alice });
 		assert.equal(restarted.game_board, ROOK_ENDING);
-		assert.equal(restarted.ai_level, 5);
+		assert.equal(restarted.ai_level, 1900);
 		const loaded = await call("GET", `/api/chess/game/${restarted.game_id}`, { as: alice });
 		assert.deepEqual(loaded.start_params, { color: "w", fen: ROOK_ENDING });
 	});

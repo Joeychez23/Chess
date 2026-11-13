@@ -13,7 +13,7 @@
 /* ---------------------------------------------------------------- */
 const { game, EVAL_BAR_ROOM } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE SPACE THE EVALUATION BAR TAKES NEXT TO THE BOARD
 const { trayNudge } = require("../animate/index.js"); // HOW FAR THE BOTTOM TRAY SITS DOWN
-const { itemForKey } = require("../../pages/utils/nav.js"); // THE MENU'S ARROW KEYS, THE ROWS MOVE THE SAME WAY
+const { itemForKey, arrowKey } = require("../../pages/utils/nav.js"); // THE MENU'S ARROW KEYS, THE ROWS MOVE THE SAME WAY
 const panel = document.getElementById("moveList"); // THE PANEL
 const toggleBtn = document.getElementById("moveListToggle"); // COLLAPSES & OPENS IT
 const rowList = document.getElementById("moveListRows"); // THE NUMBERED ROWS, THIS PART SCROLLS
@@ -32,6 +32,7 @@ const MOVE_KEYS = ["ArrowUp", "ArrowDown", "Home", "End"]; // THE KEYS THAT MOVE
 let moves = []; // THE GAME'S SAN MOVES
 let startFen = null; // A SET POSITION'S FEN, null = THE STANDARD POSITION
 let placedFor = null; // THE BOARD SIZE THE PANEL WAS LAST PLACED FOR
+let opening = null; // THE GAME'S OPENING { eco, name } (showOpening), THE 3D ROOM'S MONITOR SHOWS IT TOO
 
 /* ---------------------------------------------------------------- */
 // Moves
@@ -145,19 +146,20 @@ function handleMoveListToggle(e) {
  */
 function handlePanelKey(e) {
 	if (rowList.hidden) { return; }
-	if ((e.key == "ArrowLeft" || e.key == "ArrowRight") && rowList.contains(document.activeElement)) { toggleBtn.focus(); } // THE PANEL'S STOP IS ITS TOGGLE, THE PAGE'S KEYS MOVE ON FROM THERE
+	const key = arrowKey(e); // W, A, S & D ARE THE ARROWS
+	if ((key == "ArrowLeft" || key == "ArrowRight") && rowList.contains(document.activeElement)) { toggleBtn.focus(); } // THE PANEL'S STOP IS ITS TOGGLE, THE PAGE'S KEYS MOVE ON FROM THERE
 	if (e.key == "Escape") {
 		e.stopPropagation();
 		toggleBtn.focus(); // BEFORE THE ROWS ARE HIDDEN, THAT WOULD DROP FOCUS TO THE PAGE
 		saveCollapsed(true);
-	} else if (MOVE_KEYS.includes(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+	} else if (MOVE_KEYS.includes(key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
 		e.preventDefault();
-		(itemForKey([...rowList.children], document.activeElement, e.key) || toggleBtn).focus(); // PAST EITHER END OF THE ROWS: BACK TO THE TOGGLE
+		(itemForKey([...rowList.children], document.activeElement, key) || toggleBtn).focus(); // PAST EITHER END OF THE ROWS: BACK TO THE TOGGLE
 	}
 }
 
 /**
- * @description Adds the panel's listeners, startGame (gameplay/index.js) calls this. A TV remote can't reach the panel
+ * @description Adds the panel's listeners, startGame (gameplay/index.js) calls this. Remote-only mode can't reach the panel
  */
 export function addMoveListListeners() {
 	toggleBtn.addEventListener("click", handleMoveListToggle);
@@ -169,14 +171,27 @@ export function addMoveListListeners() {
 /* ---------------------------------------------------------------- */
 /**
  * @description Shows the game's opening under the panel. textContent, it's never read as HTML. The panel is placed again when its room changed
- * @param  {[object]} opening [{ eco, name } from the server, null = none yet]
+ * @param  {[object]} next [{ eco, name } from the server, null = none yet]
  */
-export function showOpening(opening) {
-	const text = opening ? `${opening.eco} ${opening.name}` : "";
+export function showOpening(next) {
+	const text = next ? `${next.eco} ${next.name}` : "";
+	opening = next ? { eco: next.eco, name: next.name } : null;
 	if (openingDisplay.textContent == text) { return; }
+	game.refresh = true; // THE MONITOR'S MOVES CHANNEL SHOWS IT
 	openingDisplay.textContent = text;
 	openingDisplay.hidden = !opening;
 	placedFor = null;
+}
+
+/* ---------------------------------------------------------------- */
+// Monitor
+/* ---------------------------------------------------------------- */
+/**
+ * @description What the 3D room's monitor's moves channel shows: the panel's rows & the opening
+ * @return {[object]} { rows, opening } [rows: [{ number, white, black }], opening: { eco, name } or null]
+ */
+export function moveListState() {
+	return { rows: moveRows(moves, startFen), opening };
 }
 
 /* ---------------------------------------------------------------- */

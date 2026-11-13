@@ -1074,7 +1074,7 @@ function readStartParams(body, fen) {
 /**
  * @description The settings a request saves (the settings page's Default start settings)
  * @param  {[object]} body [req.body, { ai_level, ai_color, friend_color }]
- * @return {[object]} settings [{ ai_level (1 - 8, anything else is the default level), ai_color, friend_color ("alternate" | "random" | "w" | "b", anything else is Alternate) }]
+ * @return {[object]} settings [{ ai_level (600 - 3200 in steps of 100, anything else is the default level), ai_color, friend_color ("alternate" | "random" | "w" | "b", anything else is Alternate) }]
  */
 function readSettings(body) {
 	return { ai_level: readLevel(body?.ai_level), ai_color: readColor(body?.ai_color), friend_color: readColor(body?.friend_color) };

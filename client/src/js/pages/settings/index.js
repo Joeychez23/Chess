@@ -16,7 +16,7 @@ import "../../../css/home.css"; // THE SAME BOXES AS HOME
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
 const { getUserGameData, saveSettings, saveUsername, deleteUserData } = require("../../gameplay/validate/index.js");
-const { startNav, startLogoutButtons, loadLevels, showPageWhenDrawn } = require("../utils/index.js");
+const { startBoxNav, startDropdowns, startLogoutButtons, loadLevels, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES (server/routes/api/chessRoutes.js), THE GAME LISTS & SAVED SETTINGS
 const USER_URL = "/api/user"; // USER ROUTES (server/routes/api/userRoutes.js), SAVE THE USERNAME & SETTINGS, DELETE MY ACCOUNT
@@ -44,7 +44,8 @@ const sessionCheck = auth.getUser(); // STARTS CHECKING THE SESSION NOW INSTEAD 
 let USERNAME = null; // THE PLAYER'S SAVED USERNAME, null UNTIL THEY PICK ONE
 let confirmDelete = false; // DELETE MY ACCOUNT NEEDS A SECOND PRESS
 
-startNav();
+startBoxNav();
+startDropdowns(); // ENTER OPENS A DROPDOWN, A NATIVE <select> CAN'T BE OPENED BY A SCRIPT IN SAFARI
 startLogoutButtons(auth); // LOGOUT IN THE MENU & SIGN OUT ARE A POST (#332)
 usernameForm.addEventListener("submit", handleSaveUsername); // SAVE BUTTON & ENTER IN THE FIELD
 saveSettingsBtn.addEventListener("click", handleSaveSettings);

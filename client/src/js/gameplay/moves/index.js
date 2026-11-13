@@ -16,6 +16,9 @@ const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MO
 const { setTiles, countStartPieces, lastMoveBy } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH, A SIDE'S LAST MOVE
 const { showGameOver, syncDrawOffer, loadTakeback } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), THE DRAW OFFER'S BUTTONS
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
+const { showBot, sayLine } = require("../bots/say.js"); // THE AI'S BOT BESIDE THE BOARD (#76)
+const { faceFor } = require("../bots/index.js"); // THE FACE THE 3D ROOM'S MONITOR MAKES AT A MOVE
+const { setFace } = require("../renderer/index.js"); // & SHOWS IT (3D ONLY)
 const { setMoves, addMove, showOpening } = require("../movelist/index.js"); // THE MOVE LIST PANEL & THE OPENING UNDER IT
 const OPPONENT_RETRY_TIME = 5000; // ASKS FOR A FRIEND'S MOVE AGAIN AFTER THIS WHEN THE SERVER DIDN'T ANSWER (ms)
 let opponentRetry = null; // THE TIMER FOR THAT
@@ -48,9 +51,12 @@ export async function setInitialData(loaded) {
 		syncDrawOffer(game.response);
 		game.annotations = []; // A NEW GAME (RESTART & REMATCH) STARTS WITHOUT THE OLD ONE'S MARKS & ARROWS
 		game.hint = null; // & ITS HINT
+		const isNewGame = !loaded && game.response.state != "CLOSED" && !game.response.moves?.length; // A NEW GAME OR RESTART, NOT A RELOAD MID-GAME OR A TAKEBACK
+		showBot(game.GAME_URL, game.response).then(() => { if (isNewGame) { sayLine("start"); } }); // NOT AWAITED, THE GAME DOESN'T WAIT FOR THE LEVELS
+		if (isNewGame) { setFace("neutral"); } // THE MONITOR'S FACE STARTS OVER WITH THE GAME
 		if (game.response.state == "CLOSED") { // GAME IS OVER (CHECKMATE, DRAW OR FORFEIT)
 			game.ai = game.response.ai;
-			showGameOver(game.response);
+			showGameOver(game.response, true); // ALREADY OVER WHEN IT LOADED, THE BOT DOESN'T SPEAK
 			return;
 		}
 
@@ -283,6 +289,7 @@ export async function validateMove() {
 		game.response = moveResponse;
 		syncDrawOffer(moveResponse); // THIS MOVE ENDED ANY OFFER
 		addMove(playedMove.san); // ONLY NOW, THE SERVER COULD TURN IT DOWN
+		if (game.response.ai) { setFace(faceFor(playedMove, chessInst, game.playerColor == "w" ? "b" : "w")); } // THE MONITOR'S FACE TAKES THE PLAYER'S MOVE BADLY (3D ONLY)
 		showOpening(game.response.opening);
 		clearStatus("move");
 		clearStatus("server");

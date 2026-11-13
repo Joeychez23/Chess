@@ -114,6 +114,7 @@ const ATLAS_URLS = [ // BAKED FROM THE 2D PIECES' SHADERS. THEIR OWN FILES: AN I
 	`${ASSETS}/pieces-l.webp`,
 ];
 const MODEL_TIMEOUT_MS = 15000; // A STALLED DOWNLOAD SHOULDN'T LEAVE "Loading 3D board..." UP FOREVER
+const KNIGHT_TWIST = 13.5 * Math.PI / 180; // TURNS THE .glb KNIGHT'S NOSE ONTO +X (MEASURED: THE HEAD'S LONG AXIS IN XZ)
 const MODEL_NAMES = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
 
 // ONE GEOMETRY PER PIECE LIKE build(): GROUP 0 DRAWN IN WOOD & GROUP 1 IN GOLD. A glTF PRIMITIVE PER MATERIAL LOADS AS ONE MESH EACH
@@ -149,6 +150,7 @@ async function loadModels() {
 		for (const [type, name] of Object.entries(MODEL_NAMES)) {
 			if (gltf.scene.getObjectByName(name)) { models[type] = modelGeometry(gltf.scene, name); } // NOT IN THE .glb YET: BUILT FROM CODE
 		}
+		if (models.n) { models.n.rotateY(KNIGHT_TWIST); } // THE BAKED HEAD POINTS ~13.5 DEG OFF +X, SO FACING KNIGHTS LOOKED PAST EACH OTHER
 		const atlasMaterials = { w: materials.atlasMaterial({ color: colorW, roughMetal: roughMetalW, normal, light }), b: materials.atlasMaterial({ color: colorB, roughMetal: roughMetalB, normal, light }) };
 		return { models, atlasMaterials };
 	} catch (error) {

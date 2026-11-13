@@ -2,7 +2,7 @@
  *  index.js  --  chess frontend
  *	Input
  *	The board's controls: the mouse (hover, click to pick up & put down, drag & drop), touch on phones (tap & drag, mapped onto
- *	the mouse handlers) & the TV remote (arrow keys move a select box, enter clicks, right from the last column reaches the menu).
+ *	the mouse handlers) & remote-only mode (arrow keys or W, A, S & D move a select box, enter clicks, right from the last column reaches the menu).
  *	startGame (gameplay/index.js) adds their listeners to both boards. The only thing that differs on the 3D board is the square under
  *	the pointer (pointerTile), camera gestures there never reach the pieces
  *
@@ -11,20 +11,21 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, canvas, validateState, OVERRIDE_TV } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, TV REMOTE FOR TESTING
+const { game, canvas, validateState, OVERRIDE_REMOTE_ONLY } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, REMOTE-ONLY MODE FOR TESTING
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { tileToSquare, squareToTile, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION & BACK, ADDS OR REMOVES A MARK OR ARROW
 const { currentView, VIEWS, squareUnder3D, isCameraGesture } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { openMenu, closeMenu } = require("../menu/index.js"); // THE TV REMOTE OPENS THE MENU, A CLICK ON THE BOARD CLOSES IT
+const { openMenu, closeMenu } = require("../menu/index.js"); // REMOTE-ONLY MODE OPENS THE MENU, A CLICK ON THE BOARD CLOSES IT
 const { menuItems, itemForKey } = require("../../pages/utils/nav.js"); // THE MENU'S ITEMS, READ FROM THE PAGE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 
-const REMOTE_SKIPS = ["optPgn", "optTypeMove"]; // A TV HAS NOWHERE TO SAVE A FILE & NO KEYS TO TYPE A MOVE
+const REMOTE_SKIPS = ["optPgn", "optTypeMove"]; // A REMOTE-ONLY DEVICE HAS NOWHERE TO SAVE A FILE & NO KEYS TO TYPE A MOVE
+const LETTER_CODES = { 87: 38, 65: 37, 83: 40, 68: 39 }; // W, A, S & D ARE THE ARROWS (UP, LEFT, DOWN, RIGHT)
 
 let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
 let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
-let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // TV REMOTE SELECT BOX: SQUARE (x, y), ON THE MENU BUTTON (menuHover) & THE SELECTED MENU BUTTON
+let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // REMOTE-ONLY MODE SELECT BOX: SQUARE (x, y), ON THE MENU BUTTON (menuHover) & THE SELECTED MENU BUTTON
 const OFF_3D_BOARD = { x: -100, y: 0 }; // OFF THE 3D BOARD: A COLUMN NO TILE OR TRAY IS IN, ROW INSIDE SO handleMouseMove STILL CLEARS THE HOVER
 const touchDragThreshold = 10; // PX A FINGER MUST MOVE BEFORE A TAP BECOMES A DRAG
 let audioUnlocked = false; // THE MOVE SOUND WAS UNLOCKED BY A TAP (IOS)
@@ -34,7 +35,7 @@ let annotationStart = null; // SQUARE THE RIGHT BUTTON WENT DOWN ON, null WHEN I
 // Handle Remote Nav Button Hover
 /* ---------------------------------------------------------------- */
 /**
- * @description Changes current button effect when keydown is handled. TV remote: moves the menu highlight from the
+ * @description Changes current button effect when keydown is handled. Remote-only mode: moves the menu highlight from the
  * selected button to btn
  * @param  {[object]} btn [menu button element]
  */
@@ -49,7 +50,7 @@ function handleRemoteNavBtnHover(btn) {
 }
 
 /**
- * @description The items a TV remote can reach: the menu's own list (menuItems), without the ones it has no use for
+ * @description The items remote-only mode can reach: the menu's own list (menuItems), without the ones it has no use for
  * @return {[array]} items [in the order on screen]
  */
 function remoteItems() {
@@ -57,7 +58,7 @@ function remoteItems() {
 }
 
 /**
- * @description TV remote: up, down, to the top or bottom of the menu, the same moves as a keyboard (itemForKey)
+ * @description Remote-only mode: up, down, to the top or bottom of the menu, the same moves as a keyboard (itemForKey)
  * @param  {[string]} key [ArrowUp, ArrowDown, Home or End]
  */
 function moveRemoteSelection(key) {
@@ -66,7 +67,7 @@ function moveRemoteSelection(key) {
 }
 
 /**
- * @description TV remote: presses the selected item with the listener a click would reach. It stays selected until the menu closes, so a second press can
+ * @description Remote-only mode: presses the selected item with the listener a click would reach. It stays selected until the menu closes, so a second press can
  * answer "Are you sure?" & Cancel can be reached from Rematch. An item that went away (Cancel after it's pressed) moves the selection instead
  */
 function pressRemoteSelection() {
@@ -79,17 +80,17 @@ function pressRemoteSelection() {
 // Handle Remote Menu Enter
 /* ---------------------------------------------------------------- */
 /**
- * @description Handles menu button style when clicked with remote select box. TV remote: the menu opened, so btn
+ * @description Handles menu button style when clicked with remote select box. Remote-only mode: the menu opened, so btn
  * becomes the selected (highlighted) menu button & the menu button goes back to its normal color
  * @param  {[object]} btn [menu button element]
  */
 export function handleRemoteMenuEnter(btn) {
-	if (game.TV_BOOL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
-	if (game.TV_BOOL || OVERRIDE_TV) { remoteNavBox.menuHover = false; handleRemoteNavBtnHover(btn); }
+	if (game.REMOTE_ONLY_CONDITIONAL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
+	if (game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { remoteNavBox.menuHover = false; handleRemoteNavBtnHover(btn); }
 }
 
 /**
- * @description TV remote: the menu closed, the select box goes back to the top right
+ * @description Remote-only mode: the menu closed, the select box goes back to the top right
  */
 export function clearRemoteSelection() {
 	if (!remoteNavBox.menuBtn) { return; }
@@ -102,7 +103,7 @@ export function clearRemoteSelection() {
 // Handle Keydown
 /* ---------------------------------------------------------------- */
 /**
- * @description Handles Keydown events. TV remote: the arrows move the select box (remoteNavBox) around the board, right
+ * @description Handles Keydown events. Remote-only mode: the arrows move the select box (remoteNavBox) around the board, right
  * from the last column moves it onto the menu button & up, down, home & end move between menu buttons. Enter clicks the square
  * (handleCanvasClick), opens the menu or presses the selected menu button
  */
@@ -110,6 +111,7 @@ export async function handleKeyPress(e) {
 	e.preventDefault();
 	e.stopPropagation();
 	if (!e?.repeat && e?.keyCode) { // HOLDING A KEY DOESN'T REPEAT
+		const code = LETTER_CODES[e.keyCode] || e.keyCode;
 		/**
 		 * @description Hovers the player's piece under the select box (the remote's version of handleMouseMove)
 		 */
@@ -121,10 +123,10 @@ export async function handleKeyPress(e) {
 			}
 		}
 
-		if (e.keyCode == 37) { // LEFT
+		if (code == 37) { // LEFT
 			if (remoteNavBox.x > 0 && !game.menuToggled) {
 				if (remoteNavBox.menuHover) {
-					if (game.TV_BOOL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
+					if (game.REMOTE_ONLY_CONDITIONAL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
 					remoteNavBox.menuHover = false;
 				} else {
 					remoteNavBox.x -= 1;
@@ -135,7 +137,7 @@ export async function handleKeyPress(e) {
 			checkBoxOverPiece();
 		}
 
-		if (e.keyCode == 39) { // RIGHT
+		if (code == 39) { // RIGHT
 			if (remoteNavBox.x < 7 && !game.menuToggled) {
 				remoteNavBox.x += 1;
 				game.refresh = true;
@@ -143,14 +145,14 @@ export async function handleKeyPress(e) {
 			else if (remoteNavBox.x == 7 && !game.menuToggled) { // PAST THE LAST COLUMN: SELECT THE MENU BUTTON
 				remoteNavBox.y = 0;
 				remoteNavBox.menuHover = true;
-				if (game.TV_BOOL) { optBtn.style.transition = "ease-in 375ms"; optBtn.style.color = "white"; }
+				if (game.REMOTE_ONLY_CONDITIONAL) { optBtn.style.transition = "ease-in 375ms"; optBtn.style.color = "white"; }
 			}
 
 			else { game.refresh = true; }
 			checkBoxOverPiece();
 		}
 
-		if (e.keyCode == 38) { // UP
+		if (code == 38) { // UP
 			if (remoteNavBox.y > 0 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y -= 1; game.refresh = true; }
 			else if (game.menuToggled) {
 				moveRemoteSelection("ArrowUp");
@@ -158,7 +160,7 @@ export async function handleKeyPress(e) {
 			else { game.refresh = true; }
 			checkBoxOverPiece();
 		}
-		if (e.keyCode == 40) { // DOWN
+		if (code == 40) { // DOWN
 			if (remoteNavBox.y < 7 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y += 1; game.refresh = true; }
 			else if (game.menuToggled) {
 				moveRemoteSelection("ArrowDown");
@@ -166,13 +168,13 @@ export async function handleKeyPress(e) {
 			else { game.refresh = true; }
 			checkBoxOverPiece();
 		}
-		if (e.keyCode == 13) { // ENTER
+		if (code == 13) { // ENTER
 			if (!remoteNavBox.menuHover && !game.menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
 			else if (remoteNavBox.menuHover && !game.menuToggled) { openMenu(); handleRemoteMenuEnter(remoteItems()[0]); } // OPEN THE MENU ON THE TOP ITEM
 			else if (game.menuToggled) { pressRemoteSelection(); }
 		}
-		if (game.menuToggled && e.keyCode == 36) { moveRemoteSelection("Home"); } // HOME
-		if (game.menuToggled && e.keyCode == 35) { moveRemoteSelection("End"); } // END
+		if (game.menuToggled && code == 36) { moveRemoteSelection("Home"); } // HOME
+		if (game.menuToggled && code == 35) { moveRemoteSelection("End"); } // END
 		game.keyboardTile = remoteNavBox.menuHover ? null : { x: remoteNavBox.x, y: remoteNavBox.y }; // THE 3D BOARD RINGS THE SELECTED SQUARE
 		game.refresh = true
 	}
@@ -237,7 +239,7 @@ function squareUnder(e) { // THE BOARD SQUARE UNDER THE MOUSE, null OFF THE BOAR
  * @description If piece is clicked, based on new positions or if piece is set back in original position, etc...
  * While promoting, a click on a piece in the picker finishes the move. Otherwise a click on the player's piece picks it up
  * (or puts it back down on its own square), a click on another square slides the picked up piece there & a dragged piece
- * is dropped where it's let go. Mouse up, touch end & the TV remote's enter all end up here
+ * is dropped where it's let go. Mouse up, touch end & remote-only mode's enter all end up here
  */
 export async function handleCanvasClick(e) {
 	e.preventDefault();
@@ -247,10 +249,10 @@ export async function handleCanvasClick(e) {
 		handleMouseMove(e);
 		return;
 	}
-	if (e.clientX !== undefined && isCameraGesture()) { return; } // THE CLICK ENDING A CAMERA GESTURE (THE TV REMOTE'S ENTER HAS NO clientX)
+	if (e.clientX !== undefined && isCameraGesture()) { return; } // THE CLICK ENDING A CAMERA GESTURE (REMOTE-ONLY MODE'S ENTER HAS NO clientX)
 	setPointerTile(e); // SCREEN COLUMN & ROW CLICKED
 
-	if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (TV REMOTE) ENTER HAS NO POINTER POSITION
+	if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (REMOTE-ONLY MODE) ENTER HAS NO POINTER POSITION
 		game.tileX = remoteNavBox.x; game.tileY = remoteNavBox.y;
 	}
 

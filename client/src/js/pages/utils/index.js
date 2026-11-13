@@ -12,12 +12,15 @@
 
 const { drawBoardPicture } = require("./boardPicture.js");
 const { getLevels } = require("../../gameplay/validate/index.js");
+const { botFor } = require("../../gameplay/bots/index.js"); // THE BOT THAT PLAYS AT A LEVEL (#76)
 const { imageProgress } = require("../../gameplay/images/index.js");
 const { confirmPress } = require("./confirm.js"); // LOGOUT IN THE MENU NEEDS A SECOND PRESS
 const { setFill } = require("./menuItem.js"); // LOGOUT IN THE MENU FILLS WHILE IT WAITS
 const { timeLeftText } = require("./timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 
 export { startNav } from "./nav.js"; // THE MENU BUTTON, pages/utils/nav.js
+export { startBoxNav } from "./boxNav.js"; // THE MENU BUTTON & THE BOXES' KEYS (HOME, LOGIN, SIGNUP & SETTINGS), pages/utils/boxNav.js
+export { startDropdowns } from "./dropdown.js"; // THE <select>S AS A BUTTON & LIST THAT ENTER OPENS (HOME, SETTINGS & GUEST), pages/utils/dropdown.js
 
 let loadingBtn = null; // THE BUTTON OR LINK THAT SAYS LOADING (ONE AT A TIME), stopLoading() PUTS IT BACK
 let loadingText; // ITS TEXT BEFORE IT SAID LOADING
@@ -76,7 +79,7 @@ export async function showCurrentGame(box, game, href) {
 	const picture = box.querySelector(".boardPicture");
 	const continueLink = box.querySelector(".continueGame");
 	const turn = game.game_board.split(" ")[1]; // FEN: w OR b TO MOVE
-	const opponent = game.ai ? `Level ${game.ai_level}` : `vs ${game.opponent_name || "Friend"}`;
+	const opponent = game.ai ? await aiOpponent(game.ai_level) : `vs ${game.opponent_name || "Friend"}`;
 	const theirMove = game.ai ? "AI's move" : "Their move";
 	picture.querySelector("figcaption").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)} // ${turn == game.player_color ? "Your move" : theirMove}${game.move_deadline ? ` // ${timeLeftText(game.move_deadline)}` : ""}`;
 	continueLink.href = href;
@@ -101,22 +104,55 @@ export function hideCurrentGame(box) {
 /* ---------------------------------------------------------------- */
 // AI Levels
 /* ---------------------------------------------------------------- */
+let levelsRequest = null; // ONE GET /levels A PAGE, THE DROPDOWN & THE GAME LISTS SHARE IT
+
 /**
- * @description Fills a level dropdown (Play the AI on Home & the guest page) with the server's levels & their approx Elo. The level is saved with the game,
- * so it only changes by starting a new game
+ * @description The levels, each one a bot (#76), asked for once a page
+ * @param  {[string]} gameUrl [chess api, "/api/chess"]
+ * @return {[object]} response [GET /levels, null when it failed]
+ */
+export function botLevels(gameUrl = "/api/chess") {
+	levelsRequest ||= getLevels(gameUrl).then((response) => (response?.status == 200 ? response : null));
+	return levelsRequest;
+}
+
+/**
+ * @description The name of the bot that plays at a level
+ * @param  {[object]} levels [GET /levels, botLevels()]
+ * @param  {[any]} aiLevel [the game's ai_level]
+ * @return {[string]} name [null when the levels didn't load or the level isn't there]
+ */
+export function botName(levels, aiLevel) {
+	return botFor(levels, aiLevel)?.name || null;
+}
+
+/**
+ * @description How an AI game's opponent reads in its box (Home & the guest page): the bot's name, "Level 1300" when the levels didn't load
+ * @param  {[any]} aiLevel [the game's ai_level]
+ * @return {[string]} text
+ */
+async function aiOpponent(aiLevel) {
+	return botName(await botLevels(), aiLevel) || `Level ${aiLevel}`;
+}
+
+/**
+ * @description Fills a level dropdown (Play the AI on Home & the guest page, Settings) with the server's levels, each one a bot & its approx Elo: "Ada · ≈1300 Elo".
+ * The level is saved with the game, so it only changes by starting a new game
  * @param  {[string]} gameUrl [chess api, "/api/chess"]
  * @param  {[object]} select [the <select>]
+ * @return {[object]} response [GET /levels, undefined when it failed]
  */
 export async function loadLevels(gameUrl, select) {
-	const response = await getLevels(gameUrl);
-	if (response?.status != 200) { return; } // NO LEVELS -> THE SERVER USES ITS DEFAULT
+	const response = await botLevels(gameUrl);
+	if (!response) { return; } // NO LEVELS -> THE SERVER USES ITS DEFAULT
 	for (let i = 0; i < response.levels.length; i++) {
 		const option = document.createElement("option");
 		option.value = response.levels[i].level;
-		option.innerText = `Level ${response.levels[i].level} (${response.levels[i].elo})`;
+		option.innerText = response.levels[i].name ? `${response.levels[i].name} · ${response.levels[i].elo} Elo` : `${response.levels[i].elo} Elo`; // THE LEVEL IS ITS ELO
 		if (response.levels[i].level == response.default_level) { option.selected = true; }
 		select.append(option);
 	}
+	return response;
 }
 
 /* ---------------------------------------------------------------- */

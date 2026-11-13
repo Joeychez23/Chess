@@ -14,16 +14,18 @@ const { game, chessInst, stopFrames } = require("../state/index.js"); // THE GAM
 const { validate, restartGame, forfeitGame, takeback, declineTakeback, offerDraw, declineDraw, rematchGame, cancelRematch, getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
-const { handleRemoteMenuEnter, clearRemoteSelection, clearTouch } = require("../input/index.js"); // TV REMOTE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
+const { handleRemoteMenuEnter, clearRemoteSelection, clearTouch } = require("../input/index.js"); // REMOTE-ONLY MODE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
 const { setInitialData, checkOpponentMove, refreshData, revertUnfinishedMove } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD, TAKES BACK A MOVE THAT ISN'T FINISHED
 const { InternalAuth } = require("../../auth/index.js"); // LOGOUT IS A POST TO THE SERVER (#297)
 const { joinGame, leaveGame } = require("../../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { showHint, syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
 const { confirmPress, disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
-const { createNav } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
+const { createNav, placeBefore } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
-const { setView, currentView, resetCamera, onViewChange, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA
+const { setView, currentView, resetCamera, onViewChange, setFace, monitorState3D, can3D, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA, THE 3D ROOM'S MONITOR (NOT gameplay/monitor: IT REQUIRES THIS FILE)
+const { endMomentFor, endFaceFor } = require("../bots/index.js"); // WHAT THE AI'S BOT SAYS WHEN THE GAME ENDS (#76)
+const { sayLine } = require("../bots/say.js"); // & SAYS IT BESIDE THE BOARD
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 const optResumeBtn = document.getElementById("optResume"); // MENU: RESUME
@@ -43,7 +45,7 @@ const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHIL
 const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
 const takebackPrompt = document.getElementById("takebackPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S TAKEBACK REQUEST STANDS
 
-const VIEW_KEY = "VIEW"; // localStorage: "3d" WHEN THE PLAYER TURNED 3D ON, 2D IS THE DEFAULT (3D PHASE 0)
+const VIEW_KEY = "VIEW"; // localStorage: "2d" OR "3d", THE LAST ONE THE PLAYER PICKED. 3D IS THE DEFAULT, 2D ON A PHONE OR TABLET (can3D)
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
 const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A FORFEIT IS ALREADY IN THE TITLE
 	"checkmate": "by Checkmate",
@@ -80,10 +82,22 @@ export const socketHandlers = { // SOCKET EVENT -> HANDLER
 	rematch: loadRematch,
 	opponentLeft: showOpponentLeft,
 	opponentBack: function () { clearStatus("rematch"); },
-	connectionLost: function () { showStatus("connection", "Connection lost. Reconnecting…"); },
-	reconnected: function () { showStatus("connection", "Reconnected", 3000); },
-	connectionFailed: function () { showStatus("connection", "Connection lost. Reload the page to reconnect."); },
+	connectionLost: function () { setOffline(true); showStatus("connection", "Connection lost. Reconnecting…"); },
+	reconnected: function () { setOffline(false); showStatus("connection", "Reconnected", 3000); },
+	connectionFailed: function () { setOffline(true); showStatus("connection", "Connection lost. Reload the page to reconnect."); },
 };
+
+/* ---------------------------------------------------------------- */
+// Connection
+/* ---------------------------------------------------------------- */
+/**
+ * @description Marks the friend game's socket as up or down, the next frame sends it to the 3D monitor (renderer/index.js)
+ * @param  {[boolean]} lost [true while it's trying to reconnect, or won't without a reload]
+ */
+function setOffline(lost) {
+	game.offline = lost;
+	game.refresh = true;
+}
 
 /* ---------------------------------------------------------------- */
 // Open & Close
@@ -102,9 +116,10 @@ const nav = createNav({
 	},
 	onClose() { game.menuToggled = false; clearRemoteSelection(); },
 	canClose() { return !game.boardReset; }, // THE MENU STAYS OPEN WHILE A NEW BOARD LOADS, THE OLD BOARD UNDER IT IS LOCKED
-	arrowStops() { // LEFT & RIGHT GO THAT WAY ON SCREEN (THE BOX CAN BE DRAGGED), THE ONES NOT ON SCREEN ARE SKIPPED
+	arrowStops() { // LEFT & RIGHT GO THAT WAY ON SCREEN (THE BOX CAN BE DRAGGED), THE ONES NOT ON SCREEN ARE SKIPPED. THE 3D MONITOR'S STOP HAS NO PLACE ON SCREEN: ALWAYS THE LEFTMOST, SO LEFT FROM THE MENU BUTTON GOES THROUGH THE PAGE'S STOPS (THE TYPE-MOVE BOX) LIKE 2D, THEN THE SCREEN, THEN WRAPS BACK
 		const stops = ["optBtn", "moveBoxInput", "moveListToggle"].map((id) => document.getElementById(id));
-		return stops.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+		stops.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+		return placeBefore(stops, document.getElementById("monitorStop"), stops[0]);
 	},
 });
 
@@ -159,13 +174,14 @@ export function handleSound(e) {
 // View & Reset View Buttons (Menu)
 /* ---------------------------------------------------------------- */
 /**
- * @description The saved view when the game starts, 2D when none is saved or storage is blocked (private mode)
+ * @description The saved view when the game starts. With none saved or storage blocked (private mode): 3D, or 2D on a phone or tablet (can3D, TEMPORARY)
  * @return {[string]} [VIEWS.TWO_D or VIEWS.THREE_D]
  */
 export function loadView() {
 	setViewWords(VIEWS.TWO_D); // UNTIL showView() SAYS WHICH IS ON
 	onViewChange(setViewWords); // 3D THAT FELL BACK TO 2D BY ITSELF (LOST ITS WEBGL CONTEXT)
-	try { return localStorage.getItem(VIEW_KEY) == VIEWS.THREE_D ? VIEWS.THREE_D : VIEWS.TWO_D; } catch { return VIEWS.TWO_D; }
+	const fallback = can3D() ? VIEWS.THREE_D : VIEWS.TWO_D;
+	try { return localStorage.getItem(VIEW_KEY) == VIEWS.TWO_D ? VIEWS.TWO_D : fallback; } catch { return fallback; } // ONLY A SAVED "2d" KEEPS 3D OFF
 }
 
 /**
@@ -177,9 +193,12 @@ export function showView(view) {
 	return setView(view).then(function (on) { setViewWords(on); return on; });
 }
 
-// THE WORDS SAY WHAT A PRESS WILL DO, RESET VIEW IS ONLY ON 3D
+// THE WORDS SAY WHAT A PRESS WILL DO, RESET VIEW IS ONLY ON 3D. TEMPORARY (can3D): A PHONE, TABLET OR REMOTE-ONLY MODE CAN'T TURN 3D ON YET, THE BUTTON SAYS SO
 function setViewWords(on) {
-	optViewBtn.innerText = on === VIEWS.THREE_D ? "View: 2D" : "View: 3D";
+	const no3D = !can3D();
+	const notYet = game.REMOTE_ONLY_CONDITIONAL ? "3D remote in progress..." : "3D touch in progress..."; // WHICH ONE ISN'T BUILT YET
+	optViewBtn.innerText = no3D ? notYet : on === VIEWS.THREE_D ? "View: 2D" : "View: 3D";
+	setUnavailable(optViewBtn, no3D);
 	optResetViewBtn.parentElement.hidden = on !== VIEWS.THREE_D;
 }
 
@@ -189,6 +208,7 @@ function setViewWords(on) {
 export function handleView(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	if (!can3D()) { return; } // TEMPORARY (can3D): UNAVAILABLE (aria-disabled STILL TAKES CLICKS)
 	showView(currentView() === VIEWS.THREE_D ? VIEWS.TWO_D : VIEWS.THREE_D).then(function (on) {
 		try { localStorage.setItem(VIEW_KEY, on); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
 	});
@@ -370,7 +390,7 @@ function showTakebackButtons() {
 	if (takebackLoading) { setFill(optTakebackBtn); }
 	else { stopFill(optTakebackBtn); }
 	if (takebackLoading) { optTakebackBtn.innerText = game.ai || takebackIncoming ? "Taking Back" : "Asking"; }
-	else if (takebackIncoming) { optTakebackBtn.innerText = "Accept Takeback"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
+	else if (takebackIncoming) { optTakebackBtn.innerText = "Accept Takeback"; } // THE SAME PRESS ACCEPTS, REMOTE-ONLY MODE CAN ONLY REACH THE MENU
 	else if (takebackSent) { optTakebackBtn.innerText = "Takeback Asked"; }
 	else { optTakebackBtn.innerText = takebacksLeft === null ? "Takeback" : `Takeback (${takebacksLeft} left)`; }
 }
@@ -481,7 +501,7 @@ function showDrawButtons() {
 	if (drawLoading) { setFill(optDrawBtn); }
 	else { stopFill(optDrawBtn); }
 	if (drawLoading) { optDrawBtn.innerText = "Offering"; }
-	else if (drawIncoming) { optDrawBtn.innerText = "Accept Draw"; } // THE SAME PRESS ACCEPTS, THE TV REMOTE CAN ONLY REACH THE MENU
+	else if (drawIncoming) { optDrawBtn.innerText = "Accept Draw"; } // THE SAME PRESS ACCEPTS, REMOTE-ONLY MODE CAN ONLY REACH THE MENU
 	else { optDrawBtn.innerText = drawSent ? "Draw Offered" : "Offer Draw"; }
 }
 
@@ -582,7 +602,7 @@ export async function handleDeclineDraw(e) {
 export async function handleRestart(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (game.boardReset || isBusy(optRestartBtn)) { return; } // ALREADY LOADING A NEW BOARD OR WAITING ON THE SERVER (A SECOND PRESS, THE TV REMOTE'S ENTER)
+	if (game.boardReset || isBusy(optRestartBtn)) { return; } // ALREADY LOADING A NEW BOARD OR WAITING ON THE SERVER (A SECOND PRESS, REMOTE-ONLY MODE'S ENTER)
 	if (!game.gameOver) { return await handleForfeit(); }
 	if (!game.ai) { return await handleRematch(); }
 	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
@@ -766,16 +786,34 @@ function placeEndGroup(top) {
 }
 
 /**
- * @description Locks the board & opens the menu with the server's result. AI games offer Restart, friend games offer Rematch
- * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
+ * @description The camera is going to or is at the 3D room's monitor. Not while leaving: a game that ends then opens the menu as on the desk
+ * @return {[boolean]}
  */
-export function showGameOver(result) {
+function monitorHoldsMenu() {
+	const state = monitorState3D();
+	return state === "zooming" || state === "zoomed";
+}
+
+/**
+ * @description Locks the board & opens the menu with the server's result (not while the player is at the 3D room's monitor, it shows the result). AI games offer Restart, friend games offer Rematch
+ * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
+ * @param  {[boolean]} onLoad [true: the game was already over when it loaded, the bot doesn't speak about it again]
+ */
+export function showGameOver(result, onLoad) {
 	if (game.gameOver) { return; } // ALREADY SHOWN
 	game.gameOver = true;
+	game.result = result; // THE 3D ROOM'S MONITOR SHOWS IT (gameplay/renderer)
+	if (game.ai && !onLoad) { sayLine(endMomentFor(result, game.playerColor == "w" ? "b" : "w")); } // THE BOT WON OR LOST, A DRAW SAYS NOTHING
+	if (game.ai) { setFace(endFaceFor(result, game.playerColor == "w" ? "b" : "w")); } // & ITS FACE HOLDS THE RESULT, ON A GAME THAT LOADED OVER TOO
 	syncDeadline(null);
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY
-	openMenu();
+	const zoomed = monitorHoldsMenu(); // THE PLAYER IS AT THE 3D ROOM'S MONITOR: IT SHOWS THE RESULT, THE MENU STAYS SHUT UNTIL THEY OPEN IT
+	if (!zoomed) { openMenu(); }
+	else { // WHAT OPENING THE MENU DOES (onOpen): A HELD PIECE OR OPEN PROMOTION PICKER GOES BACK NOW, NOT AT THE NEXT OPEN (IT WOULD UNLOCK THE BOARD)
+		clearTouch();
+		revertUnfinishedMove();
+	}
 	game.opposingMove = true; // NO MORE MOVES (AFTER openMenu, GOING BACK UNLOCKS THE BOARD)
 	optResumeBtn.parentElement.hidden = true;
 	placeEndGroup(true);
@@ -797,8 +835,10 @@ export function showGameOver(result) {
 	resultReason.innerText = RESULT_REASONS[result?.reason] || "";
 	resultReason.hidden = !resultReason.innerText;
 	optRestartBtn.innerHTML = game.ai ? "Restart" : "Rematch";
-	handleRemoteMenuEnter(optRestartBtn); // TV REMOTE: SELECT RESTART / REMATCH
-	if (!game.TV_BOOL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS
+	if (!zoomed) {
+		handleRemoteMenuEnter(optRestartBtn); // REMOTE-ONLY MODE: SELECT RESTART / REMATCH
+		if (!game.REMOTE_ONLY_CONDITIONAL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS
+	}
 	resultAnnouncement.textContent = `${resultDisplay.innerText} ${resultReason.innerText}`.trim(); // AFTER THE FOCUS MOVES, A SCREEN READER READS THE BUTTON THEN THIS
 }
 
@@ -862,7 +902,7 @@ export async function handleExit(e) {
 		setFill(optExitBtn, 1);
 		return new InternalAuth().login();
 	}
-	if (optExitBtn.disabled || !confirmPress(optExitBtn)) { return; } // FIRST PRESS ASKS (THE TV REMOTE'S ENTER ISN'T STOPPED BY disabled)
+	if (optExitBtn.disabled || !confirmPress(optExitBtn)) { return; } // FIRST PRESS ASKS (REMOTE-ONLY MODE'S ENTER ISN'T STOPPED BY disabled)
 	optExitBtn.disabled = true;
 	optExitBtn.innerText = "Logging Out";
 	setFill(optExitBtn);

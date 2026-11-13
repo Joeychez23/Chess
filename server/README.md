@@ -50,7 +50,7 @@ engine are answered from test data.
 | File | What it covers |
 | --- | --- |
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
-| `ai.test.js` | The AI levels, the engine call and the js-chess-engine fallback |
+| `ai.test.js` | The 27 AI levels and their settings, the 8 old levels mapping to them, the low levels overlooking moves (only seen moves are searched, always a legal move), the engine call, mixed depths and the js-chess-engine fallback |
 | `analysis.test.js` | The analysis route: the engine's move and evaluation, AI and finished games only, the cache by FEN, one request at a time per game, finished boards without the engine, the engine failing, and the limit |
 | `draw.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
 | `openings.test.js` | Opening names (`utils/openings.js`, the data in `data/openings/`): the lookup, other move orders, the name getting more specific and staying once the game leaves the book, player and AI moves, a move that ends the game, a failed save, a new game, and Home's rows |
@@ -89,7 +89,7 @@ which doesn't start an Auth0 session, so there's no Auth0 login page or logout.
 | `GET /api/auth/resume` | Where `/play/:gameId` sends a signed-out player (the page can't see the refresh token). A valid refresh token re-ups the session and goes back to `?returnTo=`, otherwise it goes to `/login?returnTo=` |
 | `POST /api/auth/logout` | Ends the session on every device (the data service clears the session id on the player's row), clears the cookies and answers `200`, and the page goes Home. Only from our own page (`Origin` / `Sec-Fetch-Site`, #297); a `GET` is `404` |
 | `GET /api/user` | The signed-in user, and `username` from their `user_db` row (`null` until they pick one), or `401` |
-| `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't 1-8 gets the default and a color that isn't `w`, `b`, `random` or `alternate` is `alternate`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
+| `PUT /api/user/settings` | `{ ai_level, ai_color, friend_color }`, the settings page's Default start settings. A level that isn't one of the [AI levels](#ai-levels) gets the default (1-8, the levels from before, become the closest of today's) and a color that isn't `w`, `b`, `random` or `alternate` is `alternate`. Returns `{ settings }` as saved. `GET /api/chess/user/:userId` returns them as `settings` |
 | `PUT /api/user/username` | `{ username }`, the settings page's Username: 3 to 20 letters, numbers, `_` or `-` (spaces around it are dropped), not reserved, and nobody else's in any capitals. Returns `{ username }` as saved, `400` with the reason when it can't be used, or `409` "That username is taken" |
 | `GET /api/user/search?q=` | Home's player search: up to 10 usernames starting with `q` (2 or more characters), in any capitals, as `{ usernames }`. Never an email or Auth0 id. `429` with `Retry-After` when a limit is hit (`SEARCH_LIMITS` in `middleware/rateLimit.js`) |
 | `GET /api/user/friends` | Home's Friends box: `{ friends: [{ username, online }], sent: [{ username }], received: [{ username }] }`, sorted by name. Names only, never an email or Auth0 id. `online` means a socket is open now (on Home or in a friend game), read when this is asked |
@@ -142,14 +142,14 @@ apart. A real 5xx is the server breaking.
 | --- | --- | --- |
 | `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), the start settings (`start_params`), the friend's name (`opponent_name`), the opening (`opening`: `{ eco, name }`, `null` until a named position), and the result (`state`, `winner`, `reason`) |
 | `GET /api/chess/game/:gameId/pgn` | | A player in the game (guests: their own game). The game as a PGN file: `{ status, pgn, filename }`, `filename` is `<white>-vs-<black>.pgn`. Replays `moves` from the set position if there is one. Headers: `Event`, `Site` (`CLIENT_URL`), `Date` (`created_at`, `????.??.??` for older games), `White`, `Black` (friend games: the saved names, AI games: `Stockfish level N` & your screenname, or `Guest`), `Result` and `Termination` (`reason`, `unterminated` while it's going) |
-| `POST /api/chess/game` | `{ game_id, start_color, ai_level, start_fen, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (1-8, anything else gets the default). `start_color` is your color, `alternate` (random at first, then the opposite of your last AI game), `random` (the API's default, anything else counts as it), `w` or `b`, and the server picks the sides (Home, the guest page, and the play page with `random` when a guest has no game yet). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (gameplay's fallback if that request failed, saved as Random). `game_id` is only for guests (their saved id): the data service makes every new id (random, not guessable) and the response has it. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't name or overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first. `start_fen` (optional) starts from a set position, saved in `start_params.fen`; one that can't be played returns `{ status: 400, message }` (HTTP 400) before anything is saved or forfeited |
+| `POST /api/chess/game` | `{ game_id, start_color, ai_level, start_fen, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (600-3200 in steps of 100, see [AI levels](#ai-levels); anything else gets the default). `start_color` is your color, `alternate` (random at first, then the opposite of your last AI game), `random` (the API's default, anything else counts as it), `w` or `b`, and the server picks the sides (Home, the guest page, and the play page with `random` when a guest has no game yet). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (gameplay's fallback if that request failed, saved as Random). `game_id` is only for guests (their saved id): the data service makes every new id (random, not guessable) and the response has it. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't name or overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first. `start_fen` (optional) starts from a set position, saved in `start_params.fen`; one that can't be played returns `{ status: 400, message }` (HTTP 400) before anything is saved or forfeited |
 | `PUT /api/chess/game/:gameId` | `{ move: [from, to], promotion }` | Your move. Validates it against the stored board and saves it. Closes the game on checkmate or a draw. Refused while the game is `PENDING` or once it's closed, and refused if the board changed first (two moves at once). A position in the opening data set saves `opening` |
 | `POST /api/chess/game/:gameId/ai-move` | | AI games, on the AI's turn. The server picks the AI's move at the game's level, saves it, and returns the game with `ai_move: { from, to, promotion }`. After the AI moved, it returns that saved move instead of a new one. Saves `opening` like a player's move |
 | `POST /api/chess/game/:gameId/analysis` | | AI games and finished games, guests too. The engine's best move and evaluation of the saved board, for the Hint button and the evaluation bar: `{ status, game_board, from, to, eval, mate, winChance }`, `eval`, `mate` and `winChance` from White's side. Searches at depth 12 for at most 800 ms, cached by FEN (the last 5000 positions). `from` and `to` are `null` on a checkmate or stalemate, which don't ask the engine. `{ status: 403 }` in a friend game that's going or pending, `{ status: 409 }` while another board of this game is being analyzed (the same board shares the answer), `{ status: 503 }` when the engine doesn't answer, `429` past the analysis limits. Saves nothing |
 | `POST /api/chess/game/:gameId/takeback` | | AI games, guests too. Takes back your last move and the AI's reply, or only your move if the AI hasn't replied. No request step and no limit per game (AI games aren't rated). Returns the whole game like `GET /game/:gameId`, with the board, moves, piece facing and `opening` as they were. `{ status: 409 }` while the AI's move is being picked, or with no move of yours to take back. Friend games, signed in: the first press saves the request and emits `takeback` (`{ requested, opponent_name }`), once per move (`409` after that) and the next move ends it. The opponent's press accepts: one move goes back if the player who asked just moved, two if the opponent already replied, up to 3 per game (`409` when off or used up, set by the invite's `takebacks`). Returns the whole game and emits `takeback` |
 | `POST /api/chess/game/:gameId/takeback/decline` | | Signed in, friend games. Turns down the opponent's request (`{ declined: true }`) and emits `takeback`. `409` when it already ended |
 | `POST /api/chess/game/:gameId/restart` | | AI games. Forfeits the game if it's still going, then starts a new game with a new id and the same start settings: the level, your color (Random draws again, Alternate switches) and the set position, if any. Guests' one game is overwritten instead |
-| `GET /api/chess/levels` | | The AI levels for Home's dropdown: `{ levels: [{ level, elo }], default_level }` |
+| `GET /api/chess/levels` | | The AI levels for Home's dropdown, each one a bot (`utils/bots.js`, #76): `{ levels: [{ level, elo, name, bio, avatar, lines: { start, capture, check, win, lose } }], default_level, old_levels }`. `avatar` is a path under `CHESS_ASSETS_URL` (`images/bots/<level>.webp`), `old_levels` maps the 8 old levels to today's |
 | `POST /api/chess/game/:gameId/forfeit` | | A player in an open game (guests too, in their AI game). Closes the game, and the other side wins. Emits `game-over` |
 | `POST /api/chess/game/:gameId/draw` | | A player in an open game (guests too). The first press saves the offer and emits `draw-offer` (`{ offered, opponent_name }`), one per player per move (`409` after that); the next move ends it. The opponent's press accepts: `state: "CLOSED"`, `winner: "draw"`, `reason: "agreement"`, and emits `game-over`. AI games answer right away: always accepted until both sides have made their first move (fewer than two moves played, the engine isn't asked). After that the engine answers at full strength: accepted when the AI's win chance is 50% or less, otherwise (or with the engine down) `{ declined: true }`. `429` past the AI move limits. Game responses include `draw_offer`, the color with a standing offer or `null` |
 | `POST /api/chess/game/:gameId/draw/decline` | | Signed in, friend games. Turns down the opponent's offer (`{ declined: true }`) and emits `draw-offer`. `409` when it already ended |
@@ -173,9 +173,9 @@ only thing that lets these requests touch the game:
 ```bash
 API=http://localhost:3001/api/chess
 
-# New game as white at level 3. The server generates the id and sets the cookie
+# New game as white at level 1300. The server generates the id and sets the cookie
 GAME=$(curl -s -c jar -b jar -X POST $API/game -H "Content-Type: application/json" \
-  -d '{"start_color":"w","ai_level":3}' | node -pe 'JSON.parse(fs.readFileSync(0)).game_id')
+  -d '{"start_color":"w","ai_level":1300}' | node -pe 'JSON.parse(fs.readFileSync(0)).game_id')
 
 # Your move: e2 to e4 (add "promotion":"q" when a pawn reaches the last rank)
 curl -s -c jar -b jar -X PUT $API/game/$GAME -H "Content-Type: application/json" \
@@ -238,46 +238,72 @@ agree on what's legal; a test fails if they differ.
 
 ## AI levels
 
-The levels live in `server/utils/ai.js`. A new AI game saves its level as
-`ai_level` on its `chess_db` item. The level can't change until you start a new
-game from Home or the guest page (Restart keeps it). AI games made before levels existed get the
-default, level 3.
+There are 27 levels, one every 100 Elo from 600 to 3200. A level *is* its Elo:
+`ai_level: 1300`. They live in `server/utils/ai.js`. A new AI game saves its
+level as `ai_level` on its `chess_db` item, and it can't change until you start
+a new game from Home or the guest page (Restart keeps it). Left out, the level
+is 1300.
 
-| Level | Shown | Stockfish settings | Measured |
-| --- | --- | --- | --- |
-| 1 | ≈750 | Skill 0, and a random legal move 40% of the time | −619 vs. level 3, −301 vs. level 2 |
-| 2 | ≈1100 | Skill 0, and a random legal move 15% of the time | −241 vs. level 3 |
-| 3 | ≈1320 | `UCI_Elo` 1320, depth 1 | −305 vs. level 4 (Stockfish's ratings say −280) |
-| 4 | ≈1600 | `UCI_Elo` 1600, depth 3 | −228 vs. level 5 (−300) |
-| 5 | ≈1900 | `UCI_Elo` 1900, depth 4 | |
-| 6 | ≈2200 | `UCI_Elo` 2200, depth 6 | −413 vs. level 7 (−400) |
-| 7 | ≈2600 | `UCI_Elo` 2600, depth 8 | |
-| 8 | ≈3300 | Full strength, depth 20, 2 seconds | +137 vs. `UCI_Elo` 3190 (+16 =23 −1), played at depth 17, about what EC2 reaches in 2 seconds |
+| Levels | Shown | How they play |
+| --- | --- | --- |
+| 600 to 1200 | ≈600 … ≈1200 | **Overlooking moves.** Each legal move is seen with the level's `notice` chance (0.112 at 600 up to 0.263 at 1200; captures, checks and promotions are 3 times as likely to be seen), and Stockfish plays the best of the moves that were seen, at depth 1. One move seen is played without asking the engine. |
+| 1300 to 3100 | ≈1300 … ≈3100 | **Stockfish's `UCI_Elo`**, the one that measured at the level (`ENGINE_ELO`), searched to about its skill level + 0.5 plies. 1 second, 2 seconds from level 2400 up. |
+| 3200 | 3200+ | Full strength, depth 20, 2 seconds. |
 
-- **The ratings are Stockfish's.** `UCI_Elo` is anchored to the CCRL engine
-  rating list, not to chess.com or FIDE ratings, so the numbers are
-  approximate. Levels 1, 2 and 8 have no Stockfish rating, so they were
-  measured with games against the other levels.
-- **How they were measured:** a local Stockfish 17.1 build played the levels
-  against each other through `chess-engine-api`: 200 games per pair (40 for
-  level 8), 20 openings, each played with both colors.
-- **Stockfish 19:** the engine now runs Stockfish 19, and the table hasn't
-  been re-measured with it yet. 19 keeps 17.1's `UCI_Elo` range (1320-3190)
-  and picks skill-level moves at the same depth, so the settings work
-  unchanged, but the Elo of each level may have moved.
-- **Depth:** Stockfish picks a `UCI_Elo` / skill move at depth
-  `1 + skill level`, so the search stops there instead of using the whole
-  time limit. That saves CPU on the engine's EC2 instance. Only level 8
-  searches to depth 20.
-- **Before levels:** the old AI was full-strength Stockfish at depth 1. It
-  measured about 1900, the same as level 5 (+166 vs. level 4, +38 vs. level 5,
-  −147 vs. level 6).
-- **Limits on EC2:** the instance runs 2 engines. A level 8 move takes about
-  2.3 seconds, and with more than 2 of them at once the extras wait their turn
-  (4 at once: two took 2.3 seconds, two took 4.4 seconds). Levels 1-7 answer in
-  milliseconds. The engine runs on the same instance as this server, at a
-  lower CPU priority (`Nice=10`), and the server calls it on `127.0.0.1`, so
-  the engine's nginx rate limit doesn't apply to games.
+**Measured on Stockfish 19** (`scripts/measureLevels.js`, below), with level 1300
+fixed at 1320, Stockfish's lowest `UCI_Elo`:
+
+| Level | 600 | 700 | 800 | 900 | 1000 | 1100 | 1200 | 1300 | 1400 | 1500 | 1600 | 1700 | 1800 | 1900 | 2000 | 2100 | 2200 | 2300 | 2400 | 2500 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Measured | 570 | 673 | 741 | 891 | 1011 | 1073 | 1209 | 1320 | 1398 | 1506 | 1602 | 1744 | 1838 | 1962 | 2032 | 2115 | 2200 | 2372 | 2489 | 2588 |
+
+- **How far to trust them.** Each level played the one above it (200 games)
+  and the one two above (100 games), 20 openings with both colors, and all the
+  results were rated together. One run moves a level by about ±40, more the
+  further it is from 1300, so the steps come out between 60 and 190 with 100
+  as the average. 600 to 1200 and 1200 to 2500 were two runs; the second had 90
+  engine timeouts among the 2200 to 2500 games, so those four are the least sure.
+  2600 to 3100 weren't played: they follow the measured line (next point), and
+  the top levels take too long to play hundreds of games.
+- **Why the upper levels don't use their own `UCI_Elo`.** Stockfish's ratings
+  are anchored to the CCRL engine list, and at these search depths they aren't
+  100 apart in games. Measured on 19: `UCI_Elo` 1400 plays like 1320, 100
+  points of `UCI_Elo` are worth about 65 from 1600 to 2600, and about 130 past
+  it. So each level takes the `UCI_Elo` on that measured line (`ENGINE_ELO`:
+  level 2000 asks for 2115, level 3100 for 3190, Stockfish's highest).
+- **Depth.** Stockfish picks a `UCI_Elo` move at depth `1 + skill level`, a
+  whole number, so settings 100 apart often share a depth and then jump one.
+  The server asks for skill level + 0.5 with the fraction kept: 2.4 is depth 3
+  for 40% of the moves and depth 2 for the rest (a search stopped before
+  Stockfish's own depth picks there). That evens the steps, and the search
+  stops there instead of using the whole time limit.
+- **Why the low levels overlook moves.** Stockfish can't go under 1320. The
+  old levels 1 and 2 got there with a random legal move 40% or 15% of the
+  time, which hangs a queen for no reason. Now a weak level misses moves the
+  way a learner does (the capture it didn't look at, the retreat it didn't
+  see) and plays sensibly among what it saw (#243).
+- **The 8 levels from before** are still read: a game or saved setting with
+  1 to 8 plays as 800, 1100, 1300, 1600, 1900, 2200, 2600 or 3200, the closest
+  of today's. The data service still takes them, so either side can deploy first.
+- **Measuring again** (after a new Stockfish release, or a change to the
+  settings). Run `chess-engine-api` locally on that Stockfish build, then:
+
+  ```bash
+  cd server
+  ENGINE_URL=http://127.0.0.1:3999/v1 node scripts/measureLevels.js verify 600 2200   # the levels as they are
+  ENGINE_URL=http://127.0.0.1:3999/v1 node scripts/measureLevels.js calibrate         # notice chances for 600 to 1200
+  ENGINE_URL=http://127.0.0.1:3999/v1 node scripts/measureLevels.js engine 2000,2150,2300,2450,2600   # how far apart UCI_Elo settings play
+  ```
+
+  `GAMES` (200) and `AT_ONCE` (8, the engine API's `ENGINES`) can be set. Games
+  past 300 plies are judged by the engine. A run that prints moves from
+  js-chess-engine had engine timeouts: lower `AT_ONCE`.
+- **Limits on EC2:** the instance runs 2 engines. A 2 second level (2400 and
+  up) takes about 2.3 seconds a move, and with more than 2 of them at once the
+  extras wait their turn. The levels under 2400 answer in well under a second.
+  The engine runs on the same instance as this server, at a lower CPU priority
+  (`Nice=10`), and the server calls it on `127.0.0.1`, so the engine's nginx
+  rate limit doesn't apply to games.
 - **If the engine is down**, js-chess-engine (level 1) plays the move on the
   server instead.
 

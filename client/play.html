@@ -31,6 +31,7 @@
 </head>
 
 <body id="body">
+	<button id="monitorStop" type="button" aria-label="Monitor. Enter zooms in" hidden></button> <!-- 3D: THE KEYBOARD'S STOP FOR THE ROOM'S MONITOR, LEFT OF THE MENU BUTTON. ITS FOCUS IS DRAWN ON THE GLASS (gameplay/monitor/index.js) -->
 	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
 	<nav id="menuContainer" aria-label="Menu">
 		<div id="resultDisplay">Chess</div>
@@ -45,6 +46,7 @@
 				<li hidden><button class="menuButton" id="optTakeback">Takeback</button></li> <!-- WHILE THE GAME IS GOING, FRIEND GAMES WITH TAKEBACKS LEFT -->
 				<li hidden><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
 				<li><button class="menuButton" id="optTypeMove">Type a Move</button></li>
+				<li hidden><button class="menuButton" id="optMonitor">Monitor</button></li> <!-- 3D: ZOOMS IN TO THE ROOM'S MONITOR, SHOWN WHILE IT'S UP (gameplay/monitor/index.js) -->
 			</ul>
 			<ul role="group" aria-label="View">
 				<li><button class="menuButton" id="optSound">Turn Sound: Off</button></li>
@@ -75,6 +77,8 @@
 	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
 	<p id="moveDeadline"></p> <!-- FRIEND GAMES WITH A TIME LIMIT: THE TIME LEFT, NOT A LIVE REGION: IT CHANGES EVERY MINUTE (gameplay/menu/index.js) -->
 	<p id="resultAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE RESULT WHEN A GAME ENDS (gameplay/menu/index.js) -->
+	<p id="monitorAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE 3D ROOM'S MONITOR, ITS CHANNEL, WHAT IT SHOWS, ITS FOCUSED BUTTON & THE BANNER (gameplay/monitor/index.js) -->
+	<div id="monitorFocus" role="application" tabindex="-1" aria-label="Monitor" aria-describedby="monitorAnnouncement" hidden></div> <!-- THE FOCUS WHILE ZOOMED ON THE MONITOR, SO ITS KEYS REACH IT (gameplay/monitor/index.js) -->
 
 	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
 		<button id="drawAccept" type="button">Accept Draw</button>
@@ -89,6 +93,10 @@
 	<div id="gameInfo"> <!-- BOTTOM LEFT, THE MOVE LIST STAYS CLEAR OF IT -->
 		<p id="openingDisplay" hidden></p> <!-- "B90 Sicilian Defense: Najdorf Variation" (gameplay/movelist/index.js) -->
 		<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
+		<div id="botDisplay" hidden> <!-- AI GAMES: THE BOT'S AVATAR, NAME & LINES (gameplay/bots/say.js, #76) -->
+			<p id="botLine" aria-live="polite"></p>
+			<div id="botTag"><img id="botAvatar" alt="" width="40" height="40"><span id="botInitial" aria-hidden="true" hidden></span><span id="botName"></span></div>
+		</div>
 	</div>
 
 	<div id="evalBar" role="img" aria-label="Evaluation" hidden><div id="evalBarFill"></div></div> <!-- BESIDE THE BOARD, TURNED ON FROM THE MENU (gameplay/analysis/index.js) -->

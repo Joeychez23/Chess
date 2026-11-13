@@ -18,6 +18,13 @@ import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js
 import { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } from "../animate/timing.js"; // THE 2D BOARD'S TIMINGS, SO A MOVE TAKES THE SAME TIME ON BOTH
 import { createSurroundings, orientLabels } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
+import { createRoom, turnRoom, disposeRoom } from "./room.js"; // THE LIBRARY AROUND THE BOARD & ITS CRT MONITOR
+import { createScreen, setScreen as showOnScreen, setFace as showFace, pauseScreen, disposeScreen, setMonitorView, redrawScreen } from "./screen.js"; // WHAT THE MONITOR SHOWS
+import { createMonitor, uvToGrid, zoomDistance, isTap } from "./monitor/monitor.js"; // THE MONITOR AS THE GAME'S MENU: ITS STATES, BUTTONS & KEYS
+import { loadPrefs, savePrefs } from "./monitor/prefs.js";
+import { createFire, stepFire, pauseFire, disposeFire } from "./fire.js"; // THE FIREPLACE'S FLAMES, EMBERS & FLICKER
+import { createClock, stepClock, pauseClock, disposeClock } from "./clock.js"; // THE LONGCASE CLOCK'S HANDS & PENDULUM, AT THE LOCAL TIME
+import { reportError } from "../../pages/utils/reportErrors.js";
 import { showHint, dismissHint, removeHint } from "./hint.js";
 import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"; // ?perf=1's READOUT FOR PHONE TESTS (#430)
 export { perfLoaded } from "./perf.js"; // load.js GIVES IT THE CHUNK'S DOWNLOAD TIME
@@ -34,6 +41,10 @@ const FILES = "abcdefgh";
 const HOP_HEIGHT = CELL_SIZE * 0.6; // HOW HIGH A KNIGHT HOPS
 const CAMERA_HEIGHT = 32; // THE CAMERA LOOKS DOWN AT THE CENTER FROM THIS HIGH...
 const CAMERA_DISTANCE = 26; // ...& THIS FAR BACK FROM IT, ON THE SIDE AT THE BOTTOM OF THE SCREEN
+const ROOM_CAMERA_HEIGHT = 24.5; // IN THE LIBRARY THE CAMERA OPENS LOWER, FARTHER BACK...
+const ROOM_CAMERA_DISTANCE = 30.5;
+const ROOM_CAMERA_AIM = 6.5; // ...& LOOKS THIS FAR PAST THE CENTER TOWARD THE MONITOR, SO ITS WHOLE SCREEN IS IN THE OPENING VIEW
+const ROOM_BACKGROUND = 0x120B07; // DARK & WARM, BEHIND THE ROOM & UNDER THE DESK ON PHONES
 const MIN_DISTANCE = 12; // ZOOM LIMITS: CLOSE ENOUGH TO READ A SQUARE...
 const MAX_DISTANCE = 70; // ...FAR ENOUGH TO SEE THE WHOLE TABLE, BEFORE THE FOG SWALLOWS THE BOARD (DEFAULT IS ~41)
 const MAX_TILT = MathUtils.degToRad(80); // FROM STRAIGHT DOWN (0): STAYS ABOVE THE TABLE, NEVER LEVEL WITH OR BELOW IT
@@ -52,6 +63,11 @@ const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON
 	focus: [0xFFC83D, 1], // THE KEYBOARD'S SQUARE: A GOLD RING (NOT A FILL), LIKE THE PAGE'S FOCUS OUTLINE, CLEAR OF THE YELLOW LEGAL FILL
 };
 const FOCUS_RING = [0.36, 0.47]; // ITS INNER & OUTER EDGE, HALF A SIDE IN SQUARES FROM THE CENTER
+const ZOOM_MS = 400; // HOW LONG THE CAMERA TAKES TO GO UP TO THE MONITOR'S GLASS, & BACK
+const NEAR = 0.1; // THE CAMERA'S NEAR PLANE ON THE DESK...
+const GLASS_CLEAR = 4; // ...& AT THE MONITOR, THIS FAR IN FRONT OF THE GLASS: A NARROW VIEW BACKS THE CAMERA ACROSS THE BOARD, & THE PIECES IN BETWEEN WOULD HIDE THE GLASS
+const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)"); // THE ZOOM CUTS STRAIGHT THERE (monitor.js ASKS reduce())
+const NO_MONITOR = { handlers: {}, announce() {}, onChange() {} }; // mount()'S monitor OPTION WHEN THE CALLER GIVES NONE
 const LABEL = "Chess board, 3D. To play with the keyboard, press / and type a move."; // THE CANVAS'S ACCESSIBLE NAME (role img)
 
 const PHONE_PIXEL_RATIO = 1.5; // PHONES DRAW AT MOST THIS MANY PIXELS PER CSS PIXEL (2 ELSEWHERE)
@@ -73,6 +89,12 @@ const fitCamera = new PerspectiveCamera(); // smallScreenCamera()'S STAND-IN, TH
 const corner = new Vector3();
 const table = new Plane(new Vector3(0, 1, 0), 0); // THE BOARD'S SURFACE, A DRAGGED PIECE OFF THE BOARD FOLLOWS THE POINTER ON IT
 const tablePoint = new Vector3();
+const UP = new Vector3(0, 1, 0);
+const glassCentre = new Vector3(); // zoomSpot()'S SCRATCH
+const glassNormal = new Vector3();
+const glassSize = new Vector3();
+const glassScale = new Vector3();
+const forward = new Vector3(); // THE CAMERA'S VIEW DIRECTION, glassHit()'S
 
 /* ---------------------------------------------------------------- */
 // Squares
@@ -145,7 +167,8 @@ function resize() {
 	view.small = SMALL_SCREEN.matches ? smallScreenCamera(h) : null;
 	controls.maxPolarAngle = view.small ? view.small.tilt : MAX_TILT; // NO TILTING OR ZOOMING OUT TO WHERE A SQUARE IS UNDER TAP_PX
 	controls.maxDistance = view.small ? Math.max(view.small.distance, MIN_DISTANCE) : MAX_DISTANCE;
-	controls.update(); // A CAMERA PAST THE NEW LIMITS (THE PHONE WAS TURNED) MOVES INSIDE THEM
+	if (monitorIdle()) { controls.update(); } // A CAMERA PAST THE NEW LIMITS (THE PHONE WAS TURNED) MOVES INSIDE THEM
+	else { refitZoom(); } // AT THE MONITOR: THE GLASS FILLS THE NEW SHAPE (THE DESK SPOT IS CLAMPED WHEN IT GETS BACK, landHome)
 	requestRender();
 }
 
@@ -209,7 +232,11 @@ function smallestSquarePx(h) {
 function placeCamera(angle) {
 	view.controls.target.set(0, 0, 0); // UNDOES ANY PAN
 	if (view.small) { view.camera.position.setFromSpherical(spherical.set(view.small.distance, view.small.tilt, angle)); }
-	else { view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle)); }
+	else if (view.phone) { view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle)); }
+	else { // THE LIBRARY'S VIEW: THE MONITOR ACROSS THE BOARD IS IN IT
+		view.controls.target.set(-ROOM_CAMERA_AIM * Math.sin(angle), 0, -ROOM_CAMERA_AIM * Math.cos(angle));
+		view.camera.position.set(ROOM_CAMERA_DISTANCE * Math.sin(angle), ROOM_CAMERA_HEIGHT, ROOM_CAMERA_DISTANCE * Math.cos(angle));
+	}
 	view.controls.update(); // LOOKS AT THE TARGET
 }
 
@@ -219,11 +246,13 @@ function cameraAzimuth() {
 	return Math.atan2(offset.x, offset.z);
 }
 
-// TURNS THE CAMERA AROUND WHAT IT LOOKS AT TO angle, KEEPING THE PLAYER'S ZOOM, TILT & PAN
-function turnCamera(angle) {
+// TURNS THE CAMERA AROUND WHAT IT LOOKS AT TO angle, KEEPING THE PLAYER'S ZOOM, TILT & PAN. turn (FLIP BOARD'S) ALSO CARRIES WHAT IT LOOKS AT
+// ROUND THE BOARD'S CENTER BY THE SAME ANGLE: THE LIBRARY'S VIEW LOOKS PAST THE CENTER, & FROM THE OTHER SIDE THAT POINT IS ON THE OTHER SIDE TOO
+function turnCamera(angle, turn) {
 	const { camera, controls } = view;
 	spherical.setFromVector3(offset.copy(camera.position).sub(controls.target));
 	spherical.theta = angle;
+	if (turn) { controls.target.copy(turn.target).applyAxisAngle(UP, angle - turn.from); }
 	camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));
 	camera.lookAt(controls.target);
 }
@@ -233,9 +262,65 @@ function stepCamera(now) {
 	const turn = view.cameraTurn;
 	if (turn.start === null) { turn.start = now; }
 	const t = MathUtils.clamp((now - turn.start) / FLIP_MS, 0, 1);
-	turnCamera(turn.from + (turn.to - turn.from) * easeInOut(t));
+	turnCamera(turn.from + (turn.to - turn.from) * easeInOut(t), turn);
+	if (view.room) { turnRoom(view.room, turn.roomFrom + (turn.roomTo - turn.roomFrom) * easeInOut(t)); } // THE ROOM COMES ROUND WITH THE CAMERA: THE BOARD LOOKS TO TURN ON THE DESK
 	if (t >= 0.5) { setLabels(view.side); } // SIDE ON TO THE BOARD: THE LABELS SWAP UNSEEN
 	if (t === 1) { view.cameraTurn = null; }
+}
+
+const sideAngle = (color) => (color === "b" ? Math.PI : 0); // AROUND THE BOARD FROM WHITE'S SIDE
+
+// THE ROOM TURNS WITH THE PLAYER'S SIDE, SO THE MONITOR IS ALWAYS ACROSS THE BOARD FROM THEM
+function setRoomSide(color) {
+	if (view.room) { turnRoom(view.room, sideAngle(color)); }
+}
+
+/**
+ * @description Downloads the library & puts it around the board in place of the baize table. The board is already up & playable: one that
+ * fails or times out is reported & the baize stays. Phones get the desk & monitor only
+ * @param  {[object]} v [the view it's for, a board unmounted meanwhile gets nothing]
+ */
+async function addRoom(v) {
+	try {
+		const { group, screen, fire, clock } = await createRoom({ phone: v.phone, anisotropy: Math.min(v.renderer.capabilities.getMaxAnisotropy(), 4) });
+		if (view !== v) { return; } // UNMOUNTED (OR REBUILT) WHILE IT LOADED
+		v.room = group;
+		v.scene.add(group);
+		v.surroundings.userData.table.visible = false; // THE DESK TAKES THE BAIZE'S PLACE
+		v.scene.fog = null; // THE WALLS ARE THE EDGE NOW, FOG WOULD HIDE THEM
+		v.scene.background = new Color(ROOM_BACKGROUND);
+		v.container.style.backgroundColor = v.scene.background.getStyle();
+		turnRoom(group, v.cameraTurn ? v.cameraTurn.roomFrom : sideAngle(v.side));
+		createScreen(screen, requestRender);
+		if (v.screenState) { showOnScreen(v.screenState); }
+		if (v.screenFace) { showFace(v.screenFace); }
+		v.glass = screen;
+		v.monitor = createMonitor({ show: () => onMonitorShow(v), announce: (text) => v.monitorOptions.announce(text), handlers: v.monitorOptions.handlers || {}, loadPrefs, savePrefs, reduce: () => REDUCE.matches });
+		v.monitorSeen = "idle";
+		setMonitorView(v.monitor.view);
+		if (v.monitorData) { v.monitor.update(monitorInput(v.monitorData)); }
+		v.monitorOptions.onChange({ ready: true, state: "idle" });
+		pauseScreen(document.hidden || v.lost);
+		if (fire) { // NOT ON PHONES: THEY HAVE NO FIREPLACE
+			createFire(fire, requestRender);
+			pauseFire(document.hidden || v.lost);
+		}
+		if (clock) { // NOT ON PHONES EITHER: THE CLOCK IS IN THE ROOM
+			createClock(clock, requestRender);
+			pauseClock(document.hidden || v.lost);
+		}
+		requestRender();
+	} catch (error) {
+		console.warn("3D library didn't load, staying on the baize table", error);
+		reportError(`3D library couldn't load: ${error.message}`, "3d-board");
+		if (view !== v) { return; }
+		if (v.monitor) { // MADE BEFORE WHAT THREW: NO MENU ON A HALF BUILT ROOM
+			v.monitor.reset();
+			v.monitor = null;
+			setMonitorView(null);
+		}
+		v.monitorOptions.onChange({ ready: false, state: null });
+	}
 }
 
 // TURNS THE a-h / 1-8 LABELS TO READ FROM color'S SIDE, LIKE THE 2D BOARD'S
@@ -264,6 +349,7 @@ function createControls(camera, canvas) {
 	controls.addEventListener("start", function () {
 		view.controlsActive = true;
 		view.cameraTurn = null; // THE PLAYER TOOK THE CAMERA MID FLIP
+		setRoomSide(view.side);
 		setLabels(view.side);
 		if (view.pointerType === "touch") { startGesture(); } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
 	});
@@ -294,20 +380,286 @@ function onPointerDown(e) {
 	}
 	view.pointerAt = { x: e.clientX, y: e.clientY };
 	view.pointerType = e.pointerType;
-	view.controls.enabled = !(e.pointerType === "mouse" && e.button === 0 && hitUnder(e, false));
+	if (e.pointerType !== "mouse") { // EVERY FINGER (OR PEN) DOWN: A SECOND ONE MAKES THIS TOUCH A PINCH OR ORBIT, NEVER A TAP
+		view.touches.add(e.pointerId);
+		if (view.touches.size > 1) { view.multiTouch = true; }
+	}
+	view.controls.enabled = monitorIdle() && !(e.pointerType === "mouse" && e.button === 0 && hitUnder(e, false)); // ZOOMED ON THE MONITOR THE CAMERA STAYS PUT
 }
 
 // A HELD PIECE PAST THE DRAG THRESHOLD FOLLOWS THE POINTER (dragHeld). BEFORE gameplay/input'S mousemove / touchmove, SO ITS SQUARE LOOKUP SKIPS THE PIECE TOO
 function onPointerMove(e) {
 	view.pointerAt = { x: e.clientX, y: e.clientY };
+	if (e.pointerType === "mouse" && !view.held && !view.controlsActive) { hoverGlass(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S
 	const held = view.held;
 	if (!held || !held.dragging || view.cameraGesture) { return; }
 	if (!held.following && Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > (e.pointerType === "touch" ? TOUCH_DRAG_PX : DRAG_PX)) { held.following = true; }
 	if (held.following) { liftHeld(); }
 }
 
-function onPointerUp() {
-	if (view) { view.controls.enabled = true; }
+// ON THE WINDOW, AFTER onTouchTap(): THE FINGER IS UP, & ONCE EVERY FINGER IS THE NEXT TOUCH CAN BE A TAP AGAIN
+function onPointerUp(e) {
+	if (!view) { return; }
+	view.controls.enabled = monitorIdle();
+	if (e.pointerType === "mouse") { return; }
+	view.touches.delete(e.pointerId);
+	if (!view.touches.size) { view.multiTouch = false; }
+}
+
+/* ---------------------------------------------------------------- */
+// Monitor
+/* ---------------------------------------------------------------- */
+
+// THE MONITOR IS ON THE DESK (OR THERE IS NONE): THE BOARD & THE CAMERA CONTROLS ARE THE PLAYER'S
+function monitorIdle() {
+	return !view.monitor || view.monitor.state === "idle";
+}
+
+// THE DATA THE MONITOR GETS: setMonitor()'S & THE OPPONENT'S NAME & STATUS (setScreen) FOR THE SCREEN READER
+function monitorInput(data) {
+	const state = view.screenState || {};
+	return { ...data, screen: { name: state.name || "", status: state.status || "" } };
+}
+
+// THE MONITOR'S show(): REDRAWS THE GLASS, THEN MOVES THE CAMERA FOR A NEW STATE. monitor.js CHANGES STATE BY ITSELF TOO (BACK, ESCAPE),
+// SO THE CAMERA FOLLOWS ITS STATE, NOT THIS FILE'S CALLS
+function onMonitorShow(v) {
+	redrawScreen();
+	if (view !== v || !v.monitor) { return; }
+	const state = v.monitor.state, was = v.monitorSeen;
+	if (state === was) { return; }
+	v.monitorSeen = state;
+	if (was === "idle") { leaveDesk(); }
+	if (state === "zooming") { zoomTo(false); }
+	else if (state === "zoomed" && was !== "zooming") { setCameraAt(zoomSpot()); } // REDUCED MOTION: STRAIGHT FROM THE DESK (A FINISHED ZOOM IS ALREADY THERE)
+	else if (state === "leaving") { zoomTo(true); }
+	else if (state === "idle") { landHome(); }
+	requestRender();
+	v.monitorOptions.onChange({ ready: true, state });
+}
+
+// THE CAMERA LEAVES THE DESK: REMEMBERS WHERE IT WAS & TAKES IT FROM THE CONTROLS. A FLIP BOARD TURN LANDS FIRST
+function leaveDesk() {
+	const { camera, controls } = view;
+	if (view.cameraTurn) {
+		turnCamera(view.cameraTurn.to, view.cameraTurn);
+		setLabels(view.side);
+		setRoomSide(view.side);
+		view.cameraTurn = null;
+	}
+	view.home = { position: camera.position.clone(), target: controls.target.clone() };
+	view.zoomLook.copy(controls.target);
+	controls.enabled = false;
+}
+
+/**
+ * @description Where the camera sits to read the glass: square on to it, along its outward normal, far enough back that it fills
+ * zoomDistance()'s share of the view. From the mesh's world matrix, so it follows the room as it turns with the player's side
+ * @return {[object]} { position, centre, near } [world space, near: the near plane that clips what's between the camera & the glass]
+ */
+function zoomSpot() {
+	const { glass, camera } = view;
+	glass.updateWorldMatrix(true, false);
+	if (!glass.geometry.boundingBox) { glass.geometry.computeBoundingBox(); }
+	const box = glass.geometry.boundingBox;
+	box.getCenter(glassCentre);
+	glass.localToWorld(glassCentre);
+	box.getSize(glassSize);
+	glass.getWorldScale(glassScale);
+	const sizes = [0, 1, 2].map((i) => glassSize.getComponent(i) * Math.abs(glassScale.getComponent(i)));
+	const thin = sizes.indexOf(Math.min(...sizes)); // THE .glb HAS NO NORMALS: THE GLASS'S THINNEST AXIS IS ITS FACING
+	const [w, h] = sizes.filter((_, i) => i !== thin).sort((a, b) => b - a); // A 4:3 SCREEN, WIDER THAN TALL
+	glassNormal.set(0, 0, 0).setComponent(thin, 1).transformDirection(glass.matrixWorld);
+	if (glassNormal.x * glassCentre.x + glassNormal.z * glassCentre.z > 0) { glassNormal.negate(); } // OUTWARD IS TOWARD THE BOARD (THE ORIGIN), ACROSS FROM THE PLAYER
+	const distance = zoomDistance(w, h, camera.fov, camera.aspect);
+	return { position: glassCentre.clone().addScaledVector(glassNormal, distance), centre: glassCentre.clone(), near: Math.max(NEAR, distance - GLASS_CLEAR) };
+}
+
+// PUTS THE CAMERA AT A SPOT, LOOKING AT ITS CENTRE
+function setCameraAt({ position, centre, near }) {
+	view.camera.position.copy(position);
+	view.zoomLook.copy(centre);
+	view.camera.lookAt(centre);
+	setNear(near);
+}
+
+function setNear(near) {
+	if (view.camera.near === near) { return; }
+	view.camera.near = near;
+	view.camera.updateProjectionMatrix();
+}
+
+// STARTS THE CAMERA'S MOVE TO THE GLASS, OR BACK TO THE DESK (FROM WHEREVER IT IS, A ZOOM CAN TURN BACK HALFWAY)
+function zoomTo(back) {
+	const to = back ? { position: view.home.position, centre: view.home.target, near: NEAR } : zoomSpot();
+	view.zoom = { from: view.camera.position.clone(), fromLook: view.zoomLook.clone(), fromNear: view.camera.near, to: to.position.clone(), toLook: to.centre.clone(), toNear: to.near, start: null, back };
+}
+
+// MOVES THE CAMERA PART OF THE WAY (now = Infinity LANDS IT), SLOW START & LANDING, & TELLS THE MONITOR WHEN IT ARRIVES
+function stepZoom(now) {
+	const zoom = view.zoom;
+	if (zoom.start === null) { zoom.start = now; }
+	const t = now === Infinity ? 1 : MathUtils.clamp((now - zoom.start) / ZOOM_MS, 0, 1);
+	const along = MathUtils.smoothstep(t, 0, 1);
+	view.camera.position.lerpVectors(zoom.from, zoom.to, along);
+	view.zoomLook.lerpVectors(zoom.fromLook, zoom.toLook, along);
+	view.camera.lookAt(view.zoomLook);
+	setNear(zoom.fromNear + (zoom.toNear - zoom.fromNear) * along);
+	if (t < 1) { return; }
+	view.zoom = null;
+	if (zoom.back) { view.monitor.left(); } // IDLE: onMonitorShow() HANDS THE CAMERA BACK (landHome)
+	else { view.monitor.arrived(); }
+}
+
+// THE VIEW CHANGED SHAPE AT THE MONITOR: THE GLASS FILLS THE NEW ONE
+function refitZoom() {
+	if (view.zoom && !view.zoom.back) {
+		const spot = zoomSpot();
+		view.zoom.to.copy(spot.position);
+		view.zoom.toLook.copy(spot.centre);
+		view.zoom.toNear = spot.near;
+	} else if (!view.zoom && view.monitor.state === "zoomed") { setCameraAt(zoomSpot()); }
+}
+
+// BACK ON THE DESK: THE CAMERA WHERE IT WAS (A CUT WHEN THE MONITOR WENT STRAIGHT TO IDLE), THE CONTROLS ON, leaveMonitor()'S PROMISES RESOLVED
+function landHome() {
+	const { camera, controls } = view;
+	view.zoom = null;
+	if (view.home) {
+		camera.position.copy(view.home.position);
+		controls.target.copy(view.home.target);
+		view.home = null;
+	}
+	setNear(NEAR);
+	controls.enabled = true;
+	controls.update(); // LOOKS AT THE TARGET AGAIN, INSIDE ANY NEW LIMITS
+	view.leaving.splice(0).forEach((resolve) => resolve());
+}
+
+// STRAIGHT BACK TO THE DESK, NO MOVE (FLIP BOARD & RESET VIEW START FROM THERE)
+function landAtDesk() {
+	if (!monitorIdle()) { view.monitor.reset(); }
+}
+
+// THE GRID PIXEL UNDER A POINTER EVENT ON THE GLASS, null WHEN SOMETHING ELSE IS IN FRONT OF IT (A PIECE WINS) OR IT ISN'T UNDER IT
+function glassHit(e) {
+	if (!view.glass) { return null; }
+	const rect = view.renderer.domElement.getBoundingClientRect();
+	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+	raycaster.setFromCamera(pointer, view.camera);
+	view.camera.getWorldDirection(forward);
+	const depth = (h) => offset.copy(h.point).sub(view.camera.position).dot(forward); // THE NEAR PLANE CLIPS BY DEPTH ALONG THE VIEW, NOT DISTANCE ALONG THE RAY
+	const hit = raycaster.intersectObjects([view.glass, ...view.pieces.values(), view.plane], false).find((h) => depth(h) >= view.camera.near); // WHAT THE NEAR PLANE CLIPS ISN'T DRAWN, SO IT CAN'T BE IN THE WAY
+	return hit && hit.object === view.glass && hit.uv ? uvToGrid(hit.uv.x, hit.uv.y) : null;
+}
+
+// A MOUSE OVER THE GLASS: THE MONITOR'S HOVER (THE FACE'S EYES ON THE DESK, A BUTTON ZOOMED) & A HAND CURSOR
+function hoverGlass(e) {
+	if (!view.monitor) { return; }
+	const at = glassHit(e);
+	if (at) { view.monitor.pointer("move", at.x, at.y); }
+	else { view.monitor.pointer("out"); }
+	const cursor = at ? "pointer" : "";
+	if (view.container.style.cursor !== cursor) { view.container.style.cursor = cursor; }
+}
+
+function onPointerLeave() {
+	if (!view.monitor) { return; }
+	view.monitor.pointer("out");
+	view.container.style.cursor = "";
+}
+
+/**
+ * @description A tap (a mouse click or a lifted finger) at a point: on the glass it zooms in or presses a button, off it it goes back to the desk
+ * @param  {[object]} e [the click or pointerup, with clientX & clientY: the release point]
+ * @return {[boolean]} [the monitor used it, so the board must not]
+ */
+function monitorTap(e) {
+	const monitor = view.monitor;
+	if (!monitor || view.lost || view.cameraGesture || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType)) { return false; } // A LOST CONTEXT DRAWS NO ZOOM, IT WOULD STICK IN zooming
+	const at = glassHit(e);
+	if (monitor.state === "idle") { return Boolean(at) && enterMonitor(); }
+	if (at && monitor.state === "zoomed") { monitor.pointer("press", at.x, at.y); }
+	else if (!at && (monitor.state === "zoomed" || monitor.state === "zooming")) { leaveMonitor(); }
+	return true;
+}
+
+// CAPTURE PHASE, BEFORE gameplay/input'S CLICK: THE MOUSE'S TAP. AT THE MONITOR NO CLICK REACHES THE BOARD. A FINGER'S OR PEN'S IS onTouchTap()'S: gameplay'S
+// touchstart CANCELS THE CLICK A TOUCH (OR AN APPLE PENCIL) WOULD MAKE, & ONE THE BROWSER MAKES ANYWAY (NO TOUCH LISTENERS IN REMOTE-ONLY MODE, A WINDOWS PEN) WOULD BE THE SAME TAP TWICE
+function onClick(e) {
+	if (!view.monitor) { return; }
+	const idle = view.monitor.state === "idle";
+	if (!idle) { e.stopPropagation(); }
+	if (view.pointerType !== "mouse") { return; }
+	if (monitorTap(e) && idle) { e.stopPropagation(); }
+}
+
+// CAPTURE PHASE: A LIFTED FINGER (OR PEN) IS A TAP WHEN IT WAS THE ONLY ONE DOWN THE WHOLE TIME (NOT A PINCH OR ORBIT) & DIDN'T MOVE. IT RUNS BEFORE gameplay'S
+// touchend, WHICH THEN SEES THE MONITOR BUSY (isCameraGesture) & LEAVES THE BOARD ALONE. NOT STOPPED: THE CAMERA CONTROLS NEED THEIR pointerup
+function onTouchTap(e) {
+	if (e.pointerType === "mouse" || !view.monitor || view.multiTouch || view.touches.size !== 1 || !view.touches.has(e.pointerId)) { return; }
+	monitorTap(e);
+}
+
+// CAPTURE PHASE ON THE WINDOW: ZOOMED, THE MONITOR'S KEYS (WASD, THE ARROWS, ENTER, SPACE, ESCAPE) ARE ITS ALONE, ESCAPE WHILE ZOOMING IN TOO.
+// NOT WHILE TYPING, NOT SHORTCUTS. THE MONITOR'S FOCUS ELEMENT (#monitorFocus, A DIV) IS NO TYPING TARGET, SO ITS KEYS COME HERE
+function onKeyDown(e) {
+	const monitor = view && view.monitor;
+	if (!monitor || e.altKey || e.ctrlKey || e.metaKey) { return; }
+	if (monitor.state !== "zoomed" && !(monitor.state === "zooming" && e.key === "Escape")) { return; }
+	const target = e.target;
+	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return; }
+	if (monitor.key(e.key)) {
+		e.preventDefault();
+		e.stopImmediatePropagation();
+	}
+}
+
+/**
+ * @description The game's data for the monitor (common shapes). Kept until the room has loaded, nothing on a board with no monitor
+ * @param  {[object]} data { ai, over, yourTurn, result, moves, opening, eval, actions }
+ */
+export function setMonitor(data) {
+	if (!view) { return; }
+	view.monitorData = data;
+	if (view.monitor) { view.monitor.update(monitorInput(data)); }
+}
+
+/**
+ * @description Zooms the camera in to the monitor (a tap on its glass does too)
+ * @return {[boolean]} [false with no monitor, while the GPU context is lost, or before it has a game's data]
+ */
+export function enterMonitor() {
+	if (!view || !view.monitor || view.lost) { return false; } // NO FRAMES WHILE THE CONTEXT IS LOST: THE ZOOM WOULD NEVER ARRIVE
+	view.monitor.enter();
+	return view.monitor.state !== "idle";
+}
+
+/**
+ * @description Takes the camera back to the desk
+ * @return {[Promise<void>]} [resolves once the monitor is idle again, at once when it already is]
+ */
+export function leaveMonitor() {
+	if (!view || monitorIdle()) { return Promise.resolve(); }
+	const done = new Promise((resolve) => view.leaving.push(resolve));
+	view.monitor.leave();
+	return done;
+}
+
+/**
+ * @description The monitor's state
+ * @return {[string|null]} ["idle", "zooming", "zoomed" or "leaving", null with no monitor]
+ */
+export function monitorState() {
+	return view && view.monitor ? view.monitor.state : null;
+}
+
+/**
+ * @description The keyboard's focus came to the monitor's screen or left it (the page's stop, gameplay/monitor): on the desk the glass shows a border
+ * @param  {[boolean]} on
+ */
+export function focusMonitor(on) {
+	if (view && view.monitor) { view.monitor.deskFocus(Boolean(on)); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -324,17 +676,23 @@ function requestRender() {
 // ONE FRAME: STEP THE MOVING PIECES & CAMERA, THEN DRAW. ASKS FOR THE NEXT ONLY WHILE SOMETHING IS STILL MOVING
 function frame(now) {
 	view.frameId = null;
-	perfMoving(now, view.anims.size > 0 || Boolean(view.cameraTurn));
+	perfMoving(now, view.anims.size > 0 || Boolean(view.cameraTurn) || Boolean(view.zoom));
 	for (const anim of [...view.anims]) { stepAnim(anim, now); }
 	if (view.cameraTurn) { stepCamera(now); }
-	if (view.controls.enableDamping) { view.controls.update(); } // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME
+	if (view.zoom) { stepZoom(now); }
+	if (view.controls.enableDamping && !view.zoom && monitorIdle()) { view.controls.update(); } // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME. NOT AT THE MONITOR: IT WOULD AIM THE CAMERA BACK AT THE BOARD
+	stepFire(now, view.renderer.domElement.height); // ITS OWN TIMER ASKS FOR ITS FRAMES (fire.js)
+	stepClock(); // SO DOES THE CLOCK'S (clock.js)
 	view.renderer.render(view.scene, view.camera);
 	if (view.textureReady) { view.markDrawn(); } // ONLY THE FIRST CALL COUNTS
 	perfFrame(now);
-	if (view.anims.size || view.cameraTurn) { requestRender(); }
+	if (view.anims.size || view.cameraTurn || view.zoom) { requestRender(); }
 }
 
 function onVisibility() {
+	pauseScreen(document.hidden); // THE MONITOR'S FACE STOPS BLINKING IN A HIDDEN TAB
+	pauseFire(document.hidden); // & THE FIRE STOPS ASKING FOR FRAMES
+	pauseClock(document.hidden); // & THE CLOCK
 	if (!document.hidden) { requestRender(); return; }
 	cancelAnimationFrame(view.frameId);
 	view.frameId = null;
@@ -346,9 +704,15 @@ function onContextLost(e) {
 	e.preventDefault();
 	perfLost();
 	view.lost = true;
+	pauseScreen(true);
+	pauseFire(true);
+	pauseClock(true);
 	cancelAnimationFrame(view.frameId);
 	view.frameId = null;
 	finishAnims(); // THEIR PROMISES RESOLVE, THE GAME DOESN'T WAIT ON A BOARD THAT CAN'T DRAW
+	if (view.monitor) { view.monitor.reset(); } // STRAIGHT BACK TO THE DESK: onMonitorShow() PUTS THE CAMERA BACK & THE CONTROLS ON
+	view.zoom = null;
+	view.controls.enabled = true;
 	view.onContextLost();
 }
 
@@ -359,10 +723,11 @@ function onContextRestored() {
 /**
  * @description Creates the renderer, scene, board & lights inside container & starts drawing. Throws if WebGL is unavailable
  * @param  {[HTMLElement]} container [what the 3D canvas fills, sized by CSS]
- * @param  {[object]} events [{ onContextLost, onContextRestored }: the WebGL context went away / came back, the board stops drawing
- * when it's lost & the caller puts up a new one (unmount() then mount())]
+ * @param  {[object]} events [{ onContextLost, onContextRestored, monitor }: the WebGL context went away / came back, the board stops drawing
+ * when it's lost & the caller puts up a new one (unmount() then mount()). monitor: { handlers (what its buttons call, monitor.js), announce(text)
+ * (for the screen reader), onChange({ ready, state }) (the monitor came up, went away or changed state) }]
  */
-export function mount(container, { onContextLost: lost = () => {}, onContextRestored: restored = () => {} } = {}) {
+export function mount(container, { onContextLost: lost = () => {}, onContextRestored: restored = () => {}, monitor = null } = {}) {
 	if (view) { return; }
 	const phone = window.matchMedia("(pointer: coarse)").matches; // TOUCH-FIRST SCREEN: THE CHEAPER SCENE (NO FOG, LOWER PIXEL RATIO)
 	const renderer = new WebGLRenderer({ antialias: true, powerPreference: phone ? "low-power" : "default" });
@@ -374,7 +739,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	const scene = new Scene();
 	scene.background = new Color(BAIZE_FOG);
 	if (!phone) { scene.fog = new Fog(BAIZE_FOG, 50, 150); } // PAST THE BAIZE TABLE, FADE INTO THE BACKGROUND
-	const camera = new PerspectiveCamera(FOV, 1, 0.1, 1000); // PLACED BELOW (placeCamera), WHITE'S SIDE UNTIL setSide()
+	const camera = new PerspectiveCamera(FOV, 1, NEAR, 1000); // PLACED BELOW (placeCamera), WHITE'S SIDE UNTIL setSide()
 	scene.add(new HemisphereLight(0xFFF4E0, 0x3A2A1A, 1.2)); // FILL: WARM SKY, DARK WOOD BOUNCE, NO SHADOW MAPS
 	const keyLight = new DirectionalLight(0xFFFFFF, 2.2); // KEY: HIGH & TO WHITE'S LEFT
 	keyLight.position.set(-10, 25, 15);
@@ -404,10 +769,11 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 		marks[kind] = { geometry: kind === "focus" ? ringGeometry : markGeometry, material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
 	view = { phone, container, renderer, scene, camera, plane, surroundings, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
-	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored, held: null }); // held: THE PICKED UP PIECE (setHeld) { mesh, dragging, following }
+	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored, held: null, room: null, screenState: null, screenFace: null }); // room: THE LIBRARY ONCE IT'S LOADED (addRoom), screenState & screenFace: WHAT ITS MONITOR WAS LAST TOLD // held: THE PICKED UP PIECE (setHeld) { mesh, dragging, following }
+	Object.assign(view, { monitorOptions: { ...NO_MONITOR, ...(monitor || {}) }, monitor: null, monitorData: null, monitorSeen: "idle", glass: null, zoom: null, home: null, zoomLook: new Vector3(), leaving: [] }); // monitor: ITS STATE MACHINE ONCE THE ROOM HAS LOADED, monitorData: WHAT setMonitor() WAS LAST TOLD, zoom: THE CAMERA'S MOVE TO OR FROM THE GLASS, home: WHERE IT WAS ON THE DESK, zoomLook: WHAT IT LOOKS AT MEANWHILE, leaving: leaveMonitor()'S RESOLVES
 	view.drawn = new Promise((resolve) => { view.markDrawn = resolve; }); // whenDrawn(): THE FIRST FRAME WITH THE SQUARES IN (textureReady)
 	view.textureReady = false;
-	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER
+	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null, touches: new Set(), multiTouch: false }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER, touches: THE FINGERS DOWN (pointerId), multiTouch: MORE THAN ONE WAS, SINCE ALL WERE UP
 	container.style.backgroundColor = scene.background.getStyle(); // THE SAFE AREA PADDING (UNDER A NOTCH) IS THE SCENE'S BACKGROUND
 	view.observer = new ResizeObserver(resize);
 	view.observer.observe(container);
@@ -417,6 +783,10 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	placeCamera(0);
 	container.addEventListener("pointerdown", onPointerDown, true);
 	container.addEventListener("pointermove", onPointerMove, true);
+	container.addEventListener("pointerleave", onPointerLeave);
+	container.addEventListener("click", onClick, true);
+	container.addEventListener("pointerup", onTouchTap, true);
+	window.addEventListener("keydown", onKeyDown, true);
 	window.addEventListener("pointerup", onPointerUp);
 	window.addEventListener("pointercancel", onPointerUp);
 	canvas.addEventListener("webglcontextlost", onContextLost);
@@ -425,6 +795,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	requestRender();
 	showHint(); // THE FIRST TIME 3D OPENS
 	perfStart({ renderer, camera, squareCorners });
+	addRoom(view); // NOT AWAITED: THE BOARD NEVER WAITS ON THE ROOM
 }
 
 // A SQUARE'S 4 CORNERS ON THE BOARD, FOR perf.js
@@ -451,6 +822,12 @@ export function unmount() {
 	finishAnims();
 	removeHint();
 	perfStop();
+	disposeScreen();
+	setMonitorView(null); // AFTER disposeScreen(): NOTHING LEFT TO REDRAW
+	const { leaving, monitor, monitorOptions } = view;
+	disposeFire();
+	disposeClock();
+	disposeRoom();
 	const { renderer, scene, observer, controls, container } = view;
 	cancelAnimationFrame(view.frameId);
 	document.removeEventListener("visibilitychange", onVisibility);
@@ -459,6 +836,11 @@ export function unmount() {
 	window.removeEventListener("orientationchange", resize);
 	container.removeEventListener("pointerdown", onPointerDown, true);
 	container.removeEventListener("pointermove", onPointerMove, true);
+	container.removeEventListener("pointerleave", onPointerLeave);
+	container.removeEventListener("click", onClick, true);
+	container.removeEventListener("pointerup", onTouchTap, true);
+	container.style.cursor = ""; // THE GLASS'S HAND CURSOR
+	window.removeEventListener("keydown", onKeyDown, true);
 	window.removeEventListener("pointerup", onPointerUp);
 	window.removeEventListener("pointercancel", onPointerUp);
 	renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
@@ -469,6 +851,8 @@ export function unmount() {
 		for (const m of [].concat(o.material || [])) {
 			freed.add(m);
 			if (m.map) { freed.add(m.map); }
+			if (m.lightMap) { freed.add(m.lightMap); } // THE ROOM'S BAKED LIGHT
+			if (m.userData.fireMap) { freed.add(m.userData.fireMap); } // & ITS BAKED FIRELIGHT
 		}
 	});
 	freed.forEach((r) => r.dispose()); // SHARED ONES (PIECE GEOMETRY, WOODS) ONLY LOSE THEIR GPU COPY, THE NEXT mount() RE-UPLOADS THEM
@@ -476,6 +860,8 @@ export function unmount() {
 	renderer.dispose();
 	if (!view.lost) { renderer.forceContextLoss(); } // A LOST CONTEXT HAS NOTHING LEFT TO FREE
 	view = null;
+	leaving.forEach((resolve) => resolve()); // NOTHING TO WAIT FOR ON A BOARD THAT'S GONE
+	if (monitor) { monitorOptions.onChange({ ready: false, state: null }); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -530,7 +916,7 @@ export function setFacing(facings) {
  * @return {[string|null]} ["e4", or null when it's off the board or nothing is mounted]
  */
 export function squareUnder(e) {
-	if (!view) { return null; }
+	if (!view || !monitorIdle()) { return null; } // AT THE MONITOR THE BOARD TAKES NO INPUT
 	const hit = hitUnder(e, true);
 	if (!hit) { return null; }
 	if (hit.object !== view.plane) { return hit.object.userData.square; }
@@ -553,7 +939,7 @@ function hitUnder(e, withBoard) {
  * @return {[boolean]}
  */
 export function isCameraGesture() {
-	return Boolean(view && view.cameraGesture);
+	return Boolean(view && (view.cameraGesture || !monitorIdle())); // AT THE MONITOR THE POINTER BELONGS TO IT, NOT TO THE PIECES
 }
 
 /**
@@ -564,30 +950,35 @@ export function isCameraGesture() {
  */
 export function setSide(color, animate) {
 	if (!view || view.side === color) { return; }
+	landAtDesk(); // FROM THE DESK'S SPOT, NOT THE MONITOR'S
 	view.side = color;
 	const angle = color === "b" ? Math.PI : 0;
 	if (!animate) {
 		view.cameraTurn = null;
 		placeCamera(angle);
 		setLabels(color);
+		setRoomSide(color);
 		return;
 	}
 	const from = cameraAzimuth();
-	view.cameraTurn = { from, to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)), start: null };
+	const roomFrom = view.room ? view.room.rotation.y : sideAngle(color === "b" ? "w" : "b"); // PRESSED AGAIN MID-TURN: THE ROOM TURNS BACK FROM WHERE IT IS
+	view.cameraTurn = { from, to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)), start: null, roomFrom, roomTo: angle, target: view.controls.target.clone() }; // target: WHAT THE CAMERA LOOKED AT AS THE TURN BEGAN
 	requestRender();
 }
 
 /**
- * @description Lands every moving piece & a Flip Board turn in progress at once (reduce motion turned on mid-move)
+ * @description Lands every moving piece, a Flip Board turn & a zoom to or from the monitor in progress at once (reduce motion turned on mid-move)
  */
 export function stopMotion() {
 	if (!view) { return; }
 	finishAnims();
 	if (view.cameraTurn) {
-		turnCamera(view.cameraTurn.to);
+		turnCamera(view.cameraTurn.to, view.cameraTurn);
 		setLabels(view.side);
+		setRoomSide(view.side);
 		view.cameraTurn = null;
 	}
+	if (view.zoom) { stepZoom(Infinity); }
 	requestRender();
 }
 
@@ -597,11 +988,34 @@ export function stopMotion() {
  */
 export function resetCamera(color) {
 	if (!view) { return; }
+	landAtDesk();
 	view.cameraTurn = null;
 	view.side = color;
 	placeCamera(color === "b" ? Math.PI : 0);
 	setLabels(color);
+	setRoomSide(color);
 	requestRender();
+}
+
+/**
+ * @description What the library's monitor shows (three/screen.js setScreen). Kept until the room has loaded, nothing on a board with no monitor
+ * @param  {[object]} state { name, status, ai, thinking }
+ */
+export function setScreen(state) {
+	if (!view) { return; }
+	view.screenState = state;
+	showOnScreen(state);
+	if (view.monitor && view.monitorData) { view.monitor.update(monitorInput(view.monitorData)); } // ITS NAME & STATUS ARE THE MONITOR'S DATA TOO
+}
+
+/**
+ * @description The monitor's face reacts (AI games, three/screen.js setFace). The last one is kept until the room has loaded
+ * @param  {[string]} name [a face in three/faces.js]
+ */
+export function setFace(name) {
+	if (!view) { return; }
+	view.screenFace = name;
+	showFace(name);
 }
 
 /**

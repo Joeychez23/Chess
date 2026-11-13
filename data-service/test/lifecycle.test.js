@@ -69,10 +69,20 @@ describe("new AI game", () => {
 		assert.deepEqual(list("alice", "open_games"), [gameId]);
 	});
 
-	test("random draws a side here, the level defaults to 3", async () => {
+	test("random draws a side here, the level defaults to 1300", async () => {
 		const made = (await call("POST", "/games/ai", { as: alice, body: { color: "random" } })).game_data;
 		assert.deepEqual([made.white_player_id.S, made.black_player_id.S].sort(), ["CHESS_AI", "alice"]);
-		assert.equal(made.ai_level.N, "3");
+		assert.equal(made.ai_level.N, "1300");
+	});
+
+	test("takes every level from 600 to 3200 in steps of 100, and the 8 levels from before", async () => {
+		for (const level of [600, 1300, 2400, 3200, 1, 8]) {
+			const made = await call("POST", "/games/guest", { body: { game_id: `guest${level}`, color: "w", level } });
+			assert.equal(made.game_data.ai_level.N, `${level}`);
+		}
+		for (const level of [0, 9, 500, 650, 3300]) {
+			assert.equal((await call("POST", "/games/guest", { body: { game_id: "guestbad", color: "w", level } })).http, 400);
+		}
 	});
 
 	test("only for a signed in player, with a real level and a playable position", async () => {
@@ -130,12 +140,12 @@ describe("game ids are made here", () => {
 /* ---------------------------------------------------------------- */
 
 describe("guest game", () => {
-	test("a new guest's game is theirs vs the AI, at level 3 unless they pick one", async () => {
+	test("a new guest's game is theirs vs the AI, at level 1300 unless they pick one", async () => {
 		const made = (await call("POST", "/games/guest", { body: { game_id: "guest1", color: "w" } })).game_data;
 		assert.equal(made.game_id.S, "guest1");
 		assert.equal(made.white_player_id.S, "guest1"); // A GUEST'S PLAYER ID IS THEIR GAME ID
 		assert.equal(made.black_player_id.S, "CHESS_AI");
-		assert.equal(made.ai_level.N, "3");
+		assert.equal(made.ai_level.N, "1300");
 		assert.equal(peek("user_db", "guest1"), undefined); // GUESTS HAVE NO ROW
 	});
 

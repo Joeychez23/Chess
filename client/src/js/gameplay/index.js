@@ -5,9 +5,9 @@
  *	loads it, joins a friend game's socket room, starts the render loop & adds the listeners & renderLoop() draws a frame when
  *	something changed (or asks the server for the AI's move). The rest of the game is in the files next to this one:
  *	state (the shared game object), images & sprites (loading & image numbers), layout (board size), draw (each frame),
- *	animate (knight hop, slide home), input (mouse, touch, TV remote), moves (server moves & the socket's), menu (menu & game over),
+ *	animate (knight hop, slide home), input (mouse, touch, remote-only mode), moves (server moves & the socket's), menu (menu & game over),
  *	status (the message area for refused moves & connection problems), movelist (the panel of the game's moves), movebox (typed moves),
- *	analysis (the hint & the evaluation bar).
+ *	analysis (the hint & the evaluation bar), monitor (the 3D room's monitor: its data, actions & what it hides).
  *	Moves are checked locally with chess.js, then saved by the chess server (validate/index.js)
  *
  */
@@ -15,13 +15,15 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, canvas, chessInst, validateState, startFrames, requestFrame, fillTiles, OVERRIDE_TV } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
+const { game, canvas, chessInst, validateState, startFrames, requestFrame, fillTiles, OVERRIDE_REMOTE_ONLY } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
+const { momentFor, faceFor } = require("./bots/index.js"); // WHAT THE AI'S BOT SAYS ABOUT ITS MOVE (#76) & THE FACE THE 3D ROOM'S MONITOR MAKES AT IT
+const { sayLine } = require("./bots/say.js"); // & SAYS IT BESIDE THE BOARD
 const { imageProgress } = require("./images/index.js"); // HOW MANY OF THE GAME'S IMAGES HAVE LOADED (0 - 1)
 const { handleWindowResize } = require("./layout/index.js"); // REDRAWS THE GAME WHEN THE WINDOW IS RESIZED
 const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // DRAWS EACH FRAME (drawScreen), THE TAKEN PIECE TRAYS
 const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE PIECES SLIDING HOME AFTER RESTART & REMATCH
-const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & TV REMOTE HANDLERS (ADDED IN startGame)
+const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & REMOTE-ONLY MODE HANDLERS (ADDED IN startGame)
 const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
 const { addMenuListeners, handleResume, handleSound, loadSound, loadView, showView, handleView, handleResetView, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
@@ -29,7 +31,8 @@ const { showStatus, clearStatus, MESSAGE_TIME } = require("./status/index.js"); 
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
-const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
+const { startMonitor } = require("./monitor/index.js"); // THE 3D ROOM'S MONITOR: ITS DATA, ACTIONS & HIDE RULES
+const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D, setFace } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
 export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -50,13 +53,13 @@ const AI_RETRY_TIME = 5000; // ASKS FOR THE AI'S MOVE AGAIN AFTER THIS WHEN IT D
 /**
  * @description Starts a game: adds the canvas to main & starts the game (startGame) once the images are loaded.
  * The rest of the game is in the files next to this one (see the top of this file), the state they share is game (gameplay/state/index.js)
- * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, TV_BOOL, SIGNED_IN, VIEW }, TV_BOOL = TV REMOTE CONTROLS INSTEAD OF THE MOUSE,
+ * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, REMOTE_ONLY_CONDITIONAL, SIGNED_IN, VIEW }, REMOTE_ONLY_CONDITIONAL = REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE,
  * VIEW = VIEWS.THREE_D TO START ON THE 3D BOARD (LEFT OUT: THE PLAYER'S SAVED VIEW, loadView)]
  */
 export async function renderCanvas(playerData) {
 	game.GAME_URL = playerData.GAME_URL; // SETS CONSTANT GAME VARIABLES
 	game.PLAYER_ID = playerData.PLAYER_ID;
-	game.TV_BOOL = playerData.TV_BOOL;
+	game.REMOTE_ONLY_CONDITIONAL = playerData.REMOTE_ONLY_CONDITIONAL;
 	game.SIGNED_IN = playerData.SIGNED_IN; // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
 	game.GAME_ID = playerData.GAME_ID; // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
 
@@ -86,7 +89,7 @@ export async function renderCanvas(playerData) {
 	 */
 	const startGameCheck = setInterval(async function () {
 		if (imageProgress() == 1) { // EVERY IMAGE preloadImages() STARTED IS IN (THE PLAY PAGE STARTS THEM BEFORE renderCanvas)
-			startGame(playerData.VIEW || loadView()); // THE PLAYER'S SAVED VIEW, 2D BY DEFAULT
+			startGame(playerData.VIEW || loadView()); // THE PLAYER'S SAVED VIEW, 3D BY DEFAULT (2D ON A PHONE OR TABLET)
 			clearInterval(startGameCheck);
 		}
 	}, 100);
@@ -140,41 +143,42 @@ async function startGame(view) {
 
 	// EVENT LISTENERS (addBoardListener PUTS THE BOARD'S ON THE 2D CANVAS & THE 3D BOARD, THE BOARD'S HANDLERS ARE IN gameplay/input/index.js, handleWindowResize IN gameplay/layout/index.js, THE MENU'S IN gameplay/menu/index.js)
 	window.addEventListener("resize", handleWindowResize);
-	if (game.TV_BOOL || OVERRIDE_TV) { window.addEventListener("keydown", handleKeyPress) }
-	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("click", handleCanvasClick); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("mousemove", handleMouseMove); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("mousedown", handleMouseDown); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("mouseup", handleMouseUp); }
-	if (!game.TV_BOOL || OVERRIDE_TV) { addBoardListener("contextmenu", function (e) { e.preventDefault(); }); } // THE RIGHT BUTTON DRAWS MARKS & ARROWS
-	if (!game.TV_BOOL || OVERRIDE_TV) {
+	if (game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { window.addEventListener("keydown", handleKeyPress) }
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("click", handleCanvasClick); }
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("mousemove", handleMouseMove); }
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("mousedown", handleMouseDown); }
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("mouseup", handleMouseUp); }
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("contextmenu", function (e) { e.preventDefault(); }); } // THE RIGHT BUTTON DRAWS MARKS & ARROWS
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) {
 		addBoardListener("touchstart", handleTouchStart, { passive: false });
 		addBoardListener("touchmove", handleTouchMove, { passive: false });
 		addBoardListener("touchend", handleTouchEnd, { passive: false });
 		addBoardListener("touchcancel", handleTouchCancel, { passive: false });
 	}
-	if (!game.TV_BOOL || OVERRIDE_TV) { addMenuListeners(); } // THE MENU BUTTON, A CLICK AWAY (THE BOARD: handleCanvasClick) & ESCAPE
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addMenuListeners(); } // THE MENU BUTTON, A CLICK AWAY (THE BOARD: handleCanvasClick) & ESCAPE
 	optResumeBtn.addEventListener("click", handleResume);
 	optSoundBtn.addEventListener("click", handleSound);
 	optFlipBtn.addEventListener("click", handleFlip);
 	document.getElementById("optView").addEventListener("click", handleView);
 	document.getElementById("optResetView").addEventListener("click", handleResetView);
-	if (!game.TV_BOOL || OVERRIDE_TV) { optPgnBtn.addEventListener("click", handleDownloadPgn); } // THE TV REMOTE CAN'T REACH IT, A TV HAS NOWHERE TO SAVE A FILE
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { optPgnBtn.addEventListener("click", handleDownloadPgn); } // REMOTE-ONLY MODE CAN'T REACH IT, A REMOTE-ONLY DEVICE HAS NOWHERE TO SAVE A FILE
 	else { optPgnBtn.parentElement.hidden = true; }
 	document.getElementById("optHint").addEventListener("click", handleHint);
 	document.getElementById("optEvalBar").addEventListener("click", handleEvalBar);
 	document.getElementById("optTakeback").addEventListener("click", handleTakeback);
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("takebackAccept").addEventListener("click", handleTakeback); } // THE SAME PRESS ACCEPTS
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("takebackDecline").addEventListener("click", handleDeclineTakeback); }
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { document.getElementById("takebackAccept").addEventListener("click", handleTakeback); } // THE SAME PRESS ACCEPTS
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { document.getElementById("takebackDecline").addEventListener("click", handleDeclineTakeback); }
 	document.getElementById("optDraw").addEventListener("click", handleOfferDraw);
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("drawAccept").addEventListener("click", handleOfferDraw); } // THE SAME PRESS ACCEPTS
-	if (!game.TV_BOOL || OVERRIDE_TV) { document.getElementById("drawDecline").addEventListener("click", handleDeclineDraw); }
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { document.getElementById("drawAccept").addEventListener("click", handleOfferDraw); } // THE SAME PRESS ACCEPTS
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { document.getElementById("drawDecline").addEventListener("click", handleDeclineDraw); }
 	optRestartBtn.addEventListener("click", handleRestart);
 	document.getElementById("optCancelRematch").addEventListener("click", handleCancelRematch);
 	optHomepageBtn.addEventListener("click", handleLeave);
 	optSettingsBtn.addEventListener("click", handleLeave);
 	optExitBtn.addEventListener("click", handleExit);
-	if (!game.TV_BOOL || OVERRIDE_TV) { addMoveListListeners(); } // THE TOGGLE & ITS KEYS
-	addMoveBoxListeners(); // ON IN TV MODE TOO, A KEYBOARD CAN STILL TYPE. THE TV REMOTE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE
+	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addMoveListListeners(); } // THE TOGGLE & ITS KEYS
+	addMoveBoxListeners(); // ON IN REMOTE-ONLY MODE TOO, A KEYBOARD CAN STILL TYPE. REMOTE-ONLY MODE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE
+	startMonitor(); // REMOTE-ONLY MODE TOO (THE REMOTE REACHES THE MENU'S MONITOR ITEM). STILL BEFORE THE 3D BOARD MOUNTS: show3D WAITS FOR ITS CHUNK FIRST
 }
 
 /* ################################################################ */
@@ -193,7 +197,9 @@ async function startAiSlide() {
 		game.moveObj = await playAi(game.GAME_URL, game.GAME_ID); // THE SERVER PICKS & SAVES THE AI MOVE
 
 		validateState.load(game.response.game_board); // CHECK THE MOVE ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
-		validateState.move(game.moveObj);
+		const played = validateState.move(game.moveObj);
+		sayLine(momentFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // A CAPTURE, CHECK OR MATE
+		setFace(faceFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // THE MONITOR'S FACE IS PLEASED WITH IT (3D ONLY)
 		clearStatus("ai");
 		fillTiles();
 		for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
