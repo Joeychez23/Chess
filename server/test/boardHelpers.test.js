@@ -8,7 +8,8 @@ const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
 const { Chess } = require("chess.js");
 const { playerMove } = require("../../client/src/js/gameplay/user/index.js");
-const { materialDiff, lastMoveBy, moveBetween, tileToSquare, toggleAnnotation } = require("../../client/src/js/gameplay/utils/index.js");
+const { materialDiff, lastMoveBy, moveBetween, stepBetween, tileToSquare, toggleAnnotation } = require("../../client/src/js/gameplay/utils/index.js");
+const { buildPositions } = require("../../client/src/js/gameplay/replay/positions.js");
 
 const PROMOTES_WHITE = "8/P6k/8/8/8/8/8/K7 w - - 0 1"; // THE a PAWN PROMOTES ON a8
 const PROMOTES_BLACK = "4k3/8/8/8/8/8/p7/1N2K3 b - - 0 1"; // THE a PAWN PROMOTES ON a1, OR BY TAKING ON b1
@@ -265,5 +266,24 @@ describe("moveBetween", () => {
 		assert.equal(moveBetween(board, START, after(e4, "e5")), null);
 		assert.equal(moveBetween(board, CASTLE, START), null);
 		assert.equal(moveBetween(board, START, START), null);
+	});
+});
+
+describe("stepBetween", () => {
+	const board = new Chess();
+	const after = (fen, move) => { const c = new Chess(fen); c.move(move); return c.fen(); };
+	const START = new Chess().fen();
+
+	test("finds the move either way", () => {
+		assert.equal(stepBetween(board, START, after(START, "e4")).kind, "forward");
+		assert.deepEqual(stepBetween(board, after(START, "e4"), START), { kind: "back", move: { from: "e2", to: "e4", promotion: undefined, piece: "p", color: "w", captured: undefined, flags: "b" } });
+		const ep = buildPositions(["e4", "Nf6", "e5", "d5", "exd6"]);
+		assert.deepEqual(stepBetween(board, ep[5].fen, ep[4].fen).move, { from: "e5", to: "d6", promotion: undefined, piece: "p", color: "w", captured: "p", flags: "e" });
+	});
+
+	test("anything else is null, never a throw", () => {
+		assert.equal(stepBetween(board, START, after(after(START, "e4"), "e5")), null);
+		assert.equal(stepBetween(board, null, START), null);
+		assert.equal(stepBetween(board, "1P5k/8/8/8/8/8/8/K7 b - - 0 40", START), null);
 	});
 });

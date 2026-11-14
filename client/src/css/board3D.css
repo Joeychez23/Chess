@@ -9,6 +9,10 @@
 	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
 
+body.replay #board3D { /* THE REPLAY BAR'S STRIP AT THE BOTTOM (css/style.css --replay-bar-height), THE BOARD FITS ABOVE IT */
+	padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--replay-bar-height));
+}
+
 /* ---------------------------------------------------------------- */
 /* 3D Perf Readout, ?perf=1 ONLY (gameplay/three/perf.js) */
 /* ---------------------------------------------------------------- */

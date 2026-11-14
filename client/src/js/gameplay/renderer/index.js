@@ -17,10 +17,10 @@
 const { game, canvas, chessInst, requestFrame } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE 2D CANVAS, THE BOARD THAT'S DRAWN
 const { load3D } = require("../three/load.js"); // DOWNLOADS THE 3D BOARD THE FIRST TIME IT'S TURNED ON
 const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
-const { moveBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS, THE SQUARE OF A SCREEN TILE
+const { stepBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS (EITHER WAY), THE SQUARE OF A SCREEN TILE
 const { reportError } = require("../../pages/utils/reportErrors.js"); // THE BROWSER ERROR REPORTS (#194)
 const { Chess } = require("chess.js");
-const scratch = new Chess(); // ONLY moveBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
+const scratch = new Chess(); // ONLY stepBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
 
 export const VIEWS = { TWO_D: "2d", THREE_D: "3d" };
 
@@ -28,6 +28,7 @@ let board3D = null; // THE 3D MODULE WHILE IT'S MOUNTED, null ON 2D
 let container = null; // WHAT THE 3D CANVAS FILLS, IN #main NEXT TO THE (HIDDEN) 2D CANVAS
 let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT TWICE
 let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
+let skipAnimation = false; // THE NEXT POSITION IS SET AT ONCE (skipNextAnimation3D: A REPLAY'S JUMP)
 let shownFacings = null; // THE POSITION & PIECE FACINGS THE 3D BOARD WAS LAST TURNED TO (syncFacing3D)
 let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
 let shownScreen = null; // WHAT THE 3D ROOM'S MONITOR WAS LAST TOLD TO SHOW (screen3D() AS JSON)
@@ -48,8 +49,9 @@ let restoreTimer = null;
 /* ---------------------------------------------------------------- */
 /**
  * @description Draws one frame of the board that's on. The render loop & a window resize call it instead of game.drawScreen().
- * 3D only follows chessInst, which only the move path (gameplay/moves) changes: one move from what it shows slides, anything
- * else (load, takeback, restart, reconnect, a turned down move) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
+ * 3D only follows chessInst, which only the move path (gameplay/moves) & the replay change: one move from what it shows slides, one move
+ * back (a replay's step back, a one-move takeback) slides in reverse, anything else (load, takeback, restart, reconnect, a turned down move,
+ * a replay's jump) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
  */
 export function drawBoard() {
 	game.drawScreen(); // 2D (HIDDEN ON 3D): ALSO FILLS game.tiles & STEPS THE SLIDES THE GAME WAITS ON
@@ -60,9 +62,11 @@ export function drawBoard() {
 	syncMonitor3D();
 	const fen = chessInst.fen();
 	if (fen !== shownFen) { // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
-		const move = game.reduceMotion ? null : moveBetween(scratch, shownFen, fen);
+		const step = game.reduceMotion || skipAnimation ? null : stepBetween(scratch, shownFen, fen);
+		skipAnimation = false;
 		shownFen = fen;
-		if (move) { board3D.animateMove(move.from, move.to, move.promotion); }
+		if (step?.kind === "forward") { board3D.animateMove(step.move.from, step.move.to, step.move.promotion); }
+		else if (step?.kind === "back") { board3D.animateUndo(step.move, facings3D()); } // syncFacing3D BELOW TURNS IT THE WAY IT FACED BEFORE THE MOVE
 		else { board3D.syncFromBoard(chessInst); }
 	}
 	syncFacing3D(fen);
@@ -227,6 +231,13 @@ function syncFacing3D(fen) {
 	if (!facings || key === shownFacings) { return; }
 	shownFacings = key;
 	board3D.setFacing(facings);
+}
+
+/**
+ * @description The next position the 3D board is given is set at once, not slid (a replay's jump, a held key). Does nothing on 2D
+ */
+export function skipNextAnimation3D() {
+	if (board3D) { skipAnimation = true; }
 }
 
 /**

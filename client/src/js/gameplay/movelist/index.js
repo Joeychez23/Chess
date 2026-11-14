@@ -13,6 +13,7 @@
 /* ---------------------------------------------------------------- */
 const { game, EVAL_BAR_ROOM } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE SPACE THE EVALUATION BAR TAKES NEXT TO THE BOARD
 const { trayNudge } = require("../animate/index.js"); // HOW FAR THE BOTTOM TRAY SITS DOWN
+const { moveRows } = require("./rows.js"); // THE NUMBERED ROWS & EACH MOVE'S PLY
 const { itemForKey, arrowKey } = require("../../pages/utils/nav.js"); // THE MENU'S ARROW KEYS, THE ROWS MOVE THE SAME WAY
 const panel = document.getElementById("moveList"); // THE PANEL
 const toggleBtn = document.getElementById("moveListToggle"); // COLLAPSES & OPENS IT
@@ -32,28 +33,13 @@ const MOVE_KEYS = ["ArrowUp", "ArrowDown", "Home", "End"]; // THE KEYS THAT MOVE
 let moves = []; // THE GAME'S SAN MOVES
 let startFen = null; // A SET POSITION'S FEN, null = THE STANDARD POSITION
 let placedFor = null; // THE BOARD SIZE THE PANEL WAS LAST PLACED FOR
+let currentPly = null; // THE REPLAY'S MOVE ON THE BOARD (setCurrentPly), null IN A LIVE GAME & AT THE START
+let selectMove = null; // THE REPLAY'S JUMP TO A MOVE (onMoveSelect), null IN A LIVE GAME
 let opening = null; // THE GAME'S OPENING { eco, name } (showOpening), THE 3D ROOM'S MONITOR SHOWS IT TOO
 
 /* ---------------------------------------------------------------- */
 // Moves
 /* ---------------------------------------------------------------- */
-/**
- * @description Puts the moves in numbered pairs. A set position starts at its own move number & when black moves first
- * the first row's white move is blank
- * @param  {[array]} sanMoves [the game's SAN moves]
- * @param  {[string]} fen [the start position's FEN, blank = the standard position]
- * @return {[array]} rows [{ number, white, black }]
- */
-function moveRows(sanMoves, fen) {
-	const [, turn, , , , fullMove] = (fen || "").split(" ");
-	let number = Number(fullMove) || 1;
-	let i = 0;
-	const rows = [];
-	if (turn == 'b' && sanMoves.length) { rows.push({ number: number++, white: "…", black: sanMoves[i++] }); }
-	for (; i < sanMoves.length; i += 2) { rows.push({ number: number++, white: sanMoves[i], black: sanMoves[i + 1] || "" }); }
-	return rows;
-}
-
 /**
  * @description Scrolls to the newest move
  */
@@ -69,14 +55,16 @@ function renderRows() {
 	rowList.replaceChildren(...moveRows(moves, startFen).map(function (row) {
 		const item = document.createElement("li");
 		item.tabIndex = -1; // THE ARROW KEYS REACH IT, THE TAB KEY STILL SKIPS IT
-		[`${row.number}.`, row.white, row.black].forEach(function (text) {
+		[[`${row.number}.`, null], [row.white, row.whitePly], [row.black, row.blackPly]].forEach(function ([text, ply]) {
 			const cell = document.createElement("span");
 			cell.textContent = text;
+			if (ply) { cell.dataset.ply = ply; } // THE REPLAY HIGHLIGHTS IT & JUMPS TO IT
 			item.append(cell);
 		});
 		return item;
 	}));
 	scrollToNewest();
+	if (currentPly) { setCurrentPly(currentPly); }
 	if (focusedRow != -1) { (rowList.children[focusedRow] || rowList.lastElementChild || toggleBtn).focus(); } // A NEW GAME HAS FEWER ROWS
 }
 
@@ -98,6 +86,44 @@ export function setMoves(savedMoves, fen) {
 export function addMove(san) {
 	moves.push(san);
 	renderRows();
+}
+
+/* ---------------------------------------------------------------- */
+// Replay
+/* ---------------------------------------------------------------- */
+/**
+ * @description Highlights the move on the replay's board & scrolls it into view
+ * @param  {[number|null]} ply [the move's place in the game counting from 1, null clears it (the start)]
+ */
+export function setCurrentPly(ply) {
+	currentPly = ply || null;
+	for (const cell of rowList.querySelectorAll("[data-ply]")) {
+		const current = Number(cell.dataset.ply) === currentPly;
+		cell.classList.toggle("current", current);
+		if (current) { cell.setAttribute("aria-current", "true"); cell.closest("li").scrollIntoView({ block: "nearest" }); }
+		else { cell.removeAttribute("aria-current"); }
+	}
+}
+
+/**
+ * @description The replay's jump: a click on a move, or Enter or Space on a row (its last move), goes there. Live games never set one
+ * @param  {[function]} handler [handler(ply)]
+ */
+export function onMoveSelect(handler) {
+	selectMove = handler;
+	rowList.addEventListener("click", function (e) {
+		const cell = e.target.closest("[data-ply]");
+		if (!cell || !selectMove) { return; }
+		e.stopPropagation(); // THE MENU STAYS AS IT IS (A CLICK AWAY CLOSES IT, pages/utils/nav.js)
+		selectMove(Number(cell.dataset.ply));
+	});
+	rowList.addEventListener("keydown", function (e) {
+		if ((e.key != "Enter" && e.key != " ") || !selectMove) { return; }
+		const cells = e.target.closest("li")?.querySelectorAll("[data-ply]");
+		if (!cells?.length) { return; }
+		e.preventDefault();
+		selectMove(Number(cells[cells.length - 1].dataset.ply));
+	});
 }
 
 /* ---------------------------------------------------------------- */
@@ -198,6 +224,14 @@ export function moveListState() {
 // Place
 /* ---------------------------------------------------------------- */
 /**
+ * @description The replay bar's strip at the bottom of the page (css/style.css --replay-bar-height), 0 when there's no replay
+ * @return {[number]} height [CSS pixels]
+ */
+function replayBarHeight() {
+	return parseFloat(getComputedStyle(document.body).getPropertyValue("--replay-bar-height")) || 0;
+}
+
+/**
  * @description Finds free space for the panel. A tray piece's image overhangs its square by yPieceOffset / 2 (under the square
  * that part of the image is see through, the piece stands on the square's bottom edge)
  * Next to the board: wide screens keep their trays on the right, so the left of the board is free its whole height, narrow
@@ -212,7 +246,7 @@ export function moveListState() {
 function findSpot(xBoardStart, yBoardStart, boardHeight) {
 	const left = statusArea.getBoundingClientRect().left;
 	const opponent = opponentDisplay.hidden && openingDisplay.hidden ? null : gameInfo.getBoundingClientRect();
-	const pageBottom = (opponent ? opponent.top : game.ch) - GAP;
+	const pageBottom = (opponent ? opponent.top : game.ch - replayBarHeight()) - GAP; // #gameInfo ALREADY SITS ABOVE THE REPLAY BAR
 	const overhang = game.yPieceOffset / 2;
 	const topTrayEnd = game.yBoardOff - game.tileHeight + overhang; // ROW -2
 	const bottomTrayStart = game.yBoardOff + (9 + trayNudge(9)) * game.tileHeight - overhang; // ROW 9
@@ -226,7 +260,7 @@ function findSpot(xBoardStart, yBoardStart, boardHeight) {
 	const spots = game.portraitBoard ? [below, side] : [side, below];
 	if (opponent) {
 		const besideLeft = opponent.right + GAP;
-		spots.push({ left: besideLeft, top: bottomTrayEnd, width: game.cw - left - besideLeft, maxHeight: game.ch - GAP - bottomTrayEnd, below: true });
+		spots.push({ left: besideLeft, top: bottomTrayEnd, width: game.cw - left - besideLeft, maxHeight: game.ch - replayBarHeight() - GAP - bottomTrayEnd, below: true }); // ABOVE THE REPLAY BAR TOO
 	}
 	return spots.find(function (spot) { return spot.width >= MIN_WIDTH && spot.maxHeight >= MIN_HEIGHT; }) || null;
 }
@@ -239,7 +273,7 @@ function findSpot(xBoardStart, yBoardStart, boardHeight) {
  * @param  {[number]} boardHeight [height of the board image]
  */
 export function placeMoveList(xBoardStart, yBoardStart, boardHeight) {
-	const size = `${game.cw},${game.ch},${xBoardStart},${boardHeight},${game.evalBarShown}`;
+	const size = `${game.cw},${game.ch},${xBoardStart},${boardHeight},${game.evalBarShown},${replayBarHeight()}`;
 	if (size == placedFor) { return; }
 	placedFor = size;
 	const spot = findSpot(xBoardStart, yBoardStart, boardHeight);

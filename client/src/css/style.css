@@ -135,7 +135,7 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 #gameInfo { /* THE OPENING & FRIEND GAMES' "vs Bob", BOTTOM LEFT, UNDER THE MENU. CLICKS GO THROUGH TO THE BOARD */
 	position: fixed;
 	z-index: 18;
-	bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+	bottom: calc(env(safe-area-inset-bottom, 0px) + var(--replay-bar-height) + 14px); /* ABOVE THE REPLAY BAR */
 	left: calc(env(safe-area-inset-left, 0px) + 16px);
 	display: flex;
 	flex-direction: column;
@@ -559,3 +559,58 @@ body #menuContainer { /* body: style.css LOADS BEFORE nav.css. THE OTHER PAGES' 
 	outline: 2px solid var(--gold);
 	outline-offset: -2px;
 }
+
+/* ---------------------------------------------------------------- */
+/* Replay Bar (/replay/:gameId, gameplay/replay/index.js) */
+/* ---------------------------------------------------------------- */
+
+:root { --replay-bar-height: 0px; } /* THE BOARD, ITS TRAYS (gameplay/layout safeArea), THE 3D BOARD & THE MOVE LIST STAY ABOVE THIS */
+body.replay { --replay-bar-height: 56px; }
+
+#replayBar { /* BOTTOM CENTER, IN ITS OWN STRIP: NOTHING ELSE IS DRAWN UNDER IT */
+	position: fixed;
+	z-index: 18;
+	left: 50%;
+	bottom: env(safe-area-inset-bottom, 0px);
+	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: var(--replay-bar-height);
+	max-width: calc(100vw - 16px);
+}
+
+#replayBar[hidden] { display: none; }
+
+#replayBar button {
+	min-width: 44px; /* MOBILE: MINIMUM TOUCH TARGET */
+	min-height: 44px;
+	padding: 0 10px;
+	border: 1px solid rgba(201, 163, 90, 0.35);
+	border-radius: 12px;
+	background-color: var(--walnut);
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 16px;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+#replayBar button:disabled { opacity: 0.4; cursor: default; }
+
+#replayMove { /* "12... Nxe4" */
+	min-width: 104px;
+	margin: 0;
+	color: var(--maple);
+	font-family: var(--font-mono, monospace);
+	font-size: 14px;
+	text-align: center;
+	white-space: nowrap;
+}
+
+#moveListRows .current { /* THE REPLAY'S MOVE ON THE BOARD (gameplay/movelist setCurrentPly) */
+	border-radius: 4px;
+	background-color: rgba(201, 163, 90, 0.35);
+}
+
+body.replay #moveListRows [data-ply] { cursor: pointer; } /* A CLICK JUMPS THERE */

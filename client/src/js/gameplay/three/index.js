@@ -1180,6 +1180,41 @@ export function animateMove(from, to, promotion) {
 }
 
 /**
+ * @description Takes a move back, the reverse of animateMove (a replay's step back): the piece on to slides back to from without turning
+ * (a knight hops backwards, setFacing has its facing from before the move), a promoted piece turns back into its pawn first, castling's
+ * rook goes home & a taken piece is put back once the piece has landed (en passant: beside it). Call it before the next syncFromBoard()
+ * @param  {[object]} move [{ from, to, promotion, piece, color, captured, flags } (gameplay/utils stepBetween), flags: chess.js's, k / q castles, e en passant]
+ * @param  {[object]} facings [the facings of the position before the move, as setFacing takes them, for the piece that comes back]
+ * @return {[Promise<void>]} [resolves when the piece has landed, nothing on to: at once]
+ */
+export function animateUndo(move, facings) {
+	if (!view || !view.pieces.has(move.to)) { return Promise.resolve(); }
+	finishAnims();
+	let mesh = view.pieces.get(move.to);
+	if (move.promotion) { // BACK TO THE PAWN THAT PROMOTED
+		removePiece(mesh);
+		mesh = addPiece("p", move.color);
+		place(mesh, move.to);
+	}
+	const knight = mesh.userData.type === "n";
+	const restore = function () { // THE TAKEN PIECE COMES BACK ONCE IT HAS LANDED
+		if (!move.captured) { return; }
+		const square = move.flags?.includes("e") ? move.to[0] + move.from[1] : move.to; // EN PASSANT: THE PAWN WAS BESIDE IT
+		const taken = addPiece(move.captured, move.color === "w" ? "b" : "w");
+		place(taken, square); // NOT FADED IN: THIS RUNS INSIDE finishAnims() WHEN A JUMP CUTS THE SLIDE SHORT, A NEW ANIMATION WOULD OUTLIVE THE SYNC
+		if (facings) { setFacing(facings); }
+		requestRender();
+	};
+	const moves = [slide(mesh, move.from, { hop: knight, delay: slideDelay(knight), onEnd: restore })];
+	if (move.flags?.includes("k") || move.flags?.includes("q")) { // CASTLING: THE ROOK GOES HOME TOO
+		const kingSide = move.flags.includes("k");
+		const rook = view.pieces.get((kingSide ? "f" : "d") + move.from[1]);
+		if (rook) { moves.push(slide(rook, (kingSide ? "h" : "a") + move.from[1], {})); }
+	}
+	return Promise.all(moves).then(() => {});
+}
+
+/**
  * @description Restart & Rematch: every piece glides home to the new position in the 2D slide's time (RESTART_SLIDE_MS) on a slow start
  * & landing, pairing each square with a piece of the same color & type, closest first (a bishop stays on its square color).
  * Knights that move hop. A square with no piece left for it fades in, a piece with no square fades out where it is

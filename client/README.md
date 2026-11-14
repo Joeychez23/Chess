@@ -76,6 +76,7 @@ should be on. Each page is its own `.html` and bundle (`client/src/js/pages/`).
 | --- | --- |
 | `/` | Signed in: `home.html`, the Play the AI, Play a friend, Invites, Your games, Finished games and Friends boxes. Play the AI and Play a friend show their open game's board (`pages/utils/boardPicture.js`) and Continue current game, and Invites lists the invites. Signed out: `guest.html`, the homepage with Sign in and Play the AI (level, color, Play AI / New game), and the guest's game board while it's open. The access cookie lives as long as the token (15 minutes), so the guest page re-ups the session first and goes Home if it can |
 | `/play/:gameId` | A signed-in player's game. Signed out, it goes through `/api/auth/resume` and comes back. A `PENDING` invite goes to `/` (it's answered on Home). A challenge link opened by anyone not in its game shows `join.html`, which joins it or says it's taken; its creator goes to `/`. Restart and Rematch swap the url to the new game's id |
+| `/replay/:gameId` | A signed-in player's finished game, step by step on a read-only board (play.html with `READ_ONLY`): the bar under the board (first, back, forward, last), Left / Right / Home / End, the move list's current move & click to jump. Signed out, it goes through `/api/auth/resume` and comes back. A game that's still going opens `/play/:gameId`, an invite goes to `/`. Home's Finished games and the game-over menu's Replay link here |
 | `/play` | The guest's game. Signed-in players are sent Home |
 | `/settings` | Signed in: `settings.html`, the Username, Account, Default start settings, Friends, Closed games and Delete my account boxes. A player without a username lands here from `/` and goes back Home once it's saved. Signed out, it goes through `/api/auth/resume` and comes back |
 | `/login` | Signed out: `login.html`, email and password through `POST /api/auth/login`, with a Forgot password? form through `POST /api/auth/forgot` and a link to `/signup`. Signed in, it goes to `?returnTo=` or `/` |
@@ -181,10 +182,12 @@ client/
     draw/index.js            drawScreen (handleInitialData): pieces, highlights, slides, taken piece trays & material count, right-click marks & arrows, which way pieces face
     animate/index.js         stepSlide(): where a sliding piece is from the time, knight hop height, the pieces sliding home after Restart & Rematch
     input/index.js           Mouse, touch & remote-only mode handlers
+    input/modes.js           listenersFor(): which listeners go on for the mouse, remote-only mode & the read-only board (no page state, the server tests run it)
     moves/index.js           Loads the game, sends the player's moves, finishes the AI's & a friend's (socket move event), refreshData()
     menu/index.js            Menu buttons, draw offers, Forfeit / Restart / Rematch (loads the new board in place), game over, socketHandlers
     status/index.js          The play page's message area (#gameStatus): refused moves, lost connection, server or AI not answering
-    movelist/index.js        The move list panel (#moveList): numbered moves, where it fits next to the board, collapsing it, its keyboard focus & arrow keys. The opening's name (#openingDisplay)
+    movelist/index.js        The move list panel (#moveList): numbered moves, where it fits next to the board, collapsing it, its keyboard focus & arrow keys. The opening's name (#openingDisplay). In a replay: the current move's highlight (setCurrentPly) & a click jumps there (onMoveSelect)
+    movelist/rows.js         moveRows(): the numbered rows & each move's ply (no page state, the server tests run it)
     movebox/index.js         The typed move box (#moveBox): the / key & the menu open it, the menu also closes it, chess.js reads the move, it slides like a clicked move, it lists the legal moves as the player types, it opens at the top right behind the menu button each time, a mouse or finger can drag it while it's open, closing gives focus back & Left or Right leave it with the cursor at that end
     movebox/suggestions.js   What the list shows & when the player can move (no page state, the server tests run it)
     validate/index.js        Backend calls: get game, move, reset, new AI game (newAiGame), AI move, levels, user games, invite, player search, friends, accept, decline, save settings, save username, delete my data
@@ -193,6 +196,9 @@ client/
     bots/say.js              Shows the bot beside the board (#botDisplay) & its lines
     renderer/index.js        Picks the 2D canvas or the 3D board (not on a phone, tablet or in remote-only mode yet: can3D(), the menu's View button says "3D touch in progress..." or "3D remote in progress..."). On 3D it keeps the pieces, camera side, highlights & the room's monitor (screen3D, setFace, syncMonitor3D) in step with the game
     monitor/index.js         The game's side of the 3D room's monitor (docs/3d-room.md): its data, its actions (they press the menu's buttons), what it hides from the page (data-on-monitor) & the menu's Monitor item
+    replay/index.js          The replay viewer (/replay/:gameId, #78): the bar, its keys, slides forward & back, jumps
+    replay/positions.js      Every position of a game with its facing (the server's faceMove), move labels, facePair, stepPlan (no page state, the server tests run it)
+    replay/keys.js           replayKeyAction(): what a key does in the replay (no page state, the server tests run it)
     monitor/data.js          Its pure part: actionsFrom(), resultText(), trimScores(), plyOf(), startPlyFor(). No DOM, tested in client/test
     three/load.js            load3D(): downloads the lazy "three" chunk the first time 3D is turned on
     three/index.js           The 3D board: mount / unmount, camera, picking, piece slides, highlights. Loads the library room & lights its fire after the board is up (addRoom)
