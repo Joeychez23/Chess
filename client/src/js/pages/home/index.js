@@ -236,7 +236,7 @@ function listGames(gameData, levels) {
 // Finished Games
 /* ---------------------------------------------------------------- */
 /**
- * @description Lists the player's last 20 finished games, newest first, each one is a link to /play/:gameId with its final board:
+ * @description Lists the player's last 20 finished games, newest first, each one is a link to its replay (/replay/:gameId), which opens on its final board:
  * "Won" & "vs Ada // You play white (random) // Checkmate"
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  * @param  {[object]} levels [GET /levels, botLevels(): an AI game shows its bot's name]
@@ -248,7 +248,7 @@ function listFinishedGames(gameData, levels) {
 		const gameLink = document.createElement("a");
 		const opponent = game.ai ? `vs ${botName(levels, game.ai_level) || `AI // Level ${game.ai_level}`}` : `vs ${game.opponent_name || "Friend"}`;
 		const reason = game.reason ? ` // ${game.reason[0].toUpperCase()}${game.reason.slice(1)}` : "";
-		gameLink.href = `/play/${encodeURIComponent(game.game_id)}`;
+		gameLink.href = `/replay/${encodeURIComponent(game.game_id)}`; // STEP THROUGH IT (#78)
 		gameLink.innerHTML = `<span class="label"></span><span class="spec gameInfo"></span>`;
 		gameLink.querySelector(".label").innerText = game.winner == "draw" ? "Draw" : game.winner == game.player_color ? "Won" : "Lost";
 		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)}${reason}`; // innerText, THE NAME IS NEVER READ AS HTML

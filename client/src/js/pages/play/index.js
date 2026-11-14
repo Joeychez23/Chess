@@ -1,6 +1,6 @@
 /*
  *  index.js  --  chess frontend
- *	Play Page (/play, /play/:gameId)
+ *	Play Page (/play, /play/:gameId, /replay/:gameId)
  *	Starts the game on the canvas. The server picks this page (server/controllers/pageController.js), the game id
  *	comes from the url (signed in) or localStorage (guest). Home, Settings & Exit leave the page, so nothing has to be torn down.
  *	The menu (3 lines, top right) is the game's menu here, the game opens & closes it (createNav in gameplay/menu/index.js)
@@ -15,6 +15,7 @@ import "../../../css/style.css"; // PLAY PAGE STYLES (CANVAS LAYOUT)
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { renderCanvas } = require("../../gameplay/index.js");
+const { startReplay } = require("../../gameplay/replay/index.js"); // /replay/:gameId: STEPS THROUGH THE FINISHED GAME
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
 const { InternalAuth } = require("../../auth/index.js");
@@ -36,7 +37,8 @@ const optSettingsBtn = document.getElementById("optSettings");
 const optExitBtn = document.getElementById("optExit");
 
 const auth = new InternalAuth;
-const gameId = decodeURIComponent(window.location.pathname.split("/")[2] || ""); // /play/:gameId, EMPTY ON A GUEST'S /play
+const gameId = decodeURIComponent(window.location.pathname.split("/")[2] || ""); // /play/:gameId OR /replay/:gameId, EMPTY ON A GUEST'S /play
+const replay = window.location.pathname.startsWith("/replay/"); // A FINISHED GAME, STEP BY STEP ON A READ-ONLY BOARD (#78)
 const sessionCheck = auth.getUser(); // STARTS CHECKING THE SESSION NOW INSTEAD OF AFTER THE PAGE LOADS
 
 preloadImages();
@@ -51,7 +53,7 @@ window.addEventListener("pageshow", function (e) { if (e.persisted) { window.loc
  */
 window.addEventListener("load", async function () {
 	const sessionUser = await sessionCheck;
-	if (gameId && !sessionUser) { return auth.login(window.location.pathname); } // SIGNED OUT ON A GAME LINK: LOGIN, THEN BACK HERE (THE SERVER USUALLY CATCHES THIS FIRST)
+	if ((gameId || replay) && !sessionUser) { return auth.login(window.location.pathname); } // SIGNED OUT ON A GAME LINK: LOGIN, THEN BACK HERE (THE SERVER USUALLY CATCHES THIS FIRST)
 	if (!gameId && sessionUser) { return window.location.replace("/"); } // SIGNED IN PLAYERS PICK THEIR GAME ON HOME
 	optSettingsBtn.parentElement.hidden = !sessionUser; // BEFORE THE GAME CHECK, "Game not found" OFFERS IT TOO
 
@@ -70,10 +72,12 @@ window.addEventListener("load", async function () {
 	}
 	playerData.REMOTE_ONLY_CONDITIONAL = REMOTE_ONLY; // REMOTE-ONLY MODE CONDITIONAL
 	playerData.SIGNED_IN = !!sessionUser; // EXIT: LOGOUT OR LOGIN, A NEW GAME ID GOES IN THE URL
+	playerData.READ_ONLY = replay; // THE BOARD ONLY SHOWS THE GAME: NO MOVES, AI OR SOCKET
 
 	optExitBtn.innerHTML = sessionUser ? "Logout" : "Login/Signup"; // HOME IS FOR EVERYONE, GUESTS HAVE A HOMEPAGE TOO
 
-	renderCanvas(playerData);
+	const loaded = await renderCanvas(playerData);
+	if (replay && loaded) { startReplay(loaded); }
 }, false);
 
 

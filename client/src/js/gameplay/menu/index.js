@@ -42,6 +42,10 @@ const resultAnnouncement = document.getElementById("resultAnnouncement"); // SCR
 const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
 const optTakebackBtn = document.getElementById("optTakeback"); // MENU: TAKEBACK, WHILE THE GAME IS GOING
 const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHILE THE GAME IS GOING
+const optHintBtn = document.getElementById("optHint"); // MENU: HINT, AI GAMES WHILE THEY'RE GOING (gameplay/analysis)
+const optEvalBarBtn = document.getElementById("optEvalBar"); // MENU: THE EVAL BAR ON / OFF (gameplay/analysis)
+const optTypeMoveBtn = document.getElementById("optTypeMove"); // MENU: TYPE A MOVE (gameplay/movebox)
+const optReplayBtn = document.getElementById("optReplay"); // MENU: REPLAY, ONCE A SIGNED IN PLAYER'S GAME IS OVER
 const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
 const takebackPrompt = document.getElementById("takebackPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S TAKEBACK REQUEST STANDS
 
@@ -647,6 +651,7 @@ async function loadNewBoard(fromPieces, loaded) {
 	}
 	nav.toggleNav(false, true); // THE NEW BOARD IS IN
 	optResumeBtn.parentElement.hidden = false; // RESUME COMES BACK (IT'S HIDDEN WHEN A GAME IS OVER)
+	optReplayBtn.parentElement.hidden = true; // ONLY ONCE THE NEW GAME IS OVER
 	placeEndGroup(false);
 	resultDisplay.innerText = "Chess"
 	resultReason.hidden = true;
@@ -828,18 +833,44 @@ export function showGameOver(result, onLoad) {
 	takebackIncoming = false;
 	clearStatus("takeback");
 	showTakebackButtons();
+	showResult(result);
+	optRestartBtn.innerHTML = game.ai ? "Restart" : "Rematch";
+	optReplayBtn.href = `/replay/${encodeURIComponent(game.GAME_ID)}`; // STEP THROUGH THE GAME THAT JUST ENDED (#78)
+	optReplayBtn.parentElement.hidden = !game.SIGNED_IN || game.readOnly; // THE REPLAY PAGE IS FOR SIGNED IN PLAYERS
+	if (!zoomed) {
+		handleRemoteMenuEnter(optRestartBtn); // REMOTE-ONLY MODE: SELECT RESTART / REMATCH
+		if (!game.REMOTE_ONLY_CONDITIONAL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS
+	}
+	resultAnnouncement.textContent = `${resultDisplay.innerText} ${resultReason.innerText}`.trim(); // AFTER THE FOCUS MOVES, A SCREEN READER READS THE BUTTON THEN THIS
+}
+
+/**
+ * @description The result in the menu's title & the line under it (how the game ended)
+ * @param  {[object]} result [{ winner: "w" | "b" | "draw", reason }]
+ */
+function showResult(result) {
 	if (result?.reason == "forfeit") { resultDisplay.innerText = result.winner == 'w' ? "Black Forfeits" : "White Forfeits" } // THE TITLE ONLY FITS ONE LINE
 	else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
 	else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }
 	else { resultDisplay.innerText = "Draw" }
 	resultReason.innerText = RESULT_REASONS[result?.reason] || "";
 	resultReason.hidden = !resultReason.innerText;
-	optRestartBtn.innerHTML = game.ai ? "Restart" : "Rematch";
-	if (!zoomed) {
-		handleRemoteMenuEnter(optRestartBtn); // REMOTE-ONLY MODE: SELECT RESTART / REMATCH
-		if (!game.REMOTE_ONLY_CONDITIONAL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS
+}
+
+/* ---------------------------------------------------------------- */
+// Read-Only Menu
+/* ---------------------------------------------------------------- */
+/**
+ * @description The menu of a board that only shows the game (a replay, #100): the result (a finished game) & what still works there,
+ * Sound, Flip Board, View, Download PGN, Home, Settings & Exit. Nothing that plays: Resume, Hint, Takeback, Offer Draw, Type a Move,
+ * the eval bar (it scores the saved board, not the one shown) & Restart. It doesn't open by itself, the board is what's looked at
+ * @param  {[object]} response [game from the server]
+ */
+export function showReadOnlyMenu(response) {
+	for (const btn of [optResumeBtn, optHintBtn, optTakebackBtn, optDrawBtn, optTypeMoveBtn, optEvalBarBtn, optRestartBtn, optCancelRematchBtn, optReplayBtn]) {
+		btn.parentElement.hidden = true;
 	}
-	resultAnnouncement.textContent = `${resultDisplay.innerText} ${resultReason.innerText}`.trim(); // AFTER THE FOCUS MOVES, A SCREEN READER READS THE BUTTON THEN THIS
+	if (response?.state == "CLOSED") { showResult(response); }
 }
 
 /* ---------------------------------------------------------------- */

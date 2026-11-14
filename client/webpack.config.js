@@ -88,6 +88,8 @@ module.exports = (env, argv) => {
 		},
 		resolve: {
 			fallback: { crypto: false },
+			alias: { 'chess.js$': path.resolve(__dirname, '../node_modules/chess.js') }, // ONE chess.js: THE REPLAY BUNDLES server/utils/validate.js, WHICH WOULD PULL IN server/node_modules' COPY
+
 		},
 		devServer: {
 			devMiddleware: {
@@ -96,7 +98,7 @@ module.exports = (env, argv) => {
 			proxy: [
 				{ context: ['/api'], target: 'http://localhost:3001' }, // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
 				{ context: ['/socket.io'], target: 'http://localhost:3001', ws: true }, // FRIEND GAME SOCKET (server/socket.js)
-				{ context: (pathname) => pathname == '/' || pathname == '/play' || pathname.startsWith('/play/') || pathname == '/settings' || pathname == '/login' || pathname == '/signup' || pathname == '/privacy' || pathname == '/terms', target: 'http://localhost:3001' }, // PAGES: THE SERVER PICKS WHICH ONE TO SEND
+				{ context: (pathname) => pathname == '/' || pathname == '/play' || pathname.startsWith('/play/') || pathname.startsWith('/replay/') || pathname == '/settings' || pathname == '/login' || pathname == '/signup' || pathname == '/privacy' || pathname == '/terms', target: 'http://localhost:3001' }, // PAGES: THE SERVER PICKS WHICH ONE TO SEND
 			],
 		}
 	};

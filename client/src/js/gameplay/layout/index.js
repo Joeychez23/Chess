@@ -28,7 +28,7 @@ let xBoardStart; // LEFT OF THE BOARD IMAGE
 let yBoardStart; // TOP OF THE BOARD IMAGE
 
 const insetProbe = document.createElement("div"); // ITS PADDING IS THE SAFE AREA (NOTCH, ROUNDED CORNERS, HOME BAR), READ BY safeArea()
-insetProbe.style.cssText = "position: fixed; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px)";
+insetProbe.style.cssText = "position: fixed; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) calc(env(safe-area-inset-bottom, 0px) + var(--replay-bar-height, 0px)) env(safe-area-inset-left, 0px)"; // THE BOTTOM ALSO LEAVES THE REPLAY BAR'S STRIP (css/style.css)
 document.body.appendChild(insetProbe);
 
 let coffeeStartTime = Date.now(); // CLOCK OF THE COFFEE STEAM ANIMATION

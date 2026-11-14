@@ -87,6 +87,67 @@ export async function setInitialData(loaded) {
 	}
 }
 
+/* ---------------------------------------------------------------- */
+// Read-Only Board
+/* ---------------------------------------------------------------- */
+/**
+ * @description Loads the game for a board that only shows it (a replay, #100): the player's side at the bottom, the move list, the
+ * opening & the bot, then the saved board with its facing & last move. The board stays locked, no move, AI or socket request is made
+ * @return {[boolean]} loaded [false: the game couldn't be loaded, the message area says so]
+ */
+export async function loadReadOnly() {
+	game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
+	if (game.response?.status != 200) {
+		console.log(game.response?.message || "The game didn't load");
+		showStatus("server", "The game couldn't be loaded. Reload the page to try again.");
+		return false;
+	}
+	const response = game.response;
+	game.playerColor = response.player_color;
+	game.viewColor = response.player_color; // THE PLAYER'S SIDE AT THE BOTTOM, FLIP BOARD STILL WORKS
+	game.opponentColor = response.opponent_color;
+	game.ai = Boolean(response.ai);
+	game.opposingMove = true; // NOTHING CAN BE PICKED UP
+	game.flipPending = false;
+	game.startPieceCount = countStartPieces(response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
+	game.gameOver = response.state == "CLOSED";
+	game.result = game.gameOver ? { winner: response.winner, reason: response.reason } : null; // THE 3D ROOM'S MONITOR SHOWS IT
+	setMoves(response.moves, response.start_params?.fen);
+	showOpening(response.opening);
+	showBot(game.GAME_URL, response); // NOT AWAITED, NO LINE IS SAID
+	showPosition({ fen: response.game_board, facing: facingLists(response), lastMove: response.prev_move?.length == 2 ? response.prev_move : null });
+	return true;
+}
+
+/**
+ * @description The facing lists of a game from the server (JSON strings) as arrays
+ * @param  {[object]} response [game from the server]
+ * @return {[object]} facing [{ w_knight, b_knight, w_piece, b_piece } arrays of { from, to }]
+ */
+function facingLists(response) {
+	return { w_knight: JSON.parse(response.w_knight), b_knight: JSON.parse(response.b_knight), w_piece: JSON.parse(response.w_piece), b_piece: JSON.parse(response.b_piece) };
+}
+
+/**
+ * @description Draws any position on the board (a replay's step, #100): its board, which way each piece faces & the last move's highlight.
+ * The 2D board reads the facing from game.response, the 3D board follows chessInst & the same lists
+ * @param  {[object]} position [{ fen, facing: { w_knight, b_knight, w_piece, b_piece } arrays of { from, to }, lastMove: [from, to] or null }]
+ */
+export function showPosition({ fen, facing, lastMove }) {
+	game.response = {
+		...game.response,
+		game_board: fen,
+		w_knight: JSON.stringify(facing.w_knight),
+		b_knight: JSON.stringify(facing.b_knight),
+		w_piece: JSON.stringify(facing.w_piece),
+		b_piece: JSON.stringify(facing.b_piece),
+	};
+	game.lastOpponentMove = lastMove || null; // THE LAST MOVE'S HIGHLIGHT (2D & 3D), EITHER SIDE'S ON A READ-ONLY BOARD
+	game.annotations = [];
+	game.hint = null;
+	refreshData(game.response);
+}
+
 /**
  * @description Finds the opponent's last move for its highlight when a game loads (a new game has none, so Restart & Rematch clear it).
  * prev_move can't say: it's the player's when they moved last. moves only has SAN, so they're played on the scratch board
@@ -102,6 +163,61 @@ function setLastOpponentMove() {
 /* ---------------------------------------------------------------- */
 // Check Opponent Move
 /* ---------------------------------------------------------------- */
+/* ---------------------------------------------------------------- */
+// Slides
+/* ---------------------------------------------------------------- */
+/**
+ * @description Starts the piece on one square sliding to another (the AI's & a friend's moves, the replay's steps both ways). Any other
+ * slide stops. The render loop moves it (stepSlide) & landSlide() finishes it
+ * @param  {[string]} from [the square the piece is on, "e2"]
+ * @param  {[string]} to [where it slides, "e4"]
+ */
+export function startSlide(from, to) {
+	fillTiles();
+	for (let i = 0; i < game.tiles.length; i++) {
+		if (game.tiles[i].square == from) {
+			game.slideStart = true;
+			game.tiles[i].isSliding = true;
+			if (game.viewColor == 'w') { // SCREEN COLUMN & ROW OF to (a8 IS 0, 0)
+				game.tiles[i].xSlideTo = to.split("")[0].charCodeAt(0) - 96 - 1;
+				game.tiles[i].ySlideTo = 8 - to.split("")[1];
+			} else if (game.viewColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
+				game.tiles[i].xSlideTo = 8 - (to.split("")[0].charCodeAt(0) - 96);
+				game.tiles[i].ySlideTo = to.split("")[1] - 1;
+			}
+			game.tiles[i].xDiff = 0; // PIXELS MOVED SO FAR
+			game.tiles[i].yDiff = 0;
+			game.tiles[i].slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
+		} else if (game.tiles[i].isSliding) { // STOP ANY OTHER SLIDE
+			game.tiles[i].isSliding = false;
+			game.tiles[i].xDiff = 0;
+			game.tiles[i].yDiff = 0;
+		}
+	}
+	game.currSlide = true;
+	game.refresh = true;
+}
+
+let readOnlyLanded = null; // THE REPLAY'S LANDING (onReadOnlySlide)
+
+/**
+ * @description What finishes a slide on a read-only board (the replay's step), instead of sending or saving a move
+ * @param  {[function]} handler [handler(index), index = the tile that slid]
+ */
+export function onReadOnlySlide(handler) {
+	readOnlyLanded = handler;
+}
+
+/**
+ * @description A slide landed (gameplay/draw): a read-only board's goes to its handler, the player's move is sent, the opponent's is finished
+ * @param  {[number]} index [tile that slid]
+ */
+export async function landSlide(index) {
+	if (game.readOnly) { return readOnlyLanded?.(index); }
+	if (game.tiles[index].color == game.playerColor) { return updateUserStateSlide(index); } // SENDS THE PLAYER'S MOVE
+	if (game.tiles[index].color == game.opponentColor) { return updateOpponentStateSlide(index); } // FINISHES THE OPPONENT'S MOVE
+}
+
 /**
  * @description Checks if opponent made a new move [No AI]. The socket calls this when the friend moved: it gets the game,
  * works out their move from prev_move (a pawn that became another piece was a promotion) & starts its slide.
@@ -129,25 +245,7 @@ export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THR
 			}
 
 			validateState.move(game.moveObj); // CHECK IT ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
-			fillTiles();
-			for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE (SAME AS THE AI'S IN renderLoop)
-				if (game.tiles[i].square == game.moveObj.from) {
-					game.slideStart = true;
-					game.tiles[i].isSliding = true
-					if (game.viewColor == 'w') {
-						game.tiles[i].xSlideTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-						game.tiles[i].ySlideTo = 8 - game.moveObj.to.split("")[1];
-					} else if (game.viewColor == 'b') {
-						game.tiles[i].xSlideTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
-						game.tiles[i].ySlideTo = game.moveObj.to.split("")[1] - 1;
-					}
-					game.tiles[i].xDiff = 0;
-					game.tiles[i].yDiff = 0;
-					game.tiles[i].slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
-				}
-			}
-			game.currSlide = true;
-			game.refresh = true;
+			startSlide(game.moveObj.from, game.moveObj.to);
 		}
 	} catch (err) { console.log(err); }
 }
@@ -190,7 +288,7 @@ export async function updateUserStateSlide(index) {
 /**
  * @description Plays the move sound, unless the player turned sound off in the menu
  */
-function playMoveSound() {
+export function playMoveSound() {
 	if (!game.soundOn) { return; }
 	game.moveAudio.load();
 	game.moveAudio.play().catch((err) => { console.log(err) });
@@ -442,6 +540,7 @@ export function refreshData(response) {
  * !NOTE: opposingMove IS ALSO TRUE DURING THE PLAYER'S OWN SLIDE, SO THE SLIDING PIECE'S COLOR SAYS WHOSE SLIDE IT IS
  */
 export function revertUnfinishedMove() {
+	if (game.readOnly) { return; } // NOTHING OF THE PLAYER'S IS UNFINISHED, A REPLAY'S SLIDE LANDS AS IT IS
 	const heldPiece = !game.opposingMove && (game.clickedTile || game.mousedownTile); // THE TURN CHECK: A DROPPED PROMOTION KEEPS clickedTile AFTER IT'S SENT
 	const promotionSlide = game.currSlide && game.moveObj.promotion && !game.moveObj.typed && game.tiles.some(function (tile) { return tile.isSliding && tile.color == game.playerColor; });
 	if (!heldPiece && !game.currPromotion && !promotionSlide) { return; }

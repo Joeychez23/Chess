@@ -9,6 +9,10 @@
 	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
 
+body.replay #board3D { /* THE REPLAY BAR'S STRIP AT THE BOTTOM (css/style.css --replay-bar-height), THE BOARD FITS ABOVE IT */
+	padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--replay-bar-height));
+}
+
 /* ---------------------------------------------------------------- */
 /* 3D Perf Readout, ?perf=1 ONLY (gameplay/three/perf.js) */
 /* ---------------------------------------------------------------- */
@@ -35,7 +39,7 @@
 #controlsHint { /* BOTTOM CENTER, ONLY THE FIRST TIME 3D OPENS. CLICKS OUTSIDE ITS BUTTON GO THROUGH TO THE BOARD */
 	position: fixed;
 	z-index: 20;
-	bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+	bottom: calc(env(safe-area-inset-bottom, 0px) + var(--replay-bar-height, 0px) + 14px); /* ABOVE THE REPLAY BAR (css/style.css) */
 	left: 50%;
 	transform: translateX(-50%);
 	display: flex;

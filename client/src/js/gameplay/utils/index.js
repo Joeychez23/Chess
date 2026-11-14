@@ -93,6 +93,36 @@ export function moveBetween(board, before, after) {
 
 
 /* ---------------------------------------------------------------- */
+// stepBetween()
+/* ---------------------------------------------------------------- */
+/**
+ * @description The one move between two positions either way, so the 3D board can slide it forward or, stepping back in a replay, in reverse
+ * @param  {[object]} board [chess.js board, it's loaded with the positions]
+ * @param  {[string]} before [FEN shown now]
+ * @param  {[string]} after [FEN to show]
+ * @return {[object|null]} step [{ kind: "forward" (a move from before reaches after) | "back" (a move from after reaches before), move: { from, to,
+ * promotion, piece, color, captured, flags } }, null when they aren't one move apart, a FEN is missing or chess.js can't load one]
+ */
+export function stepBetween(board, before, after) {
+	if (!before || !after) { return null; }
+	const spot = (fen) => fen.split(" ", 2).join(" "); // PIECES & SIDE TO MOVE, THE COUNTERS DON'T MATTER
+	const find = function (from, to) {
+		board.load(from); // THROWS ON A FEN IT WON'T TAKE (A PAWN ON THE LAST RANK)
+		const m = board.moves({ verbose: true }).find((move) => spot(move.after) === spot(to));
+		return m ? { from: m.from, to: m.to, promotion: m.promotion, piece: m.piece, color: m.color, captured: m.captured, flags: m.flags } : null;
+	};
+	try {
+		const forward = find(before, after);
+		if (forward) { return { kind: "forward", move: forward }; }
+		const back = find(after, before);
+		return back ? { kind: "back", move: back } : null;
+	} catch {
+		return null;
+	}
+}
+
+
+/* ---------------------------------------------------------------- */
 // tileToSquare()
 /* ---------------------------------------------------------------- */
 /**

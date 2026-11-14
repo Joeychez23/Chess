@@ -25,7 +25,7 @@ const {
 	moveHighlight, takeableHighlight, checkHighlight // UI
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
 const { handleKnightHop, stepSlide, KNIGHT_PAUSE_MS, trayNudge } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS, WHERE A SLIDING PIECE IS FROM THE TIME, HOW LONG A KNIGHT STOPS BEFORE ITS HOP, HOW FAR THE BOTTOM TRAY SITS DOWN
-const { updateUserStateSlide, updateOpponentStateSlide } = require("../moves/index.js"); // A SLIDE LANDED: SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S
+const { landSlide } = require("../moves/index.js"); // A SLIDE LANDED: SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S
 
 const DRAG_HOLD_MS = 120; // MOVING A HELD PIECE FOR LONGER THAN THIS MAKES IT A DRAG
 
@@ -40,6 +40,16 @@ let yPos; // TAKEN PIECE TRAY ROW
 let overlapSlideObj = null; // THE 3 x 3 SQUARES AROUND A SLIDING PIECE (drawActivePiece), ONLY A HOPPING OR LANDED KNIGHT IS DRAWN AGAIN FROM IT (drawSlideBox)
 let yPositive = false; // THE SLIDING PIECE IS GOING DOWN THE SCREEN
 let xPositive = false; // THE SLIDING PIECE IS GOING RIGHT
+
+/**
+ * @description The two squares a sliding piece faces the way of: its move (moveObj), or, stepping back in a replay, the pair that keeps the
+ * facing it had before the move (moveObj.face, replay/positions.js facePair) so it slides back without turning. Landing & draw order still
+ * use moveObj, the squares it actually slides between
+ * @return {[object]} { from, to }
+ */
+function slideFace() {
+	return game.moveObj.face || game.moveObj;
+}
 
 /* ---------------------------------------------------------------- */
 // Handle Initial Data Response
@@ -621,12 +631,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 											game.tiles[index].isSliding = null;
 											overlapSlideObj = null; // SO THE END OF THE FRAME USES THE LANDED REDRAW (IN FRONT OF & BEHIND THE RIGHT PIECES), NOT THE HOP'S (ON TOP OF EVERYTHING)
 											ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2), game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
-											if (game.tiles[index].color == game.playerColor) {
-												await updateUserStateSlide(index); // SENDS THE PLAYER'S MOVE
-											}
-											else if (game.tiles[index].color == game.opponentColor) {
-												await updateOpponentStateSlide(index); // FINISHES THE OPPONENT'S MOVE
-											}
+											await landSlide(index); // SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S OR THE REPLAY'S STEP
 										} else { // IN THE AIR
 											if (game.knightHop == 0) { overlapSlideObj = null; } // ON ITS NEW SQUARE (THE FRAME BEFORE IT LANDS): DRAWN AGAIN LIKE A LANDED PIECE AT THE END OF THE FRAME, NOT ON TOP
 											ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
@@ -640,12 +645,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 									ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 									if (completeSlide) { // ARRIVED: FINISH THE MOVE
 										game.tiles[index].isSliding = null;
-										if (game.tiles[index].color == game.playerColor) {
-											await updateUserStateSlide(index); // SENDS THE PLAYER'S MOVE
-										}
-										else if (game.tiles[index].color == game.opponentColor) {
-											await updateOpponentStateSlide(index); // FINISHES THE OPPONENT'S MOVE
-										}
+										await landSlide(index); // SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S OR THE REPLAY'S STEP
 									}
 								}
 							}
@@ -673,8 +673,8 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			function drawHoppingKnight() {
 				const squareIndex = index; // THIS SQUARE'S TILE
 				index = hopTurn.index;
-				let xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT CAME FROM (a = 0)
-				let xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT'S GOING TO
+				let xFrom = slideFace().from.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT CAME FROM (a = 0)
+				let xTo = slideFace().to.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT'S GOING TO
 				if (game.tiles[index].color == 'w') { // SAME FOR BOTH COLORS, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
 					handleKnightDirectionW(xFrom, xTo);
 					drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false);
@@ -753,13 +753,13 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						let yFrom; // SCREEN ROW IT CAME FROM
 						let yTo; // SCREEN ROW IT WENT TO
 						for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
-							if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+							if (game.tiles[index].isSliding && slideFace().from.split("")[1] != slideFace().to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
 								if (game.viewColor == 'w') {
-									yFrom = 8 - game.moveObj.from.split("")[1];
-									yTo = 8 - game.moveObj.to.split("")[1];
+									yFrom = 8 - slideFace().from.split("")[1];
+									yTo = 8 - slideFace().to.split("")[1];
 								} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-									yFrom = game.moveObj.from.split("")[1] - 1;
-									yTo = game.moveObj.to.split("")[1] - 1;
+									yFrom = slideFace().from.split("")[1] - 1;
+									yTo = slideFace().to.split("")[1] - 1;
 								}
 								handlePieceDirectionW(yFrom, yTo);
 								drawPiece();
@@ -785,13 +785,13 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						let yFrom; // SCREEN ROW IT CAME FROM
 						let yTo; // SCREEN ROW IT WENT TO
 						for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
-							if (game.tiles[index].isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+							if (game.tiles[index].isSliding && slideFace().from.split("")[1] != slideFace().to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
 								if (game.viewColor == 'w') {
-									yFrom = 8 - game.moveObj.from.split("")[1];
-									yTo = 8 - game.moveObj.to.split("")[1];
+									yFrom = 8 - slideFace().from.split("")[1];
+									yTo = 8 - slideFace().to.split("")[1];
 								} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-									yFrom = game.moveObj.from.split("")[1] - 1;
-									yTo = game.moveObj.to.split("")[1] - 1;
+									yFrom = slideFace().from.split("")[1] - 1;
+									yTo = slideFace().to.split("")[1] - 1;
 								}
 								handlePieceDirectionB(yFrom, yTo);
 								drawPiece();
@@ -882,11 +882,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 									if (game.tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
 										if (hopTurn) { break; } // OVER ANOTHER SQUARE: DRAWN IN THAT SQUARE'S TURN (drawHoppingKnight), STILL COUNTED BELOW
 										if (game.viewColor == 'w') {
-											xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-											xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+											xFrom = slideFace().from.split("")[0].charCodeAt(0) - 96 - 1;
+											xTo = slideFace().to.split("")[0].charCodeAt(0) - 96 - 1;
 										} else if (game.viewColor == 'b') { // SAME AS WHITE, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
-											xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-											xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+											xFrom = slideFace().from.split("")[0].charCodeAt(0) - 96 - 1;
+											xTo = slideFace().to.split("")[0].charCodeAt(0) - 96 - 1;
 										}
 										handleKnightDirectionW(xFrom, xTo);
 										drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity);
@@ -920,11 +920,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 									if (game.tiles[index].isSliding) { // SLIDING: FACE THE WAY THIS MOVE GOES
 										if (hopTurn) { break; } // OVER ANOTHER SQUARE: DRAWN IN THAT SQUARE'S TURN (drawHoppingKnight), STILL COUNTED BELOW
 										if (game.viewColor == 'w') {
-											xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-											xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+											xFrom = slideFace().from.split("")[0].charCodeAt(0) - 96 - 1;
+											xTo = slideFace().to.split("")[0].charCodeAt(0) - 96 - 1;
 										} else if (game.viewColor == 'b') { // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
-											xFrom = 8 - (game.moveObj.from.split("")[0].charCodeAt(0) - 96);
-											xTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
+											xFrom = 8 - (slideFace().from.split("")[0].charCodeAt(0) - 96);
+											xTo = 8 - (slideFace().to.split("")[0].charCodeAt(0) - 96);
 										}
 										handleKnightDirectionB(xFrom, xTo);
 										drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity);
@@ -1012,13 +1012,13 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				let yFrom; // SCREEN ROW IT CAME FROM
 				let yTo; // SCREEN ROW IT WENT TO
 				for (let n = 0; n < JSON.parse(game.response.w_piece).length; n++) {
-					if (pieceObj.isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+					if (pieceObj.isSliding && slideFace().from.split("")[1] != slideFace().to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
 						if (game.viewColor == 'w') {
-							yFrom = 8 - game.moveObj.from.split("")[1];
-							yTo = 8 - game.moveObj.to.split("")[1];
+							yFrom = 8 - slideFace().from.split("")[1];
+							yTo = 8 - slideFace().to.split("")[1];
 						} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-							yFrom = game.moveObj.from.split("")[1] - 1;
-							yTo = game.moveObj.to.split("")[1] - 1;
+							yFrom = slideFace().from.split("")[1] - 1;
+							yTo = slideFace().to.split("")[1] - 1;
 						}
 						handlePieceDirectionW(yFrom, yTo);
 						drawPiece();
@@ -1057,13 +1057,13 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				let yFrom; // SCREEN ROW IT CAME FROM
 				let yTo; // SCREEN ROW IT WENT TO
 				for (let n = 0; n < JSON.parse(game.response.b_piece).length; n++) {
-					if (pieceObj.isSliding && game.moveObj.from.split("")[1] != game.moveObj.to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
+					if (pieceObj.isSliding && slideFace().from.split("")[1] != slideFace().to.split("")[1]) { // SLIDING UP OR DOWN: FACE THE WAY THIS MOVE GOES (SIDEWAYS FACES ITS LAST WAY, BELOW)
 						if (game.viewColor == 'w') {
-							yFrom = 8 - game.moveObj.from.split("")[1];
-							yTo = 8 - game.moveObj.to.split("")[1];
+							yFrom = 8 - slideFace().from.split("")[1];
+							yTo = 8 - slideFace().to.split("")[1];
 						} else if (game.viewColor == 'b') { // FLIPPED BOARD: RANK 1 IS THE TOP ROW
-							yFrom = game.moveObj.from.split("")[1] - 1;
-							yTo = game.moveObj.to.split("")[1] - 1;
+							yFrom = slideFace().from.split("")[1] - 1;
+							yTo = slideFace().to.split("")[1] - 1;
 						}
 						handlePieceDirectionB(yFrom, yTo);
 						drawPiece();
@@ -1129,11 +1129,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				for (let n = 0; n < JSON.parse(game.response.w_knight).length; n++) {
 					if (pieceObj.isSliding) {
 						if (game.viewColor == 'w') {
-							xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-							xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+							xFrom = slideFace().from.split("")[0].charCodeAt(0) - 96 - 1;
+							xTo = slideFace().to.split("")[0].charCodeAt(0) - 96 - 1;
 						} else if (game.viewColor == 'b') {
-							xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-							xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+							xFrom = slideFace().from.split("")[0].charCodeAt(0) - 96 - 1;
+							xTo = slideFace().to.split("")[0].charCodeAt(0) - 96 - 1;
 						}
 						handleKnightDirectionW(xFrom, xTo);
 						if (pieceObj.isSliding) {
@@ -1175,11 +1175,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				for (let n = 0; n < JSON.parse(game.response.b_knight).length; n++) {
 					if (pieceObj.isSliding) {
 						if (game.viewColor == 'w') {
-							xFrom = game.moveObj.from.split("")[0].charCodeAt(0) - 96 - 1;
-							xTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
+							xFrom = slideFace().from.split("")[0].charCodeAt(0) - 96 - 1;
+							xTo = slideFace().to.split("")[0].charCodeAt(0) - 96 - 1;
 						} else if (game.viewColor == 'b') {
-							xFrom = 8 - (game.moveObj.from.split("")[0].charCodeAt(0) - 96);
-							xTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
+							xFrom = 8 - (slideFace().from.split("")[0].charCodeAt(0) - 96);
+							xTo = 8 - (slideFace().to.split("")[0].charCodeAt(0) - 96);
 						}
 						handleKnightDirectionB(xFrom, xTo);
 						if (pieceObj.isSliding) {

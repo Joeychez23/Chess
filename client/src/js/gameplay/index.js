@@ -15,7 +15,7 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, canvas, chessInst, validateState, startFrames, requestFrame, fillTiles, OVERRIDE_REMOTE_ONLY } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
+const { game, canvas, chessInst, validateState, startFrames, requestFrame, OVERRIDE_REMOTE_ONLY } = require("./state/index.js"); // THE GAME'S SHARED STATE (game.tiles, game.moveObj, ...), THE CANVAS & THE chess.js BOARDS
 const { playAi } = require("./ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
 const { momentFor, faceFor } = require("./bots/index.js"); // WHAT THE AI'S BOT SAYS ABOUT ITS MOVE (#76) & THE FACE THE 3D ROOM'S MONITOR MAKES AT IT
 const { sayLine } = require("./bots/say.js"); // & SAYS IT BESIDE THE BOARD
@@ -24,8 +24,9 @@ const { handleWindowResize } = require("./layout/index.js"); // REDRAWS THE GAME
 const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // DRAWS EACH FRAME (drawScreen), THE TAKEN PIECE TRAYS
 const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & REMOTE-ONLY MODE HANDLERS (ADDED IN startGame)
-const { setInitialData } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER
-const { addMenuListeners, handleResume, handleSound, loadSound, loadView, showView, handleView, handleResetView, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
+const { setInitialData, loadReadOnly, startSlide } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER (TO PLAY, OR READ-ONLY)
+const { listenersFor } = require("./input/modes.js"); // WHICH LISTENERS GO ON: THE MOUSE, REMOTE-ONLY MODE OR THE READ-ONLY BOARD
+const { addMenuListeners, handleResume, handleSound, loadSound, loadView, showView, handleView, handleResetView, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers, showReadOnlyMenu } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
 const { showStatus, clearStatus, MESSAGE_TIME } = require("./status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); // THE MOVE LIST PANEL
@@ -53,8 +54,10 @@ const AI_RETRY_TIME = 5000; // ASKS FOR THE AI'S MOVE AGAIN AFTER THIS WHEN IT D
 /**
  * @description Starts a game: adds the canvas to main & starts the game (startGame) once the images are loaded.
  * The rest of the game is in the files next to this one (see the top of this file), the state they share is game (gameplay/state/index.js)
- * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, REMOTE_ONLY_CONDITIONAL, SIGNED_IN, VIEW }, REMOTE_ONLY_CONDITIONAL = REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE,
- * VIEW = VIEWS.THREE_D TO START ON THE 3D BOARD (LEFT OUT: THE PLAYER'S SAVED VIEW, loadView)]
+ * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, REMOTE_ONLY_CONDITIONAL, SIGNED_IN, VIEW, READ_ONLY }, REMOTE_ONLY_CONDITIONAL = REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE,
+ * VIEW = VIEWS.THREE_D TO START ON THE 3D BOARD (LEFT OUT: THE PLAYER'S SAVED VIEW, loadView), READ_ONLY = A BOARD THAT ONLY SHOWS THE GAME (A REPLAY, #100):
+ * NO PIECE IS PICKED UP, NO MOVE OR AI REQUEST IS SENT & NO SOCKET IS OPENED
+ * @return {[Promise<object|false>]} [the game (game.response) once it's started, false when it couldn't be loaded]
  */
 export async function renderCanvas(playerData) {
 	game.GAME_URL = playerData.GAME_URL; // SETS CONSTANT GAME VARIABLES
@@ -62,6 +65,7 @@ export async function renderCanvas(playerData) {
 	game.REMOTE_ONLY_CONDITIONAL = playerData.REMOTE_ONLY_CONDITIONAL;
 	game.SIGNED_IN = playerData.SIGNED_IN; // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
 	game.GAME_ID = playerData.GAME_ID; // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
+	game.readOnly = Boolean(playerData.READ_ONLY); // A REPLAY: THE BOARD ONLY SHOWS THE GAME
 
 	optBtn.style.display = "flex"; // SHOW THE MENU BUTTON
 
@@ -87,12 +91,14 @@ export async function renderCanvas(playerData) {
 	/**
 	 * @description If all images are loaded start game. Checks every 100ms (Home already loaded them, so they come from the browser cache)
 	 */
-	const startGameCheck = setInterval(async function () {
-		if (imageProgress() == 1) { // EVERY IMAGE preloadImages() STARTED IS IN (THE PLAY PAGE STARTS THEM BEFORE renderCanvas)
-			startGame(playerData.VIEW || loadView()); // THE PLAYER'S SAVED VIEW, 3D BY DEFAULT (2D ON A PHONE OR TABLET)
-			clearInterval(startGameCheck);
-		}
-	}, 100);
+	return new Promise(function (resolve) {
+		const startGameCheck = setInterval(async function () {
+			if (imageProgress() == 1) { // EVERY IMAGE preloadImages() STARTED IS IN (THE PLAY PAGE STARTS THEM BEFORE renderCanvas)
+				clearInterval(startGameCheck); // BEFORE THE AWAIT, OR IT WOULD START THE GAME AGAIN EVERY 100MS WHILE IT LOADS
+				resolve(await startGame(playerData.VIEW || loadView())); // THE PLAYER'S SAVED VIEW, 3D BY DEFAULT (2D ON A PHONE OR TABLET)
+			}
+		}, 100);
+	});
 }
 
 /* ---------------------------------------------------------------- */
@@ -102,6 +108,7 @@ export async function renderCanvas(playerData) {
  * @description Starts the render loop. Loads the game, joins a friend game's socket room, adds the canvas
  * to main, draws with renderLoop() when something changes & adds the event listeners (their handlers are in gameplay/input & gameplay/menu)
  * @param  {[string]} view [VIEWS.THREE_D puts up the 3D board once the game is in, anything else stays on the 2D canvas]
+ * @return {[object|false]} [the game (game.response), false when it couldn't be loaded]
  */
 async function startGame(view) {
 	game.wTakenPieces = setTakenPieceArr("b");
@@ -110,16 +117,18 @@ async function startGame(view) {
 	game.cw = 0; // SET BY renderBoard()
 	game.ch = 0;
 
-	if (await setInitialData() === false) { // COULDN'T LOAD: NO GAME TO DRAW OR PLAY, ONLY ITS MESSAGE (setInitialData) ON THE TABLE
+	const loaded = game.readOnly ? await loadReadOnly() : await setInitialData() !== false;
+	if (!loaded) { // COULDN'T LOAD: NO GAME TO DRAW OR PLAY, ONLY ITS MESSAGE (setInitialData) ON THE TABLE
 		optBtn.style.display = "none"; // ITS LISTENER IS ADDED BELOW, A RELOAD STARTS AGAIN
 		document.documentElement.classList.remove("loadingPage"); // loadingPage HIDES THE MESSAGE (play.html)
-		return;
+		return false;
 	}
 	handleInitialData(); // HANDLES INITIAL DATA
-	if (!game.ai && game.response?.status == 200) { // FRIEND GAME
+	if (game.readOnly) { showReadOnlyMenu(game.response); } // THE RESULT & WHAT A BOARD THAT ONLY SHOWS THE GAME OFFERS
+	if (!game.readOnly && !game.ai && game.response?.status == 200) { // FRIEND GAME
 		joinGame(game.GAME_ID, game.PLAYER_ID, socketHandlers); // THE SERVER PUSHES MOVES, FORFEITS & REMATCHES (server/socket.js)
 	}
-	if (!game.gameOver) { optRestartBtn.innerHTML = "Forfeit"; } // play.html SAYS RESTART, WHAT A GAME THAT'S OVER OFFERS
+	if (!game.gameOver && !game.readOnly) { optRestartBtn.innerHTML = "Forfeit"; } // play.html SAYS RESTART, WHAT A GAME THAT'S OVER OFFERS
 
 	
 	// JUST IN CASE
@@ -142,43 +151,50 @@ async function startGame(view) {
 	document.addEventListener("visibilitychange", function () { if (!document.hidden) { game.refresh = true; } }); // SHOWN AGAIN: A SLIDE CATCHES UP TO THE TIME (stepSlide), REDRAWS A CANVAS THE BROWSER MAY HAVE THROWN AWAY
 
 	// EVENT LISTENERS (addBoardListener PUTS THE BOARD'S ON THE 2D CANVAS & THE 3D BOARD, THE BOARD'S HANDLERS ARE IN gameplay/input/index.js, handleWindowResize IN gameplay/layout/index.js, THE MENU'S IN gameplay/menu/index.js)
+	const listeners = listenersFor({ readOnly: game.readOnly, remoteOnly: game.REMOTE_ONLY_CONDITIONAL, override: OVERRIDE_REMOTE_ONLY }); // gameplay/input/modes.js
 	window.addEventListener("resize", handleWindowResize);
-	if (game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { window.addEventListener("keydown", handleKeyPress) }
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("click", handleCanvasClick); }
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("mousemove", handleMouseMove); }
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("mousedown", handleMouseDown); }
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("mouseup", handleMouseUp); }
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addBoardListener("contextmenu", function (e) { e.preventDefault(); }); } // THE RIGHT BUTTON DRAWS MARKS & ARROWS
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) {
+	if (listeners.remoteKeys) { window.addEventListener("keydown", handleKeyPress) }
+	if (listeners.pointer) {
+		addBoardListener("click", handleCanvasClick);
+		addBoardListener("mousemove", handleMouseMove);
+		addBoardListener("mousedown", handleMouseDown);
+		addBoardListener("mouseup", handleMouseUp);
+		addBoardListener("contextmenu", function (e) { e.preventDefault(); }); // THE RIGHT BUTTON DRAWS MARKS & ARROWS
 		addBoardListener("touchstart", handleTouchStart, { passive: false });
 		addBoardListener("touchmove", handleTouchMove, { passive: false });
 		addBoardListener("touchend", handleTouchEnd, { passive: false });
 		addBoardListener("touchcancel", handleTouchCancel, { passive: false });
 	}
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addMenuListeners(); } // THE MENU BUTTON, A CLICK AWAY (THE BOARD: handleCanvasClick) & ESCAPE
+	if (listeners.menu) { addMenuListeners(); } // THE MENU BUTTON, A CLICK AWAY (THE BOARD: handleCanvasClick, READ-ONLY: THE PAGE'S CLICK) & ESCAPE
 	optResumeBtn.addEventListener("click", handleResume);
 	optSoundBtn.addEventListener("click", handleSound);
 	optFlipBtn.addEventListener("click", handleFlip);
 	document.getElementById("optView").addEventListener("click", handleView);
 	document.getElementById("optResetView").addEventListener("click", handleResetView);
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { optPgnBtn.addEventListener("click", handleDownloadPgn); } // REMOTE-ONLY MODE CAN'T REACH IT, A REMOTE-ONLY DEVICE HAS NOWHERE TO SAVE A FILE
+	if (listeners.pgn) { optPgnBtn.addEventListener("click", handleDownloadPgn); } // REMOTE-ONLY MODE CAN'T REACH IT, A REMOTE-ONLY DEVICE HAS NOWHERE TO SAVE A FILE
 	else { optPgnBtn.parentElement.hidden = true; }
-	document.getElementById("optHint").addEventListener("click", handleHint);
-	document.getElementById("optEvalBar").addEventListener("click", handleEvalBar);
-	document.getElementById("optTakeback").addEventListener("click", handleTakeback);
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { document.getElementById("takebackAccept").addEventListener("click", handleTakeback); } // THE SAME PRESS ACCEPTS
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { document.getElementById("takebackDecline").addEventListener("click", handleDeclineTakeback); }
-	document.getElementById("optDraw").addEventListener("click", handleOfferDraw);
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { document.getElementById("drawAccept").addEventListener("click", handleOfferDraw); } // THE SAME PRESS ACCEPTS
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { document.getElementById("drawDecline").addEventListener("click", handleDeclineDraw); }
-	optRestartBtn.addEventListener("click", handleRestart);
-	document.getElementById("optCancelRematch").addEventListener("click", handleCancelRematch);
+	if (listeners.gameActions) {
+		document.getElementById("optHint").addEventListener("click", handleHint);
+		document.getElementById("optEvalBar").addEventListener("click", handleEvalBar);
+		document.getElementById("optTakeback").addEventListener("click", handleTakeback);
+		document.getElementById("optDraw").addEventListener("click", handleOfferDraw);
+		optRestartBtn.addEventListener("click", handleRestart);
+		document.getElementById("optCancelRematch").addEventListener("click", handleCancelRematch);
+	}
+	if (listeners.prompts) {
+		document.getElementById("takebackAccept").addEventListener("click", handleTakeback); // THE SAME PRESS ACCEPTS
+		document.getElementById("takebackDecline").addEventListener("click", handleDeclineTakeback);
+		document.getElementById("drawAccept").addEventListener("click", handleOfferDraw); // THE SAME PRESS ACCEPTS
+		document.getElementById("drawDecline").addEventListener("click", handleDeclineDraw);
+	}
 	optHomepageBtn.addEventListener("click", handleLeave);
 	optSettingsBtn.addEventListener("click", handleLeave);
+	document.getElementById("optReplay").addEventListener("click", handleLeave); // LEAVES LIKE HOME: A REMATCH REQUEST IS CANCELLED, THE SOCKET CLOSED
 	optExitBtn.addEventListener("click", handleExit);
-	if (!game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { addMoveListListeners(); } // THE TOGGLE & ITS KEYS
-	addMoveBoxListeners(); // ON IN REMOTE-ONLY MODE TOO, A KEYBOARD CAN STILL TYPE. REMOTE-ONLY MODE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE
+	if (listeners.moveList) { addMoveListListeners(); } // THE TOGGLE & ITS KEYS
+	if (listeners.moveBox) { addMoveBoxListeners(); } // ON IN REMOTE-ONLY MODE TOO, A KEYBOARD CAN STILL TYPE. REMOTE-ONLY MODE CAN'T REACH THE MENU'S TYPE A MOVE, IT ONLY WORKS WITH THE / KEY THERE
 	startMonitor(); // REMOTE-ONLY MODE TOO (THE REMOTE REACHES THE MENU'S MONITOR ITEM). STILL BEFORE THE 3D BOARD MOUNTS: show3D WAITS FOR ITS CHUNK FIRST
+	return game.response;
 }
 
 /* ################################################################ */
@@ -201,29 +217,8 @@ async function startAiSlide() {
 		sayLine(momentFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // A CAPTURE, CHECK OR MATE
 		setFace(faceFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // THE MONITOR'S FACE IS PLEASED WITH IT (3D ONLY)
 		clearStatus("ai");
-		fillTiles();
-		for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE OF THE PIECE ON moveObj.from
-			if (game.tiles[i].square == game.moveObj.from) {
-				game.slideStart = true;
-				game.tiles[i].isSliding = true;
-				if (game.viewColor == 'w') { // SCREEN COLUMN & ROW OF moveObj.to (a8 IS 0, 0)
-					game.tiles[i].xSlideTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-					game.tiles[i].ySlideTo = 8 - game.moveObj.to.split("")[1];
-				} else if (game.viewColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
-					game.tiles[i].xSlideTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
-					game.tiles[i].ySlideTo = game.moveObj.to.split("")[1] - 1;
-				}
-				game.tiles[i].xDiff = 0; // PIXELS MOVED SO FAR
-				game.tiles[i].yDiff = 0;
-				game.tiles[i].slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
-			} else if (game.tiles[i].isSliding) { // STOP ANY OTHER SLIDE
-				game.tiles[i].isSliding = false;
-				game.tiles[i].xDiff = 0;
-				game.tiles[i].yDiff = 0;
-			}
-		}
+		startSlide(game.moveObj.from, game.moveObj.to); // STOPS ANY OTHER SLIDE
 		game.aiTurn = false;
-		game.currSlide = true;
 	} catch (err) {
 		console.log(err);
 		game.aiTurn = false; // playAi ALREADY TRIED AGAIN: WAITS BEFORE ASKING AGAIN, NOT A NEW REQUEST EVERY FRAME
@@ -276,7 +271,7 @@ async function renderLoop() {
 		if (game.restartSlide) { // RESTART & REMATCH: THE PIECES SLIDE HOME
 			drawRestartSlide();
 		} else if ((game.refresh || game.currSlide) && !game.boardReset) {
-			if (game.ai && chessInst.turn() != game.playerColor && game.aiTurn) { // IF AI
+			if (game.ai && !game.readOnly && chessInst.turn() != game.playerColor && game.aiTurn) { // IF AI (NEVER ON A READ-ONLY BOARD)
 				await startAiSlide();
 			} else {
 				flipWhenDone(); // FLIP BOARD WAS PRESSED DURING THE SLIDE OR SAVE THAT JUST ENDED

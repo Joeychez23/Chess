@@ -72,6 +72,7 @@ export const game = {
 	PLAYER_ID: undefined, // THIS PLAYER (A GUEST'S PLAYER ID IS THEIR GAME ID)
 	REMOTE_ONLY_CONDITIONAL: undefined, // REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE
 	SIGNED_IN: undefined, // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
+	readOnly: false, // A BOARD THAT ONLY SHOWS THE GAME (A REPLAY, #100): NO PIECE IS PICKED UP, NO MOVE, AI OR SOCKET (SET BY renderCanvas)
 	moveAudio: undefined, // MOVE SOUND (MADE IN renderCanvas)
 	soundOn: true, // THE PLAYER'S SOUND BUTTON, SAVED IN localStorage (SET BY loadSound, CHANGED BY handleSound IN gameplay/menu/index.js)
 	response: undefined, // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
