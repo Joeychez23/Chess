@@ -14,10 +14,10 @@
  * Takeback, Offer Draw, Restart & Cancel Rematch, moveBox: the typed move box, moveList: the move list's toggle & keys, pgn: Download PGN }]
  */
 function listenersFor({ readOnly, remoteOnly, override }) {
-	if (readOnly) { // NOTHING ON THE BOARD TAKES INPUT, A REMOTE-ONLY DEVICE STILL GETS THE MENU
-		return { pointer: false, remoteKeys: false, menu: true, prompts: false, gameActions: false, moveBox: false, moveList: true, pgn: true };
-	}
 	const mouse = !remoteOnly || Boolean(override);
+	if (readOnly) { // NOTHING ON THE BOARD TAKES INPUT, A REMOTE-ONLY DEVICE STILL GETS THE MENU (BUT STILL HAS NOWHERE TO SAVE A PGN)
+		return { pointer: false, remoteKeys: false, menu: true, prompts: false, gameActions: false, moveBox: false, moveList: true, pgn: mouse };
+	}
 	return { pointer: mouse, remoteKeys: Boolean(remoteOnly || override), menu: mouse, prompts: mouse, gameActions: true, moveBox: true, moveList: mouse, pgn: mouse };
 }
 

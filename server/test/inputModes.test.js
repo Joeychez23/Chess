@@ -17,10 +17,10 @@ test("a live game keeps today's listeners", () => {
 	assert.deepEqual(listenersFor({ readOnly: false, remoteOnly: true, override: true }), { ...LIVE, remoteKeys: true });
 });
 
-test("read-only can't pick up a piece in any input mode", () => {
+test("read-only can't pick up a piece in any input mode, & a remote-only device still has nowhere to save a PGN", () => {
 	for (const remoteOnly of [false, true]) {
 		for (const override of [false, true]) {
-			assert.deepEqual(listenersFor({ readOnly: true, remoteOnly, override }), READ_ONLY);
+			assert.deepEqual(listenersFor({ readOnly: true, remoteOnly, override }), { ...READ_ONLY, pgn: !remoteOnly || override });
 		}
 	}
 });

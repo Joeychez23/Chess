@@ -49,9 +49,8 @@ let restoreTimer = null;
 /* ---------------------------------------------------------------- */
 /**
  * @description Draws one frame of the board that's on. The render loop & a window resize call it instead of game.drawScreen().
- * 3D only follows chessInst, which only the move path (gameplay/moves) & the replay change: one move from what it shows slides, one move
- * back (a replay's step back, a one-move takeback) slides in reverse, anything else (load, takeback, restart, reconnect, a turned down move,
- * a replay's jump) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
+ * 3D only follows chessInst, which only the move path (gameplay/moves) & the replay change: one move from what it shows slides, a replay's
+ * step back slides in reverse, anything else (load, takeback, restart, reconnect, a turned down move, a replay's jump) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
  */
 export function drawBoard() {
 	game.drawScreen(); // 2D (HIDDEN ON 3D): ALSO FILLS game.tiles & STEPS THE SLIDES THE GAME WAITS ON
@@ -66,7 +65,7 @@ export function drawBoard() {
 		skipAnimation = false;
 		shownFen = fen;
 		if (step?.kind === "forward") { board3D.animateMove(step.move.from, step.move.to, step.move.promotion); }
-		else if (step?.kind === "back") { board3D.animateUndo(step.move, facings3D()); } // syncFacing3D BELOW TURNS IT THE WAY IT FACED BEFORE THE MOVE
+		else if (step?.kind === "back" && game.readOnly) { board3D.animateUndo(step.move, facings3D()); } // syncFacing3D BELOW TURNS IT THE WAY IT FACED BEFORE THE MOVE
 		else { board3D.syncFromBoard(chessInst); }
 	}
 	syncFacing3D(fen);
