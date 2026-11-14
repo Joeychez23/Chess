@@ -28,9 +28,12 @@ jobs:
           cache-dependency-path: |
             server/package-lock.json
             data-service/package-lock.json
+            package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm ci --no-audit --no-fund # THE SERVER TESTS RUN THE REAL DATA SERVICE NEXT TO THE SERVER
         working-directory: data-service
+      - run: npm ci --no-audit --no-fund # THE TESTS LOAD CLIENT MODULES, WHICH RESOLVE chess.js FROM THE ROOT node_modules
+        working-directory: .
       - run: npm test
 
   data-service:
