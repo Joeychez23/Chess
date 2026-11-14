@@ -14,10 +14,11 @@
 const { game, canvas, validateState, OVERRIDE_REMOTE_ONLY } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, REMOTE-ONLY MODE FOR TESTING
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { tileToSquare, squareToTile, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION & BACK, ADDS OR REMOVES A MARK OR ARROW
-const { currentView, VIEWS, squareUnder3D, isCameraGesture } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP
+const { currentView, VIEWS, squareUnder3D, isCameraGesture, onCardPick } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
 const { openMenu, closeMenu } = require("../menu/index.js"); // REMOTE-ONLY MODE OPENS THE MENU, A CLICK ON THE BOARD CLOSES IT
 const { menuItems, itemForKey } = require("../../pages/utils/nav.js"); // THE MENU'S ITEMS, READ FROM THE PAGE
+const { CARD_ORDER, nextCard } = require("../three/cardLayout.js"); // THE PROMOTION CARDS' ORDER & HOW THE ARROWS WALK THEM (NO three.js IN IT: THE 3D CHUNK STAYS LAZY)
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 
 const REMOTE_SKIPS = ["optPgn", "optTypeMove"]; // A REMOTE-ONLY DEVICE HAS NOWHERE TO SAVE A FILE & NO KEYS TO TYPE A MOVE
@@ -108,6 +109,7 @@ export function clearRemoteSelection() {
  * (handleCanvasClick), opens the menu or presses the selected menu button
  */
 export async function handleKeyPress(e) {
+	if (handleCardKey(e)) { return; } // A PROMOTION CARD'S KEY
 	e.preventDefault();
 	e.stopPropagation();
 	if (!e?.repeat && e?.keyCode) { // HOLDING A KEY DOESN'T REPEAT
@@ -181,6 +183,56 @@ export async function handleKeyPress(e) {
 }
 
 /* ---------------------------------------------------------------- */
+// Promotion Cards
+/* ---------------------------------------------------------------- */
+/**
+ * @description Finishes the player's pawn move with the piece they picked: the flat picker's tile or the 3D room's card
+ * @param  {[string]} type [the piece, "q", "r", "b" or "n"]
+ */
+export async function choosePromotion(type) {
+	if (!game.currPromotion) { return; } // ALREADY PICKED: A SECOND CLICK BEFORE THE NEXT FRAME MUST NOT SEND THE MOVE AGAIN
+	game.revert = game.response;
+	try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
+		game.moveObj.promotion = type;
+		game.currPromotion = false;
+		await validateMove();
+	} catch (err) { console.log(err); game.opposingMove = false; return refreshData(game.revert); }
+}
+onCardPick(choosePromotion); // THE 3D BOARD'S CARDS CALL IT. input ALREADY REQUIRES THE RENDERER, SO THIS ADDS NO CYCLE
+
+/**
+ * @description The keys of the 3D room's promotion cards: the arrows move the gold frame, Enter picks the framed card. Run in the capture phase on
+ * the window (gameplay/index.js) so the page's nav (arrows move the page focus, Enter on nothing focuses the menu button) never sees a handled key,
+ * & stopPropagation() keeps remote-only mode's handleKeyPress from stepping a second time. Nothing while the flat picker is the picker, the menu is
+ * open, the monitor is zoomed, a field has the keys, or a modifier is down. The rule for Enter: it picks when a card is framed, unless a button or
+ * link has the focus (Tab put it there), so Enter still presses it, which keeps the menu reachable. An arrow takes the focus off a button or link
+ * first, so after arrows Enter always picks
+ * @param  {[KeyboardEvent]} e [a keydown]
+ * @return {[boolean]} [the key was used, & its default & other handlers are stopped]
+ */
+export function handleCardKey(e) {
+	if (!game.currPromotion || !game.cards3D || game.menuToggled || e.altKey || e.ctrlKey || e.metaKey || isCameraGesture()) { return false; }
+	const target = e.target;
+	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return false; }
+	const pressable = Boolean(target && /^(BUTTON|A)$/.test(target.tagName));
+	if (e.key === "Enter") {
+		if (pressable) { return false; }
+		e.preventDefault();
+		e.stopPropagation();
+		if (game.cardFocus === null) { game.cardFocus = 0; game.refresh = true; } // NO CARD FRAMED YET (A MOUSE DEVICE): THE FIRST ENTER FRAMES THE QUEEN, THE NEXT PICKS IT
+		else { choosePromotion(CARD_ORDER[game.cardFocus]); }
+		return true;
+	}
+	if (!/^Arrow(Up|Down|Left|Right)$/.test(e.key)) { return false; }
+	e.preventDefault();
+	e.stopPropagation();
+	if (pressable) { target.blur(); } // THE ARROWS ARE THE CARDS' NOW: ENTER MUST NOT PRESS THE BUTTON
+	game.cardFocus = nextCard(game.cardFocus, e.key);
+	game.refresh = true;
+	return true;
+}
+
+/* ---------------------------------------------------------------- */
 // Get Canvas Point
 /* ---------------------------------------------------------------- */
 /**
@@ -215,7 +267,7 @@ function canvasTile(e) { // THE SCREEN COLUMN & ROW AT THE POINTER ON THE 2D CAN
 }
 
 function pickerTile(e) { // 3D: THE CANVAS TILE WHEN IT'S ON A PIECE OF THE OPEN PROMOTION PICKER, null OTHERWISE
-	if (!game.currPromotion) { return null; }
+	if (!game.currPromotion || game.cards3D) { return null; } // THE ROOM'S CARDS ARE THE PICKER, NO FLAT ONE TO FIND
 	const tile = canvasTile(e);
 	const picker = (game.playerColor == 'w' ? game.bTakenPieces : game.wTakenPieces) || [];
 	return picker.some((p) => p.x === tile.x && p.y === tile.y) ? tile : null;
@@ -250,6 +302,10 @@ export async function handleCanvasClick(e) {
 		return;
 	}
 	if (e.clientX !== undefined && isCameraGesture()) { return; } // THE CLICK ENDING A CAMERA GESTURE (REMOTE-ONLY MODE'S ENTER HAS NO clientX)
+	if (game.currPromotion && game.cards3D) { // THE ROOM'S CARDS ARE THE PICKER: A POINTER CLICK IS THEIRS (three/index.js), THE BOARD & THE FLAT PICKER'S TILES ARE NOT TOUCHED
+		if (e.clientX === undefined && game.cardFocus !== null) { return choosePromotion(CARD_ORDER[game.cardFocus]); }
+		return;
+	}
 	setPointerTile(e); // SCREEN COLUMN & ROW CLICKED
 
 	if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (REMOTE-ONLY MODE) ENTER HAS NO POINTER POSITION
@@ -264,12 +320,7 @@ export async function handleCanvasClick(e) {
 		for (let i = 0; i < takenPieces.length; i++) {
 			let takenPiece = takenPieces[i];
 			if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && takenPiece.type && takenPiece.color == game.playerColor) { // CLICKED THIS PIECE IN THE PICKER
-				const promotion = takenPiece.type;
-				try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
-					game.moveObj.promotion = promotion;
-					game.currPromotion = false;
-					await validateMove();
-				} catch (err) { console.log(err); game.opposingMove = false; return refreshData(game.revert); }
+				await choosePromotion(takenPiece.type);
 			}
 		}
 	} else if (!game.currSlide) {
@@ -363,7 +414,9 @@ export function handleMouseMove(e) {
 	if (isCameraGesture()) { if (game.mousedownTile) { letGo(); } return; } // THE CAMERA OWNS THE POINTER: A PIECE PRESSED AS IT TOOK OVER GOES BACK TO ITS SQUARE, NOT LEFT IN HAND
 	setPointerTile(e); // IF PIECE IS CLICK TO BE MOVED MOUSE POSITION (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
 	if (!((game.tileX < 0 || game.tileX > 7) && (game.tileY < 0 || game.tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
-		if (game.currPromotion) { // HOVER THE PICKER
+		if (game.currPromotion && game.cards3D) {
+			// THE ROOM'S CARDS ARE THE PICKER (THEY HOVER THEMSELVES): NOTHING ON THE BOARD OR IN THE FLAT PICKER'S LISTS
+		} else if (game.currPromotion) { // HOVER THE PICKER
 			let takenPieces
 			if (game.playerColor == 'w') { takenPieces = game.bTakenPieces }
 			else if (game.playerColor == 'b') { takenPieces = game.wTakenPieces }

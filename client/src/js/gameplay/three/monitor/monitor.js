@@ -77,7 +77,6 @@ export function available(data, prefs) {
 		if (id === "opponent" && data.offline) { return true; } // A LOST CONNECTION SHOWS ON IT, EVEN WHEN SWITCHED OFF
 		if (!prefs.enabled.includes(id)) { return false; }
 		if (id === "face") { return !!data.ai; }
-		if (id === "eval") { return !!(data.eval && data.eval.allowed); }
 		return true;
 	});
 }

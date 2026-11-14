@@ -90,6 +90,8 @@ export const game = {
 	hint: null, // [from, to] OF THE HINT, HIGHLIGHTED BY drawHint() UNTIL THE NEXT MOVE, null WITHOUT ONE
 	keyboardTile: null, // { x, y } SCREEN COLUMN & ROW OF REMOTE-ONLY MODE'S SELECT BOX, null BEFORE A KEY IS PRESSED OR WHILE IT'S ON THE MENU BUTTON. THE 3D BOARD RINGS IT (#431)
 	traysOnly: false, // 3D IS ON: THE 2D CANVAS LIES OVER THE 3D BOARD & DRAWS ONLY THE TAKEN PIECE TRAYS (gameplay/renderer)
+	cards3D: false, // THE 3D ROOM HAS ITS DECK & CARDS: THEY ARE THE PROMOTION PICKER
+	cardFocus: null, // THE KEYBOARD'S PROMOTION CARD (INDEX IN queen, rook, bishop, knight ORDER), null FOR NONE
 	evalBarShown: false, // THE EVALUATION BAR IS ON SCREEN, THE MOVE LIST MAKES ROOM FOR IT (gameplay/analysis/index.js)
 	annotations: [], // THE PLAYER'S RIGHT-CLICK MARKS & ARROWS { from, to } IN BOARD SQUARES (from == to IS A MARK), DRAWN BY drawAnnotations()
 	tiles: setTiles(), // 64 TILE STATES IN SCREEN ORDER (ROW * 8 + COLUMN), FILLED WITH THE PIECE ON EACH SQUARE WHILE DRAWING

@@ -113,7 +113,7 @@ describe("monitor", () => {
 	});
 	test("channels a game doesn't have are never offered", () => {
 		const friend = { ...base, ai: false, eval: { allowed: false, scores: [], failed: false } };
-		assert.deepEqual(available(friend, defaults()), ["opponent", "moves", "actions", "setup"]);
+		assert.deepEqual(available(friend, defaults()), ["opponent", "eval", "moves", "actions", "setup"]);
 		assert.equal(idleChannel(friend, { ...defaults(), defaultChannel: "face" }), "opponent");
 		assert.equal(idleChannel({ ...friend, yourTurn: false }, defaults()), "opponent");
 		assert.deepEqual(available(friend, { ...defaults(), enabled: ["face", "setup"] }), ["setup"]);

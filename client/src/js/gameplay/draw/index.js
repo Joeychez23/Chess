@@ -25,6 +25,7 @@ const {
 	moveHighlight, takeableHighlight, checkHighlight // UI
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
 const { handleKnightHop, stepSlide, KNIGHT_PAUSE_MS, trayNudge } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS, WHERE A SLIDING PIECE IS FROM THE TIME, HOW LONG A KNIGHT STOPS BEFORE ITS HOP, HOW FAR THE BOTTOM TRAY SITS DOWN
+const { overlayShows } = require("./overlay.js"); // WHAT THE FLAT OVERLAY DRAWS ON 2D & ON 3D
 const { landSlide } = require("../moves/index.js"); // A SLIDE LANDED: SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S
 
 const DRAG_HOLD_MS = 120; // MOVING A HELD PIECE FOR LONGER THAN THIS MAKES IT A DRAG
@@ -69,7 +70,9 @@ export function handleInitialData() {
 			currInst = chessInst.board();
 			overlapSlideObj = null
 			renderPiecesToBoard(currInst, clickX, clickY, true);
-			if (game.traysOnly) { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD IS DRAWN IN 3D UNDER THE CANVAS, ONLY THE TRAYS SHOW
+			const overlay = overlayShows(game); // 2D: "all", 3D: ONLY THE FLAT PROMOTION PICKER ("picker") OR NOTHING ("none")
+			if (overlay !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD, THE TAKEN PIECES & THE SCORE ARE IN THE 3D ROOM
+			if (overlay === "none") { return; }
 			if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
 				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
 				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
@@ -80,7 +83,7 @@ export function handleInitialData() {
 				renderTakenPieces(game.bTakenPieces, 'w');
 			}
 
-			if (game.traysOnly) { return; } // NO TABLE SHADOW OVER THE 3D BOARD
+			if (overlay !== "all") { return; } // NO TABLE SHADOW OVER THE 3D BOARD
 			ctx.globalAlpha = 0.05
 			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 			ctx.globalAlpha = 1;
@@ -96,7 +99,9 @@ export function handleInitialData() {
 			for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); }
 			overlapSlideObj = null
 			renderPiecesToBoard(currInst, clickX, clickY, true);
-			if (game.traysOnly) { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD IS DRAWN IN 3D UNDER THE CANVAS, ONLY THE TRAYS SHOW
+			const overlay = overlayShows(game); // 2D: "all", 3D: ONLY THE FLAT PROMOTION PICKER ("picker") OR NOTHING ("none")
+			if (overlay !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD, THE TAKEN PIECES & THE SCORE ARE IN THE 3D ROOM
+			if (overlay === "none") { return; }
 			if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
 				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
 				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
@@ -107,7 +112,7 @@ export function handleInitialData() {
 				renderTakenPieces(game.bTakenPieces, 'w');
 			}
 
-			if (game.traysOnly) { return; } // NO TABLE SHADOW OVER THE 3D BOARD
+			if (overlay !== "all") { return; } // NO TABLE SHADOW OVER THE 3D BOARD
 			ctx.globalAlpha = 0.05
 			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
 			ctx.globalAlpha = 1;
