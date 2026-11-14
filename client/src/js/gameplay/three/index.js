@@ -385,7 +385,8 @@ function onPointerDown(e) {
 		view.touches.add(e.pointerId);
 		if (view.touches.size > 1) { view.multiTouch = true; }
 	}
-	view.controls.enabled = monitorIdle() && !(e.pointerType === "mouse" && e.button === 0 && hitUnder(e, false)); // ZOOMED ON THE MONITOR THE CAMERA STAYS PUT
+	const square = e.pointerType === "mouse" && e.button === 0 && squareUnder(e); // THE SAME SQUARE gameplay/input PICKS A PIECE UP FROM, NOT ONLY A HIT ON THE MESH: A PRESS BESIDE A PIECE ON ITS SQUARE PICKS IT UP TOO
+	view.controls.enabled = monitorIdle() && !(square && view.pieces.has(square)); // ZOOMED ON THE MONITOR THE CAMERA STAYS PUT
 }
 
 // A HELD PIECE PAST THE DRAG THRESHOLD FOLLOWS THE POINTER (dragHeld). BEFORE gameplay/input'S mousemove / touchmove, SO ITS SQUARE LOOKUP SKIPS THE PIECE TOO

@@ -360,7 +360,7 @@ export async function handleCanvasClick(e) {
 export function handleMouseMove(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (isCameraGesture()) { return; } // THE CAMERA OWNS THE POINTER
+	if (isCameraGesture()) { if (game.mousedownTile) { letGo(false); } return; } // THE CAMERA OWNS THE POINTER: A PIECE PRESSED AS IT TOOK OVER GOES BACK TO ITS SQUARE, NOT LEFT IN HAND
 	setPointerTile(e); // IF PIECE IS CLICK TO BE MOVED MOUSE POSITION (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
 	if (!((game.tileX < 0 || game.tileX > 7) && (game.tileY < 0 || game.tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
 		if (game.currPromotion) { // HOVER THE PICKER
