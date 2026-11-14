@@ -52,6 +52,7 @@ const FLIP_MS = 700; // HOW LONG FLIP BOARD TAKES TO TURN THE CAMERA TO THE OTHE
 const SINK_DEPTH = CELL_SIZE * 0.5; // HOW FAR A TAKEN PIECE DROPS AS IT FADES
 const DRAG_PX = 4; // A PRESS THAT MOVES THE CAMERA ONLY BECOMES A CAMERA GESTURE PAST THIS MANY PIXELS, SO A SHAKY CLICK STILL CLICKS ITS SQUARE
 const TOUCH_DRAG_PX = 10; // A FINGER ON A HELD PIECE ONLY DRAGS IT PAST THIS MANY PIXELS (gameplay/input's touchDragThreshold, A SHAKY TAP STAYS A TAP)
+const DRAG_HOLD_MS = 120; // A MOUSE ON A HELD PIECE ONLY DRAGS IT THIS LONG AFTER THE PRESS (gameplay/draw's DRAG_HOLD_MS, A QUICK CLICK STAYS A CLICK)
 const LIFT_HEIGHT = CELL_SIZE * 0.2; // HOW HIGH A PICKED UP OR DRAGGED PIECE FLOATS OVER THE BOARD (2D DRAWS IT A TENTH OF A SQUARE UP)
 const BOARD_IMAGE = `${process.env.CHESS_ASSETS_URL}/images/3d/board.jpg`; // JUST THE 8x8 SQUARES, S3 / CLOUDFRONT LIKE THE SPRITES & ONLY FETCHED WITH 3D ON
 const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON TOP
@@ -376,7 +377,7 @@ function startGesture() {
 function onPointerDown(e) {
 	if (!view.controlsActive) {
 		view.cameraGesture = false;
-		view.press = { x: e.clientX, y: e.clientY };
+		view.press = { x: e.clientX, y: e.clientY, time: performance.now() };
 	}
 	view.pointerAt = { x: e.clientX, y: e.clientY };
 	view.pointerType = e.pointerType;
@@ -393,7 +394,9 @@ function onPointerMove(e) {
 	if (e.pointerType === "mouse" && !view.held && !view.controlsActive) { hoverGlass(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S
 	const held = view.held;
 	if (!held || !held.dragging || view.cameraGesture) { return; }
-	if (!held.following && Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > (e.pointerType === "touch" ? TOUCH_DRAG_PX : DRAG_PX)) { held.following = true; }
+	const touch = e.pointerType === "touch";
+	const moved = Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > (touch ? TOUCH_DRAG_PX : DRAG_PX);
+	if (!held.following && moved && (touch || performance.now() - view.press.time > DRAG_HOLD_MS)) { held.following = true; } // A MOUSE WAITS DRAG_HOLD_MS LIKE 2D, TOUCH ONLY GOES BY DISTANCE (gameplay/input)
 	if (held.following) { liftHeld(); }
 }
 
@@ -773,7 +776,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	Object.assign(view, { monitorOptions: { ...NO_MONITOR, ...(monitor || {}) }, monitor: null, monitorData: null, monitorSeen: "idle", glass: null, zoom: null, home: null, zoomLook: new Vector3(), leaving: [] }); // monitor: ITS STATE MACHINE ONCE THE ROOM HAS LOADED, monitorData: WHAT setMonitor() WAS LAST TOLD, zoom: THE CAMERA'S MOVE TO OR FROM THE GLASS, home: WHERE IT WAS ON THE DESK, zoomLook: WHAT IT LOOKS AT MEANWHILE, leaving: leaveMonitor()'S RESOLVES
 	view.drawn = new Promise((resolve) => { view.markDrawn = resolve; }); // whenDrawn(): THE FIRST FRAME WITH THE SQUARES IN (textureReady)
 	view.textureReady = false;
-	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null, touches: new Set(), multiTouch: false }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER, touches: THE FINGERS DOWN (pointerId), multiTouch: MORE THAN ONE WAS, SINCE ALL WERE UP
+	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0, time: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null, touches: new Set(), multiTouch: false }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER, touches: THE FINGERS DOWN (pointerId), multiTouch: MORE THAN ONE WAS, SINCE ALL WERE UP
 	container.style.backgroundColor = scene.background.getStyle(); // THE SAFE AREA PADDING (UNDER A NOTCH) IS THE SCENE'S BACKGROUND
 	view.observer = new ResizeObserver(resize);
 	view.observer.observe(container);
