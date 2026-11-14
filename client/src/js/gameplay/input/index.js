@@ -360,7 +360,7 @@ export async function handleCanvasClick(e) {
 export function handleMouseMove(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (isCameraGesture()) { return; } // THE CAMERA OWNS THE POINTER
+	if (isCameraGesture()) { if (game.mousedownTile) { letGo(); } return; } // THE CAMERA OWNS THE POINTER: A PIECE PRESSED AS IT TOOK OVER GOES BACK TO ITS SQUARE, NOT LEFT IN HAND
 	setPointerTile(e); // IF PIECE IS CLICK TO BE MOVED MOUSE POSITION (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
 	if (!((game.tileX < 0 || game.tileX > 7) && (game.tileY < 0 || game.tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
 		if (game.currPromotion) { // HOVER THE PICKER
@@ -412,6 +412,7 @@ export async function handleMouseDown(e) {
 			tile.isMousedown = true;
 			game.mousedownTile = tile;
 			game.mouseDownTime = null;
+			window.addEventListener("mouseup", releaseOffBoard); // A RELEASE OFF THE BOARD NEVER REACHES handleMouseUp
 			game.refresh = true; // DRAWN LIFTED NOW, NOT ON THE FIRST MOVE (3D LIFTS IT ON THIS FRAME)
 			for (let j = 0; j < game.tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
 				if (game.tiles[j].isClicked && (game.tiles[j].x != game.tileX || game.tiles[j].y != game.tileY) && game.tiles[j].color == game.playerColor) {
@@ -436,6 +437,7 @@ export async function handleMouseDown(e) {
 export async function handleMouseUp(e) {
 	e.preventDefault();
 	e.stopPropagation();
+	window.removeEventListener("mouseup", releaseOffBoard); // RELEASED ON THE BOARD
 	if (isCameraGesture()) { return; } // THE CAMERA OWNS THE POINTER
 	if (e.button == 2) {
 		const to = squareUnder(e);
@@ -444,13 +446,22 @@ export async function handleMouseUp(e) {
 		return;
 	}
 	setPointerTile(e); // IF HOVER IS TRUE
-	letGo(true);
+	letGo(); // NOT ONLY WHEN IT'S HOVERED: A FLICK INTO A NEW SQUARE RELEASED BEFORE THE NEXT MOVE LEAVES isHovering STALE (FALSE) & THE PIECE WOULD STAY IN HAND
 }
 
-function letGo(hoveredOnly) { // LETS GO OF THE HELD PIECE (hoveredOnly: ONLY WHEN IT'S UNDER THE POINTER), BACK TO ITS SQUARE UNTIL A CLICK DROPS IT
+// THE MOUSE WAS LET GO OFF THE BOARD (THE MENU, THE PAGE, OUTSIDE THE WINDOW): THE PIECE GOES BACK TO ITS SQUARE, LIKE A CLICK OFF THE BOARD
+function releaseOffBoard() {
+	window.removeEventListener("mouseup", releaseOffBoard);
+	if (!game.mousedownTile) { return; }
+	letGo();
+	for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isClicked = false; }
+	game.clickedTile = false;
+}
+
+function letGo() { // LETS GO OF THE HELD PIECE, BACK TO ITS SQUARE UNTIL A CLICK DROPS IT
 	for (let i = 0; i < game.tiles.length; i++) {
 		let tile = game.tiles[i];
-		if (tile.isMousedown && (tile.isHovering || !hoveredOnly) && tile.type && tile.color == game.playerColor) {
+		if (tile.isMousedown && tile.type && tile.color == game.playerColor) {
 			tile.isMousedown = false;
 			game.mousedownTile = false;
 			game.tileX = tile.originX
@@ -530,6 +541,6 @@ export function clearTouch() { touchState = null; } // THE MENU OPENED: THIS FIN
 
 export function handleTouchCancel() { // THE BROWSER (A SYSTEM GESTURE) OR THE 3D CAMERA TOOK THE TOUCH: LET GO WITHOUT A CLICK
 	if (!touchState) { return; }
-	letGo(false); // NOT handleMouseUp: IT SITS OUT CAMERA GESTURES, WHICH WOULD LEAVE THE PIECE HELD
+	letGo(); // NOT handleMouseUp: IT SITS OUT CAMERA GESTURES, WHICH WOULD LEAVE THE PIECE HELD
 	touchState = null;
 }
