@@ -11,19 +11,20 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // HOME PAGE STYLES
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
-const { validate, newAiGame, getUserGameData, initMultiplayerGame, searchPlayers, createChallenge, acceptInvite, declineInvite, getFriends, friendAction } = require("../../gameplay/validate/index.js");
+const { validate, newAiGame, getUserGameData, searchPlayers, acceptInvite, getFriends } = require("../../gameplay/validate/index.js");
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { timeLeftText } = require("../utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT ON YOUR GAMES
 const { startBoxNav, startDropdowns, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, botLevels, botName, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
+const { handleMultiSubmit, handleCreateChallenge, handleCopyChallenge, handleCancelInvite, loadInvites, resetInviteBtn } = require("./invites.js");
+const { handleAddFriend, loadFriends } = require("./friends.js");
 
-const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
-const USER_URL = "/api/user"; // server/routes/api/userRoutes.js
+export const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
+export const USER_URL = "/api/user"; // server/routes/api/userRoutes.js
 const SEARCH_DELAY = 250; // MS AFTER THE LAST KEY BEFORE A PLAYER SEARCH, SO A NAME TYPED QUICKLY IS ONE OR TWO SEARCHES
 
 const signedInAs = document.getElementById("signedInAs"); // "SIGNED IN // EMAIL"
@@ -37,51 +38,47 @@ const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BL
 const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEITS YOUR CURRENT GAME"
 const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND
 const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: USERNAME & INVITE
-const multiEmailInput = document.getElementById("enterMultiEmail");
+export const multiEmailInput = document.getElementById("enterMultiEmail");
 const playerResults = document.getElementById("playerResults"); // USERNAMES STARTING WITH WHAT WAS TYPED, PRESSING ONE FILLS THE FIELD
 const playerSearchNote = document.getElementById("playerSearchNote"); // NOBODY FOUND, OR WHY THE SEARCH FAILED
-const multiEmailBtn = document.getElementById("enterMultiSubmit");
-const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
-const friendTakebacksSelect = document.getElementById("friendTakebacks"); // THE GAME'S TAKEBACK SETTING, REMATCHES KEEP IT
-const friendDaysSelect = document.getElementById("friendDays"); // THE GAME'S TIME PER MOVE, REMATCHES KEEP IT
-const friendFenInput = document.getElementById("friendFen"); // START POSITION (FEN) FOR THE INVITE, BLANK = THE STANDARD POSITION
-const createChallengeBtn = document.getElementById("createChallenge"); // A LINK ANYONE SIGNED IN CAN OPEN TO PLAY YOU, WITH THE SAME START SETTINGS
-const multiNote = document.getElementById("multiNote"); // WHY AN INVITE DIDN'T GO THROUGH, INVITE'S FORFEIT WARNING
-const noInvites = document.getElementById("noInvites"); // INVITES: "NO INVITES RIGHT NOW"
-const inviteList = document.getElementById("inviteList"); // "BOB INVITED YOU", ACCEPT & DECLINE
-const sentInvite = document.getElementById("sentInvite"); // "INVITE SENT TO BOB // WAITING" & CANCEL INVITE
-const sentInviteText = document.getElementById("sentInviteText");
-const cancelInviteBtn = document.getElementById("cancelInvite");
-const challengeLinkField = document.getElementById("challengeLinkField"); // A SENT CHALLENGE LINK: THE LINK & COPY LINK
-const challengeLinkInput = document.getElementById("challengeLink");
+export const multiEmailBtn = document.getElementById("enterMultiSubmit");
+export const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
+export const friendTakebacksSelect = document.getElementById("friendTakebacks"); // THE GAME'S TAKEBACK SETTING, REMATCHES KEEP IT
+export const friendDaysSelect = document.getElementById("friendDays"); // THE GAME'S TIME PER MOVE, REMATCHES KEEP IT
+export const friendFenInput = document.getElementById("friendFen"); // START POSITION (FEN) FOR THE INVITE, BLANK = THE STANDARD POSITION
+export const createChallengeBtn = document.getElementById("createChallenge"); // A LINK ANYONE SIGNED IN CAN OPEN TO PLAY YOU, WITH THE SAME START SETTINGS
+export const multiNote = document.getElementById("multiNote"); // WHY AN INVITE DIDN'T GO THROUGH, INVITE'S FORFEIT WARNING
+export const noInvites = document.getElementById("noInvites"); // INVITES: "NO INVITES RIGHT NOW"
+export const inviteList = document.getElementById("inviteList"); // "BOB INVITED YOU", ACCEPT & DECLINE
+export const sentInvite = document.getElementById("sentInvite"); // "INVITE SENT TO BOB // WAITING" & CANCEL INVITE
+export const sentInviteText = document.getElementById("sentInviteText");
+export const cancelInviteBtn = document.getElementById("cancelInvite");
+export const challengeLinkField = document.getElementById("challengeLinkField"); // A SENT CHALLENGE LINK: THE LINK & COPY LINK
+export const challengeLinkInput = document.getElementById("challengeLink");
 const copyChallengeBtn = document.getElementById("copyChallenge");
-const inviteNote = document.getElementById("inviteNote"); // ACCEPT'S FORFEIT WARNING, WHY AN ACCEPT DIDN'T GO THROUGH
+export const inviteNote = document.getElementById("inviteNote"); // ACCEPT'S FORFEIT WARNING, WHY AN ACCEPT DIDN'T GO THROUGH
 const loadingDiv = document.getElementById("loadingDiv"); // "Loading...", THEN "No open games" IF THERE ARE NONE
 const gameList = document.getElementById("gameList");
 const noFinished = document.getElementById("noFinished"); // "Loading...", THEN "No finished games" IF THERE ARE NONE
 const finishedList = document.getElementById("finishedList");
-const noFriends = document.getElementById("noFriends"); // FRIENDS: "NO FRIENDS YET"
-const friendRequests = document.getElementById("friendRequests"); // "BOB WANTS TO BE FRIENDS", ACCEPT & DECLINE
-const sentRequests = document.getElementById("sentRequests"); // "REQUEST SENT TO BOB // WAITING" & CANCEL
-const friendList = document.getElementById("friendList"); // EACH FRIEND, ONLINE OR NOT, WITH CHALLENGE & REMOVE
+export const noFriends = document.getElementById("noFriends"); // FRIENDS: "NO FRIENDS YET"
+export const friendRequests = document.getElementById("friendRequests"); // "BOB WANTS TO BE FRIENDS", ACCEPT & DECLINE
+export const sentRequests = document.getElementById("sentRequests"); // "REQUEST SENT TO BOB // WAITING" & CANCEL
+export const friendList = document.getElementById("friendList"); // EACH FRIEND, ONLINE OR NOT, WITH CHALLENGE & REMOVE
 const addFriendForm = document.getElementById("addFriendForm");
-const addFriendInput = document.getElementById("addFriendName");
-const addFriendBtn = document.getElementById("addFriendBtn");
-const friendNote = document.getElementById("friendNote"); // WHY A FRIEND ACTION DIDN'T GO THROUGH, REMOVE'S WARNING
+export const addFriendInput = document.getElementById("addFriendName");
+export const addFriendBtn = document.getElementById("addFriendBtn");
+export const friendNote = document.getElementById("friendNote"); // WHY A FRIEND ACTION DIDN'T GO THROUGH, REMOVE'S WARNING
 
 const auth = new InternalAuth;
 const sessionCheck = auth.getUser(); // STARTS CHECKING THE SESSION NOW INSTEAD OF AFTER THE PAGE LOADS
 
-let PLAYER_ID;
+export let PLAYER_ID;
 let CURRENT_GAME_ID = null; // THE PLAYER'S OPEN AI GAME (ONE AT A TIME)
 let confirmNewGame = false; // NEW GAME NEEDS A SECOND PRESS WHILE AN AI GAME IS OPEN, IT FORFEITS THAT ONE
-let FRIEND_GAME_ID = null; // THE PLAYER'S OPEN FRIEND GAME (ONE AT A TIME)
-let FRIEND_NAME = "Friend"; // ITS OPPONENT, FOR THE FORFEIT WARNINGS
-let SENT_INVITE_ID = null; // THE PLAYER'S SENT INVITE (ONE AT A TIME)
-let confirmInvite = false; // INVITE NEEDS A SECOND PRESS WHILE A FRIEND GAME IS OPEN, IT FORFEITS THAT ONE
-let confirmChallenge = false; // CREATE CHALLENGE LINK NEEDS A SECOND PRESS WHILE A FRIEND GAME IS OPEN (SAME WARNING)
-let confirmAccept = null; // THE INVITE WHOSE ACCEPT WAS PRESSED ONCE WHILE A FRIEND GAME IS OPEN (SAME WARNING)
-let confirmRemove = null; // THE FRIEND WHOSE REMOVE WAS PRESSED ONCE
+export let FRIEND_GAME_ID = null; // THE PLAYER'S OPEN FRIEND GAME (ONE AT A TIME)
+export let FRIEND_NAME = "Friend"; // ITS OPPONENT, FOR THE FORFEIT WARNINGS
+export let confirmAccept = null; // THE INVITE WHOSE ACCEPT WAS PRESSED ONCE WHILE A FRIEND GAME IS OPEN (SAME WARNING)
 let searchTimer = null; // THE PLAYER SEARCH WAITING FOR SEARCH_DELAY
 let searchTurn = 0; // A NEWER KEY PRESS MAKES AN OLDER SEARCH'S ANSWER STALE
 let homeDrawing = Promise.resolve(); // ONE REDRAW AT A TIME (refreshHome)
@@ -140,7 +137,7 @@ async function useSettings(levelsLoaded, homeDrawn) {
  * @description Redraws Home from the server, one redraw at a time (the socket can send a few in a row)
  * @param  {[boolean]} firstLoad [true also loads the AI game, it only changes from this page]
  */
-function refreshHome(firstLoad) {
+export function refreshHome(firstLoad) {
 	homeDrawing = homeDrawing.then(() => drawHome(firstLoad)).catch((err) => console.log(err));
 	return homeDrawing;
 }
@@ -380,7 +377,7 @@ function playerResult(username) {
 /**
  * @description Clears the found players & cancels a search still waiting or on its way
  */
-function clearPlayerSearch() {
+export function clearPlayerSearch() {
 	clearTimeout(searchTimer);
 	searchTurn++;
 	playerResults.replaceChildren();
@@ -393,155 +390,14 @@ function clearPlayerSearch() {
  * @param  {[string]} username [what was typed]
  * @return {[boolean]} valid
  */
-function validateUsername(username) {
+export function validateUsername(username) {
 	return /^[A-Za-z0-9_-]{3,20}$/.test(username);
-}
-
-/**
- * @description Invites a friend by username with the picked color (Random is drawn now), they accept it on their Home. Stays here & the invite shows in Invites.
- * While a friend game is open the first press says it'll be forfeited, the second sends the invite (the server forfeits the open one)
- */
-async function handleMultiSubmit(e) {
-	e.preventDefault();
-	e.stopPropagation();
-	clearPlayerSearch();
-	const opponent = multiEmailInput.value.trim();
-	if (!validateUsername(opponent)) { return multiNote.innerText = "Enter a username"; }
-	if (FRIEND_GAME_ID && !confirmInvite) { // FIRST PRESS
-		confirmInvite = true;
-		multiEmailBtn.innerText = "Forfeit & invite";
-		return multiNote.innerText = `This forfeits your game vs ${FRIEND_NAME}, they win. Press again to send the invite.`;
-	}
-	multiNote.innerText = "";
-	multiEmailBtn.disabled = true; // ONE INVITE PER PRESS
-	try {
-		const response = await initMultiplayerGame(CHESS_URL, PLAYER_ID, opponent, confirmInvite, friendColorSelect.value, friendFenInput.value, Number(friendTakebacksSelect.value), Number(friendDaysSelect.value) || undefined);
-		if (response?.status == 200) {
-			multiEmailInput.value = "";
-			friendFenInput.value = "";
-			resetInviteBtn();
-			await refreshHome(); // SHOWS THE SENT INVITE IN INVITES
-		} else if (response?.status == 409) { // A FRIEND GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
-			await refreshHome();
-			multiNote.innerText = "You already have a friend game open";
-		} else {
-			resetInviteBtn(); // NOTHING WAS FORFEITED, THE NEXT TRY WARNS AGAIN
-			multiNote.innerText = response?.status == 400 || response?.status == 429 ? response.message : inviteError(response?.message); // 400: THE FEN CAN'T BE PLAYED, 429: TOO MANY NEW GAMES
-		}
-	} catch (err) { console.log(err); resetInviteBtn(); multiNote.innerText = "Couldn't send the invite, try again"; }
-	multiEmailBtn.disabled = false;
-}
-
-/**
- * @description Makes a challenge link with the picked start settings, it shows in Invites. While a friend game is open the first press says it'll be forfeited,
- * the second makes the link (the server forfeits the open one)
- */
-async function handleCreateChallenge(e) {
-	e.preventDefault();
-	e.stopPropagation();
-	if (FRIEND_GAME_ID && !confirmChallenge) { // FIRST PRESS
-		confirmChallenge = true;
-		createChallengeBtn.innerText = "Forfeit & create link";
-		return multiNote.innerText = `This forfeits your game vs ${FRIEND_NAME}, they win. Press again to create the link.`;
-	}
-	multiNote.innerText = "";
-	createChallengeBtn.disabled = true; // ONE LINK PER PRESS
-	const response = await createChallenge(CHESS_URL, confirmChallenge, friendColorSelect.value, friendFenInput.value, Number(friendTakebacksSelect.value), Number(friendDaysSelect.value) || undefined);
-	if (response?.status == 200) {
-		friendFenInput.value = "";
-		resetInviteBtn();
-		await refreshHome(); // SHOWS THE LINK IN INVITES
-	} else if (response?.status == 409) { // A FRIEND GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
-		await refreshHome();
-		multiNote.innerText = "You already have a friend game open";
-	} else {
-		resetInviteBtn(); // NOTHING WAS FORFEITED, THE NEXT TRY WARNS AGAIN
-		multiNote.innerText = response?.status == 400 || response?.status == 429 ? response.message : "Couldn't create the link, try again"; // 400: THE FEN CAN'T BE PLAYED, 429: TOO MANY NEW GAMES
-	}
-	createChallengeBtn.disabled = false;
-}
-
-/**
- * @description Copies the challenge link. Where the browser won't, the link is selected to copy by hand
- */
-async function handleCopyChallenge() {
-	try {
-		await navigator.clipboard.writeText(challengeLinkInput.value);
-		inviteNote.innerText = "Link copied";
-	} catch {
-		challengeLinkInput.select();
-		inviteNote.innerText = "Couldn't copy, the link is selected to copy by hand";
-	}
-}
-
-/**
- * @description Why an invite didn't go through, from the server's message
- */
-function inviteError(message) {
-	if (message == "Opponent not found") { return "No player has that username"; }
-	if (message == "That's your username") { return `${message}, invite a friend`; }
-	if (message == "They already invited you") { return "They already invited you, accept it in Invites"; }
-	return "Couldn't send the invite, try again";
-}
-
-/**
- * @description Puts the invite & challenge link buttons back: the next press warns about the forfeit again
- */
-function resetInviteBtn() {
-	confirmInvite = false;
-	multiEmailBtn.innerText = "Invite";
-	confirmChallenge = false;
-	createChallengeBtn.innerText = "Create challenge link";
-	multiNote.innerText = "";
-}
-
-
-/* ---------------------------------------------------------------- */
-// Invites
-/* ---------------------------------------------------------------- */
-/**
- * @description Draws Invites: invites to the player (Accept & Decline), then their sent invite (Cancel invite) or challenge link (Copy link & Cancel). Each one says the player's color
- * @param  {[object]} gameData [GET /api/chess/user/:userId response]
- */
-function loadInvites(gameData) {
-	const received = gameData?.received_invites || [];
-	const sent = gameData?.sent_invite;
-	listInvites(received);
-	SENT_INVITE_ID = sent?.game_id || null;
-	const sentTo = sent?.open_seat ? "Challenge link" : `Invite sent to ${sent?.name || "your friend"}`;
-	sentInviteText.innerText = sent ? `${sentTo} // ${colorText(sent.player_color, sent.start_params)} // Waiting` : "";
-	challengeLinkField.hidden = !sent?.open_seat;
-	challengeLinkInput.value = sent?.open_seat ? `${window.location.origin}/play/${encodeURIComponent(sent.game_id)}` : "";
-	cancelInviteBtn.innerText = sent?.open_seat ? "Cancel" : "Cancel invite";
-	sentInvite.hidden = !SENT_INVITE_ID;
-	noInvites.hidden = Boolean(received.length || SENT_INVITE_ID);
-}
-
-/**
- * @description "Bob invited you // You play black (random)" rows, each with Accept & Decline
- * @param  {[array]} invites [received_invites: [{ game_id, name, player_color, start_params }]]
- */
-function listInvites(invites) {
-	const rows = [];
-	for (let i = 0; i < invites.length; i++) {
-		const listElement = document.createElement("li");
-		listElement.innerHTML = `<span class="inviteText"><span class="label inviteName"></span><span class="spec inviteParams"></span></span><span class="inviteButtons"><button class="btn btnCream" type="button">Accept</button><button class="btn btnLine" type="button">Decline</button></span>`;
-		listElement.querySelector(".inviteName").innerText = `${invites[i].name || "A friend"} invited you`; // innerText, THE NAME IS NEVER READ AS HTML
-		listElement.querySelector(".inviteParams").innerText = colorText(invites[i].player_color, invites[i].start_params); // THE START SETTINGS THEY PICKED
-		const [acceptBtn, declineBtn] = listElement.querySelectorAll("button");
-		if (confirmAccept == invites[i].game_id) { acceptBtn.innerText = "Forfeit & accept"; } // STILL WARNING AFTER A REDRAW
-		acceptBtn.addEventListener("click", (e) => handleAccept(e, invites[i].game_id, acceptBtn));
-		declineBtn.addEventListener("click", (e) => handleDecline(e, invites[i].game_id, declineBtn));
-		rows.push(listElement);
-	}
-	inviteList.replaceChildren(...rows); // BUILT FIRST, THEN SWAPPED IN ONE STEP (#240)
-	inviteList.hidden = !invites.length;
 }
 
 /**
  * @description Starts an invited game & opens it. While a friend game is open the first press says it'll be forfeited
  */
-async function handleAccept(e, gameId, acceptBtn) {
+export async function handleAccept(e, gameId, acceptBtn) {
 	e.preventDefault();
 	e.stopPropagation();
 	if (FRIEND_GAME_ID && confirmAccept != gameId) { // FIRST PRESS
@@ -560,143 +416,4 @@ async function handleAccept(e, gameId, acceptBtn) {
 	else if (response?.message == "They're in another game now") { inviteNote.innerText = "They're in another game now, the invite was removed"; }
 	else if (response?.message == "Invite not found") { inviteNote.innerText = "That invite was cancelled"; }
 	else { inviteNote.innerText = "Couldn't accept, try again"; }
-}
-
-/**
- * @description Declines an invite, the inviter's Home drops it too
- */
-async function handleDecline(e, gameId, declineBtn) {
-	e.preventDefault();
-	e.stopPropagation();
-	declineBtn.disabled = true;
-	const response = await declineInvite(CHESS_URL, gameId);
-	if (response?.status != 200) { console.log(response); }
-	await refreshHome();
-}
-
-/**
- * @description Cancels the sent invite, the friend's Home drops it too
- */
-async function handleCancelInvite(e) {
-	e.preventDefault();
-	e.stopPropagation();
-	if (!SENT_INVITE_ID) { return; }
-	cancelInviteBtn.disabled = true;
-	const response = await declineInvite(CHESS_URL, SENT_INVITE_ID);
-	if (response?.status != 200) { console.log(response); }
-	await refreshHome();
-	cancelInviteBtn.disabled = false;
-}
-
-
-/* ---------------------------------------------------------------- */
-// Friends
-/* ---------------------------------------------------------------- */
-/**
- * @description Draws Friends: requests to the player (Accept & Decline), the ones they sent (Cancel), then their friends (Challenge & Remove).
- * A failed read keeps what's on screen
- * @param  {[object]} friendData [GET /api/user/friends response]
- */
-function loadFriends(friendData) {
-	if (friendData?.status != 200) { return; }
-	const { friends, sent, received } = friendData;
-	drawFriendRows(friendRequests, received.map(({ username }) => friendRow(`${username} wants to be friends`, "", [
-		{ text: "Accept", cream: true, press: (button) => runFriendAction("accept", username, button) },
-		{ text: "Decline", press: (button) => runFriendAction("decline", username, button) },
-	])));
-	drawFriendRows(sentRequests, sent.map(({ username }) => friendRow(`Request sent to ${username}`, "Waiting", [
-		{ text: "Cancel", press: (button) => runFriendAction("cancel", username, button) },
-	])));
-	drawFriendRows(friendList, friends.map(({ username, online }) => friendRow(username, online ? "Online" : "", [
-		{ text: "Challenge", cream: true, press: () => challengeFriend(username) },
-		{ text: confirmRemove == username ? "Press again" : "Remove", press: (button) => handleRemoveFriend(username, button) }, // STILL WARNING AFTER A REDRAW
-	])));
-	noFriends.hidden = Boolean(friends.length || sent.length || received.length);
-}
-
-/**
- * @description Swaps a list's rows in one step (#240) & hides it when there are none
- */
-function drawFriendRows(list, rows) {
-	list.replaceChildren(...rows);
-	list.hidden = !rows.length;
-}
-
-/**
- * @description One row of the Friends box
- * @param  {[string]} title [the row's name, innerText: a name is never read as HTML]
- * @param  {[string]} detail [the small text under it, "" = none]
- * @param  {[array]} buttons [{ text, cream (the main button), press(button) }]
- * @return {[element]} row [the list item]
- */
-function friendRow(title, detail, buttons) {
-	const listElement = document.createElement("li");
-	listElement.innerHTML = `<span class="inviteText"><span class="label inviteName"></span><span class="spec inviteParams"></span></span><span class="inviteButtons"></span>`;
-	listElement.querySelector(".inviteName").innerText = title;
-	listElement.querySelector(".inviteParams").innerText = detail;
-	listElement.querySelector(".inviteButtons").append(...buttons.map(({ text, cream, press }) => {
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = `btn ${cream ? "btnCream" : "btnLine"}`;
-		button.innerText = text;
-		button.addEventListener("click", () => press(button));
-		return button;
-	}));
-	return listElement;
-}
-
-/**
- * @description Runs a friend action, then redraws Home. A refusal says why in the box
- * @param  {[string]} action ["request", "accept", "decline", "cancel" or "remove"]
- * @param  {[string]} username [their username]
- * @param  {[element]} button [off until the answer, one action per press]
- * @return {[boolean]} done [true when it saved]
- */
-async function runFriendAction(action, username, button) {
-	button.disabled = true;
-	friendNote.innerText = "";
-	const response = await friendAction(USER_URL, action, username);
-	confirmRemove = null;
-	await refreshHome();
-	button.disabled = false;
-	if (response?.status == 200) { return true; }
-	friendNote.innerText = response?.status < 500 ? response.message : "Couldn't update your friends, try again";
-	return false;
-}
-
-/**
- * @description Sends a friend request to the username typed in the box
- */
-async function handleAddFriend(e) {
-	e.preventDefault();
-	e.stopPropagation();
-	const username = addFriendInput.value.trim();
-	if (!validateUsername(username)) { return friendNote.innerText = "Enter a username"; }
-	if (await runFriendAction("request", username, addFriendBtn)) { addFriendInput.value = ""; }
-}
-
-/**
- * @description Challenge: fills their username in the invite form, the player picks a color & presses Invite
- * @param  {[string]} username [the friend's username]
- */
-function challengeFriend(username) {
-	multiEmailInput.value = username;
-	clearPlayerSearch();
-	resetInviteBtn(); // A FORFEIT WARNING WAS ABOUT THE LAST NAME, THE NEXT PRESS WARNS AGAIN
-	multiEmailInput.focus();
-}
-
-/**
- * @description Remove: only they can put it back by accepting a new request, so the first press says so & the second removes them
- * @param  {[string]} username [the friend's username]
- * @param  {[element]} button [their Remove button]
- */
-function handleRemoveFriend(username, button) {
-	if (confirmRemove != username) {
-		friendList.querySelectorAll(".btnLine").forEach((other) => other.innerText = "Remove"); // ONE WARNING AT A TIME
-		confirmRemove = username;
-		button.innerText = "Press again";
-		return friendNote.innerText = `This removes ${username} from your friends. Press again to remove them.`;
-	}
-	return runFriendAction("remove", username, button);
 }

@@ -54,7 +54,7 @@ export const walnut = wood(0x3A2416, 0x5A4430); // BLACK'S PIECES: A WARM RIM KE
 export const gold = new MeshStandardMaterial({ color: 0xD4A63A, metalness: 0.8, roughness: 0.3 }); // CROWNS, COLLARS, FRAME INLAY
 export const frameWood = wood(0x2E1B10, 0x000000); // DARKER THAN BLACK'S PIECES SO THEY STAND OUT AGAINST IT
 
-// THE 2D PIECES' shade() (images/_ideas/generator/glsl-common.js), SO THE MODELS MATCH THE SPRITES: ITS OWN LAMP & SKY, THE SCENE'S LIGHTS ONLY TOUCH THE BOARD.
+// THE 2D PIECES' shade() (_dep/generator/glsl-common.js at the repo root), SO THE MODELS MATCH THE SPRITES: ITS OWN LAMP & SKY, THE SCENE'S LIGHTS ONLY TOUCH THE BOARD.
 // ITS DIRECTIONS ARE THE SPRITE CAMERA'S, SO THEY TURN WITH THE CAMERA AROUND THE BOARD (toSprite): THE LAMP STAYS OVER THE PLAYER'S RIGHT SHOULDER FROM EITHER SIDE
 const SPRITE_LIGHTING = `
 	uniform sampler2D spriteLight;

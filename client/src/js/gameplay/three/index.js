@@ -8,116 +8,64 @@
  *
  */
 
-import {
-	WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, HemisphereLight, DirectionalLight, PlaneGeometry, MeshStandardMaterial,
-	MeshBasicMaterial, Mesh, TextureLoader, SRGBColorSpace, LinearMipmapLinearFilter, GridHelper, Raycaster, Vector2, Vector3, Spherical,
-	MathUtils, MOUSE, TOUCH, RingGeometry, Plane
-} from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { createPiece, updateShadow, setOpacity, disposePiece } from "./pieces.js";
-import { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } from "../animate/timing.js"; // THE 2D BOARD'S TIMINGS, SO A MOVE TAKES THE SAME TIME ON BOTH
+import { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, HemisphereLight, DirectionalLight, PlaneGeometry, MeshStandardMaterial, MeshBasicMaterial, Mesh, TextureLoader, SRGBColorSpace, LinearMipmapLinearFilter, GridHelper, Raycaster, Vector2, Vector3, Spherical, MathUtils, RingGeometry, Plane } from "three";
+
+import { createPiece, updateShadow, disposePiece } from "./pieces.js";
 import { createSurroundings, orientLabels } from "./board.js";
 import { BAIZE_FOG } from "./materials.js";
 import { createRoom, turnRoom, disposeRoom } from "./room.js"; // THE LIBRARY AROUND THE BOARD & ITS CRT MONITOR
 import { pileSpots } from "./piles.js"; // WHERE THE TAKEN PIECES STAND ON THE DESK
 import { createCards } from "./cards.js"; // THE PROMOTION CARDS ON THE DESK
 import { createTweens } from "./tween.js"; // THEIR SLIDES
-import { CARD_ORDER, CARD_SIZE, CARD_Y, cardSpots } from "./cardLayout.js";
-import { createScreen, setScreen as showOnScreen, setFace as showFace, pauseScreen, disposeScreen, setMonitorView, redrawScreen } from "./screen.js"; // WHAT THE MONITOR SHOWS
-import { createMonitor, uvToGrid, zoomDistance, isTap } from "./monitor/monitor.js"; // THE MONITOR AS THE GAME'S MENU: ITS STATES, BUTTONS & KEYS
+
+import { createScreen, setScreen as showOnScreen, setFace as showFace, pauseScreen, disposeScreen, setMonitorView } from "./screen.js"; // WHAT THE MONITOR SHOWS
+import { createMonitor } from "./monitor/monitor.js"; // THE MONITOR AS THE GAME'S MENU: ITS STATES, BUTTONS & KEYS
 import { loadPrefs, savePrefs } from "./monitor/prefs.js";
 import { createFire, stepFire, pauseFire, disposeFire } from "./fire.js"; // THE FIREPLACE'S FLAMES, EMBERS & FLICKER
 import { createClock, stepClock, pauseClock, disposeClock } from "./clock.js"; // THE LONGCASE CLOCK'S HANDS & PENDULUM, AT THE LOCAL TIME
 import { reportError } from "../../pages/utils/reportErrors.js";
-import { showHint, dismissHint, removeHint } from "./hint.js";
+import { showHint, removeHint } from "./hint.js";
 import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"; // ?perf=1's READOUT FOR PHONE TESTS (#430)
 export { perfLoaded } from "./perf.js"; // load.js GIVES IT THE CHUNK'S DOWNLOAD TIME
 import "../../../css/board3D.css"; // #board3D, THE CONTROLS HINT & THE PERF READOUT: IN THIS CHUNK, NOT THE PLAY BUNDLE
 
-/* ---------------------------------------------------------------- */
-// Global
-/* ---------------------------------------------------------------- */
+import { resize, frameDeal, unframeDeal, placeCamera, stepCamera, landTurn, sideAngle, stepZoom } from "./camera.js";
+import { createControls, onPointerDown, onPointerMove, onPointerUp, monitorIdle, monitorInput, onMonitorShow, onPointerLeave, onClick, onTouchTap, onKeyDown } from "./pointer.js";
+import { putDownHeld, stepAnim, finishAnims, animate } from "./motion.js";
 
-const BOARD_SIZE = 24; // WORLD UNITS PER BOARD SIDE
-const CELL_SIZE = BOARD_SIZE / 8;
-const PIECE_SIZE = CELL_SIZE * 0.8; // ONE PIECE UNIT (pieces.js), BASES LEAVE A GAP INSIDE THE SQUARE
-const FILES = "abcdefgh";
-const HOP_HEIGHT = CELL_SIZE * 0.6; // HOW HIGH A KNIGHT HOPS
-const CAMERA_HEIGHT = 32; // THE CAMERA LOOKS DOWN AT THE CENTER FROM THIS HIGH...
-const CAMERA_DISTANCE = 26; // ...& THIS FAR BACK FROM IT, ON THE SIDE AT THE BOTTOM OF THE SCREEN
-const ROOM_CAMERA_HEIGHT = 24.5; // IN THE LIBRARY THE CAMERA OPENS LOWER, FARTHER BACK...
-const ROOM_CAMERA_DISTANCE = 30.5;
-const ROOM_CAMERA_AIM = 6.5; // ...& LOOKS THIS FAR PAST THE CENTER TOWARD THE MONITOR, SO ITS WHOLE SCREEN IS IN THE OPENING VIEW
-const ROOM_BACKGROUND = 0x120B07; // DARK & WARM, BEHIND THE ROOM & UNDER THE DESK ON PHONES
-const MIN_DISTANCE = 12; // ZOOM LIMITS: CLOSE ENOUGH TO READ A SQUARE...
-const MAX_DISTANCE = 70; // ...FAR ENOUGH TO SEE THE WHOLE TABLE, BEFORE THE FOG SWALLOWS THE BOARD (DEFAULT IS ~41)
-const MAX_TILT = MathUtils.degToRad(80); // FROM STRAIGHT DOWN (0): STAYS ABOVE THE TABLE, NEVER LEVEL WITH OR BELOW IT
-const FLIP_MS = 700; // HOW LONG FLIP BOARD TAKES TO TURN THE CAMERA TO THE OTHER SIDE
-const SINK_DEPTH = CELL_SIZE * 0.5; // HOW FAR A TAKEN PIECE DROPS AS IT FADES
-const DRAG_PX = 4; // A PRESS THAT MOVES THE CAMERA ONLY BECOMES A CAMERA GESTURE PAST THIS MANY PIXELS, SO A SHAKY CLICK STILL CLICKS ITS SQUARE
-const TOUCH_DRAG_PX = 10; // A FINGER ON A HELD PIECE ONLY DRAGS IT PAST THIS MANY PIXELS (gameplay/input's touchDragThreshold, A SHAKY TAP STAYS A TAP)
-const DRAG_HOLD_MS = 120; // A MOUSE ON A HELD PIECE ONLY DRAGS IT THIS LONG AFTER THE PRESS (gameplay/draw's DRAG_HOLD_MS, A QUICK CLICK STAYS A CLICK)
-const LIFT_HEIGHT = CELL_SIZE * 0.2; // HOW HIGH A PICKED UP OR DRAGGED PIECE FLOATS OVER THE BOARD (2D DRAWS IT A TENTH OF A SQUARE UP)
-const BOARD_IMAGE = `${process.env.CHESS_ASSETS_URL}/images/3d/board.jpg`; // JUST THE 8x8 SQUARES, S3 / CLOUDFRONT LIKE THE SPRITES & ONLY FETCHED WITH 3D ON
-const HIGHLIGHTS = { // highlight() KINDS: [color, opacity], LATER KINDS DRAW ON TOP
-	last: [0xE8792B, 0.3],
-	legal: [0xFFEA00, 0.35],
-	capture: [0xFF3B30, 0.45],
-	hint: [0x55C8FF, 0.45],
-	check: [0xFF0000, 0.55],
-	focus: [0xFFC83D, 1], // THE KEYBOARD'S SQUARE: A GOLD RING (NOT A FILL), LIKE THE PAGE'S FOCUS OUTLINE, CLEAR OF THE YELLOW LEGAL FILL
-};
-const FOCUS_RING = [0.36, 0.47]; // ITS INNER & OUTER EDGE, HALF A SIDE IN SQUARES FROM THE CENTER
-const ZOOM_MS = 400; // HOW LONG THE CAMERA TAKES TO GO UP TO THE MONITOR'S GLASS, & BACK
-const NEAR = 0.1; // THE CAMERA'S NEAR PLANE ON THE DESK...
-const GLASS_CLEAR = 4; // ...& AT THE MONITOR, THIS FAR IN FRONT OF THE GLASS: A NARROW VIEW BACKS THE CAMERA ACROSS THE BOARD, & THE PIECES IN BETWEEN WOULD HIDE THE GLASS
-const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)"); // THE ZOOM CUTS STRAIGHT THERE (monitor.js ASKS reduce())
-const NO_MONITOR = { handlers: {}, announce() {}, onChange() {} }; // mount()'S monitor OPTION WHEN THE CALLER GIVES NONE
-const LABEL = "Chess board, 3D. To play with the keyboard, press / and type a move."; // THE CANVAS'S ACCESSIBLE NAME (role img)
+export { isCameraGesture, setSide, resetCamera } from "./camera.js";
+export { setMonitor, enterMonitor, leaveMonitor, monitorState, focusMonitor } from "./pointer.js";
+export { setHeld, animateMove, animateUndo, glideHome } from "./motion.js";
+import { BOARD_SIZE, CELL_SIZE, PIECE_SIZE, FILES, ROOM_BACKGROUND, BOARD_IMAGE, HIGHLIGHTS, FOCUS_RING, NEAR, REDUCE, NO_MONITOR, LABEL, FOV } from "./constants.js";
 
-const PHONE_PIXEL_RATIO = 1.5; // PHONES DRAW AT MOST THIS MANY PIXELS PER CSS PIXEL (2 ELSEWHERE)
-// SMALL TOUCH SCREENS (#400's RULE, PLUS A PHONE ON ITS SIDE, WIDER THAN 768PX BUT SHORT) GET A STEEPER CAMERA SO EVERY SQUARE IS A
-// TAP TARGET: AT LEAST TAP_PX TALL ON SCREEN. RE-CHECKED ON EVERY RESIZE (ROTATING THE PHONE RESIZES)
-const SMALL_SCREEN = window.matchMedia("(pointer: coarse) and (max-width: 768px), (pointer: coarse) and (max-height: 500px)");
-const TAP_PX = 44;
-const SMALL_TILTS = [30, 25, 20, 15, 10, 5, 3].map(MathUtils.degToRad); // TRIED IN ORDER: THE MOST 3D ONE THAT STILL MAKES TAP_PX, ELSE THE STEEPEST
-const FOV = 45;
-const SMALL_FOV = 30; // A LONGER LENS: LESS PERSPECTIVE, SO THE FAR ROW ISN'T SQUASHED & THE SQUARES CAN BE BIGGER
-const FIT_NDC = 0.98; // ROOM LEFT AROUND THE BOARD WHEN THERE'S SPACE FOR IT (1 IS EDGE TO EDGE)
-const PIECE_TOP = PIECE_SIZE * 1.4; // ABOUT A KING'S HEIGHT, THE PIECES ON THE EDGE ROWS STAY ON SCREEN WHEN THERE'S SPACE FOR IT
-const SPOTS = cardSpots(); // THE DEALT CARDS' COLUMN IN THE GREEN STRIP, ROOM SPACE (UNTURNED: WHITE'S VIEW)...
-const COLUMN_X = [SPOTS[0].x - CARD_SIZE.w / 2, SPOTS[0].x + CARD_SIZE.w / 2]; // ...ITS LEFT & RIGHT EDGES (-19.85, -15.55)...
-const COLUMN_Z = [SPOTS[0].z - CARD_SIZE.h / 2, SPOTS[SPOTS.length - 1].z + CARD_SIZE.h / 2]; // ...& ITS TOP & BOTTOM (-12.75, 12.75)
-const DEAL_NEAR = 1; // A FRAMED DEAL'S NEAR PLANE: A PORTRAIT PHONE'S FRAME IS ~140 AWAY, & AT NEAR's 0.1 THE BOARD (y = 0) & ITS FRAME'S TOP (y = -0.005, board.js) FIGHT IN THE DEPTH BUFFER THERE
-const DEAL_SHIFT = (BOARD_SIZE / 2 + CELL_SIZE * 0.75 + COLUMN_X[0]) / 2; // -2.8: A FRAMED DEAL LOOKS HALFWAY BETWEEN THE BOARD FRAME'S FAR EDGE (14.25, board.js BORDER) & THE COLUMN'S
-let view = null; // EVERYTHING ONE mount() MADE, null WHEN UNMOUNTED
-const raycaster = new Raycaster();
-const pointer = new Vector2(); // NORMALIZED DEVICE COORDS (-1..1)
-const offset = new Vector3(); // CAMERA POSITION MINUS WHAT IT LOOKS AT
-const spherical = new Spherical(); // offset AS DISTANCE, TILT & ANGLE AROUND THE BOARD
-const fitCamera = new PerspectiveCamera(); // smallScreenCamera()'S STAND-IN, THE REAL ONE STAYS WHERE THE PLAYER PUT IT
-const corner = new Vector3();
-const table = new Plane(new Vector3(0, 1, 0), 0); // THE BOARD'S SURFACE, A DRAGGED PIECE OFF THE BOARD FOLLOWS THE POINTER ON IT
-const tablePoint = new Vector3();
-const UP = new Vector3(0, 1, 0);
-const glassCentre = new Vector3(); // zoomSpot()'S SCRATCH
-const glassNormal = new Vector3();
-const glassSize = new Vector3();
-const glassScale = new Vector3();
-const forward = new Vector3(); // THE CAMERA'S VIEW DIRECTION, glassHit()'S
-const dealShift = new Vector3(); // framedSpot()'S SCRATCH
+export let view = null; // EVERYTHING ONE mount() MADE, null WHEN UNMOUNTED
+export const raycaster = new Raycaster();
+export const pointer = new Vector2(); // NORMALIZED DEVICE COORDS (-1..1)
+export const offset = new Vector3(); // CAMERA POSITION MINUS WHAT IT LOOKS AT
+export const spherical = new Spherical(); // offset AS DISTANCE, TILT & ANGLE AROUND THE BOARD
+export const fitCamera = new PerspectiveCamera(); // smallScreenCamera()'S STAND-IN, THE REAL ONE STAYS WHERE THE PLAYER PUT IT
+export const corner = new Vector3();
+export const table = new Plane(new Vector3(0, 1, 0), 0); // THE BOARD'S SURFACE, A DRAGGED PIECE OFF THE BOARD FOLLOWS THE POINTER ON IT
+export const tablePoint = new Vector3();
+export const UP = new Vector3(0, 1, 0);
+export const glassCentre = new Vector3(); // zoomSpot()'S SCRATCH
+export const glassNormal = new Vector3();
+export const glassSize = new Vector3();
+export const glassScale = new Vector3();
+export const forward = new Vector3(); // THE CAMERA'S VIEW DIRECTION, glassHit()'S
+export const dealShift = new Vector3(); // framedSpot()'S SCRATCH
 
 /* ---------------------------------------------------------------- */
 // Squares
 /* ---------------------------------------------------------------- */
 
-const fileOf = (square) => FILES.indexOf(square[0]); // 0 - 7, a - h
-const rowOf = (square) => 8 - Number(square[1]); // 0 - 7, RANK 8 - RANK 1 (chess.js board() ORDER)
-const center = (i) => -BOARD_SIZE / 2 + CELL_SIZE * (i + 0.5); // GRID INDEX -> WORLD COORDINATE OF THAT SQUARE'S CENTER
-const toCell = (v) => MathUtils.clamp(Math.floor((v + BOARD_SIZE / 2) / CELL_SIZE), 0, 7);
+export const fileOf = (square) => FILES.indexOf(square[0]); // 0 - 7, a - h
+export const rowOf = (square) => 8 - Number(square[1]); // 0 - 7, RANK 8 - RANK 1 (chess.js board() ORDER)
+export const center = (i) => -BOARD_SIZE / 2 + CELL_SIZE * (i + 0.5); // GRID INDEX -> WORLD COORDINATE OF THAT SQUARE'S CENTER
+export const toCell = (v) => MathUtils.clamp(Math.floor((v + BOARD_SIZE / 2) / CELL_SIZE), 0, 7);
 
 // PUTS A MESH ON A SQUARE, BOTH IN view.pieces & IN THE SCENE
-function place(mesh, square) {
+export function place(mesh, square) {
 	view.pieces.set(square, mesh);
 	mesh.userData.square = square;
 	mesh.position.set(center(fileOf(square)), 0, center(rowOf(square)));
@@ -130,30 +78,30 @@ function place(mesh, square) {
 // KNIGHTS FACE THE WAY THEY LAST MOVED LEFT OR RIGHT (handleKnightDirectionW / B): THE NOSE IS +X, SO TOWARD THE h-FILE IS 0, TOWARD THE a-FILE PI.
 // ONE THAT HASN'T MOVED FACES THE MIDDLE (a - d FACE THE h-FILE, e - h THE a-FILE), LIKE 2D's START (setSlidePiece)
 const TURNS = /[kqbrn]/;
-const yawToward = (rankUp) => (rankUp ? Math.PI : 0);
-const yawSide = (towardH) => (towardH ? 0 : Math.PI);
+export const yawToward = (rankUp) => (rankUp ? Math.PI : 0);
+export const yawSide = (towardH) => (towardH ? 0 : Math.PI);
 const startYaw = (mesh) => (mesh.userData.type === "n" ? yawSide(fileOf(mesh.userData.square) < 4) : yawToward(mesh.userData.color === "w"));
-const storedYaw = (mesh) => mesh.userData.yaw ?? startYaw(mesh);
+export const storedYaw = (mesh) => mesh.userData.yaw ?? startYaw(mesh);
 
-function setYaw(mesh, yaw, store) {
+export function setYaw(mesh, yaw, store) {
 	if (!TURNS.test(mesh.userData.type)) { return; }
 	if (store) { mesh.userData.yaw = yaw; }
 	mesh.rotation.y = yaw;
 }
 
 // TURNS A KING, QUEEN, BISHOP OR ROOK THE WAY A MOVE GOES UP OR DOWN, A SIDEWAYS MOVE KEEPS ITS FACING. A KNIGHT TURNS LEFT OR RIGHT
-function faceTravel(mesh, from, to) {
+export function faceTravel(mesh, from, to) {
 	if (mesh.userData.type === "n") { setYaw(mesh, yawSide(fileOf(to) > fileOf(from)), true); }
 	else if (from[1] !== to[1]) { setYaw(mesh, yawToward(Number(to[1]) > Number(from[1])), true); }
 }
 
-function addPiece(type, color) {
+export function addPiece(type, color) {
 	const mesh = createPiece(type, color, PIECE_SIZE);
 	view.scene.add(mesh);
 	return mesh;
 }
 
-function removePiece(mesh) {
+export function removePiece(mesh) {
 	view.scene.remove(mesh);
 	disposePiece(mesh);
 }
@@ -165,10 +113,10 @@ function removePiece(mesh) {
 const SHADOW_LIFT = 0.015; // A PILE SHADOW'S HEIGHT OVER ITS SURFACE, pieces.js SHADOW_Y
 const DESK_Y = -0.76; // THE ROOM'S DESK TOP (room.js)
 const pileY = () => (view.room ? DESK_Y : view.surroundings.userData.table.position.y); // THE BAIZE TABLE'S HEIGHT WHEN THE ROOM ISN'T IN
-const homeYaw = (type, color) => (color === "w" ? Math.PI : 0) - (type === "n" ? Math.PI / 2 : 0); // HOW createPiece TURNS A PIECE ON ITS SQUARE
+export const homeYaw = (type, color) => (color === "w" ? Math.PI : 0) - (type === "n" ? Math.PI / 2 : 0); // HOW createPiece TURNS A PIECE ON ITS SQUARE
 
 // KEEPS A PIECE'S SHADOW ON THE SURFACE UNDER IT, mesh.userData.ground (updateShadow() KEEPS IT AT BOARD HEIGHT). CALL AFTER updateShadow()
-function shadeOnGround(mesh) {
+export function shadeOnGround(mesh) {
 	const shadow = mesh.getObjectByName("shadow");
 	shadow.position.y = (mesh.userData.ground + SHADOW_LIFT - mesh.position.y) / mesh.scale.y;
 }
@@ -186,284 +134,7 @@ function settle(mesh, spot) {
 }
 
 // THE ORDER OF THE PILES' SLOTS: far0, far1, ..., near0, ...
-const slotOf = (key) => Number(key.replace(/\D/g, ""));
-
-/* ---------------------------------------------------------------- */
-// Mount
-/* ---------------------------------------------------------------- */
-
-// MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER (INSIDE ITS SAFE AREA PADDING, css/board3D.css #board3D), PIXEL DENSITY CAPPED
-// (2, PHONES 1.5) SO 3x PHONES DON'T DRAW 9x THE PIXELS. A SMALL SCREEN ALSO GETS ITS CAMERA LIMITS FOR THE NEW SIZE
-function resize() {
-	const { renderer, camera, container, controls } = view;
-	const style = getComputedStyle(container);
-	const w = container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-	const h = container.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-	if (!(w > 0 && h > 0)) { return; } // HIDDEN: KEEP THE LAST SIZE
-	unframeDeal(false); // A DEAL IS FRAMED AGAIN BELOW, FOR THE NEW SIZE: FROM ITS HOME AS THE NEW LIMITS LEAVE IT
-	renderer.setPixelRatio(Math.min(window.devicePixelRatio, view.phone ? PHONE_PIXEL_RATIO : 2));
-	renderer.setSize(w, h, false); // CSS SIZES THE CANVAS
-	camera.aspect = w / h;
-	camera.fov = SMALL_SCREEN.matches ? SMALL_FOV : FOV;
-	camera.updateProjectionMatrix();
-	view.small = SMALL_SCREEN.matches ? smallScreenCamera(h) : null;
-	controls.maxPolarAngle = view.small ? view.small.tilt : MAX_TILT; // NO TILTING OR ZOOMING OUT TO WHERE A SQUARE IS UNDER TAP_PX
-	controls.maxDistance = view.small ? Math.max(view.small.distance, MIN_DISTANCE) : MAX_DISTANCE;
-	if (monitorIdle()) { controls.update(); } // A CAMERA PAST THE NEW LIMITS (THE PHONE WAS TURNED) MOVES INSIDE THEM
-	else { refitZoom(); } // AT THE MONITOR: THE GLASS FILLS THE NEW SHAPE (THE DESK SPOT IS CLAMPED WHEN IT GETS BACK, landHome)
-	if (dealing()) { frameDeal(false); }
-	requestRender();
-}
-
-/**
- * @description The small screen camera: the most tilted of SMALL_TILTS whose squares are TAP_PX tall at the distance picked, or the
- * steepest when none are (the biggest squares the screen allows: a phone on its side is about 8 squares tall). The distance is the
- * closest with room around the board & its pieces, or closer to make TAP_PX (edge pieces' tops may go off screen), but never so
- * close a square is off screen
- * @param  {[number]} h [the canvas's height in CSS pixels, view.camera has its new aspect & fov]
- * @return {[object]} { tilt, distance } [from straight down, from the center]
- */
-function smallScreenCamera(h) {
-	fitCamera.copy(view.camera);
-	let fit;
-	for (const tilt of SMALL_TILTS) {
-		const squares = closest(tilt, () => cornersOnScreen(0, 1));
-		const roomy = closest(tilt, () => cornersOnScreen(0, FIT_NDC) && cornersOnScreen(PIECE_TOP, 1));
-		const tap = closest(tilt, () => smallestSquarePx(h) < TAP_PX); // FARTHER THAN THIS IS UNDER TAP_PX
-		fit = { tilt, distance: Math.max(squares, Math.min(roomy, tap)) };
-		aimFitCamera(tilt, fit.distance);
-		if (smallestSquarePx(h) >= TAP_PX - 0.5) { break; }
-	}
-	return fit;
-}
-
-// PUTS fitCamera AT tilt & distance FROM WHITE'S SIDE (THE BOARD LOOKS THE SAME FROM BLACK'S)
-function aimFitCamera(tilt, distance) {
-	fitCamera.position.setFromSpherical(spherical.set(distance, tilt, 0));
-	fitCamera.lookAt(0, 0, 0);
-	fitCamera.updateMatrixWorld();
-}
-
-// THE CLOSEST DISTANCE AT tilt WHERE ok() IS TRUE (IT MUST BE TRUE FAR AWAY & FALSE UP CLOSE), FOUND BY HALVING
-function closest(tilt, ok) {
-	let near = 1, far = 400;
-	for (let i = 0; i < 30; i++) {
-		const mid = (near + far) / 2;
-		aimFitCamera(tilt, mid);
-		if (ok()) { far = mid; } else { near = mid; }
-	}
-	return far;
-}
-
-// THE BOARD'S 4 CORNERS, y UP, ARE INSIDE ndc OF fitCamera'S SCREEN (1 IS ITS EDGE)
-function cornersOnScreen(y, ndc) {
-	return [-1, 1].every((x) => [-1, 1].every(function (z) {
-		corner.set(x * BOARD_SIZE / 2, y, z * BOARD_SIZE / 2).project(fitCamera);
-		return Math.abs(corner.x) <= ndc && Math.abs(corner.y) <= ndc;
-	}));
-}
-
-// HOW TALL THE FAR ROW'S SQUARES ARE ON fitCamera'S SCREEN IN CSS PIXELS (THE SMALLEST, THE TILT SQUASHES THE FAR SIDE MOST)
-function smallestSquarePx(h) {
-	const back = corner.set(0, 0, -BOARD_SIZE / 2).project(fitCamera).y;
-	const front = corner.set(0, 0, -BOARD_SIZE / 2 + CELL_SIZE).project(fitCamera).y;
-	return Math.abs(back - front) / 2 * h;
-}
-
-/* ---------------------------------------------------------------- */
-// Deal Framing
-/* ---------------------------------------------------------------- */
-
-const dealing = () => Boolean(view.cards && view.cards.dealt()); // THE PROMOTION CARDS ARE OUT
-
-// THE CARD COLUMN'S 4 CORNERS, THROUGH THE ROOM'S TURN, ARE IN FRONT OF camera & INSIDE FIT_NDC OF ITS SCREEN
-function columnInside(camera) {
-	view.room.updateMatrixWorld();
-	return COLUMN_X.every((x) => COLUMN_Z.every(function (z) {
-		corner.set(x, CARD_Y, z).applyMatrix4(view.room.matrixWorld).project(camera);
-		return corner.z < 1 && Math.abs(corner.x) <= FIT_NDC && Math.abs(corner.y) <= FIT_NDC; // z PAST 1 IS BEHIND THE CAMERA
-	}));
-}
-
-// THE WHOLE CARD COLUMN IS ON THE PLAYER'S SCREEN
-function columnOnScreen() {
-	view.camera.updateMatrixWorld();
-	return columnInside(view.camera);
-}
-
-/**
- * @description Where the camera frames a deal from home: looking DEAL_SHIFT toward the column (in the room's turn), from the closest point
- * along home's view direction where the board's & the column's corners are all inside FIT_NDC (closest()'s halving, on fitCamera)
- * @param  {[object]} home { position, target } [where the camera was before the deal]
- * @return {[object]} { position, target, near, distance } [world space, near: the camera's near plane there, distance: from the target, what controls.maxDistance must allow]
- */
-function framedSpot(home) {
-	view.room.updateMatrixWorld();
-	const target = dealShift.set(1, 0, 0).transformDirection(view.room.matrixWorld).multiplyScalar(DEAL_SHIFT).add(home.target).clone();
-	const along = home.position.clone().sub(home.target).normalize();
-	fitCamera.copy(view.camera);
-	let near = 1, far = 400;
-	for (let i = 0; i < 30; i++) {
-		const mid = (near + far) / 2;
-		fitCamera.position.copy(target).addScaledVector(along, mid);
-		fitCamera.lookAt(target);
-		fitCamera.updateMatrixWorld();
-		if (cornersOnScreen(0, FIT_NDC) && columnInside(fitCamera)) { far = mid; } else { near = mid; }
-	}
-	return { position: target.clone().addScaledVector(along, far), target, near: DEAL_NEAR, distance: far };
-}
-
-// MOVES THE CAMERA, WHAT IT LOOKS AT & ITS NEAR PLANE TO to { position, target, near } OVER ZOOM_MS, SLOW START & LANDING, OR AT ONCE. done() RUNS AS IT LANDS.
-// view.dealEase IS THE MOVE RUNNING: A NEWER ONE TAKES OVER FROM WHEREVER IT IS, ITS update(1) LANDS IT (landDealEase)
-function moveDealCamera(to, animate, done) {
-	const { camera, controls } = view;
-	const fromPosition = camera.position.clone(), fromTarget = controls.target.clone(), fromNear = camera.near;
-	const ease = {
-		duration: ZOOM_MS,
-		update(k) {
-			if (view.dealEase !== ease) { return; } // A NEWER MOVE TOOK OVER
-			if (k === 1) { // EXACTLY THERE, NOT A ROUNDING ERROR OFF IT: THE WAY BACK LANDS WHERE THE PLAYER HAD IT
-				camera.position.copy(to.position);
-				controls.target.copy(to.target);
-				setNear(to.near);
-			} else {
-				camera.position.lerpVectors(fromPosition, to.position, k);
-				controls.target.lerpVectors(fromTarget, to.target, k);
-				setNear(fromNear + (to.near - fromNear) * k);
-			}
-			camera.lookAt(controls.target);
-			if (k === 1) { view.dealEase = null; done(); }
-		}
-	};
-	view.dealEase = ease;
-	if (animate) { view.tweens.add(ease); } else { ease.update(1); }
-	requestRender();
-}
-
-// A DEAL'S CAMERA MOVE IN PROGRESS LANDS AT ONCE
-function landDealEase() {
-	if (view.dealEase) { view.dealEase.update(1); }
-}
-
-// MOVES THE CAMERA TO FRAME THE DEAL FROM view.dealHome, ITS ZOOM LIMIT RAISED SO IT CAN STAY THERE
-function aimDeal(animate) {
-	const spot = framedSpot(view.dealHome);
-	view.controls.maxDistance = Math.max(view.dealHome.maxDistance, spot.distance);
-	moveDealCamera(spot, animate, () => {});
-}
-
-/**
- * @description Frames a deal: when the card column isn't on screen (a phone's camera is fitted to the board) the camera eases back & over
- * until the board & the column both are, remembering where it was (view.dealHome). Nothing at the monitor or with the column already on
- * screen. A deal while the camera is still going back from the last one turns it round to the frame, with the same home
- * @param  {[boolean]} animate [false cuts there (reduce motion)]
- */
-function frameDeal(animate) {
-	if (!view.room || !monitorIdle()) { return; }
-	const home = view.dealHome;
-	if (home && !home.back) { return; } // ALREADY FRAMED, OR ON ITS WAY
-	landTurn(); // FLIP BOARD WOULD TAKE THE CAMERA ELSEWHERE: THE FRAME IS WORKED OUT FROM WHERE ITS TURN ENDS
-	if (home) { home.back = false; }
-	else {
-		if (columnOnScreen()) { return; }
-		const { camera, controls } = view;
-		view.dealHome = { position: camera.position.clone(), target: controls.target.clone(), maxDistance: controls.maxDistance, back: false }; // back: ON ITS WAY THERE (unframeDeal)
-	}
-	aimDeal(animate);
-}
-
-/**
- * @description Ends a framed deal: the camera goes back exactly to where it was before it, & its zoom limit with it (an orbit or zoom by
- * hand while the cards were out is let go: the frame was the deal's). At the monitor it's where the monitor hands the camera back to
- * @param  {[boolean]} animate [false cuts there]
- */
-function unframeDeal(animate) {
-	const home = view.dealHome;
-	if (!home) { return; }
-	const restore = function () {
-		view.controls.maxDistance = home.maxDistance;
-		view.dealHome = null;
-	};
-	if (!monitorIdle()) { // landHome() PUTS IT THERE
-		if (view.home) { view.home.position.copy(home.position); view.home.target.copy(home.target); }
-		restore();
-		return;
-	}
-	landTurn();
-	home.back = true;
-	moveDealCamera({ position: home.position, target: home.target, near: NEAR }, animate, restore);
-}
-
-// THE CAMERA'S NEAR PLANE ON THE DESK: A FRAMED DEAL'S IS FARTHER (DEAL_NEAR)
-const deskNear = () => (view.dealHome && !view.dealHome.back ? DEAL_NEAR : NEAR);
-
-// FLIP BOARD DURING A FRAMED DEAL: ITS HOME TURNS ROUND THE BOARD'S CENTER AS turnCamera() TURNS THE CAMERA, TO angle AROUND WHAT IT LOOKS AT
-function turnDealHome(angle) {
-	const { position, target } = view.dealHome;
-	const by = angle - Math.atan2(position.x - target.x, position.z - target.z);
-	position.applyAxisAngle(UP, by);
-	target.applyAxisAngle(UP, by);
-}
-
-// PUTS THE CAMERA AT ITS DEFAULT SPOT angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE CENTER.
-// A SMALL SCREEN'S IS STEEPER & FITS THE BOARD TO IT (smallScreenCamera)
-function placeCamera(angle) {
-	view.controls.target.set(0, 0, 0); // UNDOES ANY PAN
-	if (view.small) { view.camera.position.setFromSpherical(spherical.set(view.small.distance, view.small.tilt, angle)); }
-	else if (view.phone) { view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle)); }
-	else { // THE LIBRARY'S VIEW: THE MONITOR ACROSS THE BOARD IS IN IT
-		view.controls.target.set(-ROOM_CAMERA_AIM * Math.sin(angle), 0, -ROOM_CAMERA_AIM * Math.cos(angle));
-		view.camera.position.set(ROOM_CAMERA_DISTANCE * Math.sin(angle), ROOM_CAMERA_HEIGHT, ROOM_CAMERA_DISTANCE * Math.cos(angle));
-	}
-	view.controls.update(); // LOOKS AT THE TARGET
-}
-
-// THE CAMERA'S ANGLE AROUND WHAT IT LOOKS AT (0 WHITE'S SIDE, PI BLACK'S), WHEREVER THE PLAYER TURNED IT
-function cameraAzimuth() {
-	offset.copy(view.camera.position).sub(view.controls.target);
-	return Math.atan2(offset.x, offset.z);
-}
-
-// TURNS THE CAMERA AROUND WHAT IT LOOKS AT TO angle, KEEPING THE PLAYER'S ZOOM, TILT & PAN. turn (FLIP BOARD'S) ALSO CARRIES WHAT IT LOOKS AT
-// ROUND THE BOARD'S CENTER BY THE SAME ANGLE: THE LIBRARY'S VIEW LOOKS PAST THE CENTER, & FROM THE OTHER SIDE THAT POINT IS ON THE OTHER SIDE TOO
-function turnCamera(angle, turn) {
-	const { camera, controls } = view;
-	spherical.setFromVector3(offset.copy(camera.position).sub(controls.target));
-	spherical.theta = angle;
-	if (turn) { controls.target.copy(turn.target).applyAxisAngle(UP, angle - turn.from); }
-	camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));
-	camera.lookAt(controls.target);
-}
-
-// TURNS THE CAMERA PART OF THE WAY TO ITS SIDE (setSide), SLOW START & LANDING
-function stepCamera(now) {
-	const turn = view.cameraTurn;
-	if (turn.start === null) { turn.start = now; }
-	const t = MathUtils.clamp((now - turn.start) / FLIP_MS, 0, 1);
-	turnCamera(turn.from + (turn.to - turn.from) * easeInOut(t), turn);
-	if (view.room) { turnRoom(view.room, turn.roomFrom + (turn.roomTo - turn.roomFrom) * easeInOut(t)); } // THE ROOM COMES ROUND WITH THE CAMERA: THE BOARD LOOKS TO TURN ON THE DESK
-	if (t >= 0.5) { setLabels(view.side); } // SIDE ON TO THE BOARD: THE LABELS SWAP UNSEEN
-	if (t === 1) {
-		view.cameraTurn = null;
-		if (view.dealHome && !view.dealHome.back) { aimDeal(true); } // A DEAL FRAMED FROM AN ORBITED CAMERA: THE ROOM TURNED BY A DIFFERENT ANGLE, FRAME IT AGAIN
-	}
-}
-
-// A FLIP BOARD TURN IN PROGRESS LANDS AT ONCE
-function landTurn() {
-	if (!view.cameraTurn) { return; }
-	turnCamera(view.cameraTurn.to, view.cameraTurn);
-	setLabels(view.side);
-	setRoomSide(view.side);
-	view.cameraTurn = null;
-}
-
-const sideAngle = (color) => (color === "b" ? Math.PI : 0); // AROUND THE BOARD FROM WHITE'S SIDE
-
-// THE ROOM TURNS WITH THE PLAYER'S SIDE, SO THE MONITOR IS ALWAYS ACROSS THE BOARD FROM THEM
-function setRoomSide(color) {
-	if (view.room) { turnRoom(view.room, sideAngle(color)); }
-}
+export const slotOf = (key) => Number(key.replace(/\D/g, ""));
 
 /**
  * @description Downloads the library & puts it around the board in place of the baize table. The board is already up & playable: one that
@@ -528,378 +199,10 @@ async function addRoom(v) {
 }
 
 // TURNS THE a-h / 1-8 LABELS TO READ FROM color'S SIDE, LIKE THE 2D BOARD'S
-function setLabels(color) {
+export function setLabels(color) {
 	if (view.labelSide === color) { return; }
 	view.labelSide = color;
 	orientLabels(view.surroundings, color);
-}
-
-/* ---------------------------------------------------------------- */
-// Camera Controls
-/* ---------------------------------------------------------------- */
-
-// MOUSE: LEFT-DRAG PANS (ON A PIECE IT'S PIECE INPUT INSTEAD), RIGHT-DRAG ROTATES, SCROLL ZOOMS. TOUCH: ONE FINGER IS PIECE INPUT,
-// TWO ROTATE & PINCH ZOOM. A PRESS THAT MOVES THE CAMERA PAST DRAG_PX (OR ANY TWO FINGER TOUCH) SETS cameraGesture, SO gameplay/input IGNORES IT
-function createControls(camera, canvas) {
-	const controls = new OrbitControls(camera, canvas);
-	controls.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
-	controls.touches = { ONE: null, TWO: TOUCH.DOLLY_ROTATE };
-	controls.screenSpacePanning = false; // PANS ALONG THE TABLE, NOT UP INTO THE AIR
-	controls.minDistance = MIN_DISTANCE;
-	controls.maxDistance = MAX_DISTANCE;
-	controls.minPolarAngle = 0; // STRAIGHT DOWN, NEVER PAST IT
-	controls.maxPolarAngle = MAX_TILT;
-	controls.maxTargetRadius = BOARD_SIZE / 2; // THE CAMERA ALWAYS LOOKS AT A POINT ON THE BOARD, SO PANNING CAN'T LOSE IT (cursor IS THE ORIGIN)
-	controls.addEventListener("start", function () {
-		view.controlsActive = true;
-		view.cameraTurn = null; // THE PLAYER TOOK THE CAMERA MID FLIP
-		setRoomSide(view.side);
-		setLabels(view.side);
-		if (view.pointerType === "touch") { startGesture(); } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
-	});
-	controls.addEventListener("change", function () {
-		requestRender();
-		const { controlsActive, press, pointerAt } = view;
-		if (controlsActive && Math.hypot(pointerAt.x - press.x, pointerAt.y - press.y) > DRAG_PX) { startGesture(); }
-	});
-	controls.addEventListener("end", function () {
-		const v = view;
-		v.controlsActive = false;
-		if (v.cameraGesture) { setTimeout(function () { if (!v.controlsActive) { v.cameraGesture = false; } }, 0); } // AFTER THE CLICK THE RELEASE FIRES
-	});
-	return controls;
-}
-
-// THE CONTROLS OWN THE POINTER FROM HERE. THE FIRST CAMERA MOVE ALSO DISMISSES THE CONTROLS HINT
-function startGesture() {
-	view.cameraGesture = true;
-	dismissHint();
-}
-
-// CAPTURE PHASE, BEFORE THE CONTROLS SEE IT: A LEFT MOUSE PRESS ON A PIECE IS PIECE INPUT, THE CAMERA SITS IT OUT UNTIL THE RELEASE
-function onPointerDown(e) {
-	if (!view.controlsActive) {
-		view.cameraGesture = false;
-		view.press = { x: e.clientX, y: e.clientY, time: performance.now() };
-	}
-	view.pointerAt = { x: e.clientX, y: e.clientY };
-	view.pointerType = e.pointerType;
-	if (e.pointerType !== "mouse") { // EVERY FINGER (OR PEN) DOWN: A SECOND ONE MAKES THIS TOUCH A PINCH OR ORBIT, NEVER A TAP
-		view.touches.add(e.pointerId);
-		if (view.touches.size > 1) { view.multiTouch = true; }
-	}
-	const square = e.pointerType === "mouse" && e.button === 0 && squareUnder(e); // THE SAME SQUARE gameplay/input PICKS A PIECE UP FROM, NOT ONLY A HIT ON THE MESH: A PRESS BESIDE A PIECE ON ITS SQUARE PICKS IT UP TOO
-	view.controls.enabled = monitorIdle() && !(square && view.pieces.has(square)); // ZOOMED ON THE MONITOR THE CAMERA STAYS PUT
-}
-
-// A HELD PIECE PAST THE DRAG THRESHOLD FOLLOWS THE POINTER (dragHeld). BEFORE gameplay/input'S mousemove / touchmove, SO ITS SQUARE LOOKUP SKIPS THE PIECE TOO
-function onPointerMove(e) {
-	view.pointerAt = { x: e.clientX, y: e.clientY };
-	if (e.pointerType === "mouse" && !view.held && !view.controlsActive) { hoverGlass(e); hoverCards(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S
-	const held = view.held;
-	if (!held || !held.dragging || view.cameraGesture) { return; }
-	const touch = e.pointerType === "touch";
-	const moved = Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > (touch ? TOUCH_DRAG_PX : DRAG_PX);
-	if (!held.following && moved && (touch || performance.now() - view.press.time > DRAG_HOLD_MS)) { held.following = true; } // A MOUSE WAITS DRAG_HOLD_MS LIKE 2D, TOUCH ONLY GOES BY DISTANCE (gameplay/input)
-	if (held.following) { liftHeld(); }
-}
-
-// ON THE WINDOW, AFTER onTouchTap(): THE FINGER IS UP, & ONCE EVERY FINGER IS THE NEXT TOUCH CAN BE A TAP AGAIN
-function onPointerUp(e) {
-	if (!view) { return; }
-	view.controls.enabled = monitorIdle();
-	if (e.pointerType === "mouse") { return; }
-	view.touches.delete(e.pointerId);
-	if (!view.touches.size) { view.multiTouch = false; }
-}
-
-/* ---------------------------------------------------------------- */
-// Monitor
-/* ---------------------------------------------------------------- */
-
-// THE MONITOR IS ON THE DESK (OR THERE IS NONE): THE BOARD & THE CAMERA CONTROLS ARE THE PLAYER'S
-function monitorIdle() {
-	return !view.monitor || view.monitor.state === "idle";
-}
-
-// THE DATA THE MONITOR GETS: setMonitor()'S & THE OPPONENT'S NAME & STATUS (setScreen) FOR THE SCREEN READER
-function monitorInput(data) {
-	const state = view.screenState || {};
-	return { ...data, screen: { name: state.name || "", status: state.status || "" } };
-}
-
-// THE MONITOR'S show(): REDRAWS THE GLASS, THEN MOVES THE CAMERA FOR A NEW STATE. monitor.js CHANGES STATE BY ITSELF TOO (BACK, ESCAPE),
-// SO THE CAMERA FOLLOWS ITS STATE, NOT THIS FILE'S CALLS
-function onMonitorShow(v) {
-	redrawScreen();
-	if (view !== v || !v.monitor) { return; }
-	const state = v.monitor.state, was = v.monitorSeen;
-	if (state === was) { return; }
-	v.monitorSeen = state;
-	if (was === "idle") { leaveDesk(); }
-	if (state === "zooming") { zoomTo(false); }
-	else if (state === "zoomed" && was !== "zooming") { setCameraAt(zoomSpot()); } // REDUCED MOTION: STRAIGHT FROM THE DESK (A FINISHED ZOOM IS ALREADY THERE)
-	else if (state === "leaving") { zoomTo(true); }
-	else if (state === "idle") { landHome(); }
-	requestRender();
-	v.monitorOptions.onChange({ ready: true, state });
-}
-
-// THE CAMERA LEAVES THE DESK: REMEMBERS WHERE IT WAS & TAKES IT FROM THE CONTROLS. A FLIP BOARD TURN & A DEAL'S CAMERA MOVE LAND FIRST
-function leaveDesk() {
-	const { camera, controls } = view;
-	landTurn();
-	landDealEase();
-	view.home = { position: camera.position.clone(), target: controls.target.clone() };
-	view.zoomLook.copy(controls.target);
-	controls.enabled = false;
-}
-
-/**
- * @description Where the camera sits to read the glass: square on to it, along its outward normal, far enough back that it fills
- * zoomDistance()'s share of the view. From the mesh's world matrix, so it follows the room as it turns with the player's side
- * @return {[object]} { position, centre, near } [world space, near: the near plane that clips what's between the camera & the glass]
- */
-function zoomSpot() {
-	const { glass, camera } = view;
-	glass.updateWorldMatrix(true, false);
-	if (!glass.geometry.boundingBox) { glass.geometry.computeBoundingBox(); }
-	const box = glass.geometry.boundingBox;
-	box.getCenter(glassCentre);
-	glass.localToWorld(glassCentre);
-	box.getSize(glassSize);
-	glass.getWorldScale(glassScale);
-	const sizes = [0, 1, 2].map((i) => glassSize.getComponent(i) * Math.abs(glassScale.getComponent(i)));
-	const thin = sizes.indexOf(Math.min(...sizes)); // THE .glb HAS NO NORMALS: THE GLASS'S THINNEST AXIS IS ITS FACING
-	const [w, h] = sizes.filter((_, i) => i !== thin).sort((a, b) => b - a); // A 4:3 SCREEN, WIDER THAN TALL
-	glassNormal.set(0, 0, 0).setComponent(thin, 1).transformDirection(glass.matrixWorld);
-	if (glassNormal.x * glassCentre.x + glassNormal.z * glassCentre.z > 0) { glassNormal.negate(); } // OUTWARD IS TOWARD THE BOARD (THE ORIGIN), ACROSS FROM THE PLAYER
-	const distance = zoomDistance(w, h, camera.fov, camera.aspect);
-	return { position: glassCentre.clone().addScaledVector(glassNormal, distance), centre: glassCentre.clone(), near: Math.max(NEAR, distance - GLASS_CLEAR) };
-}
-
-// PUTS THE CAMERA AT A SPOT, LOOKING AT ITS CENTRE
-function setCameraAt({ position, centre, near }) {
-	view.camera.position.copy(position);
-	view.zoomLook.copy(centre);
-	view.camera.lookAt(centre);
-	setNear(near);
-}
-
-function setNear(near) {
-	if (view.camera.near === near) { return; }
-	view.camera.near = near;
-	view.camera.updateProjectionMatrix();
-}
-
-// STARTS THE CAMERA'S MOVE TO THE GLASS, OR BACK TO THE DESK (FROM WHEREVER IT IS, A ZOOM CAN TURN BACK HALFWAY)
-function zoomTo(back) {
-	const to = back ? { position: view.home.position, centre: view.home.target, near: deskNear() } : zoomSpot();
-	view.zoom = { from: view.camera.position.clone(), fromLook: view.zoomLook.clone(), fromNear: view.camera.near, to: to.position.clone(), toLook: to.centre.clone(), toNear: to.near, start: null, back };
-}
-
-// MOVES THE CAMERA PART OF THE WAY (now = Infinity LANDS IT), SLOW START & LANDING, & TELLS THE MONITOR WHEN IT ARRIVES
-function stepZoom(now) {
-	const zoom = view.zoom;
-	if (zoom.start === null) { zoom.start = now; }
-	const t = now === Infinity ? 1 : MathUtils.clamp((now - zoom.start) / ZOOM_MS, 0, 1);
-	const along = MathUtils.smoothstep(t, 0, 1);
-	view.camera.position.lerpVectors(zoom.from, zoom.to, along);
-	view.zoomLook.lerpVectors(zoom.fromLook, zoom.toLook, along);
-	view.camera.lookAt(view.zoomLook);
-	setNear(zoom.fromNear + (zoom.toNear - zoom.fromNear) * along);
-	if (t < 1) { return; }
-	view.zoom = null;
-	if (zoom.back) { view.monitor.left(); } // IDLE: onMonitorShow() HANDS THE CAMERA BACK (landHome)
-	else { view.monitor.arrived(); }
-}
-
-// THE VIEW CHANGED SHAPE AT THE MONITOR: THE GLASS FILLS THE NEW ONE
-function refitZoom() {
-	if (view.zoom && !view.zoom.back) {
-		const spot = zoomSpot();
-		view.zoom.to.copy(spot.position);
-		view.zoom.toLook.copy(spot.centre);
-		view.zoom.toNear = spot.near;
-	} else if (!view.zoom && view.monitor.state === "zoomed") { setCameraAt(zoomSpot()); }
-}
-
-// BACK ON THE DESK: THE CAMERA WHERE IT WAS (A CUT WHEN THE MONITOR WENT STRAIGHT TO IDLE), THE CONTROLS ON, leaveMonitor()'S PROMISES RESOLVED
-function landHome() {
-	const { camera, controls } = view;
-	view.zoom = null;
-	if (view.home) {
-		camera.position.copy(view.home.position);
-		controls.target.copy(view.home.target);
-		view.home = null;
-	}
-	setNear(deskNear());
-	controls.enabled = true;
-	controls.update(); // LOOKS AT THE TARGET AGAIN, INSIDE ANY NEW LIMITS
-	if (dealing() && !view.dealHome) { frameDeal(!REDUCE.matches); } // CARDS DEALT WHILE THE MONITOR WAS UP (frameDeal WAITED FOR THE DESK): FRAME THEM NOW
-	view.leaving.splice(0).forEach((resolve) => resolve());
-}
-
-// STRAIGHT BACK TO THE DESK, NO MOVE (FLIP BOARD & RESET VIEW START FROM THERE)
-function landAtDesk() {
-	if (!monitorIdle()) { view.monitor.reset(); }
-}
-
-// THE GRID PIXEL UNDER A POINTER EVENT ON THE GLASS, null WHEN SOMETHING ELSE IS IN FRONT OF IT (A PIECE WINS) OR IT ISN'T UNDER IT
-function glassHit(e) {
-	if (!view.glass) { return null; }
-	const rect = view.renderer.domElement.getBoundingClientRect();
-	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-	raycaster.setFromCamera(pointer, view.camera);
-	view.camera.getWorldDirection(forward);
-	const depth = (h) => offset.copy(h.point).sub(view.camera.position).dot(forward); // THE NEAR PLANE CLIPS BY DEPTH ALONG THE VIEW, NOT DISTANCE ALONG THE RAY
-	const hit = raycaster.intersectObjects([view.glass, ...view.pieces.values(), view.plane], false).find((h) => depth(h) >= view.camera.near); // WHAT THE NEAR PLANE CLIPS ISN'T DRAWN, SO IT CAN'T BE IN THE WAY
-	return hit && hit.object === view.glass && hit.uv ? uvToGrid(hit.uv.x, hit.uv.y) : null;
-}
-
-// A MOUSE OVER THE GLASS: THE MONITOR'S HOVER (THE FACE'S EYES ON THE DESK, A BUTTON ZOOMED) & A HAND CURSOR
-function hoverGlass(e) {
-	if (!view.monitor) { return; }
-	const at = glassHit(e);
-	if (at) { view.monitor.pointer("move", at.x, at.y); }
-	else { view.monitor.pointer("out"); }
-	const cursor = at ? "pointer" : "";
-	if (view.container.style.cursor !== cursor) { view.container.style.cursor = cursor; }
-}
-
-function onPointerLeave() {
-	if (view.cards) { view.cards.hover(null); }
-	view.cardCursor = false;
-	if (!view.monitor) { return; }
-	view.monitor.pointer("out");
-	view.container.style.cursor = "";
-}
-
-/* ---------------------------------------------------------------- */
-// Cards
-/* ---------------------------------------------------------------- */
-
-// THE PROMOTION CARD UNDER A POINTER EVENT (ITS INDEX IN CARD_ORDER), null FOR NONE, WHILE THE CARDS ARE OUT & THE MONITOR IS ON THE DESK
-function cardAt(e) {
-	if (!view.cards || !view.cards.dealt() || !monitorIdle()) { return null; }
-	const rect = view.renderer.domElement.getBoundingClientRect();
-	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-	raycaster.setFromCamera(pointer, view.camera);
-	return view.cards.hit(raycaster);
-}
-
-// A MOUSE OVER A CARD LIFTS IT & SHOWS THE HAND CURSOR. AFTER hoverGlass(), WHICH SETS THE CURSOR FOR THE GLASS
-function hoverCards(e) {
-	if (!view.cards) { return; }
-	const over = cardAt(e);
-	view.cards.hover(over);
-	if (over !== null) { view.container.style.cursor = "pointer"; view.cardCursor = true; }
-	else if (view.cardCursor) { view.cardCursor = false; if (!view.monitor) { view.container.style.cursor = ""; } } // WITH A MONITOR hoverGlass() ALREADY SET IT
-}
-
-// A TAP (A CLICK OR A LIFTED FINGER) ON A CARD PICKS IT. STOPS THE EVENT WHEN stop IS TRUE (A CLICK: THE BOARD MUST NOT SEE IT)
-function pickCard(e, stop) {
-	if (view.cameraGesture || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType)) { return false; }
-	const index = cardAt(e);
-	if (index === null) { return false; }
-	if (stop) { e.stopPropagation(); }
-	view.cardOptions.onPick(CARD_ORDER[index]);
-	return true;
-}
-
-/**
- * @description A tap (a mouse click or a lifted finger) at a point: on the glass it zooms in or presses a button, off it it goes back to the desk
- * @param  {[object]} e [the click or pointerup, with clientX & clientY: the release point]
- * @return {[boolean]} [the monitor used it, so the board must not]
- */
-function monitorTap(e) {
-	const monitor = view.monitor;
-	if (!monitor || view.lost || view.cameraGesture || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType)) { return false; } // A LOST CONTEXT DRAWS NO ZOOM, IT WOULD STICK IN zooming
-	const at = glassHit(e);
-	if (monitor.state === "idle") { return Boolean(at) && enterMonitor(); }
-	if (at && monitor.state === "zoomed") { monitor.pointer("press", at.x, at.y); }
-	else if (!at && (monitor.state === "zoomed" || monitor.state === "zooming")) { leaveMonitor(); }
-	return true;
-}
-
-// CAPTURE PHASE, BEFORE gameplay/input'S CLICK: THE MOUSE'S TAP. AT THE MONITOR NO CLICK REACHES THE BOARD. A FINGER'S OR PEN'S IS onTouchTap()'S: gameplay'S
-// touchstart CANCELS THE CLICK A TOUCH (OR AN APPLE PENCIL) WOULD MAKE, & ONE THE BROWSER MAKES ANYWAY (NO TOUCH LISTENERS IN REMOTE-ONLY MODE, A WINDOWS PEN) WOULD BE THE SAME TAP TWICE
-function onClick(e) {
-	if (view.pointerType === "mouse" && pickCard(e, true)) { return; } // A CARD, NOT THE BOARD'S OR THE MONITOR'S
-	if (!view.monitor) { return; }
-	const idle = view.monitor.state === "idle";
-	if (!idle) { e.stopPropagation(); }
-	if (view.pointerType !== "mouse") { return; }
-	if (monitorTap(e) && idle) { e.stopPropagation(); }
-}
-
-// CAPTURE PHASE: A LIFTED FINGER (OR PEN) IS A TAP WHEN IT WAS THE ONLY ONE DOWN THE WHOLE TIME (NOT A PINCH OR ORBIT) & DIDN'T MOVE. IT RUNS BEFORE gameplay'S
-// touchend, WHICH THEN SEES THE MONITOR BUSY (isCameraGesture) & LEAVES THE BOARD ALONE. NOT STOPPED: THE CAMERA CONTROLS NEED THEIR pointerup
-function onTouchTap(e) {
-	if (e.pointerType === "mouse" || view.multiTouch || view.touches.size !== 1 || !view.touches.has(e.pointerId)) { return; }
-	if (pickCard(e, false)) { return; } // NOT STOPPED: THE CAMERA CONTROLS NEED THEIR pointerup, & gameplay's touchend DOES NOTHING ON A TAP OFF THE BOARD
-	if (view.monitor) { monitorTap(e); }
-}
-
-// CAPTURE PHASE ON THE WINDOW: ZOOMED, THE MONITOR'S KEYS (WASD, THE ARROWS, ENTER, SPACE, ESCAPE) ARE ITS ALONE, ESCAPE WHILE ZOOMING IN TOO.
-// NOT WHILE TYPING, NOT SHORTCUTS. THE MONITOR'S FOCUS ELEMENT (#monitorFocus, A DIV) IS NO TYPING TARGET, SO ITS KEYS COME HERE
-function onKeyDown(e) {
-	const monitor = view && view.monitor;
-	if (!monitor || e.altKey || e.ctrlKey || e.metaKey) { return; }
-	if (monitor.state !== "zoomed" && !(monitor.state === "zooming" && e.key === "Escape")) { return; }
-	const target = e.target;
-	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return; }
-	if (monitor.key(e.key)) {
-		e.preventDefault();
-		e.stopImmediatePropagation();
-	}
-}
-
-/**
- * @description The game's data for the monitor (common shapes). Kept until the room has loaded, nothing on a board with no monitor
- * @param  {[object]} data { ai, over, yourTurn, result, moves, opening, eval, actions }
- */
-export function setMonitor(data) {
-	if (!view) { return; }
-	view.monitorData = data;
-	if (view.monitor) { view.monitor.update(monitorInput(data)); }
-}
-
-/**
- * @description Zooms the camera in to the monitor (a tap on its glass does too)
- * @return {[boolean]} [false with no monitor, while the GPU context is lost, or before it has a game's data]
- */
-export function enterMonitor() {
-	if (!view || !view.monitor || view.lost) { return false; } // NO FRAMES WHILE THE CONTEXT IS LOST: THE ZOOM WOULD NEVER ARRIVE
-	view.monitor.enter();
-	return view.monitor.state !== "idle";
-}
-
-/**
- * @description Takes the camera back to the desk
- * @return {[Promise<void>]} [resolves once the monitor is idle again, at once when it already is]
- */
-export function leaveMonitor() {
-	if (!view || monitorIdle()) { return Promise.resolve(); }
-	const done = new Promise((resolve) => view.leaving.push(resolve));
-	view.monitor.leave();
-	return done;
-}
-
-/**
- * @description The monitor's state
- * @return {[string|null]} ["idle", "zooming", "zoomed" or "leaving", null with no monitor]
- */
-export function monitorState() {
-	return view && view.monitor ? view.monitor.state : null;
-}
-
-/**
- * @description The keyboard's focus came to the monitor's screen or left it (the page's stop, gameplay/monitor): on the desk the glass shows a border
- * @param  {[boolean]} on
- */
-export function focusMonitor(on) {
-	if (view && view.monitor) { view.monitor.deskFocus(Boolean(on)); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -908,7 +211,7 @@ export function focusMonitor(on) {
 
 // DRAWS ON DEMAND: ASKS FOR ONE FRAME WHEN SOMETHING CHANGED (A FEW CALLS BEFORE IT RUNS STILL DRAW ONCE). NOTHING WHILE THE TAB IS
 // HIDDEN, visibilitychange DRAWS ON THE WAY BACK. AN IDLE BOARD DRAWS NOTHING
-function requestRender() {
+export function requestRender() {
 	if (!view || view.frameId !== null || document.hidden || view.lost) { return; }
 	view.frameId = requestAnimationFrame(frame);
 }
@@ -1185,42 +488,6 @@ function hitUnder(e, withBoard) {
 }
 
 /**
- * @description A camera gesture is in progress (true from its start until after the click its release fires), piece input ignores the pointer meanwhile
- * @return {[boolean]}
- */
-export function isCameraGesture() {
-	return Boolean(view && (view.cameraGesture || !monitorIdle())); // AT THE MONITOR THE POINTER BELONGS TO IT, NOT TO THE PIECES
-}
-
-/**
- * @description Puts the camera on a side of the board (Flip Board), turning it the short way around what it looks at (keeping the
- * player's zoom, tilt & pan) or setting it at its default at once. Pressing again mid-turn turns back from where it is
- * @param  {[string]} color ['w' | 'b', the side the player looks from]
- * @param  {[boolean]} animate [false sets it at once (mount, reduce motion)]
- */
-export function setSide(color, animate) {
-	if (!view || view.side === color) { return; }
-	landAtDesk(); // FROM THE DESK'S SPOT, NOT THE MONITOR'S
-	landDealEase(); // & FROM WHERE A DEAL'S CAMERA MOVE ENDS
-	view.side = color;
-	const angle = color === "b" ? Math.PI : 0;
-	if (!animate) {
-		view.cameraTurn = null;
-		unframeDeal(false); // THE SIDE'S DEFAULT SPOT IS A DEAL'S NEW HOME
-		placeCamera(angle);
-		setLabels(color);
-		setRoomSide(color);
-		if (dealing()) { frameDeal(false); }
-		return;
-	}
-	const from = cameraAzimuth();
-	const roomFrom = view.room ? view.room.rotation.y : sideAngle(color === "b" ? "w" : "b"); // PRESSED AGAIN MID-TURN: THE ROOM TURNS BACK FROM WHERE IT IS
-	view.cameraTurn = { from, to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)), start: null, roomFrom, roomTo: angle, target: view.controls.target.clone() }; // target: WHAT THE CAMERA LOOKED AT AS THE TURN BEGAN
-	if (view.dealHome) { turnDealHome(angle); } // A FRAMED DEAL GOES BACK TO THE NEW SIDE
-	requestRender();
-}
-
-/**
  * @description Lands every moving piece, a Flip Board turn & a zoom to or from the monitor in progress at once (reduce motion turned on mid-move)
  */
 export function stopMotion() {
@@ -1229,24 +496,6 @@ export function stopMotion() {
 	view.tweens.finish();
 	landTurn();
 	if (view.zoom) { stepZoom(Infinity); }
-	requestRender();
-}
-
-/**
- * @description Puts the camera back at its default spot for a side at once (Reset View)
- * @param  {[string]} color ['w' | 'b', the side the player looks from]
- */
-export function resetCamera(color) {
-	if (!view) { return; }
-	landAtDesk();
-	landDealEase();
-	view.cameraTurn = null;
-	unframeDeal(false); // THE DEFAULT SPOT IS A DEAL'S NEW HOME
-	view.side = color;
-	placeCamera(color === "b" ? Math.PI : 0);
-	setLabels(color);
-	setRoomSide(color);
-	if (dealing()) { frameDeal(false); }
 	requestRender();
 }
 
@@ -1289,204 +538,6 @@ export function highlight(squares, kind) {
 		meshes.set(square, mesh);
 	}
 	requestRender();
-}
-
-/**
- * @description Lifts the piece the player picked up, like the 2D board: clicked, it floats over its square until it's put down or moved,
- * dragged (pressed & moved past the drag threshold), it floats over the square under the pointer, the one a drop lands on (squareUnder),
- * or over the edge square nearest the pointer off the board (a drop there puts it back). No animation, the 2D lift is instant too, so reduce motion needs nothing.
- * A dropped piece that's moving slides down from where it was let go (animateMove), call this after it
- * @param  {[string|null]} square [the held piece's square, null when nothing is held (it's put back down)]
- * @param  {[boolean]} dragging [the press is still down, so moving the pointer drags it]
- */
-export function setHeld(square, dragging) {
-	if (!view) { return; }
-	const mesh = (square && view.pieces.get(square)) || null;
-	const held = view.held;
-	if (held && held.mesh === mesh && held.dragging === Boolean(dragging)) { return; } // UNCHANGED: A DRAG KEEPS FOLLOWING
-	if (held && held.mesh !== mesh) { putDownHeld(); }
-	view.held = mesh ? { mesh, dragging: Boolean(dragging), following: false } : null;
-	if (view.held) { liftHeld(); }
-}
-
-// PUTS THE HELD PIECE BACK ON ITS SQUARE, UNLESS IT'S ALREADY SLIDING AWAY (A DROPPED MOVE) OR GONE (TAKEN, SYNCED AWAY)
-function putDownHeld() {
-	const held = view.held;
-	view.held = null;
-	if (!held) { return; }
-	const { mesh } = held;
-	if ([...view.anims].some((anim) => anim.mesh === mesh) || view.pieces.get(mesh.userData.square) !== mesh) { requestRender(); return; }
-	place(mesh, mesh.userData.square);
-	setYaw(mesh, storedYaw(mesh), false); // A DRAG MAY HAVE TURNED IT
-	requestRender();
-}
-
-// FLOATS THE HELD PIECE OVER ITS SQUARE, OR WHERE IT'S DRAGGED (dragPoint)
-function liftHeld() {
-	const { mesh, following } = view.held;
-	const at = following ? dragPoint() : null;
-	const square = mesh.userData.square;
-	mesh.position.set(at ? at.x : center(fileOf(square)), LIFT_HEIGHT, at ? at.z : center(rowOf(square)));
-	if (mesh.userData.type === "n") { // DRAGGED OFF ITS FILE: FACES THE WAY IT'S DRAGGED (2D's drawKnight)
-		const dx = at ? at.x - center(fileOf(square)) : 0;
-		setYaw(mesh, Math.abs(dx) > CELL_SIZE / 2 ? yawSide(dx > 0) : storedYaw(mesh), false);
-	} else { // DRAGGED OFF ITS RANK: FACES THE WAY IT'S DRAGGED (2D's drawPiece)
-		const dz = at ? at.z - center(rowOf(square)) : 0;
-		setYaw(mesh, Math.abs(dz) > CELL_SIZE / 2 ? yawToward(dz < 0) : storedYaw(mesh), false);
-	}
-	updateShadow(mesh);
-	requestRender();
-}
-
-// WHERE A DRAGGED PIECE FLOATS: THE CENTER OF THE SQUARE UNDER THE POINTER (2D SNAPS IT TO SQUARES TOO), OFF THE BOARD THE EDGE SQUARE
-// NEAREST THE POINT UNDER THE POINTER ON THE TABLE, SO IT STAYS ON THE BOARD. null WHEN THE POINTER ISN'T OVER THE TABLE (AT THE HORIZON)
-function dragPoint() {
-	const pointerEvent = { clientX: view.pointerAt.x, clientY: view.pointerAt.y };
-	const square = squareUnder(pointerEvent);
-	if (square) { return { x: center(fileOf(square)), z: center(rowOf(square)) }; }
-	if (!raycaster.ray.intersectPlane(table, tablePoint)) { return null; } // squareUnder() JUST AIMED THE RAY AT THE POINTER
-	return { x: center(toCell(tablePoint.x)), z: center(toCell(tablePoint.z)) };
-}
-
-/* ---------------------------------------------------------------- */
-// Animation
-/* ---------------------------------------------------------------- */
-
-// PUTS A MOVING PIECE WHERE THE TIME SAYS (now = Infinity FINISHES IT), ENDING IT AT progress 1. THE CLOCK STARTS ON ITS FIRST FRAME
-// PLUS ITS delay (A KNIGHT'S STOP), ease IS THE RESTART SLIDE'S SLOW START & LANDING, fade 1 FADES IN & -1 FADES OUT & DROPS
-function stepAnim(anim, now) {
-	if (anim.start === null) { anim.start = now + anim.delay; }
-	const t = now === Infinity || !anim.duration ? 1 : MathUtils.clamp((now - anim.start) / anim.duration, 0, 1);
-	const along = anim.ease ? easeInOut(t) : t;
-	const { mesh, x0, z0, x1, z1, y0, y1 } = anim;
-	let y = y0 + (y1 - y0) * along + (anim.hop ? hopArc(t) * HOP_HEIGHT : 0) + anim.arc * hopArc(t);
-	if (anim.fade < 0) { y -= t * SINK_DEPTH; }
-	mesh.position.set(x0 + (x1 - x0) * along, y, z0 + (z1 - z0) * along);
-	if (anim.fade) { setOpacity(mesh, anim.fade > 0 ? t : 1 - t); } // ALSO PUTS THE SHADOW UNDER IT
-	else { updateShadow(mesh); }
-	if (y0 !== 0 || y1 !== 0) { // TO OR FROM A PILE: THE SHADOW FOLLOWS THE SURFACE THE PIECE IS GOING TO OR LEAVING
-		mesh.userData.ground = y0 + (y1 - y0) * along;
-		shadeOnGround(mesh);
-	}
-	if (t < 1) { return; }
-	view.anims.delete(anim);
-	if (anim.onEnd) { anim.onEnd(); } // NOW, NOT IN A .then(): A syncFromBoard() OR unmount() RIGHT AFTER SEES THE FINAL PIECES
-	anim.done();
-}
-
-function finishAnims() {
-	for (const anim of [...view.anims]) { stepAnim(anim, Infinity); }
-}
-
-// STARTS AN ANIMATION OF mesh FROM WHERE IT'S DRAWN NOW TO (x1, z1) AT HEIGHT y1 (THE BOARD'S, 0, IF NOT GIVEN), RESOLVES WHEN IT ENDS.
-// arc IS HOW MUCH HIGHER IT IS HALFWAY THERE, A PILE'S FLIGHT
-function animate(mesh, x1, z1, { hop = false, ease = false, fade = 0, delay = 0, duration, onEnd, y1 = 0, arc = 0 }) {
-	const x0 = mesh.position.x, y0 = mesh.position.y, z0 = mesh.position.z;
-	if (fade > 0) { setOpacity(mesh, 0); } // UNSEEN UNTIL ITS FIRST FRAME
-	return new Promise(function (done) {
-		view.anims.add({ mesh, x0, y0, z0, x1, y1, z1, hop, arc, ease, fade, delay, duration, onEnd, start: null, done });
-		requestRender();
-	});
-}
-
-// MOVES A MESH TO square & SLIDES (OR HOPS) IT THERE FROM WHERE IT'S DRAWN NOW. options: animate()'s, duration DEFAULTS TO A MOVE'S
-function slide(mesh, square, options) {
-	const x0 = mesh.position.x, z0 = mesh.position.z;
-	if (view.pieces.get(mesh.userData.square) === mesh) { view.pieces.delete(mesh.userData.square); } // NOT A PIECE THAT ALREADY SLID IN THERE
-	place(mesh, square);
-	const x1 = mesh.position.x, z1 = mesh.position.z;
-	const squares = Math.max(Math.abs(x1 - x0), Math.abs(z1 - z0)) / CELL_SIZE;
-	mesh.position.set(x0, 0, z0); // place() JUMPED IT, PUT IT BACK FOR THE FIRST FRAME
-	updateShadow(mesh);
-	return animate(mesh, x1, z1, { duration: slideDuration(squares, options.hop), ...options });
-}
-
-/**
- * @description Moves the piece on from to to, sliding (knights hop). Handles captures, castling's rook, en passant & promotion from
- * the pieces on the board, so call it before the next syncFromBoard(). Nothing on from: resolves at once
- * @param  {[string]} from ["e2"]
- * @param  {[string]} to ["e4"]
- * @param  {[string]} promotion ["q", "r", "b" or "n" when a pawn promotes, the pawn turns into it on arrival]
- * @return {[Promise<void>]} [resolves when every piece has stopped]
- */
-export function animateMove(from, to, promotion) {
-	if (!view || !view.pieces.has(from)) { return Promise.resolve(); }
-	finishAnims();
-	const mesh = view.pieces.get(from);
-	const { type, color } = mesh.userData;
-	const fileStep = fileOf(to) - fileOf(from);
-	let captured = view.pieces.get(to);
-	if (type === "p" && fileStep !== 0 && !captured) { captured = view.pieces.get(to[0] + from[1]); } // EN PASSANT: THE PAWN BESIDE IT
-	const knight = type === "n";
-	faceTravel(mesh, from, to); // TURNS AS IT STARTS SLIDING, LIKE 2D
-	const moves = [slide(mesh, to, { hop: knight, delay: slideDelay(knight), onEnd: function () {
-		if (promotion && type === "p") {
-			removePiece(mesh);
-			place(addPiece(promotion, color), to);
-		}
-	} })];
-	if (captured) { // OFF THE BOARD AT ONCE, setTaken() FLIES IT TO ITS PILE (ONE THAT NEVER GETS TOLD IS REMOVED BY THE NEXT syncFromBoard)
-		if (view.pieces.get(captured.userData.square) === captured) { view.pieces.delete(captured.userData.square); } // NOT THE PIECE THAT JUST SLID IN THERE
-		captured.userData.flight = { delay: slideDelay(knight), duration: slideDuration(Math.max(Math.abs(fileStep), Math.abs(rowOf(to) - rowOf(from))), knight) };
-		view.arriving.add(captured);
-	}
-	if (type === "k" && Math.abs(fileStep) === 2) { // CASTLING: THE ROOK JUMPS OVER THE KING
-		const rook = view.pieces.get((fileStep > 0 ? "h" : "a") + from[1]);
-		if (rook) { moves.push(slide(rook, (fileStep > 0 ? "f" : "d") + from[1], {})); }
-	}
-	return Promise.all(moves).then(() => {});
-}
-
-/**
- * @description Takes a move back, the reverse of animateMove (a replay's step back): the piece on to slides back to from without turning
- * (a knight hops backwards, setFacing has its facing from before the move), a promoted piece turns back into its pawn first, castling's
- * rook goes home & a taken piece is put back once the piece has landed (en passant: beside it). Call it before the next syncFromBoard()
- * @param  {[object]} move [{ from, to, promotion, piece, color, captured, flags } (gameplay/utils stepBetween), flags: chess.js's, k / q castles, e en passant]
- * @param  {[object]} facings [the facings of the position before the move, as setFacing takes them, for the piece that comes back]
- * @return {[Promise<void>]} [resolves when the piece has landed, nothing on to: at once]
- */
-export function animateUndo(move, facings) {
-	if (!view || !view.pieces.has(move.to)) { return Promise.resolve(); }
-	finishAnims();
-	let mesh = view.pieces.get(move.to);
-	if (move.promotion) { // BACK TO THE PAWN THAT PROMOTED
-		removePiece(mesh);
-		mesh = addPiece("p", move.color);
-		place(mesh, move.to);
-	}
-	const knight = mesh.userData.type === "n";
-	const square = move.flags?.includes("e") ? move.to[0] + move.from[1] : move.to; // WHERE THE TAKEN PIECE WAS: EN PASSANT, THE PAWN BESIDE IT
-	const takenColor = move.color === "w" ? "b" : "w";
-	const land = function (taken) {
-		place(taken, square); // NOT FADED IN: THIS RUNS INSIDE finishAnims() WHEN A JUMP CUTS THE SLIDE SHORT, A NEW ANIMATION WOULD OUTLIVE THE SYNC
-		if (facings) { setFacing(facings); }
-		requestRender();
-	};
-	let back = null; // THE PILE'S TOP PIECE OF THE TAKEN KIND, IT FLIES BACK TO ITS SQUARE
-	if (move.captured) {
-		for (const [key, m] of view.taken) {
-			if (m.userData.type === move.captured && m.userData.color === takenColor && (!back || slotOf(key) > slotOf(back.userData.spot))) { back = m; }
-		}
-	}
-	const restore = function () { // THE TAKEN PIECE COMES BACK ONCE IT HAS LANDED, ONE THE PILE HAD NONE OF
-		if (move.captured && !back) { land(addPiece(move.captured, takenColor)); }
-	};
-	const moves = [slide(mesh, move.from, { hop: knight, delay: slideDelay(knight), onEnd: restore })];
-	if (back) {
-		const tx = center(fileOf(square)), tz = center(rowOf(square));
-		const squares = Math.max(Math.abs(fileOf(move.to) - fileOf(move.from)), Math.abs(rowOf(move.to) - rowOf(move.from))); // THE UNDONE MOVE'S LENGTH, SO IT FLIES BACK IN THE TIME IT FLEW OUT
-		view.taken.delete(back.userData.spot);
-		back.userData.spot = undefined;
-		back.rotation.y = homeYaw(back.userData.type, back.userData.color);
-		const flying = back;
-		moves.push(animate(flying, tx, tz, { y1: 0, arc: CELL_SIZE * 1.5, delay: slideDelay(knight), duration: slideDuration(squares, knight), onEnd: function () { flying.userData.ground = undefined; land(flying); } }));
-	}
-	if (move.flags?.includes("k") || move.flags?.includes("q")) { // CASTLING: THE ROOK GOES HOME TOO
-		const kingSide = move.flags.includes("k");
-		const rook = view.pieces.get((kingSide ? "f" : "d") + move.from[1]);
-		if (rook) { moves.push(slide(rook, (kingSide ? "h" : "a") + move.from[1], {})); }
-	}
-	return Promise.all(moves).then(() => {});
 }
 
 /**
@@ -1556,56 +607,4 @@ export function setTaken(captures, playerColor) {
 	view.arriving.forEach(removePiece); // NOT TAKEN ANY MORE
 	view.arriving.clear();
 	requestRender();
-}
-
-/**
- * @description Restart & Rematch: every piece glides home to the new position in the 2D slide's time (RESTART_SLIDE_MS) on a slow start
- * & landing, pairing each square with a piece of the same color & type, closest first (a bishop stays on its square color).
- * Knights that move hop. A square with no piece left for it fades in, a piece with no square fades out where it is
- * @param  {[Chess]} chessInst [the new game, only its board() is read]
- * @return {[Promise<void>]} [resolves when every piece is home]
- */
-export function glideHome(chessInst) {
-	if (!view) { return Promise.resolve(); }
-	finishAnims();
-	const targets = chessInst.board().flat().filter(Boolean); // { square, type, color }
-	const meshes = [...view.pieces.values()];
-	const light = (square) => (fileOf(square) + rowOf(square)) % 2 === 0;
-	const pairs = [];
-	targets.forEach(function (p, t) {
-		meshes.forEach(function (mesh, m) {
-			if (mesh.userData.type !== p.type || mesh.userData.color !== p.color) { return; }
-			const from = mesh.userData.square;
-			let distance = Math.hypot(fileOf(p.square) - fileOf(from), rowOf(p.square) - rowOf(from));
-			if (p.type === "b" && light(from) !== light(p.square)) { distance += 100; } // A BISHOP STAYS ON ITS SQUARE COLOR
-			pairs.push({ t, m, distance });
-		});
-	});
-	pairs.sort((a, b) => a.distance - b.distance); // CLOSEST FIRST
-	const target = new Map(); // MESH INDEX -> TARGET INDEX
-	const filled = new Set(); // TARGET INDEXES WITH A PIECE
-	for (const { t, m } of pairs) {
-		if (target.has(m) || filled.has(t)) { continue; }
-		target.set(m, t);
-		filled.add(t);
-	}
-	view.pieces.clear();
-	const glides = [];
-	meshes.forEach(function (mesh, m) {
-		if (!target.has(m)) { // NO SQUARE: FADES OUT WHERE IT IS
-			const { x, z } = mesh.position;
-			glides.push(animate(mesh, x, z, { fade: -1, duration: RESTART_SLIDE_MS, onEnd: () => removePiece(mesh) }));
-			return;
-		}
-		const square = targets[target.get(m)].square;
-		const moves = square !== mesh.userData.square;
-		glides.push(slide(mesh, square, { hop: moves && mesh.userData.type === "n", ease: true, duration: RESTART_SLIDE_MS }));
-	});
-	targets.forEach(function (p, t) {
-		if (filled.has(t)) { return; }
-		const mesh = addPiece(p.type, p.color); // NO PIECE LEFT FOR IT: FADES IN ON ITS SQUARE
-		place(mesh, p.square);
-		glides.push(animate(mesh, mesh.position.x, mesh.position.z, { fade: 1, duration: RESTART_SLIDE_MS }));
-	});
-	return Promise.all(glides).then(() => {});
 }
