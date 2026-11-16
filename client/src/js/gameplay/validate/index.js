@@ -22,12 +22,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 				player_id_2: "CHESS_AI",
 			})
 		};
-		try {
-
-			return await request(`${gameUrl}/game`, options)
-		} catch {
-			return
-		}
+		return request(`${gameUrl}/game`, options);
 	} else if (move) { // MOVE UPDATE (PUT /game/:gameId)
 		const options = {
 			method: "PUT",
@@ -37,21 +32,12 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 				promotion
 			})
 		};
-		try {
-
-			return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}`, options)
-		} catch {
-			return
-		}
+		return request(`${gameUrl}/game/${encodeURIComponent(gameId)}`, options);
 	} else { // GET GAME (GET /game/:gameId)
 		const options = {
 			method: "GET"
 		};
-		try {
-			return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}?player_id=${encodeURIComponent(_id)}`, options)
-		} catch {
-			return;
-		}
+		return request(`${gameUrl}/game/${encodeURIComponent(gameId)}?player_id=${encodeURIComponent(_id)}`, options);
 	}
 
 }
@@ -78,11 +64,7 @@ export async function newAiGame(gameUrl, gameId, startColor, aiLevel, replaceCur
 			start_fen: startFen
 		})
 	};
-	try {
-		return await request(`${gameUrl}/game`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game`, options);
 }
 
 /**
@@ -92,11 +74,7 @@ export async function getUserGameData(gameUrl, userId) {
 	const options = {
 		method: "GET"
 	};
-	try {
-		return await request(`${gameUrl}/user/${encodeURIComponent(userId)}`, options)
-	} catch {
-		return;
-	}
+	return request(`${gameUrl}/user/${encodeURIComponent(userId)}`, options);
 }
 
 /**
@@ -107,11 +85,7 @@ export async function getPgn(gameUrl, gameId) {
 	const options = {
 		method: "GET"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/pgn`, options)
-	} catch {
-		return;
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/pgn`, options);
 }
 
 /**
@@ -122,11 +96,7 @@ export async function getRatings(gameUrl, gameId) {
 	const options = {
 		method: "GET"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/ratings`, options)
-	} catch {
-		return;
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/ratings`, options);
 }
 
 /**
@@ -152,11 +122,7 @@ export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent
 			days_per_move: daysPerMove
 		})
 	};
-	try {
-		return await request(`${gameUrl}/invite`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/invite`, options);
 }
 
 /**
@@ -174,11 +140,7 @@ export async function createChallenge(gameUrl, replaceCurrent, startColor, start
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ replace_current: replaceCurrent, start_color: startColor, start_fen: startFen, takebacks, days_per_move: daysPerMove })
 	};
-	try {
-		return await request(`${gameUrl}/challenge`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/challenge`, options);
 }
 
 /**
@@ -186,11 +148,7 @@ export async function createChallenge(gameUrl, replaceCurrent, startColor, start
  * @return {[object]} response [{ status, open, name, player_color, start_params } | { status: 500, message: "Game data not found" }]
  */
 export async function getChallenge(gameUrl, gameId) {
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/challenge`, { method: "GET" })
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/challenge`, { method: "GET" });
 }
 
 /**
@@ -204,11 +162,7 @@ export async function joinChallenge(gameUrl, gameId, replaceCurrent) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ replace_current: replaceCurrent })
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/join`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/join`, options);
 }
 
 /**
@@ -222,11 +176,7 @@ export async function acceptInvite(gameUrl, gameId, replaceCurrent) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ replace_current: replaceCurrent })
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/accept`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/accept`, options);
 }
 
 /**
@@ -237,11 +187,7 @@ export async function declineInvite(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/decline`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/decline`, options);
 }
 
 /**
@@ -252,11 +198,7 @@ export async function restartGame(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/restart`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/restart`, options);
 }
 
 /**
@@ -267,11 +209,7 @@ export async function forfeitGame(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/forfeit`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/forfeit`, options);
 }
 
 /**
@@ -282,11 +220,7 @@ export async function offerDraw(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw`, options);
 }
 
 /**
@@ -297,11 +231,7 @@ export async function declineDraw(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw/decline`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/draw/decline`, options);
 }
 
 /**
@@ -312,11 +242,7 @@ export async function rematchGame(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch`, options);
 }
 
 /**
@@ -327,11 +253,7 @@ export async function cancelRematch(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch/cancel`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/rematch/cancel`, options);
 }
 
 /**
@@ -342,11 +264,7 @@ export async function aiMove(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/ai-move`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/ai-move`, options);
 }
 
 /**
@@ -357,11 +275,7 @@ export async function getAnalysis(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/analysis`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/analysis`, options);
 }
 
 /**
@@ -372,11 +286,7 @@ export async function takeback(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/takeback`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/takeback`, options);
 }
 
 /**
@@ -387,11 +297,7 @@ export async function declineTakeback(gameUrl, gameId) {
 	const options = {
 		method: "POST"
 	};
-	try {
-		return await request(`${gameUrl}/game/${encodeURIComponent(gameId)}/takeback/decline`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/game/${encodeURIComponent(gameId)}/takeback/decline`, options);
 }
 
 /**
@@ -402,11 +308,7 @@ export async function getLevels(gameUrl) {
 	const options = {
 		method: "GET"
 	};
-	try {
-		return await request(`${gameUrl}/levels`, options)
-	} catch {
-		return
-	}
+	return request(`${gameUrl}/levels`, options);
 }
 
 /**
@@ -421,11 +323,7 @@ export async function saveSettings(userUrl, settings) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(settings)
 	};
-	try {
-		return await request(`${userUrl}/settings`, options)
-	} catch {
-		return
-	}
+	return request(`${userUrl}/settings`, options);
 }
 
 /**
@@ -440,11 +338,7 @@ export async function saveUsername(userUrl, username) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ username })
 	};
-	try {
-		return await request(`${userUrl}/username`, options)
-	} catch {
-		return
-	}
+	return request(`${userUrl}/username`, options);
 }
 
 /**
@@ -454,11 +348,7 @@ export async function saveUsername(userUrl, username) {
  * @return {[object]} response [{ status: 200, usernames } | { status: 429, message }]
  */
 export async function searchPlayers(userUrl, prefix) {
-	try {
-		return await request(`${userUrl}/search?q=${encodeURIComponent(prefix)}`, { method: "GET" })
-	} catch {
-		return
-	}
+	return request(`${userUrl}/search?q=${encodeURIComponent(prefix)}`, { method: "GET" });
 }
 
 /**
@@ -467,11 +357,7 @@ export async function searchPlayers(userUrl, prefix) {
  * @return {[object]} response [{ status: 200, friends: [{ username, online }], sent: [{ username }], received: [{ username }] }]
  */
 export async function getFriends(userUrl) {
-	try {
-		return await request(`${userUrl}/friends`, { method: "GET" })
-	} catch {
-		return
-	}
+	return request(`${userUrl}/friends`, { method: "GET" });
 }
 
 /**
@@ -487,11 +373,7 @@ export async function friendAction(userUrl, action, username) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ username })
 	};
-	try {
-		return await request(`${userUrl}/friends/${action}`, options)
-	} catch {
-		return
-	}
+	return request(`${userUrl}/friends/${action}`, options);
 }
 
 /**
@@ -503,11 +385,7 @@ export async function deleteUserData(userUrl) {
 	const options = {
 		method: "DELETE"
 	};
-	try {
-		return await request(userUrl, options)
-	} catch {
-		return
-	}
+	return request(userUrl, options);
 }
 
 /**
@@ -515,12 +393,16 @@ export async function deleteUserData(userUrl) {
  * so a 401 means the access token expired mid game: re-up the session once & try again
  */
 async function request(url, options) {
-	let res = await fetch(url, options);
-	if (res.status == 401) {
-		const refresh = await fetch("/api/auth/refresh", { method: "POST" });
-		if (refresh.ok) { res = await fetch(url, options); }
+	try {
+		let res = await fetch(url, options);
+		if (res.status == 401) {
+			const refresh = await fetch("/api/auth/refresh", { method: "POST" });
+			if (refresh.ok) { res = await fetch(url, options); }
+		}
+		const body = await res.json();
+		if (res.status >= 500) { body.serverError = true; } // THE SERVER BROKE. A REFUSED MOVE IS AN HTTP 4XX WITH status: 500 IN THE BODY (chessController.js)
+		return body;
+	} catch {
+		return; // NO ANSWER (OFFLINE, OR NOT JSON): EVERY CALLER GETS undefined
 	}
-	const body = await res.json();
-	if (res.status >= 500) { body.serverError = true; } // THE SERVER BROKE. A REFUSED MOVE IS AN HTTP 4XX WITH status: 500 IN THE BODY (chessController.js)
-	return body;
 }

@@ -2,7 +2,8 @@
 const { game, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE
 const { validate, takeback, declineTakeback, offerDraw, declineDraw } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { getRestartPieces } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
-const { handleRemoteMenuEnter, clearTouch } = require("../input/index.js"); // REMOTE-ONLY MODE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
+const { clearTouch } = require("../input/index.js"); // REMOTE-ONLY MODE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
+const { handleRemoteMenuEnter } = require("../input/keys.js"); // REMOTE-ONLY MODE: SELECTS A MENU BUTTON
 const { revertUnfinishedMove } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD, TAKES BACK A MOVE THAT ISN'T FINISHED
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR

@@ -14,8 +14,10 @@
 const { game } = require("../state/index.js"); // THE GAME'S SHARED STATE
 const { getPgn } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
-const { clearRemoteSelection, clearTouch } = require("../input/index.js"); // REMOTE-ONLY MODE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
-const { checkOpponentMove, refreshData, revertUnfinishedMove } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD, TAKES BACK A MOVE THAT ISN'T FINISHED
+const { clearTouch } = require("../input/index.js"); // REMOTE-ONLY MODE: SELECTS A MENU BUTTON, LETS GO OF A TOUCH
+const { clearRemoteSelection } = require("../input/keys.js"); // NOT VIA input/index.js: A RE-EXPORT IS UNSET WHILE keys.js LOADS (THE CYCLE GOES THROUGH HERE)
+const { refreshData, revertUnfinishedMove } = require("../moves/index.js"); // RESETS THE BOARD, TAKES BACK A MOVE THAT ISN'T FINISHED
+const { checkOpponentMove } = require("../moves/opponent.js"); // A FRIEND'S MOVE FROM THE SOCKET. NOT VIA moves/index.js: ITS RE-EXPORT IS UNSET WHILE opponent.js LOADS (THE CYCLE GOES THROUGH HERE)
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { showHint } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
 const { createNav, placeBefore } = require("../../pages/utils/nav.js"); // OPENS & CLOSES THE MENU, LIKE THE OTHER PAGES
