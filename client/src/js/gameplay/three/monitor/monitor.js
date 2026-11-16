@@ -111,7 +111,10 @@ export function createMonitor(deps) {
 	// KEEPS EVERYTHING CONSISTENT AFTER A CHANGE, THEN REDRAWS
 	function sync() {
 		if (data) {
-			if (monitor.state === "idle") { monitor.channel = idleChannel(data, prefs); }
+			if (monitor.state === "idle") { // NO DEFAULT SET: THE DESK KEEPS THE LAST TAB (THE GAME'S OWN DEFAULT AT THE START, OR WHEN THAT TAB GOES AWAY)
+				const keep = !prefs.defaultChannel && !(data.offline && !data.over) && available(data, prefs).includes(monitor.channel);
+				if (!keep) { monitor.channel = idleChannel(data, prefs); }
+			}
 			else if (!available(data, prefs).includes(monitor.channel)) { switchTo("setup"); } // THE SHOWING CHANNEL WENT AWAY
 			if (monitor.state !== "idle" && monitor.channel === "actions") {
 				const ui = uis.actions || {};

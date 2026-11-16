@@ -139,8 +139,24 @@ describe("monitor", () => {
 		assert.equal(m.state, "leaving");
 		m.left();
 		assert.equal(m.state, "idle");
-		assert.equal(m.channel, "face");
-		assert.deepEqual(m.watched, [true, false]);
+		assert.equal(m.channel, "eval"); // NO DEFAULT SET: THE DESK KEEPS THE LAST TAB
+		assert.deepEqual(m.watched, [true]);
+	});
+	test("zooming out with a default set goes back to the default, without one keeps the last tab", () => {
+		const kept = make();
+		kept.update(base);
+		assert.equal(kept.channel, "face"); // GAME START: THE GAME'S OWN DEFAULT
+		kept.enter(); kept.arrived();
+		kept.handlers.tab("moves");
+		kept.leave(); kept.left();
+		assert.equal(kept.channel, "moves");
+		const back = make({ loadPrefs: () => ({ ...defaults(), defaultChannel: "opponent" }) });
+		back.update(base);
+		assert.equal(back.channel, "opponent");
+		back.enter(); back.arrived();
+		back.handlers.tab("moves");
+		back.leave(); back.left();
+		assert.equal(back.channel, "opponent");
 	});
 	test("reduced motion cuts both ways", () => {
 		const m = make({ reduce: () => true });
