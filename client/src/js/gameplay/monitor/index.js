@@ -21,8 +21,9 @@ const { watchEval, evalState, hideEvalBar } = require("../analysis/index.js"); /
 const { moveListState } = require("../movelist/index.js"); // THE MOVES CHANNEL'S ROWS & OPENING
 const { menuItems } = require("../../pages/utils/nav.js"); // A KEY THAT OPENS THE MENU FOCUSES ITS FIRST ITEM
 const { isBusy } = require("../../pages/utils/menuItem.js"); // A BUSY ITEM (.loading) CAN'T BE PRESSED ON THE MONITOR
+const { materialDiff } = require("../utils/index.js"); // THE MATERIAL LEAD SHOWN ON THE EVAL CHANNEL
 const { hideKinds } = require("../status/index.js"); // THE 3D MONITOR SHOWS A LOST CONNECTION, THE PAGE'S MESSAGE HIDES
-const { actionsFrom, resultText } = require("./data.js"); // THE PURE PART (client/test/monitorData.test.js)
+const { actionsFrom, resultText, materialText } = require("./data.js"); // THE PURE PART (client/test/monitorData.test.js)
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES): AT THE MONITOR IT ZOOMS OUT FIRST
 const optMonitorBtn = document.getElementById("optMonitor"); // MENU: MONITOR, ZOOMS IN
 const resultDisplay = document.getElementById("resultDisplay"); // MENU TITLE ("Chess" OR THE RESULT)
@@ -55,7 +56,7 @@ let said = []; // THE TEXTS WAITING TO BE WRITTEN TO THE LIVE REGION (announce)
 /* ---------------------------------------------------------------- */
 /**
  * @description What the monitor's channels show (the shared data shape, up to actions). renderer/index.js sends it when it changed
- * @return {[object]} { ai, over, yourTurn, offline, result, moves, opening, eval, actions }
+ * @return {[object]} { ai, over, yourTurn, offline, result, material, moves, opening, eval, actions }
  */
 function monitorData() {
 	const over = Boolean(game.gameOver);
@@ -67,6 +68,7 @@ function monitorData() {
 		yourTurn: chessInst.turn() === game.playerColor && !over,
 		offline: Boolean(game.offline),
 		result: over ? resultText(resultDisplay.textContent.trim(), resultReason.textContent.trim()) : "", // TEXT ONLY (innerText / innerHTML OF PLAIN WORDS)
+		material: materialText(materialDiff(chessInst.board())),
 		moves: rows,
 		opening,
 		eval: evalState(),
@@ -216,6 +218,7 @@ export function startMonitor() {
 		},
 		announce,
 		onChange({ ready: up, state }) {
+			if (up && !ready) { game.refresh = true; } // THE ROOM IS IN: THE NEXT FRAME SWAPS A PROMOTION'S FLAT PICKER FOR THE CARDS (renderer/index.js drawBoard)
 			ready = Boolean(up);
 			hideKinds(ready ? ["connection"] : []); // ONLY IN THE 3D ROOM: ON 2D THE MESSAGE IS THE ONLY SIGN
 			syncFocus(ready, state);

@@ -221,6 +221,17 @@ export function moveListState() {
 }
 
 /* ---------------------------------------------------------------- */
+// History
+/* ---------------------------------------------------------------- */
+/**
+ * @description The game's moves & start position, the 3D room's captured pieces are worked out from them
+ * @return {[object]} { moves, startFen } [moves: a copy of the SAN moves, startFen: a set position's FEN or null]
+ */
+export function moveHistory() {
+	return { moves: [...moves], startFen };
+}
+
+/* ---------------------------------------------------------------- */
 // Place
 /* ---------------------------------------------------------------- */
 /**

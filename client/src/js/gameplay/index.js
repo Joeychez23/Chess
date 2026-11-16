@@ -21,9 +21,11 @@ const { momentFor, faceFor } = require("./bots/index.js"); // WHAT THE AI'S BOT 
 const { sayLine } = require("./bots/say.js"); // & SAYS IT BESIDE THE BOARD
 const { imageProgress } = require("./images/index.js"); // HOW MANY OF THE GAME'S IMAGES HAVE LOADED (0 - 1)
 const { handleWindowResize } = require("./layout/index.js"); // REDRAWS THE GAME WHEN THE WINDOW IS RESIZED
-const { handleInitialData, setTakenPieceArr } = require("./draw/index.js"); // DRAWS EACH FRAME (drawScreen), THE TAKEN PIECE TRAYS
+const { handleInitialData } = require("./draw/index.js"); // DRAWS EACH FRAME (drawScreen)
+const { setTakenPieceArr } = require("./draw/taken.js"); // THE TAKEN PIECE TRAYS
 const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE PIECES SLIDING HOME AFTER RESTART & REMATCH
-const { handleKeyPress, handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & REMOTE-ONLY MODE HANDLERS (ADDED IN startGame)
+const { handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & REMOTE-ONLY MODE HANDLERS (ADDED IN startGame)
+const { handleKeyPress, handleCardKey } = require("./input/keys.js"); // THE KEYBOARD & REMOTE-ONLY MODE
 const { setInitialData, loadReadOnly, startSlide } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER (TO PLAY, OR READ-ONLY)
 const { listenersFor } = require("./input/modes.js"); // WHICH LISTENERS GO ON: THE MOUSE, REMOTE-ONLY MODE OR THE READ-ONLY BOARD
 const { addMenuListeners, handleResume, handleSound, loadSound, loadView, showView, handleView, handleResetView, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers, showReadOnlyMenu } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
@@ -154,6 +156,7 @@ async function startGame(view) {
 	const listeners = listenersFor({ readOnly: game.readOnly, remoteOnly: game.REMOTE_ONLY_CONDITIONAL, override: OVERRIDE_REMOTE_ONLY }); // gameplay/input/modes.js
 	window.addEventListener("resize", handleWindowResize);
 	if (listeners.remoteKeys) { window.addEventListener("keydown", handleKeyPress) }
+	if (!game.readOnly) { window.addEventListener("keydown", handleCardKey, true); } // THE ARROWS & ENTER PICK A PROMOTION CARD, ON EVERY DEVICE. CAPTURE, BEFORE THE PAGE'S NAV & handleKeyPress (WHICH CALLS IT TOO, BUT NEVER SEES A KEY IT HANDLED). NO removeEventListener: NONE OF THE GAME'S WINDOW LISTENERS HAVE ONE
 	if (listeners.pointer) {
 		addBoardListener("click", handleCanvasClick);
 		addBoardListener("mousemove", handleMouseMove);

@@ -24,6 +24,8 @@ const PAINTING = /^(painting\d|earth)$/; // THE FRAMES' CANVASES & THE GLOBE: EA
 const LIGHT_GAIN = { books: 4 }; // THE BOOKS BAKE AT A FIFTH OF WHITE SO THEY DON'T FLOOD THE ROOM WITH BOUNCE LIGHT (build_library.py HAS THE SAME TABLE)
 const SCREEN = "screen"; // THE MONITOR'S GLASS, screen.js DRAWS ON IT
 const FIRE = "fire"; // THE FIREPLACE'S & CANDLES' FLAMES, fire.js MOVES THEM
+const CARD = "card"; // THE BLANK PROMOTION CARD: A TEMPLATE THE GAME CLONES & DRAWS THE FACES ON
+export const OWN_MATERIALS = ["screen", "fire", "card", ...CLOCK_NAMES]; // THE OBJECTS THAT KEEP THEIR OWN MATERIALS: screen.js, fire.js, the cards & clock.js
 const LIGHT_TEXEL = "vec4 lightMapTexel = texture2D( lightMap, vLightMapUv );"; // WHERE three.js's BASIC MATERIAL READS ITS LIGHT MAP
 
 /* ---------------------------------------------------------------- */
@@ -68,7 +70,7 @@ async function loadPart({ model, light, fire, details }, anisotropy, glow) {
 		if (fireMap) { addFirelight(materials[name], fireMap, glow); }
 	});
 	gltf.scene.traverse(function (o) {
-		if (!o.isMesh || o.name === SCREEN || o.name === FIRE || CLOCK_NAMES.includes(o.name)) { return; } // THEIR OWN MATERIALS: screen.js, fire.js & clock.js
+		if (!o.isMesh || OWN_MATERIALS.includes(o.name) || OWN_MATERIALS.includes(o.parent.name)) { return; } // THE PARENT: THREE.JS MAKES A GROUP OF AN OBJECT WITH TWO MATERIALS (THE CARD'S cardBack & cardFace MESHES)
 		if (!materials[o.material.name]) { throw new Error(`${model}: no detail texture for material "${o.material.name}"`); }
 		o.material = materials[o.material.name];
 	});
@@ -80,7 +82,7 @@ async function loadPart({ model, light, fire, details }, anisotropy, glow) {
  * @param  {[object]} options { phone (the desk & monitor only), anisotropy (for the detail textures) }
  * @return {[Promise<object>]} { group (add it to the scene, turn it with turnRoom), screen (the monitor's glass mesh), fire (for fire.js's
  * createFire: { mesh (the flames), glow (the uniform the room's firelight is multiplied by, 1 is the baked fire) }, null on a phone), clock (for
- * clock.js's createClock: { hour, minute, pendulum }, null on a phone) }
+ * clock.js's createClock: { hour, minute, pendulum }, null on a phone), card (the blank promotion card, hidden, to clone: a Group of two meshes, cardBack & cardFace; null for a library.glb without one) }
  */
 export async function createRoom({ phone, anisotropy }) {
 	const timeout = new Promise((resolve, reject) => setTimeout(reject, TIMEOUT_MS, new Error("timed out")));
@@ -92,9 +94,11 @@ export async function createRoom({ phone, anisotropy }) {
 	if (!screen) { throw new Error("library.glb has no screen"); }
 	const flames = group.getObjectByName(FIRE);
 	if (!phone && !flames) { throw new Error("library-room.glb has no fire"); }
+	const template = group.getObjectByName(CARD);
+	if (template) { template.visible = false; } // ONLY THE TEMPLATE: THE GAME CLONES IT
 	const clock = findClock(group);
 	if (!phone && !clock) { throw new Error("library-room.glb has no clock"); }
-	return { group, screen, fire: flames ? { mesh: flames, glow } : null, clock };
+	return { group, screen, fire: flames ? { mesh: flames, glow } : null, clock, card: group.getObjectByName(CARD) || null };
 }
 
 /**

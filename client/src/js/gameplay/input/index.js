@@ -4,181 +4,30 @@
  *	The board's controls: the mouse (hover, click to pick up & put down, drag & drop), touch on phones (tap & drag, mapped onto
  *	the mouse handlers) & remote-only mode (arrow keys or W, A, S & D move a select box, enter clicks, right from the last column reaches the menu).
  *	startGame (gameplay/index.js) adds their listeners to both boards. The only thing that differs on the 3D board is the square under
- *	the pointer (pointerTile), camera gestures there never reach the pieces
+ *	the pointer (pointerTile), camera gestures there never reach the pieces. The keyboard, remote-only mode & the promotion keys are in keys.js
  *
  */
 
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, canvas, validateState, OVERRIDE_REMOTE_ONLY } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, REMOTE-ONLY MODE FOR TESTING
+const { game, canvas, validateState } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { tileToSquare, squareToTile, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION & BACK, ADDS OR REMOVES A MARK OR ARROW
 const { currentView, VIEWS, squareUnder3D, isCameraGesture } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { openMenu, closeMenu } = require("../menu/index.js"); // REMOTE-ONLY MODE OPENS THE MENU, A CLICK ON THE BOARD CLOSES IT
-const { menuItems, itemForKey } = require("../../pages/utils/nav.js"); // THE MENU'S ITEMS, READ FROM THE PAGE
-const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
+const { closeMenu } = require("../menu/index.js"); // A CLICK ON THE BOARD CLOSES THE MENU
+const { CARD_ORDER } = require("../three/cardLayout.js"); // THE PROMOTION CARDS' ORDER & HOW THE ARROWS WALK THEM (NO three.js IN IT: THE 3D CHUNK STAYS LAZY)
+import { choosePromotion, remoteNavBox } from "./keys.js";
 
-const REMOTE_SKIPS = ["optPgn", "optTypeMove"]; // A REMOTE-ONLY DEVICE HAS NOWHERE TO SAVE A FILE & NO KEYS TO TYPE A MOVE
-const LETTER_CODES = { 87: 38, 65: 37, 83: 40, 68: 39 }; // W, A, S & D ARE THE ARROWS (UP, LEFT, DOWN, RIGHT)
+export const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
 
 let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
 let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
-let remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false } // REMOTE-ONLY MODE SELECT BOX: SQUARE (x, y), ON THE MENU BUTTON (menuHover) & THE SELECTED MENU BUTTON
 const OFF_3D_BOARD = { x: -100, y: 0 }; // OFF THE 3D BOARD: A COLUMN NO TILE OR TRAY IS IN, ROW INSIDE SO handleMouseMove STILL CLEARS THE HOVER
 const touchDragThreshold = 10; // PX A FINGER MUST MOVE BEFORE A TAP BECOMES A DRAG
 let audioUnlocked = false; // THE MOVE SOUND WAS UNLOCKED BY A TAP (IOS)
 let annotationStart = null; // SQUARE THE RIGHT BUTTON WENT DOWN ON, null WHEN IT'S UP OR WENT DOWN OFF THE BOARD
-
-/* ---------------------------------------------------------------- */
-// Handle Remote Nav Button Hover
-/* ---------------------------------------------------------------- */
-/**
- * @description Changes current button effect when keydown is handled. Remote-only mode: moves the menu highlight from the
- * selected button to btn
- * @param  {[object]} btn [menu button element]
- */
-function handleRemoteNavBtnHover(btn) {
-	if (remoteNavBox.menuBtn) {
-		remoteNavBox.menuBtn.style.transition = "ease-out 375ms";
-		remoteNavBox.menuBtn.style.backgroundColor = "#CD853F";
-	}
-	remoteNavBox.menuBtn = btn;
-	remoteNavBox.menuBtn.style.transition = "ease-in 375ms"
-	remoteNavBox.menuBtn.style.backgroundColor = "burlywood"
-}
-
-/**
- * @description The items remote-only mode can reach: the menu's own list (menuItems), without the ones it has no use for
- * @return {[array]} items [in the order on screen]
- */
-function remoteItems() {
-	return menuItems().filter((item) => !REMOTE_SKIPS.includes(item.id));
-}
-
-/**
- * @description Remote-only mode: up, down, to the top or bottom of the menu, the same moves as a keyboard (itemForKey)
- * @param  {[string]} key [ArrowUp, ArrowDown, Home or End]
- */
-function moveRemoteSelection(key) {
-	const next = itemForKey(remoteItems(), remoteNavBox.menuBtn, key);
-	if (next) { handleRemoteNavBtnHover(next); }
-}
-
-/**
- * @description Remote-only mode: presses the selected item with the listener a click would reach. It stays selected until the menu closes, so a second press can
- * answer "Are you sure?" & Cancel can be reached from Rematch. An item that went away (Cancel after it's pressed) moves the selection instead
- */
-function pressRemoteSelection() {
-	const items = remoteItems();
-	if (items.includes(remoteNavBox.menuBtn)) { remoteNavBox.menuBtn.click(); }
-	else if (items.length) { handleRemoteNavBtnHover(items[0]); }
-}
-
-/* ---------------------------------------------------------------- */
-// Handle Remote Menu Enter
-/* ---------------------------------------------------------------- */
-/**
- * @description Handles menu button style when clicked with remote select box. Remote-only mode: the menu opened, so btn
- * becomes the selected (highlighted) menu button & the menu button goes back to its normal color
- * @param  {[object]} btn [menu button element]
- */
-export function handleRemoteMenuEnter(btn) {
-	if (game.REMOTE_ONLY_CONDITIONAL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
-	if (game.REMOTE_ONLY_CONDITIONAL || OVERRIDE_REMOTE_ONLY) { remoteNavBox.menuHover = false; handleRemoteNavBtnHover(btn); }
-}
-
-/**
- * @description Remote-only mode: the menu closed, the select box goes back to the top right
- */
-export function clearRemoteSelection() {
-	if (!remoteNavBox.menuBtn) { return; }
-	remoteNavBox.menuBtn.style.backgroundColor = "#CD853F";
-	remoteNavBox = { x: 7, y: 0, menuHover: false, menuBtn: false };
-	game.keyboardTile = null; // NO RING UNTIL THE NEXT KEY
-}
-
-/* ---------------------------------------------------------------- */
-// Handle Keydown
-/* ---------------------------------------------------------------- */
-/**
- * @description Handles Keydown events. Remote-only mode: the arrows move the select box (remoteNavBox) around the board, right
- * from the last column moves it onto the menu button & up, down, home & end move between menu buttons. Enter clicks the square
- * (handleCanvasClick), opens the menu or presses the selected menu button
- */
-export async function handleKeyPress(e) {
-	e.preventDefault();
-	e.stopPropagation();
-	if (!e?.repeat && e?.keyCode) { // HOLDING A KEY DOESN'T REPEAT
-		const code = LETTER_CODES[e.keyCode] || e.keyCode;
-		/**
-		 * @description Hovers the player's piece under the select box (the remote's version of handleMouseMove)
-		 */
-		function checkBoxOverPiece() {
-			for (let i = 0; i < game.tiles.length; i++) {
-				let tile = game.tiles[i];
-				tile.isHovering = false;
-				tile.isHovering = (!tile.isSliding) && (remoteNavBox.x == tile.originX && remoteNavBox.y == tile.originY) && ((tile.color == game.playerColor || !tile.color)) && (!game.opposingMove && !game.menuToggled)
-			}
-		}
-
-		if (code == 37) { // LEFT
-			if (remoteNavBox.x > 0 && !game.menuToggled) {
-				if (remoteNavBox.menuHover) {
-					if (game.REMOTE_ONLY_CONDITIONAL) { optBtn.style.transition = "ease-out 375ms"; optBtn.style.color = "burlywood"; }
-					remoteNavBox.menuHover = false;
-				} else {
-					remoteNavBox.x -= 1;
-				}
-				game.refresh = true;
-			}
-			else { game.refresh = true; }
-			checkBoxOverPiece();
-		}
-
-		if (code == 39) { // RIGHT
-			if (remoteNavBox.x < 7 && !game.menuToggled) {
-				remoteNavBox.x += 1;
-				game.refresh = true;
-			}
-			else if (remoteNavBox.x == 7 && !game.menuToggled) { // PAST THE LAST COLUMN: SELECT THE MENU BUTTON
-				remoteNavBox.y = 0;
-				remoteNavBox.menuHover = true;
-				if (game.REMOTE_ONLY_CONDITIONAL) { optBtn.style.transition = "ease-in 375ms"; optBtn.style.color = "white"; }
-			}
-
-			else { game.refresh = true; }
-			checkBoxOverPiece();
-		}
-
-		if (code == 38) { // UP
-			if (remoteNavBox.y > 0 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y -= 1; game.refresh = true; }
-			else if (game.menuToggled) {
-				moveRemoteSelection("ArrowUp");
-			}
-			else { game.refresh = true; }
-			checkBoxOverPiece();
-		}
-		if (code == 40) { // DOWN
-			if (remoteNavBox.y < 7 && (!remoteNavBox.menuHover && !game.menuToggled)) { remoteNavBox.y += 1; game.refresh = true; }
-			else if (game.menuToggled) {
-				moveRemoteSelection("ArrowDown");
-			}
-			else { game.refresh = true; }
-			checkBoxOverPiece();
-		}
-		if (code == 13) { // ENTER
-			if (!remoteNavBox.menuHover && !game.menuToggled) { checkBoxOverPiece(); handleCanvasClick(e); } // CLICK THE SELECTED SQUARE
-			else if (remoteNavBox.menuHover && !game.menuToggled) { openMenu(); handleRemoteMenuEnter(remoteItems()[0]); } // OPEN THE MENU ON THE TOP ITEM
-			else if (game.menuToggled) { pressRemoteSelection(); }
-		}
-		if (game.menuToggled && code == 36) { moveRemoteSelection("Home"); } // HOME
-		if (game.menuToggled && code == 35) { moveRemoteSelection("End"); } // END
-		game.keyboardTile = remoteNavBox.menuHover ? null : { x: remoteNavBox.x, y: remoteNavBox.y }; // THE 3D BOARD RINGS THE SELECTED SQUARE
-		game.refresh = true
-	}
-}
 
 /* ---------------------------------------------------------------- */
 // Get Canvas Point
@@ -215,7 +64,7 @@ function canvasTile(e) { // THE SCREEN COLUMN & ROW AT THE POINTER ON THE 2D CAN
 }
 
 function pickerTile(e) { // 3D: THE CANVAS TILE WHEN IT'S ON A PIECE OF THE OPEN PROMOTION PICKER, null OTHERWISE
-	if (!game.currPromotion) { return null; }
+	if (!game.currPromotion || game.cards3D) { return null; } // THE ROOM'S CARDS ARE THE PICKER, NO FLAT ONE TO FIND
 	const tile = canvasTile(e);
 	const picker = (game.playerColor == 'w' ? game.bTakenPieces : game.wTakenPieces) || [];
 	return picker.some((p) => p.x === tile.x && p.y === tile.y) ? tile : null;
@@ -250,6 +99,10 @@ export async function handleCanvasClick(e) {
 		return;
 	}
 	if (e.clientX !== undefined && isCameraGesture()) { return; } // THE CLICK ENDING A CAMERA GESTURE (REMOTE-ONLY MODE'S ENTER HAS NO clientX)
+	if (game.currPromotion && game.cards3D) { // THE ROOM'S CARDS ARE THE PICKER: A POINTER CLICK IS THEIRS (three/index.js), THE BOARD & THE FLAT PICKER'S TILES ARE NOT TOUCHED
+		if (e.clientX === undefined && game.cardFocus !== null) { return choosePromotion(CARD_ORDER[game.cardFocus]); }
+		return;
+	}
 	setPointerTile(e); // SCREEN COLUMN & ROW CLICKED
 
 	if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (REMOTE-ONLY MODE) ENTER HAS NO POINTER POSITION
@@ -264,12 +117,7 @@ export async function handleCanvasClick(e) {
 		for (let i = 0; i < takenPieces.length; i++) {
 			let takenPiece = takenPieces[i];
 			if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && takenPiece.type && takenPiece.color == game.playerColor) { // CLICKED THIS PIECE IN THE PICKER
-				const promotion = takenPiece.type;
-				try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
-					game.moveObj.promotion = promotion;
-					game.currPromotion = false;
-					await validateMove();
-				} catch (err) { console.log(err); game.opposingMove = false; return refreshData(game.revert); }
+				await choosePromotion(takenPiece.type);
 			}
 		}
 	} else if (!game.currSlide) {
@@ -363,7 +211,9 @@ export function handleMouseMove(e) {
 	if (isCameraGesture()) { if (game.mousedownTile) { letGo(); } return; } // THE CAMERA OWNS THE POINTER: A PIECE PRESSED AS IT TOOK OVER GOES BACK TO ITS SQUARE, NOT LEFT IN HAND
 	setPointerTile(e); // IF PIECE IS CLICK TO BE MOVED MOUSE POSITION (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
 	if (!((game.tileX < 0 || game.tileX > 7) && (game.tileY < 0 || game.tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
-		if (game.currPromotion) { // HOVER THE PICKER
+		if (game.currPromotion && game.cards3D) {
+			// THE ROOM'S CARDS ARE THE PICKER (THEY HOVER THEMSELVES): NOTHING ON THE BOARD OR IN THE FLAT PICKER'S LISTS
+		} else if (game.currPromotion) { // HOVER THE PICKER
 			let takenPieces
 			if (game.playerColor == 'w') { takenPieces = game.bTakenPieces }
 			else if (game.playerColor == 'b') { takenPieces = game.wTakenPieces }

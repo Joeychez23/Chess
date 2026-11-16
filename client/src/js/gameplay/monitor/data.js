@@ -38,6 +38,19 @@ function resultText(title, reason) {
 }
 
 /* ---------------------------------------------------------------- */
+// Material
+/* ---------------------------------------------------------------- */
+/**
+ * @description The material lead as the monitor reads it
+ * @param  {[number]} diff [white's material minus black's, from materialDiff()]
+ * @return {[string]} lead ["WHITE +3", "BLACK +2", "" when even]
+ */
+function materialText(diff) {
+	if (!diff) { return ""; }
+	return `${diff > 0 ? "WHITE" : "BLACK"} +${Math.abs(diff)}`;
+}
+
+/* ---------------------------------------------------------------- */
 // Eval Scores
 /* ---------------------------------------------------------------- */
 /**
@@ -70,4 +83,4 @@ function trimScores(scores, plies) {
 	return Array.from({ length: Math.max(0, plies) + 1 }, (_, i) => (typeof scores[i] === "number" ? scores[i] : null));
 }
 
-module.exports = { actionsFrom, resultText, plyOf, startPlyFor, trimScores };
+module.exports = { actionsFrom, resultText, materialText, plyOf, startPlyFor, trimScores };
