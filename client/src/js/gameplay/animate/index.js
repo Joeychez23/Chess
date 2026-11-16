@@ -12,16 +12,17 @@
 const { game, ctx, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE BOARD THAT'S DRAWN
 const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
 const { renderBoard } = require("../layout/index.js"); // SIZES THE CANVAS & BOARD TO THE WINDOW & DRAWS THE TABLE & BOARD
-const { handlePieceDirectionW, handlePieceDirectionB, handlePawnDirection } = require("../draw/index.js"); // WHICH WAY A SLIDING PIECE FACES
+const { setPieceSprites, handlePawnDirection } = require("../draw/pieceSprites.js");
+const { awayFromRows } = require("../draw/facing.js");
 const {
 	tableShdw, wRightKnightImg, wLeftKnightImg, wRightKnightShdw, wLeftKnightShdw, wRightKnightRefl, wLeftKnightRefl, bRightKnightImg, bLeftKnightImg, bRightKnightShdw, bLeftKnightShdw, bRightKnightRefl, bLeftKnightRefl // TABLE SHADOW & THE KNIGHTS (THE OTHER PIECES' IMAGES COME FROM THE draw FUNCTIONS ABOVE)
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
 const { setRestartLoading } = require("../menu/index.js"); // RESTART / REMATCH BUTTON'S LOADING FILL, PUT BACK WHEN THE PIECES ARE HOME
+const { overlayShows } = require("../draw/overlay.js"); // 3D DRAWS NO TRAY SLIDES: ITS OVERLAY STAYS CLEAR
 const { currentView, VIEWS, glideHome3D } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SLIDE HOME
 const instant = () => game.reduceMotion || currentView() === VIEWS.THREE_D; // ON 3D THE HIDDEN 2D SLIDE LANDS AT ONCE, SO THE MOVE REACHES chessInst & THE 3D BOARD SLIDES IT (NOT TWICE THE WAIT)
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), SHOWN AGAIN WHEN THE PIECES ARE HOME
-const { KNIGHT_PAUSE_MS, RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } = require("./timing.js"); // SHARED WITH THE 3D BOARD, SO A MOVE TAKES THE SAME TIME ON BOTH
-export { KNIGHT_PAUSE_MS };
+const { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } = require("./timing.js"); // SHARED WITH THE 3D BOARD, SO A MOVE TAKES THE SAME TIME ON BOTH
 
 /* ---------------------------------------------------------------- */
 // Step Slide
@@ -99,7 +100,7 @@ export function getRestartPieces(withTrays) {
 			if (board[i][j]) { pieces[pieces.length] = { type: board[i][j].type, color: board[i][j].color, square: board[i][j].square, x: j, y: i - 0.1 }; } // RESTING PIECES SIT A TENTH OF A SQUARE UP
 		}
 	}
-	if (withTrays && !game.currPromotion) { // WHILE PROMOTING THE TRAY IS THE PROMOTION PICKER
+	if (withTrays && !game.currPromotion && overlayShows(game) === "all") { // WHILE PROMOTING THE TRAY IS THE PROMOTION PICKER
 		const takenPieces = [...(game.wTakenPieces || []), ...(game.bTakenPieces || [])];
 		for (let i = 0; i < takenPieces.length; i++) {
 			if (takenPieces[i].x !== undefined) { pieces[pieces.length] = { type: takenPieces[i].type, color: takenPieces[i].color, square: null, x: takenPieces[i].x, y: takenPieces[i].y + trayNudge(takenPieces[i].y) }; } // DRAWN IN A TRAY
@@ -165,14 +166,13 @@ function setSlidePiece(from, to, fade) {
 		const yFrom = from.y == to.y ? null : from.y; // null: SIDEWAYS (OR STAYING), FACES ITS START WAY
 		const yTo = from.y == to.y ? null : to.y;
 		const lightSquare = square && chessInst.squareColor(square) == 'light';
+		setPieceSprites(to.color, awayFromRows(yFrom, yTo, to.color, game.viewColor));
 		if (to.color == 'w') {
-			handlePieceDirectionW(yFrom, yTo);
 			if (to.type == 'k') { imgArr = [game.wKingRefl, game.wKingShdw, game.wKingImg]; }
 			else if (to.type == 'q') { imgArr = [game.wQueenRefl, game.wQueenShdw, game.wQueenImg]; }
 			else if (to.type == 'b') { imgArr = [game.wBishopRefl, game.wBishopShdw, lightSquare ? game.wBishopWhiteSqImg : game.wBishopBlackSqImg]; }
 			else if (to.type == 'r') { imgArr = [game.wRookRefl, game.wRookShdw, game.wRookImg]; }
 		} else {
-			handlePieceDirectionB(yFrom, yTo);
 			if (to.type == 'k') { imgArr = [game.bKingRefl, game.bKingShdw, game.bKingImg]; }
 			else if (to.type == 'q') { imgArr = [game.bQueenRefl, game.bQueenShdw, game.bQueenImg]; }
 			else if (to.type == 'b') { imgArr = [game.bBishopRefl, game.bBishopShdw, lightSquare ? game.bBishopWhiteSqImg : game.bBishopBlackSqImg]; }
@@ -205,7 +205,7 @@ export function drawRestartSlide() {
 	const eased = easeInOut(progress); // HOW FAR ALONG, SLOW START & LANDING
 	const hop = hopArc(progress); // KNIGHTS: 0 ON THE BOARD, 1 HALFWAY (HALF A SQUARE UP), SAME ARC AS handleKnightHop()
 	renderBoard();
-	if (game.traysOnly) { ctx.clearRect(0, 0, game.cw, game.ch); return; } // 3D: ITS PIECES GLIDE HOME ON THEIR OWN (glideHome3D), THE OVERLAY STAYS CLEAR
+	if (overlayShows(game) !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); return; } // 3D: ITS PIECES GLIDE HOME ON THEIR OWN (glideHome3D), THE OVERLAY STAYS CLEAR
 
 	let drawPieces = []; // WHERE EACH PIECE IS THIS FRAME
 	for (let i = 0; i < game.restartSlide.pieces.length; i++) {

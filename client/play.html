@@ -59,6 +59,7 @@
 			<ul role="group" aria-label="End the game">
 				<li><button class="menuButton" id="optRestart">Restart</button></li>
 				<li hidden><button class="menuButton" id="optCancelRematch">Cancel</button></li>
+				<li hidden><a class="menuButton" id="optReplay" href="/">Replay</a></li> <!-- SIGNED IN PLAYERS, ONCE THE GAME IS OVER: /replay/:gameId -->
 			</ul>
 			<ul role="group" aria-label="Navigation">
 				<li><a class="menuButton" id="optHome" href="/">Home</a></li>
@@ -113,6 +114,14 @@
 		<p id="moveBoxCount" role="status"></p>
 		<ul id="moveBoxSuggestions" role="listbox" aria-label="Legal moves" hidden></ul>
 	</form>
+
+	<div id="replayBar" role="group" aria-label="Replay" hidden> <!-- /replay/:gameId: STEPS THROUGH A FINISHED GAME, UNDER THE BOARD (gameplay/replay/index.js) -->
+		<button id="replayFirst" type="button" aria-label="First move">|&lsaquo;</button>
+		<button id="replayBack" type="button" aria-label="Previous move">&lsaquo;</button>
+		<p id="replayMove" aria-live="polite">Start</p> <!-- "12... Nxe4" -->
+		<button id="replayForward" type="button" aria-label="Next move">&rsaquo;</button>
+		<button id="replayLast" type="button" aria-label="Last move">&rsaquo;|</button>
+	</div>
 
 	<main id="main"></main>
 </body>

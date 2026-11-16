@@ -349,7 +349,7 @@ server/
   socket.js                  Socket.IO: session check, game & player rooms, emitToGame() / emitToPlayer()
   config.js                  Reads server/.env
   dataClient.js              Every read and write through the data service: signed calls for the request's player, 503 when it's down (a write that timed out is read back first)
-  routes/pageRoutes.js       /, /play, /play/:gameId, /settings
+  routes/pageRoutes.js       /, /play, /play/:gameId, /replay/:gameId, /settings
   routes/api/                /api/auth/*, /api/user, /api/chess/*, /api/health, /api/client-errors
   controllers/
     pageController.js        Picks the page (home, guest, play, settings) from the session cookie, PENDING invites go Home, no username yet goes to settings

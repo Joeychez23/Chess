@@ -13,6 +13,7 @@
 
 const { Chess } = require("chess.js");
 const { SPRITES } = require("../../gameplay/sprites/index.js"); // IMAGE URLS BY IMAGE NUMBER, THE PAGE'S preloadImages() ALREADY ASKED FOR THEM
+const { facesAway, knightFacesRight, startsRight } = require("../../gameplay/draw/facing.js");
 
 const WIDTH = 880; // CANVAS SIZE (PIXELS), CSS SCALES IT TO THE BOX
 const HEIGHT = 720;
@@ -128,10 +129,7 @@ export async function drawBoardPicture(canvas, game) {
 // Piece Images
 /* ---------------------------------------------------------------- */
 /**
- * @description The images for one piece, facing the way the game would draw it:
- * kings, queens, bishops & rooks: their last move up or down the screen (handlePieceDirectionW / B), before that the other side.
- * Knights: the way their last move went across the screen (handleKnightDirectionW / B), before that toward the middle.
- * Pawns: always the other side (handlePawnDirection)
+ * @description The images for one piece, facing the way the game would draw it; facing rules are shared with facing.js.
  * @param  {[object]} piece [chess.js board() square: { square, type, color }]
  * @param  {[object]} chessInst [chess.js game, for the square's color]
  * @param  {[object]} lists [{ w: { piece, knight }, b: { piece, knight } } parsed w_piece, w_knight, b_piece, b_knight]
@@ -140,47 +138,18 @@ export async function drawBoardPicture(canvas, game) {
  */
 function pieceImages(piece, chessInst, lists, playerColor) {
 	const set = piece.color == "w" ? WHITE : BLACK;
-	if (piece.type == "p") { return piece.color == playerColor ? set.pawnBack : set.pawnFront; } // THE PLAYER'S PAWNS SHOW THEIR BACKS
-	if (piece.type == "n") { return knightFacesRight(piece, lists[piece.color].knight, playerColor) ? set.knightRight : set.knightLeft; }
-
+	if (piece.type == "p") { return piece.color == playerColor ? set.pawnBack : set.pawnFront; }
+	const options = { viewColor: playerColor, slide: null, landed: null };
+	if (piece.type == "n") {
+		const right = knightFacesRight(lists[piece.color].knight, piece.square, piece.color, options) ?? startsRight(piece.square, playerColor);
+		return right ? set.knightRight : set.knightLeft;
+	}
 	const name = PIECE_NAMES[piece.type];
-	if (facesAway(piece, lists[piece.color].piece, playerColor)) { return set[`${name}Back`]; }
+	const away = facesAway(lists[piece.color].piece, piece.square, piece.color, options) ?? (piece.color == playerColor);
+	if (away) { return set[`${name}Back`]; }
 	if (piece.type == "b") { return chessInst.squareColor(piece.square) == "dark" ? set.bishopDarkSq : set.bishopLightSq; }
 	return set[`${name}Front`];
 }
-
-/**
- * @description True when a king, queen, bishop or rook shows its back. Its list entry ({ from, to } of its last move up or down,
- * from is null before it has one) says which way it went. Sideways or no move yet: the player's pieces face away, the opponent's face the player
- */
-function facesAway(piece, pieceList, playerColor) {
-	const lastMove = pieceList.find((entry) => entry.to == piece.square); // NOT FOUND = A PROMOTED PIECE, IT GETS THE DEFAULT
-	if (lastMove?.from) {
-		const yFrom = screenRow(lastMove.from, playerColor);
-		const yTo = screenRow(lastMove.to, playerColor);
-		if (yFrom > yTo) { return true; } // MOVED UP: FACES AWAY
-		if (yFrom < yTo) { return false; } // MOVED DOWN: FACES THE PLAYER
-	}
-	return piece.color == playerColor;
-}
-
-/**
- * @description True when a knight faces right on the screen: the way its last move went, before it has moved toward the middle
- * of the board (b1 & b8 face right when playing white, flipped when playing black)
- */
-function knightFacesRight(piece, knightList, playerColor) {
-	const lastMove = knightList.find((entry) => entry.to == piece.square);
-	if (lastMove?.from) {
-		const xFrom = screenColumn(lastMove.from, playerColor);
-		const xTo = screenColumn(lastMove.to, playerColor);
-		if (xFrom < xTo) { return true; } // MOVED RIGHT
-		if (xFrom > xTo) { return false; } // MOVED LEFT
-	}
-	return screenColumn(piece.square, playerColor) < 4;
-}
-
-function screenRow(square, playerColor) { return playerColor == "w" ? 8 - square[1] : square[1] - 1; } // RANK 8 IS THE TOP ROW FOR WHITE, RANK 1 FOR BLACK
-function screenColumn(square, playerColor) { const file = square.charCodeAt(0) - 97; return playerColor == "w" ? file : 7 - file; } // a = 0, FLIPPED FOR BLACK
 
 /* ---------------------------------------------------------------- */
 // Load Sprite

@@ -2,7 +2,7 @@
  *  index.js  --  chess frontend
  *	Moves
  *	Loads the game from the server (setInitialData), sends the player's moves (validateMove) & finishes the AI's & a friend's
- *	once their slide lands (updateOpponentStateSlide). A friend's move arrives over the socket (the move event, checkOpponentMove).
+ *	once their slide lands (updateOpponentStateSlide). A friend's move arrives over the socket (the move event, checkOpponentMove). Both are in opponent.js.
  *	refreshData resets the board to a game from the server. The requests themselves are in gameplay/validate/index.js
  *
  */
@@ -10,18 +10,17 @@
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, chessInst, validateState, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
+const { game, chessInst, fillTiles } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN, THE SCRATCH BOARD
 const { validate } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
 const { playAi } = require("../ai/index.js"); // ASKS THE SERVER FOR THE AI'S MOVE
-const { setTiles, countStartPieces, lastMoveBy } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH, A SIDE'S LAST MOVE
-const { showGameOver, syncDrawOffer, loadTakeback } = require("../menu/index.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), THE DRAW OFFER'S BUTTONS
+const { setTiles, countStartPieces } = require("../utils/index.js"); // NEW ARRAY OF 64 BLANK TILE STATES, HOW MANY PIECES EACH SIDE STARTED WITH
+const { showGameOver, syncDrawOffer } = require("../menu/offers.js"); // THE GAME OVER SCREEN (CHECKMATE, DRAW OR FORFEIT), THE DRAW OFFER'S BUTTONS
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { showBot, sayLine } = require("../bots/say.js"); // THE AI'S BOT BESIDE THE BOARD (#76)
 const { faceFor } = require("../bots/index.js"); // THE FACE THE 3D ROOM'S MONITOR MAKES AT A MOVE
 const { setFace } = require("../renderer/index.js"); // & SHOWS IT (3D ONLY)
 const { setMoves, addMove, showOpening } = require("../movelist/index.js"); // THE MOVE LIST PANEL & THE OPENING UNDER IT
-const OPPONENT_RETRY_TIME = 5000; // ASKS FOR A FRIEND'S MOVE AGAIN AFTER THIS WHEN THE SERVER DIDN'T ANSWER (ms)
-let opponentRetry = null; // THE TIMER FOR THAT
+import { setLastOpponentMove, updateOpponentStateSlide } from "./opponent.js";
 
 /* ---------------------------------------------------------------- */
 // Set Initial Board Data
@@ -87,82 +86,123 @@ export async function setInitialData(loaded) {
 	}
 }
 
+/* ---------------------------------------------------------------- */
+// Read-Only Board
+/* ---------------------------------------------------------------- */
 /**
- * @description Finds the opponent's last move for its highlight when a game loads (a new game has none, so Restart & Rematch clear it).
- * prev_move can't say: it's the player's when they moved last. moves only has SAN, so they're played on the scratch board
+ * @description Loads the game for a board that only shows it (a replay, #100): the player's side at the bottom, the move list, the
+ * opening & the bot, then the saved board with its facing & last move. The board stays locked, no move, AI or socket request is made
+ * @return {[boolean]} loaded [false: the game couldn't be loaded, the message area says so]
  */
-function setLastOpponentMove() {
-	try {
-		const startFen = game.response.start_params?.fen;
-		if (startFen) { validateState.load(startFen); } else { validateState.reset(); }
-		game.lastOpponentMove = lastMoveBy(validateState, game.response.moves || [], game.response.opponent_color);
-	} catch (err) { console.log(err); game.lastOpponentMove = null; } // ONLY THE HIGHLIGHT IS MISSING, THE GAME STILL OPENS
+export async function loadReadOnly() {
+	game.response = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
+	if (game.response?.status != 200) {
+		console.log(game.response?.message || "The game didn't load");
+		showStatus("server", "The game couldn't be loaded. Reload the page to try again.");
+		return false;
+	}
+	const response = game.response;
+	game.playerColor = response.player_color;
+	game.viewColor = response.player_color; // THE PLAYER'S SIDE AT THE BOTTOM, FLIP BOARD STILL WORKS
+	game.opponentColor = response.opponent_color;
+	game.ai = Boolean(response.ai);
+	game.opposingMove = true; // NOTHING CAN BE PICKED UP
+	game.flipPending = false;
+	game.startPieceCount = countStartPieces(response.start_params?.fen); // A SET POSITION CAN START WITH FEWER PIECES, THE MISSING ONES WEREN'T TAKEN
+	game.gameOver = response.state == "CLOSED";
+	game.result = game.gameOver ? { winner: response.winner, reason: response.reason } : null; // THE 3D ROOM'S MONITOR SHOWS IT
+	setMoves(response.moves, response.start_params?.fen);
+	showOpening(response.opening);
+	showBot(game.GAME_URL, response); // NOT AWAITED, NO LINE IS SAID
+	showPosition({ fen: response.game_board, facing: facingLists(response), lastMove: response.prev_move?.length == 2 ? response.prev_move : null });
+	return true;
+}
+
+/**
+ * @description The facing lists of a game from the server (JSON strings) as arrays
+ * @param  {[object]} response [game from the server]
+ * @return {[object]} facing [{ w_knight, b_knight, w_piece, b_piece } arrays of { from, to }]
+ */
+function facingLists(response) {
+	return { w_knight: JSON.parse(response.w_knight), b_knight: JSON.parse(response.b_knight), w_piece: JSON.parse(response.w_piece), b_piece: JSON.parse(response.b_piece) };
+}
+
+/**
+ * @description Draws any position on the board (a replay's step, #100): its board, which way each piece faces & the last move's highlight.
+ * The 2D board reads the facing from game.response, the 3D board follows chessInst & the same lists
+ * @param  {[object]} position [{ fen, facing: { w_knight, b_knight, w_piece, b_piece } arrays of { from, to }, lastMove: [from, to] or null }]
+ */
+export function showPosition({ fen, facing, lastMove }) {
+	game.response = {
+		...game.response,
+		game_board: fen,
+		w_knight: JSON.stringify(facing.w_knight),
+		b_knight: JSON.stringify(facing.b_knight),
+		w_piece: JSON.stringify(facing.w_piece),
+		b_piece: JSON.stringify(facing.b_piece),
+	};
+	game.lastOpponentMove = lastMove || null; // THE LAST MOVE'S HIGHLIGHT (2D & 3D), EITHER SIDE'S ON A READ-ONLY BOARD
+	game.annotations = [];
+	game.hint = null;
+	refreshData(game.response);
 }
 
 /* ---------------------------------------------------------------- */
 // Check Opponent Move
 /* ---------------------------------------------------------------- */
+/* ---------------------------------------------------------------- */
+// Slides
+/* ---------------------------------------------------------------- */
 /**
- * @description Checks if opponent made a new move [No AI]. The socket calls this when the friend moved: it gets the game,
- * works out their move from prev_move (a pawn that became another piece was a promotion) & starts its slide.
- * The move is finished by updateOpponentStateSlide() when the slide lands
+ * @description Starts the piece on one square sliding to another (the AI's & a friend's moves, the replay's steps both ways). Any other
+ * slide stops. The render loop moves it (stepSlide) & landSlide() finishes it
+ * @param  {[string]} from [the square the piece is on, "e2"]
+ * @param  {[string]} to [where it slides, "e4"]
  */
-export async function checkOpponentMove() { // PROMOTIONS OF OPPOSING PLAYER THROWS INVALID MOVE
-	try {
-		game.revert = game.response
-		const updatedResponse = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); // GET THE GAME
-		if (updatedResponse?.status != 200) { return opponentMoveFailed(updatedResponse); }
-		clearStatus("server");
-		if (updatedResponse.takebacks_left < game.revert.takebacks_left) { return await loadTakeback(updatedResponse); } // A RECONNECT MISSED AN ACCEPTED TAKEBACK. ONLY GOES DOWN ON ONE, AN OLD READ HAS A HIGHER COUNT
-		syncDrawOffer(updatedResponse); // THEIR MOVE ENDS ANY OFFER, A RECONNECT CATCHES UP ON ONE
-		if (updatedResponse.game_board != game.revert.game_board && game.opposingMove) { // THE BOARD CHANGED ON THE OPPONENT'S TURN
-			validateState.load(updatedResponse.game_board);
-			const serverPiece = validateState.get(updatedResponse.prev_move[1]) // PIECE RETURNED FROM THE SERVER GAME BOARD
-
-			validateState.load(game.revert.game_board);
-			const clientPiece = validateState.get(updatedResponse.prev_move[0]); // PIECE RETURNED FROM LOCAL/CLIENT GAME BOARD
-
-			if ((serverPiece.color == clientPiece.color) && (serverPiece.type != 'p' && clientPiece.type == 'p')) { // PROMOTION
-				game.moveObj = { from: updatedResponse.prev_move[0], to: updatedResponse.prev_move[1], promotion: serverPiece.type }
-			} else {
-				game.moveObj = { from: updatedResponse.prev_move[0], to: updatedResponse.prev_move[1] }
+export function startSlide(from, to) {
+	fillTiles();
+	for (let i = 0; i < game.tiles.length; i++) {
+		if (game.tiles[i].square == from) {
+			game.slideStart = true;
+			game.tiles[i].isSliding = true;
+			if (game.viewColor == 'w') { // SCREEN COLUMN & ROW OF to (a8 IS 0, 0)
+				game.tiles[i].xSlideTo = to.split("")[0].charCodeAt(0) - 96 - 1;
+				game.tiles[i].ySlideTo = 8 - to.split("")[1];
+			} else if (game.viewColor == 'b') { // FLIPPED BOARD (h1 IS 0, 0)
+				game.tiles[i].xSlideTo = 8 - (to.split("")[0].charCodeAt(0) - 96);
+				game.tiles[i].ySlideTo = to.split("")[1] - 1;
 			}
-
-			validateState.move(game.moveObj); // CHECK IT ON THE SCRATCH BOARD (THROWS IF IT'S NOT LEGAL)
-			fillTiles();
-			for (let i = 0; i < game.tiles.length; i++) { // START THE SLIDE (SAME AS THE AI'S IN renderLoop)
-				if (game.tiles[i].square == game.moveObj.from) {
-					game.slideStart = true;
-					game.tiles[i].isSliding = true
-					if (game.viewColor == 'w') {
-						game.tiles[i].xSlideTo = game.moveObj.to.split("")[0].charCodeAt(0) - 96 - 1;
-						game.tiles[i].ySlideTo = 8 - game.moveObj.to.split("")[1];
-					} else if (game.viewColor == 'b') {
-						game.tiles[i].xSlideTo = 8 - (game.moveObj.to.split("")[0].charCodeAt(0) - 96);
-						game.tiles[i].ySlideTo = game.moveObj.to.split("")[1] - 1;
-					}
-					game.tiles[i].xDiff = 0;
-					game.tiles[i].yDiff = 0;
-					game.tiles[i].slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
-				}
-			}
-			game.currSlide = true;
-			game.refresh = true;
+			game.tiles[i].xDiff = 0; // PIXELS MOVED SO FAR
+			game.tiles[i].yDiff = 0;
+			game.tiles[i].slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
+		} else if (game.tiles[i].isSliding) { // STOP ANY OTHER SLIDE
+			game.tiles[i].isSliding = false;
+			game.tiles[i].xDiff = 0;
+			game.tiles[i].yDiff = 0;
 		}
-	} catch (err) { console.log(err); }
+	}
+	game.currSlide = true;
+	game.refresh = true;
+}
+
+let readOnlyLanded = null; // THE REPLAY'S LANDING (onReadOnlySlide)
+
+/**
+ * @description What finishes a slide on a read-only board (the replay's step), instead of sending or saving a move
+ * @param  {[function]} handler [handler(index), index = the tile that slid]
+ */
+export function onReadOnlySlide(handler) {
+	readOnlyLanded = handler;
 }
 
 /**
- * @description A friend's move couldn't be fetched, the board stays locked on their turn. No answer: says so & asks again
- * until there's one (checkOpponentMove clears the message). Any other answer won't change by asking again
- * @param  {[object]} response [from validate/index.js]
+ * @description A slide landed (gameplay/draw): a read-only board's goes to its handler, the player's move is sent, the opponent's is finished
+ * @param  {[number]} index [tile that slid]
  */
-function opponentMoveFailed(response) {
-	console.log(response?.message || "Opponent move failed: no answer from the server");
-	if (!noAnswer(response)) { return showStatus("server", "Your opponent's move couldn't be loaded. Reload the page to try again."); }
-	showStatus("server", "The server isn't answering. Trying again…");
-	clearTimeout(opponentRetry);
-	opponentRetry = setTimeout(checkOpponentMove, OPPONENT_RETRY_TIME);
+export async function landSlide(index) {
+	if (game.readOnly) { return readOnlyLanded?.(index); }
+	if (game.tiles[index].color == game.playerColor) { return updateUserStateSlide(index); } // SENDS THE PLAYER'S MOVE
+	if (game.tiles[index].color == game.opponentColor) { return updateOpponentStateSlide(index); } // FINISHES THE OPPONENT'S MOVE
 }
 
 /* ---------------------------------------------------------------- */
@@ -190,7 +230,7 @@ export async function updateUserStateSlide(index) {
 /**
  * @description Plays the move sound, unless the player turned sound off in the menu
  */
-function playMoveSound() {
+export function playMoveSound() {
 	if (!game.soundOn) { return; }
 	game.moveAudio.load();
 	game.moveAudio.play().catch((err) => { console.log(err) });
@@ -324,90 +364,6 @@ function moveFailed(response) {
 }
 
 /* ---------------------------------------------------------------- */
-// On Opponent Slide Complete
-/* ---------------------------------------------------------------- */
-/**
- * @description Updates board data on slide completion for opposing player (AI or friend). Plays the move sound, moves the
- * piece on the local board, knight list & piece list, then loads the saved game (the AI's came with its move, a friend game is fetched)
- * & gives the turn back to the player
- * !NOTE: KEEP THE AWAIT ON THE AI LINE, WITHOUT IT refreshData() RESETS THE TILES WHILE THE FRAME IS STILL DRAWING
- * & A TAKEN PIECE CAN BE LEFT ON THE BOARD
- * @param  {[number]} index [tile that slid]
- */
-export async function updateOpponentStateSlide(index) {
-	try {
-		playMoveSound();
-		game.tiles[index].xSlideTo = 0;
-		game.tiles[index].ySlideTo = 0;
-		const playedMove = chessInst.move(game.moveObj); // LOCAL BOARD
-		game.annotations = []; // ANY MOVE CLEARS THE MARKS & ARROWS
-
-		const color = game.opponentColor;
-		if (color) { // KEEP THE LOCAL KNIGHT & PIECE LISTS IN STEP
-			const { from, to, promotion } = game.moveObj;
-			const rank = color == 'w' ? '1' : '8';
-			const knights = JSON.parse(game.response[`${color}_knight`]);
-			const pieces = JSON.parse(game.response[`${color}_piece`]);
-			for (const knight of knights) {
-				if (knight.to == from) {
-					knight.from = from;
-					knight.to = to;
-				}
-			}
-			for (const piece of pieces) { // SAME FOR THE KINGS, QUEENS, BISHOPS & ROOKS
-				if (piece.to == from) {
-					if (from[1] != to[1]) { piece.from = from; } // MOVED UP OR DOWN (SIDEWAYS KEEPS ITS from)
-					piece.to = to;
-				}
-			}
-			// !NOTE: THE OLD ROOK SQUARE STAYS UNTIL THE SERVER'S LIST COMES BACK. THE MOVE LANDS HALFWAY THROUGH DRAWING A FRAME
-			// & THE REST OF THAT FRAME STILL DRAWS THE OLD BOARD, SO THE ROOK WOULD DISAPPEAR FOR A FRAME IF ITS SQUARE WAS GONE
-			if (chessInst.get(to).type == 'k' && from == `e${rank}` && (to == `g${rank}` || to == `c${rank}`)) { // CASTLING: THE ROOK MOVES SIDEWAYS TOO, ITS NEW SQUARE IS ADDED
-				const [rookFrom, rookTo] = to == `g${rank}` ? [`h${rank}`, `f${rank}`] : [`a${rank}`, `d${rank}`]; // KING SIDE : QUEEN SIDE
-				const rook = pieces.find((piece) => piece.to == rookFrom);
-				if (rook) { pieces.push({ from: rook.from, to: rookTo }); }
-			}
-			if (promotion && promotion != 'n') { pieces.push({ from, to }); } // PROMOTED TO A QUEEN, BISHOP OR ROOK: ADDED SO IT DRAWS BEFORE THE SERVER'S LIST COMES BACK
-			game.response[`${color}_knight`] = JSON.stringify(knights);
-			game.response[`${color}_piece`] = JSON.stringify(pieces);
-		}
-
-		game.revert = game.response;
-		let savedGame;
-		if (game.ai) { savedGame = await new Promise((resolve) => setTimeout(() => resolve(game.moveObj.response))); } // ALREADY SAVED BY THE SERVER (NO PUT), WAITS A TICK LIKE A PUT WOULD SO THE FRAME FINISHES DRAWING BEFORE refreshData() RESETS THE TILES
-		else { savedGame = await validate(game.GAME_URL, game.GAME_ID, game.PLAYER_ID, false, false, false); }
-		if (savedGame?.status != 200) { // BACK TO THE PREVIOUS BOARD, STILL THEIR TURN
-			game.opposingMove = true;
-			opponentMoveFailed(savedGame);
-			return refreshData(game.revert);
-		}
-		chessInst.load(savedGame.game_board); // UPDATE BOARD
-		game.response = savedGame;
-		syncDrawOffer(savedGame);
-		game.lastOpponentMove = [game.moveObj.from, game.moveObj.to];
-		addMove(playedMove.san);
-		showOpening(game.response.opening);
-		clearStatus("server");
-		game.currSlide = false;
-
-		game.tiles[index].isSliding = null;
-		game.tiles[index].xDiff = 0;
-		game.tiles[index].yDiff = 0;
-		game.tiles[index].x = game.tiles[index].xSlideTo;
-		game.tiles[index].y = game.tiles[index].ySlideTo;
-
-		game.opposingMove = false;
-		refreshData(game.response);
-		if (game.response.state == "CLOSED") { showGameOver(game.response); } // CHECKMATE OR DRAW
-	} catch (err) {
-		game.currSlide = false;
-		console.log(err);
-		showStatus("move", "Something went wrong. The board was reset.", MESSAGE_TIME);
-		return refreshData(game.response);
-	}
-}
-
-/* ---------------------------------------------------------------- */
 // Refresh Game Data
 /* ---------------------------------------------------------------- */
 /**
@@ -442,6 +398,7 @@ export function refreshData(response) {
  * !NOTE: opposingMove IS ALSO TRUE DURING THE PLAYER'S OWN SLIDE, SO THE SLIDING PIECE'S COLOR SAYS WHOSE SLIDE IT IS
  */
 export function revertUnfinishedMove() {
+	if (game.readOnly) { return; } // NOTHING OF THE PLAYER'S IS UNFINISHED, A REPLAY'S SLIDE LANDS AS IT IS
 	const heldPiece = !game.opposingMove && (game.clickedTile || game.mousedownTile); // THE TURN CHECK: A DROPPED PROMOTION KEEPS clickedTile AFTER IT'S SENT
 	const promotionSlide = game.currSlide && game.moveObj.promotion && !game.moveObj.typed && game.tiles.some(function (tile) { return tile.isSliding && tile.color == game.playerColor; });
 	if (!heldPiece && !game.currPromotion && !promotionSlide) { return; }

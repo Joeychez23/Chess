@@ -9,6 +9,8 @@
 const HINT_KEY = "CONTROLS_HINT"; // localStorage: "seen" ONCE THE PLAYER DISMISSED IT OR MOVED THE CAMERA
 const MOUSE_CONTROLS = [["Left-drag", "Move piece / pan"], ["Right-drag", "Rotate"], ["Scroll", "Zoom"]];
 const TOUCH_CONTROLS = [["Drag", "Move piece"], ["Two fingers", "Rotate"], ["Pinch", "Zoom"]];
+const READ_ONLY_MOUSE = [["Left-drag", "Pan"], ["Right-drag", "Rotate"], ["Scroll", "Zoom"]]; // A REPLAY'S BOARD (/replay/:gameId): NO PIECE MOVES
+const READ_ONLY_TOUCH = [["Two fingers", "Rotate"], ["Pinch", "Zoom"]];
 
 let bar = null; // THE SHOWING BAR, null WHEN NONE
 let seenThisPage = false; // STORAGE BLOCKED: STILL ONLY ONCE UNTIL THE PAGE RELOADS
@@ -28,7 +30,9 @@ export function showHint() {
 	bar.setAttribute("role", "region");
 	bar.setAttribute("aria-label", "Camera controls");
 	const list = document.createElement("ul");
-	for (const [keys, action] of touch ? TOUCH_CONTROLS : MOUSE_CONTROLS) {
+	const readOnly = window.location.pathname.startsWith("/replay/");
+	const controls = readOnly ? (touch ? READ_ONLY_TOUCH : READ_ONLY_MOUSE) : (touch ? TOUCH_CONTROLS : MOUSE_CONTROLS);
+	for (const [keys, action] of controls) {
 		const item = document.createElement("li");
 		const kbd = document.createElement("kbd");
 		kbd.textContent = keys;

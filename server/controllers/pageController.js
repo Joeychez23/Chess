@@ -66,6 +66,23 @@ async function gamePage(req, res) {
 }
 
 /* ---------------------------------------------------------------- */
+// Replay Page
+/* ---------------------------------------------------------------- */
+/**
+ * @description /replay/:gameId -> a signed in player's finished game, step by step on a read-only board (play.html opens it read-only).
+ * Signed out (or the access token expired) -> /api/auth/resume, then back here. A game that's still going opens its live board
+ * (/play/:gameId) & an invite goes Home. Whose game it is gets checked by the chess routes, a failed lookup still sends the page
+ */
+async function replayPage(req, res) {
+	if (!readSessionUser(req)) { return res.redirect(`/api/auth/resume?returnTo=${encodeURIComponent(req.originalUrl)}`); }
+	const response = await retrieveGame(req.params.gameId).catch(() => null);
+	const gameData = response?.game_data;
+	if (gameData?.state?.S == "PENDING") { return res.redirect("/"); }
+	if (gameData && (gameData.state?.S || "OPEN") == "OPEN") { return res.redirect(`/play/${encodeURIComponent(req.params.gameId)}`); } // GAMES FROM BEFORE state ARE OPEN
+	return sendPage(res, "play.html");
+}
+
+/* ---------------------------------------------------------------- */
 // Settings Page
 /* ---------------------------------------------------------------- */
 /**
@@ -113,4 +130,4 @@ function sendPage(res, page) {
 }
 
 
-module.exports = { homePage, playPage, gamePage, settingsPage, loginPage, signupPage, privacyPage, termsPage };
+module.exports = { homePage, playPage, gamePage, replayPage, settingsPage, loginPage, signupPage, privacyPage, termsPage };

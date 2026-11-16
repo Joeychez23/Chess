@@ -17,10 +17,11 @@
 const { game, canvas, chessInst, requestFrame } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE 2D CANVAS, THE BOARD THAT'S DRAWN
 const { load3D } = require("../three/load.js"); // DOWNLOADS THE 3D BOARD THE FIRST TIME IT'S TURNED ON
 const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
-const { moveBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS, THE SQUARE OF A SCREEN TILE
+const { stepBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS (EITHER WAY), THE SQUARE OF A SCREEN TILE
 const { reportError } = require("../../pages/utils/reportErrors.js"); // THE BROWSER ERROR REPORTS (#194)
+const { capturesAt } = require("../captures/index.js"); // THE PIECES TAKEN TO REACH A POSITION
 const { Chess } = require("chess.js");
-const scratch = new Chess(); // ONLY moveBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
+const scratch = new Chess(); // ONLY stepBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
 
 export const VIEWS = { TWO_D: "2d", THREE_D: "3d" };
 
@@ -28,9 +29,14 @@ let board3D = null; // THE 3D MODULE WHILE IT'S MOUNTED, null ON 2D
 let container = null; // WHAT THE 3D CANVAS FILLS, IN #main NEXT TO THE (HIDDEN) 2D CANVAS
 let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT TWICE
 let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
+let skipAnimation = false; // THE NEXT POSITION IS SET AT ONCE (skipNextAnimation3D: A REPLAY'S JUMP)
 let shownFacings = null; // THE POSITION & PIECE FACINGS THE 3D BOARD WAS LAST TURNED TO (syncFacing3D)
+let shownTaken = null; // WHAT THE 3D BOARD'S PILES WERE LAST SET FROM (syncTaken3D), SO THEY'RE ONLY REDONE WHEN IT CHANGES
 let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
 let shownScreen = null; // WHAT THE 3D ROOM'S MONITOR WAS LAST TOLD TO SHOW (screen3D() AS JSON)
+let cardPick = null; // WHAT A PICKED PROMOTION CARD CALLS (onCardPick), gameplay/input'S choosePromotion
+let shownPromotion = null; // THE COLOUR THE 3D CARDS WERE LAST DEALT FOR, null WHEN THEY'RE ON THE DECK (syncCards3D)
+let shownCardFocus = null; // THE CARD THE 3D BOARD FRAMES (game.cardFocus)
 let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
 let monitorHooks = null; // gameplay/monitor'S { handlers, announce, onChange, data } (setMonitorHooks), GIVEN TO EVERY 3D BOARD
 let shownMonitor = null; // WHAT THE MONITOR'S CHANNELS WERE LAST SENT (monitorHooks.data() AS JSON)
@@ -48,23 +54,29 @@ let restoreTimer = null;
 /* ---------------------------------------------------------------- */
 /**
  * @description Draws one frame of the board that's on. The render loop & a window resize call it instead of game.drawScreen().
- * 3D only follows chessInst, which only the move path (gameplay/moves) changes: one move from what it shows slides, anything
- * else (load, takeback, restart, reconnect, a turned down move) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
+ * 3D only follows chessInst, which only the move path (gameplay/moves) & the replay change: one move from what it shows slides, a replay's
+ * step back slides in reverse, anything else (load, takeback, restart, reconnect, a turned down move, a replay's jump) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
  */
 export function drawBoard() {
 	game.drawScreen(); // 2D (HIDDEN ON 3D): ALSO FILLS game.tiles & STEPS THE SLIDES THE GAME WAITS ON
 	if (!board3D) { return; } // 3D: SIZES ITSELF (ResizeObserver) & DRAWS ITS OWN FRAMES, ONLY THE PIECES, CAMERA SIDE & HIGHLIGHTS ARE SET HERE
+	const cards = Boolean(board3D.hasCards?.()); // THE ROOM'S CARDS ARE THE PROMOTION PICKER, THE FLAT ONE STAYS WHEN IT HAS NONE
+	if (cards !== game.cards3D) { game.cards3D = cards; game.refresh = true; }
 	board3D.setSide(game.viewColor, !game.reduceMotion); // FLIP BOARD TURNS THE CAMERA
+	syncCards3D();
 	syncMarks3D();
 	syncScreen3D();
 	syncMonitor3D();
 	const fen = chessInst.fen();
 	if (fen !== shownFen) { // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
-		const move = game.reduceMotion ? null : moveBetween(scratch, shownFen, fen);
+		const step = game.reduceMotion || skipAnimation ? null : stepBetween(scratch, shownFen, fen);
+		skipAnimation = false;
 		shownFen = fen;
-		if (move) { board3D.animateMove(move.from, move.to, move.promotion); }
+		if (step?.kind === "forward") { board3D.animateMove(step.move.from, step.move.to, step.move.promotion); }
+		else if (step?.kind === "back" && game.readOnly) { board3D.animateUndo(step.move, facings3D()); } // syncFacing3D BELOW TURNS IT THE WAY IT FACED BEFORE THE MOVE
 		else { board3D.syncFromBoard(chessInst); }
 	}
+	syncTaken3D(fen);
 	syncFacing3D(fen);
 	const held = heldPiece();
 	board3D.setHeld(held && held.square, held && held.dragging); // AFTER THE MOVE: A DROPPED PIECE SLIDES FROM WHERE IT WAS LET GO
@@ -101,6 +113,31 @@ function marks3D() {
 		chessInst.moves({ square: held.square, verbose: true }).forEach((m) => marks[m.captured ? "capture" : "legal"].push(m.to));
 	}
 	return marks;
+}
+
+// STANDS THE TAKEN PIECES IN THE 3D BOARD'S PILES WHEN THEY CHANGED. AFTER THE MOVE STEP: A CAPTURE'S PIECE IS WAITING TO FLY TO ITS PILE
+function syncTaken3D(fen = chessInst.fen()) { // fen: THE BOARD'S, WHEN THE CALLER HAS IT
+	const { moveHistory } = require("../movelist/index.js"); // THE MOVES THE TAKEN PIECES ARE WORKED OUT FROM. HERE, NOT ABOVE: IT REACHES gameplay/animate & menu, WHICH REQUIRE THIS FILE, & THEY WOULD GET IT HALF MADE (NO VIEWS)
+	const { moves, startFen } = moveHistory();
+	const key = `${fen}|${moves.length}|${startFen}|${game.playerColor}`;
+	if (key === shownTaken) { return; }
+	shownTaken = key;
+	board3D.setTaken(capturesAt(moves, startFen, fen), game.playerColor);
+}
+
+// DEALS THE ROOM'S CARDS WHILE THE PLAYER PROMOTES (THEY ARE THE PICKER WHEN game.cards3D), PUTS THEM BACK AFTER. THE KEYBOARD'S FRAME STARTS ON THE QUEEN
+// WHEN THE KEYBOARD IS IN USE (game.keyboardTile), game.cardFocus IS THEN MOVED BY gameplay/input'S handleCardKey
+function syncCards3D() {
+	const want = game.currPromotion && game.cards3D ? game.playerColor : null;
+	if (want !== shownPromotion) {
+		shownPromotion = want;
+		board3D.setPromotion(want, !game.reduceMotion);
+		game.cardFocus = want && game.keyboardTile ? 0 : null;
+	}
+	if (game.cardFocus !== shownCardFocus) {
+		shownCardFocus = game.cardFocus;
+		board3D.focusCard(game.cardFocus);
+	}
 }
 
 // PUTS marks3D() ON THE 3D BOARD WHEN THEY CHANGED
@@ -230,6 +267,13 @@ function syncFacing3D(fen) {
 }
 
 /**
+ * @description The next position the 3D board is given is set at once, not slid (a replay's jump, a held key). Does nothing on 2D
+ */
+export function skipNextAnimation3D() {
+	if (board3D) { skipAnimation = true; }
+}
+
+/**
  * @description Restart & Rematch on 3D: the pieces glide home to chessInst (already the new game) in the 2D slide's time,
  * pieces with no match fade in or out. With reduce motion on they're just set. Does nothing on 2D
  */
@@ -255,6 +299,14 @@ export function stopMotion3D() {
  */
 export function whenDrawn3D() {
 	return board3D ? board3D.whenDrawn() : Promise.resolve();
+}
+
+/**
+ * @description Sets what a picked promotion card on the 3D board does (gameplay/input's choosePromotion)
+ * @param  {[function]} handler [(type) => {}, type is "q", "r", "b" or "n"]
+ */
+export function onCardPick(handler) {
+	cardPick = handler;
 }
 
 /**
@@ -418,7 +470,7 @@ async function show3D() {
 	canvas.after(container);
 	try {
 		const monitor = monitorHooks && { handlers: monitorHooks.handlers, announce: monitorHooks.announce, onChange: monitorHooks.onChange };
-		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D, monitor }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
+		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D, monitor, cards: { onPick: (type) => cardPick?.(type) } }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
 	} catch (err) {
 		console.warn("3D board failed to start", err);
 		reportError(`3D board couldn't start: ${err.message}`, "3d-board");
@@ -436,6 +488,11 @@ async function show3D() {
 	shownFacings = null;
 	syncFacing3D(shownFen);
 	shownMarks = null;
+	shownTaken = null;
+	shownPromotion = null; // A NEW BOARD'S CARDS ARE ON THE DECK
+	shownCardFocus = null;
+	game.cardFocus = null;
+	syncTaken3D();
 	shownScreen = null;
 	syncScreen3D();
 	shownMonitor = null; // A NEW BOARD (ONE REBUILT AFTER A LOST CONTEXT TOO) GETS THE DATA AGAIN
@@ -467,6 +524,7 @@ function overlayCanvas(on) {
 // TAKES THE 3D BOARD & ITS CONTAINER DOWN, THE 2D CANVAS STAYS AS IT IS
 function remove3D() {
 	stopWaiting();
+	game.cards3D = false; // NO BOARD, NO CARDS: THE FLAT PICKER SHOWS UNTIL A NEW ONE'S ROOM HAS THEM
 	if (board3D) {
 		board3D.unmount();
 		board3D = null;
@@ -480,6 +538,7 @@ function remove3D() {
 function show2D() {
 	remove3D();
 	overlayCanvas(false);
+	game.cards3D = false; // 2D HAS ITS FLAT PICKER
 	game.refresh = true; // REDRAW THE WHOLE CANVAS, IT ONLY HAD THE TRAYS ON 3D
 	requestFrame();
 	return VIEWS.TWO_D;

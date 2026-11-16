@@ -1,7 +1,8 @@
 /*
  *  eval.js  --  chess frontend
  *	The CRT Monitor's Evaluation Channel
- *	White's win chance as a number, a bar & a graph by move (gaps where a move has no score). A failed request is "NO SIGNAL" over static, no scores "NO DATA". No buttons
+ *	White's win chance as a number, a bar & a graph by move (gaps where a move has no score), under the material lead. A failed request is "NO SIGNAL" over static, no scores "NO DATA".
+ *	Where the engine isn't allowed (a game against a person) only the material lead shows, never the win chance, bar or graph. No buttons
  *
  */
 
@@ -62,6 +63,17 @@ function drawLabel(ctx, text, area, y) {
 	drawText(ctx, text, area.x + area.w / 2, y, TEXT, 0);
 }
 
+/**
+ * @description The material lead as a sentence for the screen reader
+ * @param  {[string]} material ["WHITE +3", "BLACK +2", "" when even]
+ * @return {[string]} speech ["White leads by 3", "" when even]
+ */
+export function leadSpeech(material) {
+	const [side, amount] = String(material || "").split(" +");
+	if (!amount) { return ""; }
+	return `${side[0]}${side.slice(1).toLowerCase()} leads by ${amount}`;
+}
+
 /* ---------------------------------------------------------------- */
 // Channel
 /* ---------------------------------------------------------------- */
@@ -72,23 +84,32 @@ function drawLabel(ctx, text, area, y) {
  * @param  {[object]} data [the channels' data]
  */
 export function draw(ctx, data) {
-	const { scores, failed } = data.eval;
+	const { scores, failed, allowed } = data.eval;
 	const area = body(data);
+	const midY = area.y + Math.floor(area.h / 2);
+	if (!allowed) { // A GAME AGAINST A PERSON: THE LEAD ALONE, NO ENGINE NUMBERS
+		drawText(ctx, "MATERIAL", area.x + area.w / 2, midY - 12, DIM, 0);
+		drawText(ctx, data.material, area.x + area.w / 2, midY, TEXT, 0);
+		return;
+	}
 	if (failed) {
 		drawStatic(ctx, area, data.frame);
-		drawLabel(ctx, "NO SIGNAL", area, area.y + Math.floor(area.h / 2) - 4);
+		drawLabel(ctx, "NO SIGNAL", area, midY - 4);
+		if (data.material) { drawLabel(ctx, data.material, area, midY + 10); }
 		return;
 	}
 	if (!scores.length) {
-		drawText(ctx, "NO DATA", area.x + area.w / 2, area.y + Math.floor(area.h / 2) - 4, DIM, 0);
+		drawText(ctx, "NO DATA", area.x + area.w / 2, midY - 4, DIM, 0);
+		drawText(ctx, data.material, area.x + area.w / 2, midY + 8, DIM, 0);
 		return;
 	}
 	const now = scores.filter((s) => s !== null && s !== undefined).pop(); // THE LATEST SCORE
 	const x0 = area.x + 4;
 	const barW = area.w - 8;
-	const barY = area.y + 16;
+	const barY = area.y + 28;
 	drawText(ctx, now === undefined ? "--%" : `${now}%`, x0, area.y + 4, TEXT);
 	drawText(ctx, "WHITE'S CHANCE", x0 + barW, area.y + 4, DIM, 1);
+	drawText(ctx, data.material, x0, area.y + 16, TEXT);
 	ctx.fillStyle = DIM;
 	ctx.fillRect(x0, barY, barW, 6);
 	ctx.fillStyle = TUBE;
@@ -121,17 +142,19 @@ export function press() {}
  * @return {[number|null]} ms [until the next frame, null for a still screen]
  */
 export function tick(data) {
-	return data.eval.failed && !data.reduce ? TICK : null;
+	return data.eval.allowed && data.eval.failed && !data.reduce ? TICK : null;
 }
 
 /**
  * @description What the screen reader says for the channel
  * @param  {[object]} data [the channels' data]
- * @return {[string]} "White's win chance 54 percent", "No evaluation yet" or "No signal"
+ * @return {[string]} "White's win chance 54 percent", "No evaluation yet" or "No signal", then the lead ("White leads by 3"); the lead alone where the engine isn't allowed
  */
 export function speak(data) {
-	const { scores, failed } = data.eval;
-	if (failed) { return "No signal"; }
+	const { scores, failed, allowed } = data.eval;
+	const lead = leadSpeech(data.material);
+	if (!allowed) { return lead || "Material is even"; }
 	const now = scores.filter((s) => s !== null && s !== undefined).pop();
-	return now === undefined ? "No evaluation yet" : `White's win chance ${now} percent`;
+	const engine = failed ? "No signal" : now === undefined ? "No evaluation yet" : `White's win chance ${now} percent`;
+	return [engine, lead].filter(Boolean).join(". ");
 }

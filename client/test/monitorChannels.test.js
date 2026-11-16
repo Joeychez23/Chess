@@ -149,12 +149,30 @@ describe("monitor channels", () => {
 		assert.equal(CHANNEL.eval.tick(base), null);
 	});
 
-	test("eval: no data, no signal and a graph all draw", () => {
-		for (const ev of [{ allowed: true, scores: [], failed: false }, { allowed: true, scores: [], failed: true }, base.eval]) {
+	test("eval: the lead is drawn on every state, alone when the engine isn't allowed", () => {
+		const friend = { allowed: false, scores: [50, 61], failed: false };
+		for (const ev of [base.eval, { allowed: true, scores: [], failed: false }, { allowed: true, scores: [], failed: true }, friend]) {
 			const ctx = fakeCtx();
-			CHANNEL.eval.draw(ctx, { ...base, eval: ev, zoomed: true });
+			CHANNEL.eval.draw(ctx, { ...base, eval: ev, material: "WHITE +3", zoomed: true });
 			assert.ok(ctx.calls.length > 0);
 		}
+		const withLead = fakeCtx(), without = fakeCtx(), engine = fakeCtx();
+		CHANNEL.eval.draw(withLead, { ...base, eval: friend, material: "BLACK +2" });
+		CHANNEL.eval.draw(without, { ...base, eval: friend, material: "" });
+		CHANNEL.eval.draw(engine, { ...base, material: "" });
+		assert.ok(withLead.calls.length > without.calls.length); // THE LEAD IS EXTRA DRAWING
+		assert.ok(without.calls.length > 0); // "MATERIAL" HEADING, NEVER BLANK
+		assert.ok(without.calls.length < engine.calls.length); // NO %, BAR OR GRAPH
+		assert.equal(CHANNEL.eval.tick({ ...base, eval: { allowed: false, scores: [], failed: true }, reduce: false }), null);
+	});
+
+	test("eval: the screen reader gets the lead", () => {
+		const z = { ...base, material: "WHITE +3" };
+		assert.equal(CHANNEL.eval.speak(z), "White's win chance 61 percent. White leads by 3");
+		assert.equal(CHANNEL.eval.speak({ ...z, eval: { allowed: true, scores: [50], failed: true } }), "No signal. White leads by 3");
+		assert.equal(CHANNEL.eval.speak({ ...z, eval: { allowed: false, scores: [], failed: false } }), "White leads by 3");
+		assert.equal(CHANNEL.eval.speak({ ...z, material: "", eval: { allowed: false, scores: [], failed: false } }), "Material is even");
+		assert.equal(CHANNEL.eval.speak({ ...base, material: "" }), "White's win chance 61 percent");
 	});
 
 	test("actions: only what the menu shows, in the menu's state", () => {

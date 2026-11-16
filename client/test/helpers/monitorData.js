@@ -18,7 +18,7 @@ function acts(spec = {}) {
 
 const base = {
 	ai: true, over: false, yourTurn: true, offline: false,
-	result: "",
+	result: "", material: "",
 	moves: [{ number: 1, white: "e4", black: "e5" }, { number: 2, white: "Nf3", black: "Nc6" }, { number: 3, white: "Bb5", black: "" }],
 	opening: { eco: "C60", name: "Ruy Lopez" },
 	eval: { allowed: true, scores: [50, 54, null, 61], failed: false },

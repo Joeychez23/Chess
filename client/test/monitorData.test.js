@@ -7,9 +7,14 @@
 
 const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
-const { actionsFrom, resultText, trimScores, plyOf, startPlyFor } = require("../src/js/gameplay/monitor/data.js");
+const { actionsFrom, resultText, materialText, trimScores, plyOf, startPlyFor } = require("../src/js/gameplay/monitor/data.js");
 
 describe("the monitor's data", () => {
+	test("the material lead reads WHITE +3 / BLACK +2, nothing when even", () => {
+		assert.equal(materialText(3), "WHITE +3");
+		assert.equal(materialText(-2), "BLACK +2");
+		assert.equal(materialText(0), "");
+	});
 	test("an action is enabled exactly when its menu item isn't hidden or unavailable", () => {
 		const items = { hint: { hidden: false, unavailable: false, text: "Hint" }, takeback: { hidden: false, unavailable: true, text: "Takeback Asked" }, draw: { hidden: true, unavailable: false, text: "Offer Draw" }, restart: { hidden: false, unavailable: false, text: "Forfeit" }, pgn: { hidden: true, unavailable: false, text: "Download PGN" } };
 		assert.deepEqual(actionsFrom(items), [

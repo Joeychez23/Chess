@@ -72,6 +72,7 @@ export const game = {
 	PLAYER_ID: undefined, // THIS PLAYER (A GUEST'S PLAYER ID IS THEIR GAME ID)
 	REMOTE_ONLY_CONDITIONAL: undefined, // REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE
 	SIGNED_IN: undefined, // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
+	readOnly: false, // A BOARD THAT ONLY SHOWS THE GAME (A REPLAY, #100): NO PIECE IS PICKED UP, NO MOVE, AI OR SOCKET (SET BY renderCanvas)
 	moveAudio: undefined, // MOVE SOUND (MADE IN renderCanvas)
 	soundOn: true, // THE PLAYER'S SOUND BUTTON, SAVED IN localStorage (SET BY loadSound, CHANGED BY handleSound IN gameplay/menu/index.js)
 	response: undefined, // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }
@@ -89,6 +90,8 @@ export const game = {
 	hint: null, // [from, to] OF THE HINT, HIGHLIGHTED BY drawHint() UNTIL THE NEXT MOVE, null WITHOUT ONE
 	keyboardTile: null, // { x, y } SCREEN COLUMN & ROW OF REMOTE-ONLY MODE'S SELECT BOX, null BEFORE A KEY IS PRESSED OR WHILE IT'S ON THE MENU BUTTON. THE 3D BOARD RINGS IT (#431)
 	traysOnly: false, // 3D IS ON: THE 2D CANVAS LIES OVER THE 3D BOARD & DRAWS ONLY THE TAKEN PIECE TRAYS (gameplay/renderer)
+	cards3D: false, // THE 3D ROOM HAS ITS DECK & CARDS: THEY ARE THE PROMOTION PICKER
+	cardFocus: null, // THE KEYBOARD'S PROMOTION CARD (INDEX IN queen, rook, bishop, knight ORDER), null FOR NONE
 	evalBarShown: false, // THE EVALUATION BAR IS ON SCREEN, THE MOVE LIST MAKES ROOM FOR IT (gameplay/analysis/index.js)
 	annotations: [], // THE PLAYER'S RIGHT-CLICK MARKS & ARROWS { from, to } IN BOARD SQUARES (from == to IS A MARK), DRAWN BY drawAnnotations()
 	tiles: setTiles(), // 64 TILE STATES IN SCREEN ORDER (ROW * 8 + COLUMN), FILLED WITH THE PIECE ON EACH SQUARE WHILE DRAWING
@@ -139,8 +142,8 @@ export const game = {
 	wTakenPieces: undefined, // WHITE PIECES THAT WERE TAKEN [{ color, type, x, y }]
 	bTakenPieces: undefined, // BLACK PIECES THAT WERE TAKEN
 
-	// WHITE PIECE IMAGES BEING DRAWN (IMAGE NUMBERS, gameplay/sprites/index.js), SET BEFORE EACH DRAW BY THE handle...Direction FUNCTIONS
-	wKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionW)
+	// WHITE PIECE IMAGES BEING DRAWN (IMAGE NUMBERS, gameplay/sprites/index.js), SET BEFORE EACH DRAW BY setPieceSprites, setKnightSide & handlePawnDirection (draw/pieceSprites.js)
+	wKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (setPieceSprites)
 	wQueenImg: undefined, // SET WITH wKingImg
 	wBishopBlackSqImg: undefined, // SET WITH wKingImg
 	wBishopWhiteSqImg: undefined, // SET WITH wKingImg
@@ -161,7 +164,7 @@ export const game = {
 	wPawnRefl: undefined, // SET WITH wPawnImg
 
 	// BLACK PIECE IMAGES BEING DRAWN
-	bKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionB)
+	bKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (setPieceSprites)
 	bQueenImg: undefined, // SET WITH bKingImg
 	bBishopBlackSqImg: undefined, // SET WITH bKingImg
 	bBishopWhiteSqImg: undefined, // SET WITH bKingImg

@@ -27,7 +27,7 @@ describe("the menus' groups", () => {
 			["Current game", ["Resume"]],
 			["Game actions", ["Hint", "Takeback", "Offer Draw", "Type a Move", "Monitor"]],
 			["View", ["Turn Sound: Off", "Flip Board", "View: 3D", "Reset View", "Turn Eval Bar: On", "Download PGN"]],
-			["End the game", ["Restart", "Cancel"]],
+			["End the game", ["Restart", "Cancel", "Replay"]],
 			["Navigation", ["Home", "Settings"]],
 			["Account", ["Exit"]],
 			["Legal", ["Privacy", "Terms"]],
@@ -90,7 +90,7 @@ describe("the menus' labels & link types", () => {
 
 	test("Home & Settings leave the game the same way, a new tab leaves it running", () => {
 		assert.match(read("src/js/gameplay/index.js"), /optHomepageBtn\.addEventListener\("click", handleLeave\);\s+optSettingsBtn\.addEventListener\("click", handleLeave\);/);
-		const handler = read("src/js/gameplay/menu/index.js").match(/export function handleLeave[\s\S]*?\n}/)[0];
+		const handler = read("src/js/gameplay/menu/endGame.js").match(/export function handleLeave[\s\S]*?\n}/)[0];
 		assert.ok(handler.indexOf("e.metaKey") < handler.indexOf("e.preventDefault"));
 		assert.ok(handler.indexOf("e.metaKey") < handler.indexOf("stopFrames"));
 		assert.match(handler, /stopFrames\(\);[\s\S]*leaveGame\(\);[\s\S]*cancelRematch[\s\S]*fillThenGo\(link, link\.href\)/);
