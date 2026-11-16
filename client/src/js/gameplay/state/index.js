@@ -142,8 +142,8 @@ export const game = {
 	wTakenPieces: undefined, // WHITE PIECES THAT WERE TAKEN [{ color, type, x, y }]
 	bTakenPieces: undefined, // BLACK PIECES THAT WERE TAKEN
 
-	// WHITE PIECE IMAGES BEING DRAWN (IMAGE NUMBERS, gameplay/sprites/index.js), SET BEFORE EACH DRAW BY THE handle...Direction FUNCTIONS
-	wKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionW)
+	// WHITE PIECE IMAGES BEING DRAWN (IMAGE NUMBERS, gameplay/sprites/index.js), SET BEFORE EACH DRAW BY setPieceSprites, setKnightSide & handlePawnDirection (draw/pieceSprites.js)
+	wKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (setPieceSprites)
 	wQueenImg: undefined, // SET WITH wKingImg
 	wBishopBlackSqImg: undefined, // SET WITH wKingImg
 	wBishopWhiteSqImg: undefined, // SET WITH wKingImg
@@ -164,7 +164,7 @@ export const game = {
 	wPawnRefl: undefined, // SET WITH wPawnImg
 
 	// BLACK PIECE IMAGES BEING DRAWN
-	bKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (handlePieceDirectionB)
+	bKingImg: undefined, // KING IMAGE BEING DRAWN, SET TO THE FRONT OR BACK ONE BEFORE EACH DRAW (setPieceSprites)
 	bQueenImg: undefined, // SET WITH bKingImg
 	bBishopBlackSqImg: undefined, // SET WITH bKingImg
 	bBishopWhiteSqImg: undefined, // SET WITH bKingImg

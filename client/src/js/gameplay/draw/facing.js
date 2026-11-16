@@ -1,5 +1,5 @@
 /*
- * facing.js -- piece facing rules shared by the 2D draw paths
+ * facing.js -- piece facing rules shared by 2D, the slide home and the board picture
  */
 
 /* ---------------------------------------------------------------- */
@@ -47,36 +47,44 @@ function pieceFacing(list, square, { viewColor, slide, landed }) {
 /* ---------------------------------------------------------------- */
 // Knight facing
 /* ---------------------------------------------------------------- */
-function knightColumn(square, color, viewColor) {
-	const file = square.split("")[0].charCodeAt(0) - 96;
-	if (color === 'w' && (viewColor === 'w' || viewColor === 'b')) return file - 1;
-	if (color === 'b' && viewColor === 'w') return file - 1;
-	if (color === 'b' && viewColor === 'b') return 8 - file;
-	return undefined;
-}
-
-/** Return direction or starting side for a knight. */
-function knightFacing(list, square, color, { viewColor, slide, landed }) {
+function knightFacing(list, square, { slide, landed }) {
 	for (let n = 0; n < list.length; n++) {
-		if (slide) return { kind: "dir", xFrom: knightColumn(slide.from, color, viewColor), xTo: knightColumn(slide.to, color, viewColor) };
-		if (list[n].from && list[n].to == square) {
-			return { kind: "dir", xFrom: knightColumn(list[n].from, color, viewColor), xTo: knightColumn(list[n].to, color, viewColor) };
-		}
-		if (list[n].from == null && list[n].to) {
-			if (list[n].to == square && square.split("")[0] < 'e') {
-				if (viewColor === 'w') return { kind: "side", side: "right" };
-				if (viewColor === 'b') return { kind: "side", side: "left" };
-			} else if (list[n].to == square) {
-				if (viewColor === 'w') return { kind: "side", side: "left" };
-				if (viewColor === 'b') return { kind: "side", side: "right" };
-			}
-		} else if (landed && square == landed.from && list[n].from && list[n].to == landed.to) {
-			const from = color === 'w' ? list[n].from.split("")[0].charCodeAt(0) - 96 - 1 : knightColumn(list[n].from, color, viewColor);
-			const to = color === 'w' ? list[n].to.split("")[0].charCodeAt(0) - 96 - 1 : knightColumn(list[n].to, color, viewColor);
-			return { kind: "dir", xFrom: from, xTo: to };
+		if (slide) return { kind: "dir", from: slide.from, to: slide.to };
+		if (list[n].from && list[n].to == square) return { kind: "dir", from: list[n].from, to: list[n].to };
+		if (list[n].from == null && list[n].to == square) return { kind: "side" };
+		if (landed && square == landed.from && list[n].from && list[n].to == landed.to) {
+			return { kind: "dir", from: list[n].from, to: list[n].to };
 		}
 	}
 	return null;
 }
 
-module.exports = { parseList, pieceFacing, knightFacing };
+function awayFromRows(yFrom, yTo, color, viewColor) {
+	if (yFrom > yTo) return true;
+	if (yFrom < yTo) return false;
+	return color === viewColor;
+}
+
+function rightFromFiles(from, to, viewColor) {
+	if (from[0] === to[0]) return false;
+	return viewColor === "w" ? from[0] < to[0] : from[0] > to[0];
+}
+
+function startsRight(square, viewColor) {
+	return (square[0] < "e") === (viewColor === "w");
+}
+
+function facesAway(list, square, color, options) {
+	const facing = pieceFacing(list, square, options);
+	return facing ? awayFromRows(facing.yFrom, facing.yTo, color, options.viewColor) : null;
+}
+
+function knightFacesRight(list, square, color, options) {
+	const facing = knightFacing(list, square, options);
+	if (!facing) return null;
+	if (facing.kind === "side") return startsRight(square, options.viewColor);
+	if (facing.from[0] === facing.to[0]) return color === "b";
+	return rightFromFiles(facing.from, facing.to, options.viewColor);
+}
+
+module.exports = { parseList, awayFromRows, rightFromFiles, startsRight, facesAway, knightFacesRight };

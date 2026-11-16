@@ -2,8 +2,8 @@
  *  index.js  --  chess frontend
  *	Draw
  *	Draws each frame of the game (drawScreen, set by handleInitialData): the pieces row by row with their reflections & shadows,
- *	the selected piece's moves, a piece sliding or a knight hopping to its new square, the taken piece trays (the promotion picker
- *	while promoting) & which way each piece faces (the handle...Direction functions)
+ *	the selected piece's moves, a piece sliding or a knight hopping to its new square, and the promotion picker while promoting.
+ *	See draw/facing.js for facing rules, draw/pieceSprites.js for sprite setters, and draw/taken.js for taken-piece trays.
  *
  */
 
@@ -11,23 +11,25 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, ctx, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE BOARD THAT'S DRAWN
-const { countStartPieces, materialDiff } = require("../utils/index.js"); // HOW MANY PIECES EACH SIDE STARTED WITH, WHO'S AHEAD IN MATERIAL
 const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
 const { renderBoard } = require("../layout/index.js"); // SIZES THE CANVAS & BOARD TO THE WINDOW & DRAWS THE TABLE & BOARD
 const {
 	tableShdw, // BOARD
-	wFrontKingImg, wBackKingImg, wFrontQueenImg, wBackQueenImg, wFrontBishopBlackSqImg, wFrontBishopWhiteSqImg, wBackBishopImg, wRightKnightImg, wLeftKnightImg, wFrontRookImg, wBackRookImg, wFrontPawnImg, wBackPawnImg, // WHITE IMAGES
-	wFrontKingShdw, wBackKingShdw, wFrontQueenShdw, wBackQueenShdw, wFrontBishopShdw, wBackBishopShdw, wRightKnightShdw, wLeftKnightShdw, wFrontRookShdw, wBackRookShdw, wFrontPawnShdw, wBackPawnShdw, // WHITE SHADOW
-	wFrontKingRefl, wBackKingRefl, wFrontQueenRefl, wBackQueenRefl, wFrontBishopRefl, wBackBishopRefl, wRightKnightRefl, wLeftKnightRefl, wFrontRookRefl, wBackRookRefl, wFrontPawnRefl, wBackPawnRefl, // WHITE REFLECT
-	bFrontKingImg, bBackKingImg, bFrontQueenImg, bBackQueenImg, bFrontBishopBlackSqImg, bFrontBishopWhiteSqImg, bBackBishopImg, bRightKnightImg, bLeftKnightImg, bFrontRookImg, bBackRookImg, bFrontPawnImg, bBackPawnImg, // BLACK IMAGES
-	bFrontKingShdw, bBackKingShdw, bFrontQueenShdw, bBackQueenShdw, bFrontBishopShdw, bBackBishopShdw, bRightKnightShdw, bLeftKnightShdw, bFrontRookShdw, bBackRookShdw, bFrontPawnShdw, bBackPawnShdw, // BLACK SHADOW
-	bFrontKingRefl, bBackKingRefl, bFrontQueenRefl, bBackQueenRefl, bFrontBishopRefl, bBackBishopRefl, bRightKnightRefl, bLeftKnightRefl, bFrontRookRefl, bBackRookRefl, bFrontPawnRefl, bBackPawnRefl, // BLACK REFLECT
-	moveHighlight, takeableHighlight, checkHighlight // UI
+	wRightKnightImg, wLeftKnightImg, // WHITE KNIGHT IMAGES
+	wRightKnightShdw, wLeftKnightShdw, // WHITE KNIGHT SHADOWS
+	wRightKnightRefl, wLeftKnightRefl, // WHITE KNIGHT REFLECTIONS
+	bRightKnightImg, bLeftKnightImg, // BLACK KNIGHT IMAGES
+	bRightKnightShdw, bLeftKnightShdw, // BLACK KNIGHT SHADOWS
+	bRightKnightRefl, bLeftKnightRefl, // BLACK KNIGHT REFLECTIONS
+	moveHighlight, takeableHighlight, checkHighlight // UI HIGHLIGHTS
 } = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
-const { handleKnightHop, stepSlide, KNIGHT_PAUSE_MS, trayNudge } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS, WHERE A SLIDING PIECE IS FROM THE TIME, HOW LONG A KNIGHT STOPS BEFORE ITS HOP, HOW FAR THE BOTTOM TRAY SITS DOWN
+const { handleKnightHop, stepSlide } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS, WHERE A SLIDING PIECE IS FROM THE TIME
+const { KNIGHT_PAUSE_MS } = require("../animate/timing.js"); // HOW LONG A KNIGHT STOPS BEFORE ITS HOP (NOT VIA animate/index.js: IT IS STILL LOADING WHEN THIS FILE LOADS)
 const { overlayShows } = require("./overlay.js"); // WHAT THE FLAT OVERLAY DRAWS ON 2D & ON 3D
 const { landSlide } = require("../moves/index.js"); // A SLIDE LANDED: SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S
-const { parseList, pieceFacing, knightFacing } = require("./facing.js"); // SHARED PIECE & KNIGHT FACING RULES
+const { parseList, awayFromRows, rightFromFiles, facesAway, knightFacesRight } = require("./facing.js"); // SHARED PIECE & KNIGHT FACING RULES
+const { setPieceSprites, handlePawnDirection, setKnightSide } = require("./pieceSprites.js");
+const { setTakenPieceArr, renderTakenPieces } = require("./taken.js");
 
 const DRAG_HOLD_MS = 120; // MOVING A HELD PIECE FOR LONGER THAN THIS MAKES IT A DRAG
 
@@ -37,8 +39,6 @@ let slidePos; // SQUARE THE SLIDING PIECE IS CROSSING (trackSlidePosition)
 let knightPause = false; // TRUE FOR THE 100MS A KNIGHT STOPS BEFORE ITS HOP (currSlide IS OFF), SO A FRAME DRAWN THEN STILL PUTS IT ON TOP
 let availableMoves; // LEGAL MOVES OF THE SELECTED PIECE (chess.js VERBOSE MOVES)
 let currInst; // 8 x 8 BOARD FROM chessInst.board(), FLIPPED WHEN VIEWING FROM BLACK'S SIDE
-let xPos; // TAKEN PIECE TRAY COLUMN (renderTakenPieces)
-let yPos; // TAKEN PIECE TRAY ROW
 let overlapSlideObj = null; // ONLY THE SLIDING PIECE'S OWN SQUARE IS KEPT (drawActivePiece), FOR A HOPPING OR LANDED KNIGHT (drawSlideBox)
 
 /**
@@ -49,17 +49,6 @@ let overlapSlideObj = null; // ONLY THE SLIDING PIECE'S OWN SQUARE IS KEPT (draw
  */
 function slideFace() {
 	return game.moveObj.face || game.moveObj;
-}
-
-/**
- * @description Sets the knight's image, shadow, and reflection to its starting side.
- */
-function setKnightSide(color, side) {
-	// SET THE SPRITES FOR THE KNIGHT'S STARTING SIDE
-	if (color == "w" && side == "right") { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; }
-	else if (color == "w") { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; }
-	else if (side == "right") { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; }
-	else { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; }
 }
 
 /* ---------------------------------------------------------------- */
@@ -84,13 +73,13 @@ export function handleInitialData() {
 			if (overlay !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD, THE TAKEN PIECES & THE SCORE ARE IN THE 3D ROOM
 			if (overlay === "none") { return; }
 			if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
-				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
-				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
+				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor, currInst); }
+				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor, currInst); }
 			} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
 				game.wTakenPieces = setTakenPieceArr('w');
 				game.bTakenPieces = setTakenPieceArr('b');
-				renderTakenPieces(game.wTakenPieces, 'b');
-				renderTakenPieces(game.bTakenPieces, 'w');
+				renderTakenPieces(game.wTakenPieces, 'b', currInst);
+				renderTakenPieces(game.bTakenPieces, 'w', currInst);
 			}
 
 			if (overlay !== "all") { return; } // NO TABLE SHADOW OVER THE 3D BOARD
@@ -113,13 +102,13 @@ export function handleInitialData() {
 			if (overlay !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD, THE TAKEN PIECES & THE SCORE ARE IN THE 3D ROOM
 			if (overlay === "none") { return; }
 			if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
-				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor); }
-				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor); }
+				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor, currInst); }
+				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor, currInst); }
 			} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
 				game.wTakenPieces = setTakenPieceArr('w');
 				game.bTakenPieces = setTakenPieceArr('b');
-				renderTakenPieces(game.wTakenPieces, 'b');
-				renderTakenPieces(game.bTakenPieces, 'w');
+				renderTakenPieces(game.wTakenPieces, 'b', currInst);
+				renderTakenPieces(game.bTakenPieces, 'w', currInst);
 			}
 
 			if (overlay !== "all") { return; } // NO TABLE SHADOW OVER THE 3D BOARD
@@ -238,8 +227,10 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 		if (game.tiles[q].isSliding && game.tiles[q].type == 'n' && (game.tiles[q].xDiff || game.tiles[q].yDiff)) {
 			game.tiles[q].x = q % 8; // ITS START SQUARE, AS ITS OWN TURN SETS IT BELOW (THE CLICK THAT STARTED THE SLIDE LEFT x, y ON THE NEW SQUARE),
 			game.tiles[q].y = Math.floor(q / 8); // SO IT'S RIGHT IF IT'S DRAWN BEFORE ITS OWN TURN (WITH REDUCE MOTION ITS FIRST FRAME ALREADY HOPS, #354)
-			const row =Math.min(Math.max(Math.round(game.tiles[q].y - game.tiles[q].yDiff / game.tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
-			const column = Math.min(Math.max(Math.round(game.tiles[q].x + game.tiles[q].xDiff / game.tileWidth), 0), 7);
+			const row = Math.min(Math.max(Math.round(game.tiles[q].y - game.tiles[q].yDiff / game.tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
+			// ITS START COLUMN, NOT THE ONE IT'S OVER: ONLY THE ROW CHANGES, SO EACH PIECE GOES OVER OR UNDER ITS SHADOW ONCE
+			// !NOTE: SWITCHING COLUMNS MID-ROW (b2 TO c2 ON Nc3) PUT b2'S PAWN UNDER, OVER, THEN UNDER THE SHADOW, SO IT FLASHED
+			const column = q % 8;
 			if (row * 8 + column != q) { hopTurn = { index: q, square: row * 8 + column }; }
 			break;
 		}
@@ -317,8 +308,7 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						 */
 						function drawPiece() {
 							if (tile.yAvailInt != tile.originY) { // UP OR DOWN: FACE THE WAY IT WOULD MOVE (SIDEWAYS FACES ITS LAST WAY)
-								if (pieceColor == 'w') { handlePieceDirectionW(tile.originY, tile.yAvailInt); }
-								else if (pieceColor == 'b') { handlePieceDirectionB(tile.originY, tile.yAvailInt); }
+								setPieceSprites(pieceColor, awayFromRows(tile.originY, tile.yAvailInt, pieceColor, game.viewColor));
 							}
 							if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
 								if (pieceColor == "w") { drawActivePiece([game.wKingRefl, game.wKingShdw, game.wKingImg], x, y, false); game.wPieceCount.king++; }
@@ -341,11 +331,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 						}
 						// THE WAY IT FACES NOW, SAME AS THE BOARD (w_piece / b_piece)
 						if (pieceColor == "w") {
-							const facing = pieceFacing(parseList("w_piece", game.response.w_piece), tile.square, { viewColor: game.viewColor, slide: null, landed: null });
-							if (facing) { handlePieceDirectionW(facing.yFrom, facing.yTo); drawPiece(); }
+							const away = facesAway(parseList("w_piece", game.response.w_piece), tile.square, "w", { viewColor: game.viewColor, slide: null, landed: null });
+							if (away !== null) { setPieceSprites("w", away); drawPiece(); }
 						} else if (pieceColor == "b") {
-							const facing = pieceFacing(parseList("b_piece", game.response.b_piece), tile.square, { viewColor: game.viewColor, slide: null, landed: null });
-							if (facing) { handlePieceDirectionB(facing.yFrom, facing.yTo); drawPiece(); }
+							const away = facesAway(parseList("b_piece", game.response.b_piece), tile.square, "b", { viewColor: game.viewColor, slide: null, landed: null });
+							if (away !== null) { setPieceSprites("b", away); drawPiece(); }
 						}
 					} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 						if (pieceColor == "w") {
@@ -609,16 +599,9 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			function drawHoppingKnight() {
 				const squareIndex = index; // THIS SQUARE'S TILE
 				index = hopTurn.index;
-				let xFrom = slideFace().from.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT CAME FROM (a = 0)
-				let xTo = slideFace().to.split("")[0].charCodeAt(0) - 96 - 1; // FILE IT'S GOING TO
-				if (game.tiles[index].color == 'w') { // SAME FOR BOTH COLORS, handleKnightDirectionW FLIPS ITS TEST FOR BLACK
-					handleKnightDirectionW(xFrom, xTo);
-					drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false);
-				} else if (game.tiles[index].color == 'b') {
-					if (game.viewColor == 'b') { xFrom = 7 - xFrom; xTo = 7 - xTo; } // FLIPPED COLUMNS, SO handleKnightDirectionB USES ONE TEST FOR BOTH
-					handleKnightDirectionB(xFrom, xTo);
-					drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false);
-				}
+				setKnightSide(game.tiles[index].color, rightFromFiles(slideFace().from, slideFace().to, game.viewColor) ? 'right' : 'left');
+				if (game.tiles[index].color == 'w') drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false);
+				else if (game.tiles[index].color == 'b') drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false);
 				index = squareIndex;
 			}
 			if (hopTurn && hopTurn.square == index) { drawHoppingKnight(); } // THE HOPPING KNIGHT IS OVER THIS SQUARE: UNDER THIS SQUARE'S PIECE & THE ONES AFTER IT
@@ -639,13 +622,12 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 					// Draw Piece (Draw Screen)
 					/* ---------------------------------------------------------------- */
 					/**
-					 * @description Draws the king, queen, bishop or rook to the board with the images the loops below picked (handlePieceDirectionW / B).
+					 * @description Draws the king, queen, bishop or rook to the board with the images the loops below picked (draw/facing.js awayFromRows).
 					 * While the player holds their piece it faces the way it's dragged (up or down from its square)
 					 */
 					function drawPiece() {
 						if (game.tiles[index].isMousedown && game.tiles[index].y != game.tiles[index].originY && game.playerColor == pieceColor) { // HELD: FACE THE WAY IT'S DRAGGED (UP OR DOWN)
-							if (pieceColor == 'w') { handlePieceDirectionW(game.tiles[index].originY, game.tiles[index].y); }
-							else if (pieceColor == 'b') { handlePieceDirectionB(game.tiles[index].originY, game.tiles[index].y); }
+							setPieceSprites(pieceColor, awayFromRows(game.tiles[index].originY, game.tiles[index].y, pieceColor, game.viewColor));
 						}
 						if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
 							if (pieceColor == "w") {
@@ -686,11 +668,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 					// { from, to } OF EACH ONE'S LAST MOVE UP OR DOWN (A SIDEWAYS MOVE ONLY CHANGES to), from IS null BEFORE IT HAS ONE
 					// & BOTH ARE null ONCE IT'S TAKEN
 					if (pieceColor == "w") {
-						const facing = pieceFacing(parseList("w_piece", game.response.w_piece), game.tiles[index].square, { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
-						if (facing) { handlePieceDirectionW(facing.yFrom, facing.yTo); drawPiece(); }
+						const away = facesAway(parseList("w_piece", game.response.w_piece), game.tiles[index].square, "w", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
+						if (away !== null) { setPieceSprites("w", away); drawPiece(); }
 					} else if (pieceColor == "b") {
-						const facing = pieceFacing(parseList("b_piece", game.response.b_piece), game.tiles[index].square, { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
-						if (facing) { handlePieceDirectionB(facing.yFrom, facing.yTo); drawPiece(); }
+						const away = facesAway(parseList("b_piece", game.response.b_piece), game.tiles[index].square, "b", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
+						if (away !== null) { setPieceSprites("b", away); drawPiece(); }
 					}
 				} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 					handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
@@ -754,16 +736,14 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 							// WHICH WAY A KNIGHT FACES COMES FROM THE SERVER'S KNIGHT LIST (w_knight / b_knight):
 							// { from, to } OF EACH KNIGHT'S LAST MOVE, from IS null BEFORE IT MOVES & BOTH ARE null ONCE IT'S TAKEN
 							if (pieceColor == "w") {
-								const facing = knightFacing(parseList("w_knight", game.response.w_knight), game.tiles[index].square, "w", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
-								if (facing && game.tiles[index].isSliding) { if (!hopTurn) { handleKnightDirectionW(facing.xFrom, facing.xTo); drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); } }
-								else if (facing && facing.kind == "dir") { handleKnightDirectionW(facing.xFrom, facing.xTo); drawKnight(); }
-								else if (facing) { setKnightSide("w", facing.side); drawKnight(); }
+								const right = knightFacesRight(parseList("w_knight", game.response.w_knight), game.tiles[index].square, "w", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
+								if (right !== null && game.tiles[index].isSliding) { if (!hopTurn) { setKnightSide("w", right ? 'right' : 'left'); drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); } }
+								else if (right !== null) { setKnightSide("w", right ? 'right' : 'left'); drawKnight(); }
 								game.wPieceCount.knight++;
 							} else if (pieceColor == "b") {
-								const facing = knightFacing(parseList("b_knight", game.response.b_knight), game.tiles[index].square, "b", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
-								if (facing && game.tiles[index].isSliding) { if (!hopTurn) { handleKnightDirectionB(facing.xFrom, facing.xTo); drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); } }
-								else if (facing && facing.kind == "dir") { handleKnightDirectionB(facing.xFrom, facing.xTo); drawKnight(); }
-								else if (facing) { setKnightSide("b", facing.side); drawKnight(); }
+								const right = knightFacesRight(parseList("b_knight", game.response.b_knight), game.tiles[index].square, "b", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
+								if (right !== null && game.tiles[index].isSliding) { if (!hopTurn) { setKnightSide("b", right ? 'right' : 'left'); drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); } }
+								else if (right !== null) { setKnightSide("b", right ? 'right' : 'left'); drawKnight(); }
 								game.bPieceCount.knight++;
 							}
 						}
@@ -831,11 +811,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 			// !NOTE: ON THE FRAME A SLIDE LANDS ITS ENTRY HAS ALREADY MOVED TO THE NEW SQUARE (moveObj.to), SO IT'S LOOKED UP THERE & DRAWN
 			// AGAIN. THE BOARD DREW IT IN ITS OLD SQUARE'S TURN, SO WITHOUT THIS THE PIECES DRAWN AGAIN AROUND IT COVERED IT FOR A FRAME
 			if (pieceColor == "w") {
-				const facing = pieceFacing(parseList("w_piece", game.response.w_piece), pieceObj.square, { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
-				if (facing) { handlePieceDirectionW(facing.yFrom, facing.yTo); drawPiece(); }
+				const away = facesAway(parseList("w_piece", game.response.w_piece), pieceObj.square, "w", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
+				if (away !== null) { setPieceSprites("w", away); drawPiece(); }
 			} else if (pieceColor == "b") {
-				const facing = pieceFacing(parseList("b_piece", game.response.b_piece), pieceObj.square, { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
-				if (facing) { handlePieceDirectionB(facing.yFrom, facing.yTo); drawPiece(); }
+				const away = facesAway(parseList("b_piece", game.response.b_piece), pieceObj.square, "b", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
+				if (away !== null) { setPieceSprites("b", away); drawPiece(); }
 			}
 		} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
 			handleKnightHop(pieceObj); // HOW HIGH IT IS THIS FRAME (knightHop)
@@ -862,13 +842,11 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 				}
 			}
 			if (pieceColor == "w") { // SAME FACING RULES AS THE BOARD: THIS MOVE WHILE SLIDING, ELSE ITS LAST MOVE, ELSE ITS START SQUARE
-				const facing = knightFacing(parseList("w_knight", game.response.w_knight), pieceObj.square, "w", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
-				if (facing && facing.kind == "dir") { handleKnightDirectionW(facing.xFrom, facing.xTo); drawKnight(); }
-				else if (facing) { setKnightSide("w", facing.side); drawKnight(); }
+				const right = knightFacesRight(parseList("w_knight", game.response.w_knight), pieceObj.square, "w", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
+				if (right !== null) { setKnightSide("w", right ? 'right' : 'left'); drawKnight(); }
 			} else if (pieceColor == "b") {
-				const facing = knightFacing(parseList("b_knight", game.response.b_knight), pieceObj.square, "b", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
-				if (facing && facing.kind == "dir") { handleKnightDirectionB(facing.xFrom, facing.xTo); drawKnight(); }
-				else if (facing) { setKnightSide("b", facing.side); drawKnight(); }
+				const right = knightFacesRight(parseList("b_knight", game.response.b_knight), pieceObj.square, "b", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
+				if (right !== null) { setKnightSide("b", right ? 'right' : 'left'); drawKnight(); }
 			}
 		} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
 			handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
@@ -927,221 +905,4 @@ function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
 		overlapSlideObj = null
 	}
 	if (!game.currSlide) { game.refresh = true; overlapSlideObj = null; } // NOTHING SLIDING, CLEAR THE OVERLAP
-}
-
-/* ---------------------------------------------------------------- */
-// Set Taken Pieces Array
-/* ---------------------------------------------------------------- */
-/**
- * @description Sets Object array with all taken pieces of one color: the starting count of each piece minus the ones drawn
- * on the board this frame (wPieceCount / bPieceCount). Pawns aren't listed. While promoting it lists one queen, bishop,
- * knight & rook instead, the promotion picker
- * @param  {[string]} paramColor ['w' | 'b']
- * @return {[array]} takenArr [{ color, type }]
- */
-export function setTakenPieceArr(paramColor) { // DRAW ALL TAKEN PIECES
-	let takenArr = new Array();
-	let currPieces; // HOW MANY OF EACH ARE ON THE BOARD
-	if (game.currPromotion) { currPieces = { king: 1, queen: 0, bishop: 1, knight: 1, rook: 1, pawn: 8 } } // SETS TAKEN PIECES ARRAY TO ONLY CONTAIN ONE OF EACH UNIQUE PIECE THAT ISN'T A KING
-	else { if (paramColor == "w") { currPieces = game.wPieceCount } else if (paramColor == "b") { currPieces = game.bPieceCount } }
-
-	/**
-	 * @description Adds (maxCount - amountOnBoard) pieces of one type to takenArr
-	 */
-	function countToObj(amountOnBoard, type, maxCount) {
-		let takenCount;
-		takenCount = maxCount - amountOnBoard;
-		for (let i = 1; i < takenCount + 1; i++) { takenArr[takenArr.length] = { color: paramColor, type: type } }
-	}
-
-	const startCount = game.currPromotion ? countStartPieces().w : game.startPieceCount[paramColor]; // HOW MANY STARTED, THE PROMOTION PICKER USES THE STANDARD SET (ONE OF EACH)
-	countToObj(currPieces.king, "k", startCount.king);
-	countToObj(currPieces.queen, "q", startCount.queen);
-	countToObj(currPieces.bishop, "b", startCount.bishop);
-	countToObj(currPieces.knight, "n", startCount.knight);
-	countToObj(currPieces.rook, "r", startCount.rook);
-
-	return takenArr;
-}
-
-/* ---------------------------------------------------------------- */
-// Renders Taken Pieces
-/* ---------------------------------------------------------------- */
-/**
- * @description Draw a single taken piece, for each piece in a tray next to the board, in squares off the board:
- * to the right on wide screens (3 to a row), above & below it otherwise. While promoting this is the promotion picker
- * & the piece under the mouse is see through. Tray knights always face right
- * @param  {[array]} takenPieces [from setTakenPieceArr(), each one gets its tray square (x, y) so it can be clicked]
- * @param  {[string]} paramColor [the color that took them, its tray is on its side of the board]
- */
-function renderTakenPieces(takenPieces, paramColor) {
-	/* ---------------------------------------------------------------- */
-	// Draw taken pieces
-	/* ---------------------------------------------------------------- */
-	/**
-	 * @description Draws taken piece images to canvas (shadow & piece, no reflection) at xPos, yPos
-	 * @param  {[object]} takenPiece [{ color, type, x, y }]
-	 * @param  {[array]} imgArr [image numbers: shadow, piece]
-	 */
-	function drawTakenPiece(takenPiece, imgArr) {
-		for (let i = 0; i < imgArr.length; i++) { // DRAW TAKEN PIECE IMAGES
-			if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && game.currPromotion) { ctx.globalAlpha = 0.8; } // HOVERED PROMOTION CHOICE
-			ctx.drawImage(images[imgArr[i]].image, xPos * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2, (yPos + trayNudge(yPos)) * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
-			if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && game.currPromotion) { ctx.globalAlpha = 1; }
-		}
-	}
-
-	if (game.widthGreater) { // WIDE SCREEN: TRAYS TO THE RIGHT OF THE BOARD (COLUMN 9), THE PLAYER'S AT THE BOTTOM (ROW 6), THE OPPONENT'S AT THE TOP (ROW -1)
-		if (game.viewColor == 'w') {
-			if (paramColor == "w") { xPos = 9; yPos = 6; }
-			else { xPos = 9; yPos = -1; }
-		} else if (game.viewColor == 'b') {
-			if (paramColor == "w") { xPos = 9; yPos = -1; }
-			else { xPos = 9; yPos = 6; }
-		}
-	} else { // NARROW SCREEN: ONE ROW BELOW THE BOARD (ROW 9) FOR THE PLAYER, ONE ABOVE (ROW -2) FOR THE OPPONENT
-		const xStart = game.portraitBoard ? 0 : -1; // PORTRAIT BOARD FILLS THE WIDTH, SO KEEP TAKEN PIECES ON SCREEN
-		if (game.viewColor == 'w') {
-			if (paramColor == "w") { xPos = xStart; yPos = 9; }
-			else { xPos = xStart; yPos = -2; }
-		} else if (game.viewColor == 'b') {
-			if (paramColor == "w") { xPos = xStart; yPos = -2; }
-			else { xPos = xStart; yPos = 9; }
-		}
-	}
-
-	const trayImages = { // [SHADOW, PIECE] FOR EACH COLOR & TYPE, FRONTS ONLY, TRAY KNIGHTS ALWAYS FACE RIGHT
-		w: { k: [wFrontKingShdw, wFrontKingImg], q: [wFrontQueenShdw, wFrontQueenImg], b: [wFrontBishopShdw, wFrontBishopBlackSqImg], n: [wRightKnightShdw, wRightKnightImg], r: [wFrontRookShdw, wFrontRookImg], p: [wFrontPawnShdw, wFrontPawnImg] },
-		b: { k: [bFrontKingShdw, bFrontKingImg], q: [bFrontQueenShdw, bFrontQueenImg], b: [bFrontBishopShdw, bFrontBishopWhiteSqImg], n: [bRightKnightShdw, bRightKnightImg], r: [bFrontRookShdw, bFrontRookImg], p: [bFrontPawnShdw, bFrontPawnImg] }
-	};
-	for (let i = 0; i < takenPieces.length; i++) {
-		takenPieces[i].x = xPos; // ITS TRAY SQUARE, SO IT CAN BE CLICKED (THE PROMOTION PICKER)
-		takenPieces[i].y = yPos;
-		const imgArr = takenPieces[i].color && trayImages[takenPieces[i].color]?.[takenPieces[i].type];
-		if (!imgArr) { continue; } // NO COLOR OR UNKNOWN TYPE: NOT DRAWN & TAKES NO SQUARE
-		drawTakenPiece(takenPieces[i], imgArr);
-		xPos += 1;
-		if (game.widthGreater && xPos - 9 == 3) { yPos += 1; xPos = 9; } // WIDE SCREEN: 3 TO A ROW
-	}
-
-	const lead = (paramColor == 'w' ? 1 : -1) * materialDiff(currInst);
-	if (lead > 0 && !game.currPromotion) { // +N IN THE TRAY'S NEXT FREE SQUARE, THE PROMOTION PICKER HAS NO COUNT
-		ctx.font = `600 ${game.tileHeight * 0.45}px Archivo, "Helvetica Neue", Arial, sans-serif`;
-		ctx.fillStyle = "#d9b27a"; // SAME GOLD AS THE BOARD COORDINATES
-		ctx.textAlign = "center";
-		ctx.textBaseline = "middle";
-		ctx.fillText(`+${lead}`, (xPos + 0.5) * game.tileWidth + game.xBoardOff, (yPos + trayNudge(yPos) + 0.5) * game.tileHeight + game.yBoardOff);
-	}
-}
-
-/* ---------------------------------------------------------------- */
-// Handle Knight Direction White
-/* ---------------------------------------------------------------- */
-/**
- * @description Check the previous x pos & the curr x pos to determine orientation. Points the white knight images
- * (wKnightImg, wKnightShdw, wKnightRefl) right when the knight moved right on screen, left when it moved left.
- * The files aren't flipped for black, so the test is flipped here instead
- * @param  {[number]} xFrom [file it came from, a = 0]
- * @param  {[number]} xTo [file it went to]
- */
-function handleKnightDirectionW(xFrom, xTo) {
-	if (game.viewColor != 'w' && game.viewColor != 'b') { return; }
-	const right = game.viewColor == 'w' ? xFrom < xTo : xFrom > xTo; // FLIPPED BOARD: A HIGHER FILE IS FURTHER LEFT ON SCREEN. SAME FILE (DOESN'T HAPPEN FOR A KNIGHT) FACES LEFT
-	setKnightSide('w', right ? 'right' : 'left');
-}
-
-/* ---------------------------------------------------------------- */
-// Handle Knight Direction Black
-/* ---------------------------------------------------------------- */
-/**
- * @description Check the previous x pos & the curr x pos to determine orientation. Points the black knight images
- * (bKnightImg, bKnightShdw, bKnightRefl) right when the knight moved right on screen, left when it moved left.
- * The callers already flip the columns for black, so both colors use the same test
- * @param  {[number]} xFrom [screen column it came from]
- * @param  {[number]} xTo [screen column it went to]
- */
-function handleKnightDirectionB(xFrom, xTo) {
-	if (game.viewColor != 'w' && game.viewColor != 'b') { return; }
-	setKnightSide('b', xFrom > xTo ? 'left' : 'right'); // MOVED LEFT FACES LEFT, ELSE RIGHT (SAME COLUMN DOESN'T HAPPEN FOR A KNIGHT)
-}
-
-/* ---------------------------------------------------------------- */
-// Handle Piece Direction White
-/* ---------------------------------------------------------------- */
-/**
- * @description Check the previous y pos & the curr y pos to determine orientation. Points the white king, queen, bishop & rook
- * images (wKingImg, wKingShdw, wKingRefl, ...) away from the player (their backs) when the piece moved up the screen,
- * toward the player (their fronts) when it moved down. One that hasn't moved up or down faces black's side
- * @param  {[number]} yFrom [screen row it came from, null before it has moved up or down]
- * @param  {[number]} yTo [screen row it went to, null before it has moved up or down]
- */
-export function handlePieceDirectionW(yFrom, yTo) {
-	if (yFrom > yTo) { setPieceSprites('w', true); } // MOVED UP: FACES AWAY
-	else if (yFrom < yTo) { setPieceSprites('w', false); } // MOVED DOWN: FACES THE PLAYER
-	else if (game.viewColor == 'w') { setPieceSprites('w', true); } // HASN'T MOVED UP OR DOWN: FACES BLACK'S SIDE (THE TOP OF THE BOARD)
-	else if (game.viewColor == 'b') { setPieceSprites('w', false); } // FLIPPED BOARD: BLACK'S SIDE IS THE BOTTOM
-}
-
-/* ---------------------------------------------------------------- */
-// Handle Piece Direction Black
-/* ---------------------------------------------------------------- */
-/**
- * @description Check the previous y pos & the curr y pos to determine orientation. Points the black king, queen, bishop & rook
- * images (bKingImg, bKingShdw, bKingRefl, ...) away from the player (their backs) when the piece moved up the screen,
- * toward the player (their fronts) when it moved down. One that hasn't moved up or down faces white's side
- * @param  {[number]} yFrom [screen row it came from, null before it has moved up or down]
- * @param  {[number]} yTo [screen row it went to, null before it has moved up or down]
- */
-export function handlePieceDirectionB(yFrom, yTo) {
-	if (yFrom > yTo) { setPieceSprites('b', true); } // MOVED UP: FACES AWAY
-	else if (yFrom < yTo) { setPieceSprites('b', false); } // MOVED DOWN: FACES THE PLAYER
-	else if (game.viewColor == 'w') { setPieceSprites('b', false); } // HASN'T MOVED UP OR DOWN: FACES WHITE'S SIDE (THE BOTTOM OF THE BOARD)
-	else if (game.viewColor == 'b') { setPieceSprites('b', true); } // FLIPPED BOARD: WHITE'S SIDE IS THE TOP
-}
-
-/**
- * @description Points one color's king, queen, bishop & rook images (game.wKingImg, ...) at their backs or their fronts
- * @param  {[string]} color ['w' | 'b']
- * @param  {[boolean]} back [true = backs (facing away from the player), false = fronts]
- */
-function setPieceSprites(color, back) {
-	if (color == 'w' && back) {
-		game.wKingImg = wBackKingImg; game.wKingShdw = wBackKingShdw; game.wKingRefl = wBackKingRefl;
-		game.wQueenImg = wBackQueenImg; game.wQueenShdw = wBackQueenShdw; game.wQueenRefl = wBackQueenRefl;
-		game.wBishopBlackSqImg = wBackBishopImg; game.wBishopWhiteSqImg = wBackBishopImg; game.wBishopShdw = wBackBishopShdw; game.wBishopRefl = wBackBishopRefl;
-		game.wRookImg = wBackRookImg; game.wRookShdw = wBackRookShdw; game.wRookRefl = wBackRookRefl;
-	} else if (color == 'w') {
-		game.wKingImg = wFrontKingImg; game.wKingShdw = wFrontKingShdw; game.wKingRefl = wFrontKingRefl;
-		game.wQueenImg = wFrontQueenImg; game.wQueenShdw = wFrontQueenShdw; game.wQueenRefl = wFrontQueenRefl;
-		game.wBishopBlackSqImg = wFrontBishopBlackSqImg; game.wBishopWhiteSqImg = wFrontBishopWhiteSqImg; game.wBishopShdw = wFrontBishopShdw; game.wBishopRefl = wFrontBishopRefl;
-		game.wRookImg = wFrontRookImg; game.wRookShdw = wFrontRookShdw; game.wRookRefl = wFrontRookRefl;
-	} else if (back) {
-		game.bKingImg = bBackKingImg; game.bKingShdw = bBackKingShdw; game.bKingRefl = bBackKingRefl;
-		game.bQueenImg = bBackQueenImg; game.bQueenShdw = bBackQueenShdw; game.bQueenRefl = bBackQueenRefl;
-		game.bBishopBlackSqImg = bBackBishopImg; game.bBishopWhiteSqImg = bBackBishopImg; game.bBishopShdw = bBackBishopShdw; game.bBishopRefl = bBackBishopRefl;
-		game.bRookImg = bBackRookImg; game.bRookShdw = bBackRookShdw; game.bRookRefl = bBackRookRefl;
-	} else {
-		game.bKingImg = bFrontKingImg; game.bKingShdw = bFrontKingShdw; game.bKingRefl = bFrontKingRefl;
-		game.bQueenImg = bFrontQueenImg; game.bQueenShdw = bFrontQueenShdw; game.bQueenRefl = bFrontQueenRefl;
-		game.bBishopBlackSqImg = bFrontBishopBlackSqImg; game.bBishopWhiteSqImg = bFrontBishopWhiteSqImg; game.bBishopShdw = bFrontBishopShdw; game.bBishopRefl = bFrontBishopRefl;
-		game.bRookImg = bFrontRookImg; game.bRookShdw = bFrontRookShdw; game.bRookRefl = bFrontRookRefl;
-	}
-}
-
-/* ---------------------------------------------------------------- */
-// Handle Pawn Direction
-/* ---------------------------------------------------------------- */
-/**
- * @description Pawns only move forward, so they always face the other side & nothing is saved in the database. Points the
- * pawn images (wPawnImg, wPawnShdw, wPawnRefl, bPawnImg, ...) away from the player for the player's own pawns (their backs)
- * & toward the player for the opponent's
- */
-export function handlePawnDirection() {
-	if (game.viewColor == 'w') { // WHITE PAWNS FACE BLACK'S SIDE (THE TOP OF THE BOARD), BLACK PAWNS FACE THE PLAYER
-		game.wPawnImg = wBackPawnImg; game.wPawnShdw = wBackPawnShdw; game.wPawnRefl = wBackPawnRefl;
-		game.bPawnImg = bFrontPawnImg; game.bPawnShdw = bFrontPawnShdw; game.bPawnRefl = bFrontPawnRefl;
-	} else if (game.viewColor == 'b') { // FLIPPED BOARD: BLACK PAWNS FACE WHITE'S SIDE (THE TOP), WHITE PAWNS FACE THE PLAYER
-		game.wPawnImg = wFrontPawnImg; game.wPawnShdw = wFrontPawnShdw; game.wPawnRefl = wFrontPawnRefl;
-		game.bPawnImg = bBackPawnImg; game.bPawnShdw = bBackPawnShdw; game.bPawnRefl = bBackPawnRefl;
-	}
 }

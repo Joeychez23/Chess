@@ -73,10 +73,10 @@ export function place(mesh, square) {
 	updateShadow(mesh);
 }
 
-// KING, QUEEN, BISHOP & ROOK FACE THE WAY THEY LAST MOVED UP OR DOWN THE BOARD LIKE 2D (handlePieceDirectionW / B): TOWARD RANK 8 (-Z) IS
+// KING, QUEEN, BISHOP & ROOK FACE THE WAY THEY LAST MOVED UP OR DOWN THE BOARD LIKE 2D (draw/facing.js awayFromRows): TOWARD RANK 8 (-Z) IS
 // rotation.y PI (MODEL FRONTS FACE +Z), TOWARD RANK 1 IS 0. ONE THAT HASN'T FACES THE OTHER SIDE (createPiece). WORLD SIDES, SO A FLIP CHANGES NOTHING.
-// KNIGHTS FACE THE WAY THEY LAST MOVED LEFT OR RIGHT (handleKnightDirectionW / B): THE NOSE IS +X, SO TOWARD THE h-FILE IS 0, TOWARD THE a-FILE PI.
-// ONE THAT HASN'T MOVED FACES THE MIDDLE (a - d FACE THE h-FILE, e - h THE a-FILE), LIKE 2D's START (setSlidePiece)
+// KNIGHTS FACE THE WAY THEY LAST MOVED LEFT OR RIGHT (draw/facing.js rightFromFiles): THE NOSE IS +X, SO TOWARD THE h-FILE IS 0, TOWARD THE a-FILE PI.
+// ONE THAT HASN'T MOVED FACES THE MIDDLE (a - d FACE THE h-FILE, e - h THE a-FILE), LIKE 2D's START (draw/facing.js startsRight)
 const TURNS = /[kqbrn]/;
 export const yawToward = (rankUp) => (rankUp ? Math.PI : 0);
 export const yawSide = (towardH) => (towardH ? 0 : Math.PI);

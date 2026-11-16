@@ -1,8 +1,8 @@
 // Keyboard input: remote-only mode's select box, the game's keys, promotion and 3D card keys
-const { game, OVERRIDE_REMOTE_ONLY } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD, REMOTE-ONLY MODE FOR TESTING
-const { isCameraGesture, onCardPick } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP
+const { game, OVERRIDE_REMOTE_ONLY } = require("../state/index.js"); // THE GAME'S SHARED STATE, REMOTE-ONLY MODE FOR TESTING
+const { isCameraGesture, onCardPick } = require("../renderer/index.js"); // IS A TOUCH A 3D CAMERA GESTURE, THE 3D PROMOTION CARD PICK
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { openMenu } = require("../menu/index.js"); // REMOTE-ONLY MODE OPENS THE MENU, A CLICK ON THE BOARD CLOSES IT
+const { openMenu } = require("../menu/index.js"); // REMOTE-ONLY MODE OPENS THE MENU
 const { menuItems, itemForKey } = require("../../pages/utils/nav.js"); // THE MENU'S ITEMS, READ FROM THE PAGE
 const { CARD_ORDER, nextCard } = require("../three/cardLayout.js"); // THE PROMOTION CARDS' ORDER & HOW THE ARROWS WALK THEM (NO three.js IN IT: THE 3D CHUNK STAYS LAZY)
 import { optBtn, handleCanvasClick } from "./index.js";
