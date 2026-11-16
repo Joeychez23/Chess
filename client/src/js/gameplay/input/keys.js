@@ -104,6 +104,13 @@ export async function handleKeyPress(e) {
 			}
 		}
 
+		if (code == 27 && !game.menuToggled) { // ESCAPE (THE ZOOMED MONITOR KEEPS ITS OWN): DROP THE 3D RING & ITS HOVER UNTIL THE NEXT KEY
+			game.tiles.forEach((tile) => { tile.isHovering = false; });
+			game.keyboardTile = null;
+			game.refresh = true;
+			return;
+		}
+
 		if (code == 37) { // LEFT
 			if (remoteNavBox.x > 0 && !game.menuToggled) {
 				if (remoteNavBox.menuHover) {
