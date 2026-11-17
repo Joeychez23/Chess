@@ -9,6 +9,7 @@ const board = require("./board.js");
 const hand = require("./hand.js");
 const turn = require("./turn.js");
 const { makeCtx } = require("./ctx.js");
+const { inCheck } = require("./rules.js");
 const view = require("./view.js");
 
 const ENGINE_VERSION = 1;
@@ -44,14 +45,32 @@ function newGame({ vesper, level, seed }) {
 }
 
 /**
- * @description Resolve one action for player on a deep copy of state; throws IllegalAction for anything not in legalActions (compared by actionKey). Returns { state, events }. Event types: move, capture, promote, check, card-played, card-cancelled, passive-placed, passive-fired, passive-cancelled, status, status-ended, enchant, enchant-ended, curse-given, curse-fired, curse-cleared, draw, discard, redraw, turn-start, turn-skipped, king-skull, choice, duel-deal, duel-flip, duel-result, move-undone, game-over.
+ * @description Resolve one action for player on a deep copy of state; throws IllegalAction for anything not in legalActions (compared by actionKey). Returns { state, events }. Event types: move, capture (with sq, the captured piece's square), promote, check (also at the start of a turn for a side a trigger or an ended status put in check; it says what holds when emitted, and a later effect in the same action can lift it, so the client reads the standing check from the state at turn-start), card-played, card-cancelled, passive-placed, passive-fired, passive-cancelled, status, status-ended, enchant, enchant-ended, curse-given, curse-fired, curse-cleared, draw, discard, redraw, turn-start, turn-skipped, king-skull, card-taken, handover, choice, duel-deal, duel-flip, duel-result, move-undone, game-over.
  */
 function applyAction(state, player, action) {
 	const key = turn.actionKey(action);
 	if (!turn.legalActions(state, player).some((a) => turn.actionKey(a) === key)) throw new IllegalAction();
 	const ctx = makeCtx(JSON.parse(JSON.stringify(state)));
 	turn.act(ctx, player, JSON.parse(key));
+	const r = ctx.state.result, grace = r && r.reason === "checkmate" && r.winner === player && ctx.state.effects.find((e) => e.owner !== player && e.card.key === "grace");
+	if (grace) return graceUndo(state, player, JSON.parse(key), ctx, grace.id);
 	return { state: ctx.state, events: ctx.events };
+}
+
+/**
+ * @description Grace (cards/passive/grace.js): player's action checkmated the owner of a placed Grace (after the owner's redraw). Returns the state from before the action (state) with the rng and nextId kept advanced (done: the action's ctx), Grace fired (passive-fired; its key in the owner's used), player drawing 2 active cards (the normal draw; over the cap they are lost), the action barred for the rest of player's turn (state.barred = turn.barKey(action): a move is barred whatever card plays it), and the events: the action's move events (a spent move card shown only as "move": it is back in player's hand), passive-fired, the draws, move-undone { player }. With no action left, the no-legal-action rule: a two-move turn ends; else turn.noAction (redraw, then checkmate by the cards or stalemate). Out of scope (ruling): a mate completed by the owner's own action (a duel pick, an answer to a choice).
+ */
+function graceUndo(state, player, action, done, graceId) {
+	const s = JSON.parse(JSON.stringify(state)), ctx = makeCtx(s);
+	ctx.stood = ["w", "b"].filter((c) => inCheck(s, c)); // AS turn.act DOES: A CHECK STANDING BEFORE THE UNDONE ACTION WAS ALREADY ANNOUNCED
+	Object.assign(s, { rng: done.state.rng, nextId: done.state.nextId, barred: turn.barKey(action) });
+	ctx.passiveFired(s.effects.find((e) => e.id === graceId));
+	for (let i = 0; i < 2; i++) hand.drawCard(ctx, player, "active");
+	ctx.emit({ type: "move-undone", player });
+	if (s.multi && s.multi.player === player && !turn.legalActions(s, player).length) turn.endTurn(ctx, player); // NO OTHER SECOND MOVE: THE TWO-MOVE TURN ENDS
+	else if (!s.multi && !s.pending && !s.duel) turn.noAction(ctx, player); // AN OPEN CHOICE OR DUEL IS ITS OWN ACTION: NO REDRAW, NO STALEMATE
+	const moves = done.events.filter((e) => e.type === "move" && e.player === player).map((e) => (e.card && typeof e.card === "object" ? { ...e, card: "move" } : e)); // THE CARD WENT BACK TO THE HAND: DON'T SHOW IT
+	return { state: s, events: [...moves, ...ctx.events] };
 }
 
 module.exports = {

@@ -5,12 +5,13 @@
  */
 
 const { makeMove } = require("./movegen.js");
-const { pieceById, sqIndex } = require("./board.js");
+const { pieceById, sqIndex, sqName } = require("./board.js");
 const { inCheck, legalMoves, boardDraw, rulesInPlay, hooksFor } = require("./rules.js");
 const statuses = require("./statuses.js");
 const hand = require("./hand.js");
 const { CARDS } = require("./cards/index.js");
 const { makeCtx, capture } = require("./ctx.js");
+const duel = require("./duel.js");
 
 const PASSIVE_CHANCE = 1 / 3;
 const BUILT_IN = ["move", "active", "passive", "discard", "choice", "duel"]; // ACTION TYPES THE ENGINE RESOLVES ITSELF; choice AND duel ARE RESERVED (NEVER CARD-DEFINED)
@@ -22,6 +23,13 @@ const other = (c) => (c === "w" ? "b" : "w");
 function actionKey(action) {
 	return JSON.stringify(action, (k, v) => (v && typeof v === "object" && !Array.isArray(v)
 		? Object.fromEntries(Object.keys(v).sort().map((key) => [key, v[key]])) : v));
+}
+
+/**
+ * @description What state.barred holds for an action Grace takes back: for a move, the move's shape { type, from, to, promotion } (whatever card plays it: a move card, the King card, cardless or routed); for anything else, its actionKey.
+ */
+function barKey(a) {
+	return a.type === "move" ? actionKey({ type: "move", from: a.from, to: a.to, promotion: a.promotion }) : actionKey(a);
 }
 
 /**
@@ -89,6 +97,7 @@ function activeActions(state, color) {
 		for (const target of def.targets(state, color)) {
 			const a = target === null ? { type: "active", card: c.id } : { type: "active", card: c.id, target };
 			const ctx = makeCtx(JSON.parse(JSON.stringify(state)));
+			ctx.trial = true; // A LEGALITY TRIAL: HIDDEN EFFECTS (TRAPDOOR) DON'T FIRE, SO THE LIST CAN'T REVEAL THEM
 			playActive(ctx, color, a);
 			if (!inCheck(ctx.state, color)) out.push(a); // AN ACTIVE NEVER LEAVES ITS OWN KING IN CHECK
 		}
@@ -97,12 +106,18 @@ function activeActions(state, color) {
 }
 
 /**
- * @description Every action player may take now; empty when the game is over. While a choice is pending, only the pending player's { type: "choice", option } actions (one per pending.options entry); else turnActions.
+ * @description Every action player may take now; empty when the game is over. While a choice is pending, only the pending player's { type: "choice", option } actions (one per pending.options entry; a barred one left out while another remains); else turnActions. While a card duel is open (state.duel, no choice pending) both players get only duel.actions: their picks and the stop-or-go decision (a barred one left out while another remains).
  */
 function legalActions(state, player) {
 	const pend = state.pending;
+	if (!state.result && !pend && state.duel) { // A CARD DUEL HOLDS THE TURN: ONLY ITS PICKS AND DECISIONS, FOR EITHER PLAYER
+		const acts = duel.actions(state, player), left = player === state.board.turn ? acts.filter((a) => actionKey(a) !== state.barred) : acts; // THE BAR IS ON THE PLAYER WHOSE TURN IT IS: THE KEY NAMES NO PLAYER
+		return left.length ? left : acts; // A BARRED PICK (GRACE) IS LEFT OUT WHILE ANOTHER REMAINS
+	}
 	if (state.result || !pend) return turnActions(state, player);
-	return pend.player === player ? (pend.options || []).map((option) => ({ type: "choice", option })) : []; // NO options: REBUILT FROM THE OTHER PLAYER'S VIEW
+	if (pend.player !== player) return [];
+	const opts = (pend.options || []).map((option) => ({ type: "choice", option })), left = opts.filter((a) => actionKey(a) !== state.barred); // NO options: REBUILT FROM THE OTHER PLAYER'S VIEW
+	return left.length ? left : opts; // A BARRED OPTION (GRACE) IS LEFT OUT WHILE ANOTHER REMAINS: A CHOICE MUST BE ANSWERED
 }
 
 /**
@@ -161,11 +176,11 @@ function turnActions(state, player) {
 	}
 	const built = new Set(out.map(actionKey));
 	for (const [r, src] of rulesInPlay(state)) if (r.actions) out = r.actions(state, player, out, src);
-	const survives = (a) => { const ctx = makeCtx(JSON.parse(JSON.stringify(state))); cardAct(ctx, player, a); return !inCheck(ctx.state, player); };
+	const survives = (a) => { const ctx = makeCtx(JSON.parse(JSON.stringify(state))); ctx.trial = true; cardAct(ctx, player, a); return !inCheck(ctx.state, player); };
 	const ok = (a) => !!a && typeof a === "object" && (built.has(actionKey(a))
 		|| (a.type === "move" ? addedMoveOk(state, player, a) && (!routed(state, player, a) || survives(a))
 			: !BUILT_IN.includes(a.type) && !multi && !!sourceOf(state, player, a) && survives(a))); // AN ADDED active, passive OR discard IS DROPPED
-	return out.filter((a) => ok(a) && actionKey(a) !== state.barred);
+	return out.filter((a) => ok(a) && actionKey(a) !== state.barred && barKey(a) !== state.barred); // THE EXACT KEY, OR A MOVE'S SHAPE (barKey)
 }
 
 /**
@@ -186,21 +201,21 @@ function move(ctx, player, a) {
 	const match = (m) => m.from === a.from && m.to === a.to && m.promotion === a.promotion && m.t === t;
 	const mv = a.card === "king" ? kingMoves(s, player).find(match) : legalMoves(s, player).find(match);
 	const card = a.card === "king" || a.card === null ? a.card : hand.take(p, a.card);
-	const victim = mv.capture ? s.board.sq[pieceById(s.board, mv.capture)] : null;
+	const vi = mv.capture ? pieceById(s.board, mv.capture) : -1, victim = vi < 0 ? null : s.board.sq[vi], vsq = sqName(vi); // vsq: WHERE IT STOOD (EN PASSANT: THE PAWN'S SQUARE)
 	s.board = makeMove(s.board, mv);
 	const ev = { type: "move", player, card, piece: mv.piece, from: mv.from, to: mv.to };
 	if (mv.castle) ev.castle = mv.castle;
 	if (victim && victim.t === "k") { // A KING LEFT IN CHECK ON ITS OWNER'S OPPONENT'S TURN: TAKING IT WINS, NOTHING ELSE RESOLVES
 		s.players[victim.c].captured.push("k");
 		delete s.statuses[victim.id];
-		ctx.events.push(ev, { type: "capture", player, piece: victim.id, t: "k", c: victim.c, by: mv.piece });
+		ctx.events.push(ev, { type: "capture", player, piece: victim.id, t: "k", c: victim.c, by: mv.piece, sq: vsq });
 		if (mv.promotion) ctx.events.push({ type: "promote", player, piece: mv.piece, t: mv.promotion });
 		end(ctx, player, "king");
 		return false;
 	}
 	ctx.held = []; // EVENTS NOW, TRIGGERS ONCE THE MOVE IS WHOLE
 	ctx.emit(ev);
-	if (victim) { capture(ctx, player, victim, mv.piece); ctx.resetHalf = false; } // makeMove ALREADY RESET half FOR ITS OWN CAPTURE
+	if (victim) { capture(ctx, player, victim, mv.piece, vsq); ctx.resetHalf = false; } // makeMove ALREADY RESET half FOR ITS OWN CAPTURE
 	if (mv.promotion) ctx.emit({ type: "promote", player, piece: mv.piece, t: mv.promotion });
 	if (mv.skull) spendSkull(ctx, player, "status"); // PAST THE KING'S OWN STATUSES: PART OF THE MOVE, SO ITS EVENTS ARE HELD TOO
 	const held = ctx.held;
@@ -208,6 +223,7 @@ function move(ctx, player, a) {
 	for (const e of held) ctx.trigger(e);
 	const check = inCheck(s, other(player)); // AFTER THE TRIGGERS, SO THE check EVENT AND THE TWO-MOVE DECISION ARE TRUE
 	if (check) ctx.emit({ type: "check", player: other(player) }); // player = THE SIDE IN CHECK
+	if (inCheck(s, player)) ctx.emit({ type: "check", player }); // A TRIGGER LEFT THE MOVER IN CHECK (A SHIELD TAKEN BY A TRAP OR A GUARD): SAID NOW, ALSO INSIDE A TWO-MOVE TURN
 	const m = s.multi;
 	if (!m || m.player !== player) return false;
 	m.left--;
@@ -226,11 +242,13 @@ function move(ctx, player, a) {
 }
 
 /**
- * @description Resolve a legal action for player on ctx.state, then end the turn unless the game ended or a two-move turn goes on (after a move, or after an active that set state.multi for player with a move to make). A discard is a skip: the third in a row loses. A choice asked during the action holds the end of the turn: pending.end (and resetHalf) record it, and the choice action runs it once after choice.resolve.
+ * @description Resolve a legal action for player on ctx.state, then end the turn unless the game ended or a two-move turn goes on (after a move, or after an active that set state.multi for player with a move to make). After an active or a card-defined action, a check event when the opponent is in check and the action emitted none (checkAfter). A discard is a skip: the third in a row loses. An active that opens a card duel holds the turn until the duel is over; a duel action goes to duelAct. A choice asked during the action holds the end of the turn: pending.end (and resetHalf) record it, and the choice action runs it once after choice.resolve.
  */
 function act(ctx, player, a) {
 	const s = ctx.state, p = s.players[player];
+	ctx.stood = ["w", "b"].filter((c) => inCheck(s, c)); // CHECKS STANDING BEFORE THIS ACTION: ALREADY ANNOUNCED, startTurn DOESN'T SAY THEM AGAIN
 	if (a.type === "choice") return choose(ctx, a.option);
+	if (a.type === "duel") return duelAct(ctx, player, a);
 	if (a.type === "discard") {
 		const wasMove = p.moves.some((c) => c.id === a.card);
 		ctx.emit({ type: "discard", player, card: hand.take(p, a.card) });
@@ -244,7 +262,10 @@ function act(ctx, player, a) {
 			ctx.emit({ type: "passive-placed", player, card: p.passive });
 			p.passive = null;
 		} else if (a.type === "active") {
+			const from = ctx.events.length;
 			playActive(ctx, player, a);
+			checkAfter(ctx, player, from);
+			if (s.duel) return; // ALL OR NOTHING STARTED A CARD DUEL: IT HOLDS THE TURN, AND THE duel ACTION THAT ENDS IT ENDS THE TURN (duelAct)
 			if (s.multi && s.multi.player === player && s.multi.left > 0 && turnActions(s, player).length) {
 				if (ctx.resetHalf) s.board.half = 0; // THE ACTIVE CAPTURED OR MOVED A PAWN BEFORE THE MOVES
 				return; // THE ACTIVE STARTED A TWO-MOVE TURN
@@ -254,20 +275,47 @@ function act(ctx, player, a) {
 				if (ctx.resetHalf) s.board.half = 0; // A TRIGGER CAPTURED DURING THE FIRST MOVE OF A TWO-MOVE TURN
 				return;
 			}
-		} else cardAct(ctx, player, a); // A CARD-DEFINED ACTION (OR A MOVE UNDER A CARD'S OWN ID): USES THE TURN LIKE AN ACTIVE
+		} else {
+			const from = ctx.events.length;
+			cardAct(ctx, player, a); // A CARD-DEFINED ACTION (OR A MOVE UNDER A CARD'S OWN ID): USES THE TURN LIKE AN ACTIVE
+			checkAfter(ctx, player, from);
+		}
 	}
 	if (s.pending) return void Object.assign(s.pending, { end: true, resetHalf: ctx.resetHalf }); // THE TURN ENDS AFTER THE CHOICE
 	if (!s.result) endTurn(ctx, player);
 }
 
 /**
- * @description Resolve the current choice with option: the next queued one (pending.next) becomes current first, so a choice resolve asks queues behind those asked before it; then its card's choice.resolve runs (ctx.turn back to the turn it was asked in). While choices remain, the next current one carries what is left of the turn (end, resetHalf). After the last: the end of turn when pending.end; else, as the turn goes on, a capture made by resolve zeroes half now (as act does when an active starts a two-move turn). Also ends a two-move turn the choice left with no move (shortcut: that end adds no history entry and counts half + 1 instead of the move's value; fine while no choice card resolves into a stuck two-move turn).
+ * @description One check event for player's opponent when they are in check and none was emitted for them since event index from: an active, a card-defined action or a choice that moved or removed a piece gives check as a move does. The event says what holds when it is emitted: a choice resolved later, or the end of the turn (a status given then, e.g. Heretical Subjection's Shaken), can still lift it; the client reads the standing check from the state at turn-start.
+ */
+function checkAfter(ctx, player, from) {
+	const opp = other(player);
+	if (!ctx.state.result && !ctx.events.slice(from).some((e) => e.type === "check" && e.player === opp) && inCheck(ctx.state, opp)) ctx.emit({ type: "check", player: opp });
+}
+
+/**
+ * @description Resolve a duel action (duel.act) by either player during the duel player's turn: a check event when it put that player's opponent in check (an upgrade, or a lost piece opening a line) and no check stood before it (checkAfter); when the duel is over, the duel player's turn ends (after a choice a trigger asked, if any).
+ */
+function duelAct(ctx, player, a) {
+	const s = ctx.state, who = s.duel.player, from = ctx.events.length, was = inCheck(s, other(who));
+	const over = duel.act(ctx, player, a);
+	if (s.barred && JSON.parse(s.barred).type === "duel") s.barred = null; // GRACE TAKES BACK ONE DUEL ACTION: A LATER STOP OR PICK IS ANOTHER ONE
+	if (!was) checkAfter(ctx, who, from);
+	if (!over || s.result) return;
+	if (s.pending) return void Object.assign(s.pending, { end: true, resetHalf: ctx.resetHalf }); // THE TURN ENDS AFTER THE CHOICE
+	endTurn(ctx, who);
+}
+
+/**
+ * @description Resolve the current choice with option: the next queued one (pending.next) becomes current first, so a choice resolve asks queues behind those asked before it; then its card's choice.resolve runs (ctx.turn back to the turn it was asked in), with a check event when it put the opponent in check (checkAfter). While choices remain, the next current one carries what is left of the turn (end, resetHalf). After the last: the end of turn when pending.end; else, as the turn goes on, a capture made by resolve zeroes half now (as act does when an active starts a two-move turn). Also ends a two-move turn the choice left with no move (shortcut: that end adds no history entry and counts half + 1 instead of the move's value; fine while no choice card resolves into a stuck two-move turn).
  */
 function choose(ctx, option) {
 	const s = ctx.state, pend = s.pending, [head, ...rest] = pend.next || [];
 	s.pending = head ? (rest.length ? { ...head, next: rest } : head) : null;
 	ctx.turn = pend.turn;
+	const from = ctx.events.length, was = inCheck(s, other(pend.turn));
 	CARDS[pend.card].choice.resolve(ctx, pend, option);
+	if (!was) checkAfter(ctx, pend.turn, from); // ONLY A CHECK THIS resolve MADE: ONE THAT STOOD BEFORE IT WAS ALREADY EMITTED
 	const resetHalf = ctx.resetHalf || !!pend.resetHalf;
 	if (s.pending && pend.end) return void Object.assign(s.pending, { end: true, resetHalf });
 	if (s.result) return;
@@ -280,6 +328,7 @@ function choose(ctx, option) {
  */
 function endTurn(ctx, color) {
 	const s = ctx.state;
+	ctx.stood = ctx.stood.filter((c) => inCheck(s, c)); // A CHECK LIFTED BEFORE THE TURN PASSES NO LONGER COUNTS AS ANNOUNCED: IF IT COMES BACK, startTurn NAMES IT
 	ctx.ticked = color; // GIVEN TO color FROM HERE ON (DURING THE TICKS, REFILL TRIGGERS): NOT fresh, color'S TICK IS RUNNING OR HAS RUN
 	const enchants = s.enchant.slice(); // THE ENCHANTMENTS PRESENT WHEN THE TICK STARTS: ONE GIVEN DURING THE STATUS TICK IS NOT TICKED NOW
 	statuses.tick(ctx, color);
@@ -311,7 +360,7 @@ function tickEnchant(ctx, color, enchants) {
 }
 
 /**
- * @description Start of color's turn: a turn-start event (triggers run on it); a player with lostTurns has one less and loses this turn (a turn-skipped event, then endTurn: ticks, refill, half + 1, play passes; no passive roll; not a discard skip), unless in check with a King skull: the skull is spent and the lost turn is void, so the turn is played; else the passive roll (from their second turn, empty slot only); no card action (move, active, or card-defined action) → move cards thrown out and a full hand redrawn, max(thrown out, 6) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Then the board draws (repetition, fifty, material), even when plain chess has no move.
+ * @description Start of color's turn: a turn-start event (triggers run on it); a check event for each side in check that no check event of this action named, but not for color when its check already stood before this action began (ctx.stood, set by act: it was announced then; the side that just played and is still in check is always named) (a trigger or a status ending made it, e.g. a Trapdoor removing a shield); a player with lostTurns has one less and loses this turn (a turn-skipped event, then endTurn: ticks, refill, half + 1, play passes; no passive roll; not a discard skip), unless in check with a King skull: the skull is spent and the lost turn is void, so the turn is played; else the passive roll (from their second turn, empty slot only); no card action (move, active, or card-defined action) → move cards thrown out and a full hand redrawn, max(thrown out, 6) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Then the board draws (repetition, fifty, material), even when plain chess has no move.
  */
 function startTurn(ctx, color) {
 	const s = ctx.state, p = s.players[color];
@@ -319,6 +368,7 @@ function startTurn(ctx, color) {
 	ctx.resetHalf = false; // A NEW TURN
 	ctx.emit({ type: "turn-start", player: color });
 	if (s.result) return;
+	for (const c of [other(color), color]) if (inCheck(s, c) && !(c === color && (ctx.stood || []).includes(c)) && !ctx.events.some((e) => e.type === "check" && e.player === c)) ctx.emit({ type: "check", player: c }); // A CHECK NO MOVE ANNOUNCED: A TRIGGER REMOVED A SHIELD (TRAPDOOR), A STATUS ENDED, A TURN-START EFFECT
 	if (p.lostTurns > 0) {
 		p.lostTurns--; // GONE FOR GOOD, LOST OR VOID
 		if (p.kingSkulls > 0 && inCheck(s, color)) spendSkull(ctx, color, "lost-turn"); // VOID: THE PLAYER ANSWERS THE CHECK
@@ -328,20 +378,27 @@ function startTurn(ctx, color) {
 		}
 	}
 	if (s.ply >= 2 && !p.passive && ctx.rng.next() < PASSIVE_CHANCE) hand.drawCard(ctx, color, "passive");
-	const cardActions = () => turnActions(s, color).filter((a) => a.type !== "passive" && a.type !== "discard"); // CARDLESS MOVES AND CARD-DEFINED ACTIONS COUNT
-	if (!cardActions().length) {
-		const n = p.moves.length;
-		p.moves = [];
-		ctx.emit({ type: "redraw", player: color });
-		ctx.draw(color, Math.max(n, hand.MOVES));
-		if (!cardActions().length) {
-			const mate = inCheck(s, color);
-			return end(ctx, mate ? other(color) : null, mate ? "checkmate" : "stalemate");
-		}
-	}
+	if (noAction(ctx, color)) return;
 	if (ctx.resetHalf) s.board.half = 0; // A CARD CAPTURED AT THE START OF THE TURN
 	const draw = boardDraw(s.board); // CARD MATE AND STALEMATE ARE DECIDED ABOVE, FROM THE HAND
 	if (draw) end(ctx, null, draw);
 }
 
-module.exports = { PASSIVE_CHANCE, actionKey, legalActions, act, endTurn, startTurn };
+/**
+ * @description The no-legal-action rule for color (startTurn, and Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Returns true when the game ended.
+ */
+function noAction(ctx, color) {
+	const s = ctx.state, p = s.players[color];
+	const cardActions = () => turnActions(s, color).filter((a) => a.type !== "passive" && a.type !== "discard");
+	if (cardActions().length) return false;
+	const n = p.moves.length;
+	p.moves = [];
+	ctx.emit({ type: "redraw", player: color });
+	ctx.draw(color, Math.max(n, hand.MOVES));
+	if (cardActions().length) return false;
+	const mate = inCheck(s, color);
+	end(ctx, mate ? other(color) : null, mate ? "checkmate" : "stalemate");
+	return true;
+}
+
+module.exports = { PASSIVE_CHANCE, actionKey, barKey, legalActions, act, endTurn, startTurn, noAction };

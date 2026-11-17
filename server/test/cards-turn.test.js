@@ -649,3 +649,39 @@ test("threefold repetition by moves still counts with turns without a move in be
 	round(); // AND A THIRD
 	assert.deepEqual(s.result, { winner: null, reason: "repetition" });
 });
+
+// TEST-ONLY ENCHANTMENT: AN ENEMY PIECE THAT LANDS ON a3 IS REMOVED (A TRAP WITH NO GUARDS); IN CARDS ONLY, SO IT IS NEVER DRAWN
+require("../../cards-engine/cards/index.js").CARDS["test-pit"] = { key: "test-pit", kind: "active",
+	on: { move: (ctx, owner, ev) => { const p = ctx.state.board.sq[sqIndex("a3")]; return ev.to === "a3" && !!p && p.c !== owner && ctx.capture(owner, p.id); } } };
+
+test("a check a trigger leaves on the mover (a shield removed) is announced once, at the next turn start", () => {
+	const s = game("k7/8/8/8/8/7r/8/R3K3 b - - 0 1");
+	s.enchant.push({ id: "e900", key: "test-pit", owner: "w", pieces: [], left: null, data: {} });
+	s.players.b.moves = [card("r", "c95")];
+	const { state, events } = applyAction(s, "b", { type: "move", card: "c95", from: "h3", to: "a3" });
+	assert.equal(state.board.sq[sqIndex("a3")], null);
+	assert.ok(inCheck(state, "b"));
+	assert.deepEqual(events.filter((e) => e.type === "check"), [{ type: "check", player: "b" }]);
+});
+
+test("a check made by a status ending (Shaken) is announced once to the side to move; a chess check still gives exactly one", () => {
+	const s = game("k7/8/8/8/8/8/Q7/4K3 w - - 0 1"), q = s.board.sq[sqIndex("a2")].id;
+	s.statuses[q] = [{ s: "shaken", left: 1, by: "b" }];
+	assert.equal(inCheck(s, "b"), false);
+	const { state, events } = applyAction(s, "w", { type: "move", card: "king", from: "e1", to: "d1" });
+	assert.ok(inCheck(state, "b"));
+	assert.deepEqual(events.filter((e) => e.type === "check"), [{ type: "check", player: "b" }]);
+	const m = game("k7/8/8/8/8/8/8/1Q2K3 w - - 0 1");
+	m.players.w.moves = [card("q", "c96")];
+	assert.equal(applyAction(m, "w", { type: "move", card: "c96", from: "b1", to: "a1" }).events.filter((e) => e.type === "check").length, 1);
+});
+
+test("a check that stood, was lifted, and comes back before the turn passes is announced (a Shaken checker's status ends on a lost turn)", () => {
+	const s = game("k4r2/8/8/8/1b6/8/8/4K3 w - - 0 1");
+	s.players.b.lostTurns = 1;
+	s.statuses[s.board.sq[sqIndex("f8")].id] = [{ s: "shaken", left: 1, by: "w" }];
+	assert.ok(inCheck(s, "w"));
+	const { state, events } = applyAction(s, "w", { type: "move", card: "king", from: "e1", to: "f1" });
+	assert.deepEqual([state.board.turn, inCheck(state, "w")], ["w", true]);
+	assert.deepEqual(events.filter((e) => e.type === "check"), [{ type: "check", player: "w" }]);
+});

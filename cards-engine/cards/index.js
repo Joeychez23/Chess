@@ -5,7 +5,7 @@
  */
 
 const CARDS = {}, ACTIVE_KEYS = [], PASSIVE_KEYS = [], CURSE_KEYS = [];
-const RARITY_WEIGHTS = { common: 6, uncommon: 3, rare: 1 }; // THE ONE PLACE TO TUNE THEM
+const RARITY_WEIGHTS = { common: 12, uncommon: 6, rare: 3, epic: 2, legendary: 1 }; // THE ONE PLACE TO TUNE THEM: HOW OFTEN A CARD OF EACH TIER IS DRAWN, AGAINST THE OTHERS
 const LISTS = { active: ACTIVE_KEYS, passive: PASSIVE_KEYS, curse: CURSE_KEYS };
 
 /**

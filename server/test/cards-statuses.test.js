@@ -190,3 +190,23 @@ test("clearing a status of a piece no longer on the board drops it with no event
 	assert.equal(state.statuses.w99, undefined);
 	assert.deepEqual(ctx.events, []);
 });
+
+test("a shorter repeat never cuts a longer or permanent one (no change, no event, true); a longer one replaces a shorter one", () => {
+	const { state, ctx } = setup("4k3/8/8/8/8/8/8/1N2K3 b - - 0 1");
+	const id = idAt(state, 57);
+	assert.equal(statuses.give(ctx, id, "marked", null), true);
+	ctx.events.length = 0;
+	assert.equal(statuses.give(ctx, id, "marked", 1), true);
+	assert.deepEqual([state.statuses[id], ctx.events], [[{ s: "marked", left: null, by: "b" }], []]);
+	statuses.give(ctx, id, "frozen", 3);
+	ctx.events.length = 0;
+	assert.equal(statuses.give(ctx, id, "frozen", 2), true);
+	assert.equal(statuses.give(ctx, id, "frozen", 3), true);
+	assert.deepEqual(ctx.events, []);
+	assert.equal(state.statuses[id].find((e) => e.s === "frozen").left, 3);
+	assert.equal(statuses.give(ctx, id, "frozen", 5), true);
+	assert.equal(state.statuses[id].find((e) => e.s === "frozen").left, 5);
+	assert.equal(statuses.give(ctx, id, "frozen", null), true);
+	assert.equal(state.statuses[id].find((e) => e.s === "frozen").left, null);
+	assert.equal(ctx.events.length, 2);
+});

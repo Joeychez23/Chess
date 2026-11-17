@@ -78,13 +78,14 @@ async function checkTables() {
  * start_params: the start settings ({ color, fen }, Restart & Rematch reuse them, left out = Random from the standard position. fen = a set position, checked by checkStartFen),
  * inviter_id: friend games, the player who sent the invite (their pick is start_params.color),
  * challenge: a challenge link's game, the other player is OPEN_SEAT until someone takes it (takeOpenSeat). It stays on the game, so a link opened later can say it's taken,
- * reset_player: a guest's reset, their player id: the stored game is replaced only while it's still theirs (or it expired) }]
+ * reset_player: a guest's reset, their player id: the stored game is replaced only while it's still theirs (or it expired),
+ * cards: a Chess Cards game, { state (the engine's state as a JSON string, never read here), fen (its board, game_board mirrors it) }, starts at cards_version 1 }]
  * @return {[object]} response [{ status, game_data, message } | { status: 409, message: "Game id already in use" }]
  * @throws when a player's game list couldn't be saved, so a game is only reported as created once it's on both lists (the route answers 500, the chess server 503)
  */
 async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, options) {
-	const { names, pending, start_params, inviter_id, challenge, reset_player } = options || {};
-	const board = start_params?.fen || new Chess().fen(); // A SET POSITION (THE START POSITION BOX) OR THE STANDARD ONE
+	const { names, pending, start_params, inviter_id, challenge, reset_player, cards } = options || {};
+	const board = cards?.fen || start_params?.fen || new Chess().fen(); // THE CARD ENGINE'S BOARD, A SET POSITION (THE START POSITION BOX) OR THE STANDARD ONE
 	const pieces = startPieces(board); // EVERY KNIGHT, KING, QUEEN, BISHOP & ROOK ON THE BOARD, NONE HAVE MOVED
 
 	let gameId;
@@ -114,6 +115,7 @@ async function initalizeGame(existingGameId, playerId1, playerId2, aiLevel, opti
 	if (names?.b) { params.Item.black_name = { S: names.b }; }
 	if (inviter_id) { params.Item.inviter_id = { S: inviter_id }; } // FRIEND GAMES: SENT OR RECEIVED, & WHOSE COLOR start_params HOLDS (CARRIED OVER ON A REMATCH)
 	if (challenge) { params.Item.challenge = { BOOL: true }; }
+	if (cards) { Object.assign(params.Item, { mode: { S: "cards" }, cards_state: { S: cards.state }, cards_version: { N: "1" } }); } // saveCardsState BUMPS THE VERSION ON EVERY SAVE
 	const deadline = pending ? null : moveDeadline(params.Item); // A REMATCH STARTS RIGHT AWAY, AN INVITE'S CLOCK STARTS WHEN IT'S ACCEPTED
 	if (deadline) { params.Item.move_deadline = { N: deadline }; }
 
@@ -316,6 +318,52 @@ async function saveOpening(gameId, board, opening) {
 		return { status: 200, game_data: gameItem(response.Attributes), message: `Saved opening: ${gameId}` };
 	} catch (err) {
 		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Board changed before the opening saved: ${gameId}` }; }
+		throw err;
+	}
+}
+
+/* ---------------------------------------------------------------- */
+// Save card game (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves a Chess Cards game's new engine state, only on the version it was made from & while the game is open, so only one save per version lands.
+ * A save that ends the game saves its result in the same write (run finishClosedGame after it). Signed-in players' finished games are kept forever, like updateGame
+ * @param  {[object]} gameData [the stored card game]
+ * @param  {[number]} version [the cards_version the state was made from, saved as version + 1]
+ * @param  {[string]} state [the engine's state as a JSON string]
+ * @param  {[string]} fen [its board, game_board mirrors it for the game lists & the monitor]
+ * @param  {[object]} result [{ winner, reason } when the save ends the game]
+ * @return {[object]} response [{ status, game_data (the game as saved), message }, status 500 when the version moved on or the game closed]
+ */
+async function saveCardsState(gameData, version, state, fen, result) {
+	const gameId = gameData.game_id.S;
+	const keepForever = result && keepsFinished(gameData); // DYNAMODB REFUSES A SET & REMOVE OF expireAt IN ONE WRITE
+	const params = {
+		TableName: CHESS_TABLE,
+		Key: { game_id: { S: gameId } },
+		UpdateExpression: `SET cards_state = :cards_state, cards_version = :next, game_board = :game_board${keepForever ? "" : ", expireAt = :expireAt"}${result ? ", #state = :closed, #winner = :winner, #reason = :reason" : ""} REMOVE ${OFFER_ATTRIBUTES.join(", ")}${keepForever ? ", expireAt" : ""}`, // ANY SAVE ENDS A DRAW OFFER & A TAKEBACK REQUEST, LIKE updateGame
+		ConditionExpression: "cards_version = :version AND #state = :open",
+		ExpressionAttributeNames: { "#state": "state" }, // "state" IS A DYNAMODB RESERVED WORD
+		ExpressionAttributeValues: {
+			":open": { S: "OPEN" },
+			":version": { N: String(version) },
+			":next": { N: String(version + 1) },
+			":cards_state": { S: state },
+			":game_board": { S: fen }
+		},
+		ReturnValues: "ALL_NEW"
+	};
+	if (!keepForever) { params.ExpressionAttributeValues[":expireAt"] = { N: expireTime() }; }
+	if (result) {
+		Object.assign(params.ExpressionAttributeNames, { "#winner": "winner", "#reason": "reason" });
+		Object.assign(params.ExpressionAttributeValues, { ":closed": { S: "CLOSED" }, ":winner": { S: result.winner }, ":reason": { S: result.reason } });
+	}
+
+	try {
+		const response = await connection.updateItem(params);
+		return { status: 200, game_data: gameItem(response.Attributes), message: `Saved card game: ${gameId}` };
+	} catch (err) {
+		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Board changed before the move saved: ${gameId}` }; } // ANOTHER SAVE OF THIS VERSION LANDED FIRST, OR THE GAME CLOSED
 		throw err;
 	}
 }
@@ -1675,4 +1723,4 @@ async function leaveFriends(userId) {
 	return { status: 200, friend_ids: friendIds };
 }
 
-module.exports = { takeOpenSeat, pruneClosedGames, expireFinishedAiGames, anonymizeFriendGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, saveLastColor, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }
+module.exports = { takeOpenSeat, saveCardsState, pruneClosedGames, expireFinishedAiGames, anonymizeFriendGames, changeFriends, retrieveFriends, leaveFriends, findUsername, searchUsernames, checkTables, initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, rateGame, retrieveRatings, acceptInvite, deleteInvite, movePlayersGame, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, initalizeUser, retrieveUser, updateUser, updateUserSettings, saveLastColor, claimUsername, deleteUser, startSession, endSession, pruneOpenGames, pruneInvites }

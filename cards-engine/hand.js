@@ -86,4 +86,4 @@ function discardRandom(ctx, color, n) {
 	}
 }
 
-module.exports = { MOVES, MOVE_CAP, newCard, drawMove, drawCard, refill, take, discardRandom };
+module.exports = { MOVES, MOVE_CAP, ACTIVE_CAP, newCard, drawMove, drawCard, refill, take, discardRandom };
