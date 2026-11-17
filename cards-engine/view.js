@@ -11,6 +11,7 @@ const { inCheck } = require("./rules.js");
 const { makeCtx } = require("./ctx.js");
 const { CARDS, baseKey } = require("./cards/index.js");
 const duel = require("./duel.js");
+const { isSight } = require("./cards/sight.js");
 
 const other = (c) => (c === "w" ? "b" : "w");
 const copy = (x) => JSON.parse(JSON.stringify(x));
@@ -37,19 +38,22 @@ function shownTo(state, viewer, card) {
 }
 
 /**
- * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id), so a field not listed stays hidden; no seen field on player's own side (it would tell the fakes apart); Mirage in player's own hand as a move card of its fake type; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half t "?", its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both). View.you = player.
+ * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id, a fake under a card shown for real left out), so a field not listed stays hidden; no enchantment's data.ids or data.fake (sight bookkeeping); no seen field on player's own side (it would tell the fakes apart); an entered Mirage in player's own hand as a move card of its fake type, a waiting one (given, not yet entered at a refill) nowhere; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half t "?", its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both). View.you = player.
  */
 function playerView(state, player) {
 	const v = copy(state), opp = other(player), me = v.players[player], o = v.players[opp], seen = state.players[player].seen;
 	const vo = v.players[opp] = Object.fromEntries(OPEN_FIELDS.map((k) => [k, o[k]]));
 	delete v.rng;
 	v.you = player;
-	me.moves = [...me.moves, ...me.curses.filter((c) => c.key === "mirage").map(disguise)].sort(byId);
-	me.curses = me.curses.filter((c) => c.key !== "mirage");
+	me.moves = hand.moveCards(me).map((c) => (c.key === "move" ? c : disguise(c))); // BY ID; AN ENTERED MIRAGE AS A MOVE CARD
+	me.curses = me.curses.filter((c) => baseKey(c.key) !== "mirage"); // A WAITING ONE SHOWS NOWHERE UNTIL IT ENTERS AT A REFILL
 	delete me.seen;
-	const shown = handOf(o).filter((c) => shownTo(state, player, c)).concat(seen ? seen.fake : []).sort(byId);
+	const real = handOf(o).filter((c) => shownTo(state, player, c));
+	const shown = real.concat(seen ? seen.fake.filter((f) => !real.some((c) => c.id === f.id)) : []).sort(byId); // A FAKE WEARING THE ID OF A CARD SHOWN FOR REAL GIVES WAY
 	vo.hand = { count: handOf(o).length, shown };
 	for (const e of v.enchant) if (baseKey(e.key) === "trapdoor" && e.owner !== player && e.data) delete e.data.square;
+	for (const e of v.enchant) if (e.data && isSight(e)) { delete e.data.ids; delete e.data.fake; } // WHICH CARDS A SIGHT SHOWS, AND WHICH ARE FAKE (sight.js), STAY HIDDEN
+	for (const e of v.effects) { delete e.card.denied; delete e.card.stopping; } // PHALANX'S AND PEASANT IMMUNITY'S BOOKKEEPING READS TRUE PIECE TYPES (A FOGGED "?" PAWN)
 	if (v.duel) duel.hide(v.duel); // NO DECK, NO FACE-DOWN CARD, FOR EITHER PLAYER
 	if (v.pending) { // THE CURRENT CHOICE ONLY: QUEUED ONES (next) SHOW TO NOBODY UNTIL THEY ARE CURRENT
 		const { next, ...cur } = v.pending;
@@ -57,7 +61,12 @@ function playerView(state, player) {
 	}
 	if (fogged(state, opp, player)) {
 		const b = v.board, letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g;
-		b.sq.forEach((p, i) => { if (p && p.c === opp && onHalf(i, opp)) p.t = "?"; });
+		b.sq.forEach((p, i) => {
+			if (!p || p.c !== opp || !onHalf(i, opp)) return;
+			p.t = "?";
+			const left = (v.statuses[p.id] || []).filter((e) => !e.veiled); // TREMOR'S FROZEN WOULD NAME A PAWN
+			if (left.length) v.statuses[p.id] = left; else delete v.statuses[p.id];
+		});
 		vo.captured = vo.captured.map(() => "?");
 		b.history = [];
 		b.half = 0;
@@ -68,7 +77,7 @@ function playerView(state, player) {
 }
 
 /**
- * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): under a Fog of War the fogged side's moves, captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }; a Mirage reads as a move card to everyone but its giver, and its curse-given as player's draw; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?".
+ * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): under a Fog of War the fogged side's moves, captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }, except one under a fake of player's (a sight entry's data.fake: Interdicted Foresight), which carries that fake, as real sight would carry the card; player's own Mirage reads as a move card (its curse-given is left out: it shows only once it has taken over a held move card at a refill: that card's id and type), except in its curse-cleared and curse-fired (it is gone then); the other player sees it as it is; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?".
  */
 function playerEvents(state, events, player) {
 	const opp = other(player), fog = fogged(state, opp, player);
@@ -76,20 +85,29 @@ function playerEvents(state, events, player) {
 		const q = state.board.sq.find((x) => x && x.id === ev.piece), cap = events.find((e) => e.type === "capture" && e.piece === ev.piece && e.c);
 		return ev.c || (q ? q.c : cap && cap.c);
 	};
-	const gave = (c) => state.players[opp].curses.some((x) => x.id === c.id); // A MIRAGE PLAYER GAVE SITS IN THE OPPONENT'S HAND
+	const fakes = state.enchant.filter((e) => e.owner === player && e.data && e.data.fake && isSight(e)).flatMap((e) => e.data.fake); // KEPT AFTER resight DROPS A GONE CARD'S FAKE
 	return copy(events).map((ev) => {
 		const c = ev.card && typeof ev.card === "object" ? ev.card : null;
-		if (c && c.key === "mirage" && !gave(c)) {
-			if (ev.type === "curse-given") return { type: "draw", player, card: disguise(c) };
-			ev.card = disguise(c);
+		if (c) { delete c.denied; delete c.stopping; } // AS IN THE VIEW: THIS BOOKKEEPING NAMES A FOGGED PAWN
+		if (c && baseKey(c.key) === "mirage" && (ev.type === "curse-given" ? other(ev.player) : ev.player) === player) { // player HOLDS IT (A curse-given NAMES THE GIVER)
+			if (ev.type === "curse-given") return null;
+			if (ev.type !== "curse-cleared" && ev.type !== "curse-fired") ev.card = disguise(c);
+		}
+		if (ev.veiled) { // TREMOR'S FROZEN (GIVEN OR ENDED) ON A PAWN STILL FOGGED: NOT TOLD
+			const i = state.board.sq.findIndex((q) => q && q.id === ev.piece);
+			if (fog && i >= 0 && state.board.sq[i].c === opp && onHalf(i, opp)) return null;
+			delete ev.veiled;
 		}
 		if (fog && (ev.type === "capture" || ev.type === "promote") && colorOf(ev) === opp) ev.t = "?";
 		if (ev.player !== opp) return ev;
-		if ((ev.type === "draw" || ev.type === "discard") && c && !shownTo(state, player, c)) return { type: ev.type, player: opp };
+		if ((ev.type === "draw" || ev.type === "discard") && c && !shownTo(state, player, c)) {
+			const f = fakes.find((x) => x.id === c.id);
+			return f ? { ...ev, card: { ...f } } : { type: ev.type, player: opp };
+		}
 		if (c && baseKey(c.key) === "trapdoor") { delete ev.square; delete ev.target; }
-		if (fog && ev.type === "move") { delete ev.card; delete ev.castle; }
+		if (fog && ev.type === "move") { delete ev.card; delete ev.castle; delete ev.through; }
 		return ev;
-	});
+	}).filter(Boolean);
 }
 
 /**
@@ -123,9 +141,9 @@ function fillHand(ctx, color) {
 		else p.actives.push(c);
 	}
 	let left = count - shown.length;
-	while (left > 0 && p.moves.length < hand.MOVES && hand.drawMove(ctx, color)) left--;
+	while (left > 0 && hand.moveCards(p).length < hand.MOVES && hand.drawMove(ctx, color)) left--; // A SHOWN MIRAGE COUNTS AS A MOVE CARD
 	if (left > 0 && !p.actives.length && hand.drawCard(ctx, color, "active")) left--;
-	while (left > 0 && p.moves.length < hand.MOVE_CAP && hand.drawMove(ctx, color)) left--;
+	while (left > 0 && hand.moveCards(p).length < hand.MOVE_CAP && hand.drawMove(ctx, color)) left--;
 }
 
 /**

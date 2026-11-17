@@ -27,7 +27,7 @@ function rulesInPlay(state) {
 }
 
 /**
- * @description The card rules in force for this state, as { canMove, canCapture, givesCheck, extraMoves } (each only when some source has it): the statuses, then rulesInPlay. canMove, canCapture and givesCheck are the AND of every source, extraMoves the union. A card's hook gets its instance as a last argument: canMove(s, p, src), canCapture(s, a, t, src), givesCheck(s, p, src), extraMoves(s, p, src). Plain chess ({}) when nothing applies. (rules.actions is applied by turn.turnActions, not here.) ignore: a piece id whose own statuses the hooks leave out (turn.kingMoves: a king spending a skull); card rules still apply to it.
+ * @description The card rules in force for this state, as { canMove, canCapture, givesCheck, extraMoves } (each only when some source has it): the statuses, then rulesInPlay. canMove, canCapture and givesCheck are the AND of every source, extraMoves the union. A card's hook gets its instance as a last argument: canMove(s, p, src), canCapture(s, a, t, src), givesCheck(s, p, src), extraMoves(s, p, src); castleThroughCheck(s, color, src) is the OR of every source (true: legalMoves lets color castle while in check or past an attacked square, never onto one, and marks such a castle through: true). Plain chess ({}) when nothing applies. (rules.actions is applied by turn.turnActions, not here.) ignore: a piece id whose own statuses the hooks leave out (turn.kingMoves: a king spending a skull); card rules still apply to it.
  */
 function hooksFor(state, ignore = null) {
 	const src = rulesInPlay(state);
@@ -38,6 +38,8 @@ function hooksFor(state, ignore = null) {
 	if (cap.length) hooks.canCapture = (s, a, t) => cap.every(([r, at]) => r.canCapture(s, a, t, at));
 	if (check.length) hooks.givesCheck = (s, p) => check.every(([r, at]) => r.givesCheck(s, p, at));
 	if (extra.length) hooks.extraMoves = (s, p) => extra.flatMap(([r, at]) => r.extraMoves(s, p, at));
+	const through = by("castleThroughCheck"); // OR: ONE CARD LETTING color CASTLE IN OR THROUGH CHECK IS ENOUGH (UNBROKEN LINE)
+	if (through.length) hooks.castleThroughCheck = (s, color) => through.some(([r, at]) => r.castleThroughCheck(s, color, at));
 	return hooks;
 }
 
@@ -70,7 +72,7 @@ function inCheck(state, color, hooks = hooksFor(state)) {
 }
 
 /**
- * @description Pseudo-moves (optionally narrowed by filter(move)) that leave color's king safe; castling also needs the king not in check and the square it passes over safe, tested like a landing square. Two legal moves can share from/to and differ only by `castle` (a castle and a plain king slide). A move that takes the enemy king skips the own-king test: the game ends on it (never the case in plain chess, where a king is never capturable).
+ * @description Pseudo-moves (optionally narrowed by filter(move)) that leave color's king safe; castling also needs the king not in check and the square it passes over safe, tested like a landing square, unless hooks.castleThroughCheck allows it (that castle is marked through: true). Two legal moves can share from/to and differ only by `castle` (a castle and a plain king slide). A move that takes the enemy king skips the own-king test: the game ends on it (never the case in plain chess, where a king is never capturable).
  */
 function legalMoves(state, color, filter, hooks = hooksFor(state)) {
 	let moves = pseudoMoves(state, color, hooks);
@@ -79,9 +81,9 @@ function legalMoves(state, color, filter, hooks = hooksFor(state)) {
 	const after = (m) => ({ ...state, board: applyMove(state.board, m) });
 	return moves.filter((m) => {
 		if (enemyKing && m.capture === enemyKing.id) return true; // TAKING THE KING WINS AT ONCE
-		if (m.castle) {
-			const mid = sqName((sqIndex(m.from) + sqIndex(m.to)) / 2);
-			if (checked || inCheck(after({ from: m.from, to: mid }), color, hooks)) return false;
+		if (m.castle && (checked || inCheck(after({ from: m.from, to: sqName((sqIndex(m.from) + sqIndex(m.to)) / 2) }), color, hooks))) { // THE LANDING SQUARE IS ALWAYS TESTED BELOW
+			if (!(hooks.castleThroughCheck && hooks.castleThroughCheck(state, color))) return false;
+			m.through = true; // ONLY THE HOOK LET IT THROUGH: turn.move PUTS IT ON THE move EVENT (UNBROKEN LINE FIRES ON IT); m IS pseudoMoves' OWN NEW OBJECT
 		}
 		return !inCheck(after(m), color, hooks);
 	});

@@ -52,7 +52,7 @@ const movesOf = (s, color) => legalActions(s, color).filter((a) => a.type === "m
 const varied = (s, color, i) => applyAction(s, color, movesOf(s, color)[(i * 7 + 3) % movesOf(s, color).length]).state;
 
 // TEST-ONLY CURSE: WHEN ITS HOLDER PLAYS AN ACTIVE IT TAKES THE ROOK ON e2, SO ANY ACTIVE WOULD END THE CHECK
-register({ key: "t-rescue", kind: "curse", name: "t-rescue", text: "", on: {
+register({ key: "t-rescue", kind: "curse", name: "t-rescue", rarity: "common", text: "", on: {
 	"card-played"(ctx, owner, ev) {
 		const r = ctx.state.board.sq.find((p) => p && p.t === "r" && p.c !== owner);
 		return ev.player === owner && !!r && ctx.capture(owner, r.id);
@@ -473,9 +473,9 @@ const at = (s, sq) => s.board.sq[sqIndex(sq)];
 const moveCard = (s, piece) => hand.newCard(s, "move", { piece });
 const activeIds = (s, color, id) => legalActions(s, color).filter((a) => a.type === "active" && a.card === id);
 const moveFrom = (s, color, from, to) => legalActions(s, color).find((a) => a.type === "move" && a.from === from && (!to || a.to === to));
-for (const k of ["t-hex-a", "t-hex-b", "t-hex-c"]) register({ key: k, kind: "curse", name: k, text: "" }); // TEST-ONLY CURSES WITH NO EFFECT
+for (const k of ["t-hex-a", "t-hex-b", "t-hex-c"]) register({ key: k, kind: "curse", name: k, rarity: "common", text: "" }); // TEST-ONLY CURSES WITH NO EFFECT
 // TEST-ONLY CURSE: A CARD MADE WITH { ask: true } ASKS ITS HOLDER AT THE START OF THEIR TURN (ONE HEXCRAFT GIVES NEVER DOES)
-register({ key: "t-ask", kind: "curse", name: "t-ask", text: "", on: {
+register({ key: "t-ask", kind: "curse", name: "t-ask", rarity: "common", text: "", on: {
 	"turn-start"(ctx, owner, ev, src) {
 		if (ev.player !== owner || !src.card.ask) return false;
 		ctx.ask(owner, "t-ask", ["x", "y"], { card: "t-ask" });
@@ -721,7 +721,7 @@ describe("Hexcraft", () => {
 });
 
 describe("Cleanse", () => {
-	test("targets each curse and status on the player's side (never the opponent's) and removes the chosen one, using the whole turn", () => {
+	test("targets all of the player's curses (one target) and each status on the player's side (never the opponent's) and removes the chosen, using the whole turn", () => {
 		const { s, id } = holding("cleanse");
 		const [c1, c2] = s.players.w.curses = [hand.newCard(s, "t-hex-a"), hand.newCard(s, "t-hex-b")];
 		const wp = at(s, "e2").id, bp = at(s, "e7").id;
@@ -729,10 +729,10 @@ describe("Cleanse", () => {
 		s.statuses[bp] = [{ s: "shaken", left: 2, by: "w" }];
 		s.players.b.curses = [hand.newCard(s, "t-hex-c")];
 		const targets = activeIds(s, "w", id).map((a) => a.target);
-		assert.deepEqual(targets, [{ curse: c1.id }, { curse: c2.id }, { piece: wp, s: "frozen" }]);
-		const r = applyAction(s, "w", { type: "active", card: id, target: { curse: c1.id } });
-		assert.deepEqual(ofType(r.events, "curse-cleared"), [{ type: "curse-cleared", player: "w", card: c1 }]);
-		assert.deepEqual(r.state.players.w.curses, [c2]);
+		assert.deepEqual(targets, [{ curses: "all" }, { piece: wp, s: "frozen" }]);
+		const r = applyAction(s, "w", { type: "active", card: id, target: { curses: "all" } });
+		assert.deepEqual(ofType(r.events, "curse-cleared"), [c1, c2].map((card) => ({ type: "curse-cleared", player: "w", card })));
+		assert.deepEqual(r.state.players.w.curses, []);
 		assert.equal(r.state.players.b.curses.length, 1);
 		assert.equal(r.state.board.turn, "b");
 		assert.ok(!ofType(r.events, "move").length);
@@ -751,7 +751,7 @@ describe("Cleanse", () => {
 		assert.equal(activeIds(s, "w", id).length, 0, "Cleanse shows a Mirage");
 		const c = hand.newCard(s, "t-hex-a");
 		s.players.w.curses = [mirage, c];
-		assert.deepEqual(activeIds(s, "w", id).map((a) => a.target), [{ curse: c.id }]);
+		assert.deepEqual(activeIds(s, "w", id).map((a) => a.target), [{ curses: "all" }]);
 	});
 
 	test("removes Stronghold: its piece's Warded ends and the Stronghold with it", () => {

@@ -9,9 +9,17 @@ const hand = require("./hand.js");
 const statuses = require("./statuses.js");
 const { pieceById, sqName } = require("./board.js");
 const { LOSES } = require("./movegen.js");
-const { CARDS } = require("./cards/index.js");
+const { CARDS, CURSE_KEYS, RARITY_WEIGHTS, baseKey } = require("./cards/index.js");
 
 const other = (c) => (c === "w" ? "b" : "w");
+const CURSE_LIMIT = 2, CURSE_WAIT = 5; // CURSES A PLAYER MAY HOLD; OWN TURNS A GIVER WAITS AFTER GIVING ONE
+
+/**
+ * @description The one curse-limit test: true when `by` may give `to` a curse now: `to` holds fewer than opts.max curses (default CURSE_LIMIT; Infinity for no limit) and `by` doesn't wait (curseWait 0), unless opts.wait === false. Versions that relax the limit pass opts (Hexcraft's legendary { max: 4, wait: false }, Bad Omen's epic { max: Infinity, wait: false }).
+ */
+function canCurse(state, to, by, opts = {}) {
+	return state.players[to].curses.length < (opts.max === undefined ? CURSE_LIMIT : opts.max) && (opts.wait === false || state.players[by].curseWait <= 0);
+}
 
 /**
  * @description A captured piece (already off the board): a capture event { player, piece, t, c: the victim's colour, by: the capturing piece's id, null for a card effect, sq: the square it stood on (en passant: the pawn's square), passed in since the piece is gone }, its statuses cleared, its type added to its owner's captured list, ctx.resetHalf set (for a capture made outside a chess move); a Marked piece makes the capturer draw a move card and its owner discard 2 random cards.
@@ -26,7 +34,7 @@ function capture(ctx, player, victim, by = null, sq) {
 }
 
 /**
- * @description After each event, the cards in play whose card has on[ev.type] run: those of the player whose turn it is (ctx.turn) first, then the other's; within a player, placed passives by placedAt, then held curses in hand order, then enchantments in the order they were added (not for enchant-ended: only the ended entry's own card hears that, through endEnchant). Each gets (ctx, owner, ev, src): src is its effects entry, { owner, card } for a curse, or its enchant entry. Returning true means it fired: a passive leaves Board Effects (passiveFired), a curse stays and a curse-fired event is emitted, an enchantment ends (endEnchant). A handler that returns false must not emit events (it may still change its own card's data, e.g. a counter). One removed by an earlier one doesn't run. A card already running (ctx.busy) is not re-entered by the events it causes, so the nesting is at most one level per card in play; with one-shot passives, at most 2 curses a player and handlers that emit only when they fire, the work stays small.
+ * @description After each event, the cards in play whose card has on[ev.type] run: those of the player whose turn it is (ctx.turn) first, then the other's; within a player, placed passives by placedAt, then held curses in hand order, then enchantments in the order they were added (not for enchant-ended: only the ended entry's own card hears that, through endEnchant). Each gets (ctx, owner, ev, src): src is its effects entry, { owner, card } for a curse, or its enchant entry. Returning true means it fired: a passive leaves Board Effects (passiveFired), a curse stays and a curse-fired event is emitted, an enchantment ends (endEnchant). A handler that returns false must not emit events (it may still change its own card's data, e.g. a counter). One removed by an earlier one doesn't run. A card already running (ctx.busy) is not re-entered by the events it causes, so the nesting is at most one level per card in play; with one-shot passives, a few curses a player (2 under the curse limit, more only through Hexcraft's legendary and Bad Omen's epic versions) and handlers that emit only when they fire, the work stays small.
  */
 function trigger(ctx, ev) {
 	const s = ctx.state, list = [];
@@ -109,20 +117,43 @@ function makeCtx(state) {
 			if (own) own(ctx, e.owner, ev, e);
 		},
 		/**
-		 * @description player loses their next n turns (Player.lostTurns, public): at the start of each, a turn-skipped event, then the end of turn runs as usual (no passive roll); a lost turn that arrives in check is void instead when the player has a King skull (spent automatically; the turn is played). Either way that lost turn is gone. Not a discard skip.
+		 * @description player loses their next n turns (Player.lostTurns, public): at the start of each, a turn-skipped event, then the end of turn runs as usual (no passive roll); a lost turn that arrives in check is void instead when the player has a King skull (spent automatically; the turn is played), and only while they hold the King card (a Hollow Crown can take it: then the turn is lost and no skull is spent). Either way that lost turn is gone. Not a discard skip.
 		 */
 		skipTurn(player, n = 1) { state.players[player].lostTurns += n; },
 		/**
-		 * @description The one way a curse is given: refused (false, no change) when `to` already holds 2 curses or `by` still waits (curseWait > 0); else a new card { id, key, ...extra } joins to's curses, by's curseWait becomes 5 (one less at the end of each of by's own turns; 6 when given during by's own turn before its tick, so the giving turn doesn't count: by's next 5 own turns can't give, the 6th can), a curse-given event { player: by, card }; returns the card.
+		 * @description The one way a curse is given: refused (false, no change) when canCurse(state, to, by, opts) says no, or when to already holds a curse with this key (a player never holds two of one curse, whatever the limit: a waiting Mirage counts, a passable curse passed back is then simply lost, and a Pact that turns while its holder has a Debt gives no second Debt); else a new card { id, key, ...make(ctx, to) } (the curse unit's optional make builds its own fields, e.g. Mirage's piece; a made id is kept and no number is taken from nextId) joins to's curses, by's curseWait becomes CURSE_WAIT (one less at the end of each of by's own turns; one more when given during by's own turn before its tick, so the giving turn doesn't count: by's next 5 own turns can't give, the 6th can) unless opts.wait === false (a give that ignores the wait starts none), a curse-given event { player: by, card }; returns the card.
 		 */
-		giveCurse(to, key, by, extra) {
-			const t = state.players[to], g = state.players[by];
-			if (t.curses.length >= 2 || g.curseWait > 0) return false;
-			const card = hand.newCard(state, key, extra);
-			t.curses.push(card);
-			g.curseWait = ctx.turn === by && ctx.ticked !== by ? 6 : 5; // 5 OF by'S OWN TURNS AFTER THE GIVING: THE GIVING TURN'S OWN COUNTDOWN DOESN'T COUNT
-			ctx.emit({ type: "curse-given", player: by, card });
+		giveCurse(to, key, by, opts = {}) {
+			if (!canCurse(state, to, by, opts) || state.players[to].curses.some((c) => baseKey(c.key) === baseKey(key))) return false;
+			const make = CARDS[key] && CARDS[key].make, made = make ? make(ctx, to) : undefined;
+			const card = made && made.id ? { id: made.id, key, ...made } : hand.newCard(state, key, made); // A CURSE THAT NAMES ITS OWN ID (A WAITING MIRAGE) TAKES NO NUMBER FROM nextId: ITS HOLDER WOULD SEE THE GAP
+			state.players[to].curses.push(card);
+			if (opts.wait !== false) state.players[by].curseWait = ctx.turn === by && ctx.ticked !== by ? CURSE_WAIT + 1 : CURSE_WAIT; // 5 OF by'S OWN TURNS AFTER THE GIVING: THE GIVING TURN'S OWN COUNTDOWN DOESN'T COUNT
+			ctx.emit({ type: "curse-given", player: by, card: { ...card } }); // A COPY: A MIRAGE ENTERING AT THIS ACTION'S REFILL CHANGES ITS ID
 			return card;
+		},
+		/**
+		 * @description n different curse keys (fewer when fewer are registered), each picked by RARITY_WEIGHTS through state.rng among those not yet picked and not held by `to` (a waiting Mirage counts; giveCurse would refuse them); [] when none is left. Hexcraft's two, Bad Omen's one.
+		 */
+		randomCurses(n, to) {
+			const held = to ? state.players[to].curses.map((c) => baseKey(c.key)) : [], keys = CURSE_KEYS.filter((k) => !held.includes(baseKey(k))), out = [], weight = (k) => RARITY_WEIGHTS[CARDS[k].rarity];
+			while (out.length < n && keys.length) {
+				let r = ctx.rng.int(keys.reduce((t, k) => t + weight(k), 0));
+				out.push(keys.splice(keys.findIndex((k) => (r -= weight(k)) < 0), 1)[0]);
+			}
+			return out;
+		},
+		/**
+		 * @description The one way a held curse leaves its holder's hand (its clear action, Cleanse, firing once, being passed back): it leaves player's curses, a curse-cleared event { player, card } (other cards' handlers run on it), then the curse's own on["curse-cleared"](ctx, player, event, { owner: player, card }) runs once (return value ignored; no curse-fired). Returns false (no event) when player doesn't hold it.
+		 */
+		clearCurse(player, card) {
+			const p = state.players[player];
+			if (!p.curses.some((c) => c.id === card.id)) return false; // ALREADY GONE: ONE CLEAR, ONE EVENT
+			p.curses = p.curses.filter((c) => c.id !== card.id);
+			const ev = { type: "curse-cleared", player, card }, own = CARDS[card.key] && CARDS[card.key].on && CARDS[card.key].on["curse-cleared"];
+			ctx.emit(ev);
+			if (own) own(ctx, player, ev, { owner: player, card }); // GONE FROM curses, SO trigger DIDN'T REACH IT: IT HEARS ITS OWN CLEARING HERE (HOLLOW CROWN)
+			return true;
 		},
 		/**
 		 * @description A placed passive (its effects entry) has fired: it leaves Board Effects, a once-per-game card goes into its owner's used, then a passive-fired event. Nothing when it already fired.
@@ -137,4 +168,4 @@ function makeCtx(state) {
 	return ctx;
 }
 
-module.exports = { makeCtx, capture };
+module.exports = { makeCtx, capture, canCurse, CURSE_LIMIT, CURSE_WAIT };

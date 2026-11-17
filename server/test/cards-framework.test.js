@@ -21,7 +21,7 @@ const game = (fen, seed = 1) => { const s = fresh(seed); s.board = fromFen(fen);
 const card = (piece, id) => ({ id, key: "move", piece });
 const placed = (id, key, owner, placedAt) => ({ id, owner, card: { id, key }, placedAt });
 const passive = (key, extra) => register({ key, kind: "passive", name: key, rarity: "common", text: "", ...extra });
-const curse = (key, extra) => register({ key, kind: "curse", name: key, text: "", ...extra });
+const curse = (key, extra) => register({ key, kind: "curse", name: key, rarity: "common", text: "", ...extra });
 const active = (key, play, extra) => register({ key, kind: "active", name: key, rarity: "common", text: "", targets: () => [null], play, ...extra });
 const ofType = (events, type) => events.filter((e) => e.type === type);
 const at = (s, sq) => s.board.sq[sqIndex(sq)];
@@ -39,7 +39,7 @@ function captureGame() {
 test("two passives on one event fire in turn order, then placement order", () => {
 	const s = captureGame(), log = [];
 	passive("t-watch", { on: { capture: (ctx, owner, ev, src) => { log.push(src.card.id + owner); return true; } } });
-	register({ key: "t-curse", kind: "curse", name: "t-curse", text: "", on: { capture: (ctx, owner, ev, src) => { log.push(src.card.id + owner); return true; } } });
+	register({ key: "t-curse", kind: "curse", name: "t-curse", rarity: "common", text: "", on: { capture: (ctx, owner, ev, src) => { log.push(src.card.id + owner); return true; } } });
 	s.effects = [placed("c90", "t-watch", "b", 1), placed("c91", "t-watch", "w", 3), placed("c92", "t-watch", "w", 2)];
 	s.players.w.curses = [{ id: "c93", key: "t-curse" }];
 	s.players.b.curses = [{ id: "c94", key: "t-curse" }];
@@ -80,7 +80,7 @@ test("a fired passive leaves Board Effects", () => {
 test("a trigger never re-enters the card that is firing, so resolution always ends", () => {
 	reset();
 	const s = fresh();
-	register({ key: "t-greedy", kind: "curse", name: "t-greedy", text: "", on: { draw: (ctx, owner, ev) => {
+	register({ key: "t-greedy", kind: "curse", name: "t-greedy", rarity: "common", text: "", on: { draw: (ctx, owner, ev) => {
 		if (ev.player !== owner) return false;
 		ctx.draw(owner, 1); // ITS OWN DRAW WOULD FIRE IT AGAIN, FOREVER
 		return true;
@@ -162,7 +162,7 @@ test("card rules from passives, curses and enchantments combine with statuses: A
 	reset();
 	const seen = [];
 	passive("t-chain", { rules: { canMove: (s, p, src) => { seen.push(src.owner); return p.c === src.owner || p.t !== "n"; } } }); // OPPONENT'S KNIGHTS STUCK
-	register({ key: "t-leap", kind: "curse", name: "t-leap", text: "", rules: { extraMoves: (s, p, src) => (p.c === src.owner && p.t === "r" ? [{ from: "a1", to: "b3", piece: p.id, t: "r" }] : []) } });
+	register({ key: "t-leap", kind: "curse", name: "t-leap", rarity: "common", text: "", rules: { extraMoves: (s, p, src) => (p.c === src.owner && p.t === "r" ? [{ from: "a1", to: "b3", piece: p.id, t: "r" }] : []) } });
 	register({ key: "t-shield", kind: "active", name: "t-shield", rarity: "common", text: "", rules: { canCapture: (s, a, t, src) => !src.pieces.includes(t.id) } });
 	const s = game("4k3/8/8/8/8/2p1p3/3N4/R2NK3 w - - 0 1");
 	const [n1, n2, pc, pe] = ["d2", "d1", "c3", "e3"].map((q) => at(s, q).id);
@@ -757,7 +757,7 @@ test("random games with skipping, trapping and card-action cards never go on wit
 		return true;
 	} } });
 	R({ key: "hexer", kind: "active", rarity: "common", targets: (st, p) => (st.players[other(p)].curses.length < 2 ? [null] : []), play: (ctx, p) => ctx.giveCurse(other(p), "debt-t", p) });
-	R({ key: "debt-t", kind: "curse", rules: { actions: (st, pl, acts, src) => (pl === src.owner ? [...acts, { type: "clear", card: src.card.id }] : acts) },
+	R({ key: "debt-t", kind: "curse", rarity: "common", rules: { actions: (st, pl, acts, src) => (pl === src.owner ? [...acts, { type: "clear", card: src.card.id }] : acts) },
 		act: (ctx, pl, a, src) => { const pp = ctx.state.players[pl]; pp.curses = pp.curses.filter((c) => c.id !== src.card.id); const b = ctx.state.board, i = b.sq.findIndex((x) => x && x.c === pl && x.t === "b"); if (i >= 0) b.sq[i] = null; } }); // ITS CLEAR DROPS A BISHOP (MAY EXPOSE THE KING)
 	const pickSeq = (seed) => { let x = seed * 2654435761 >>> 0 || 1; return (n) => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x % n; }; };
 	const ends = {};
@@ -920,6 +920,7 @@ test("ctx.giveCurse: at most 2 held, the giver waits 5 of its own turns, with a 
 	reset();
 	active("t-hex", (ctx, player) => ctx.giveCurse(other(player), "t-c", player));
 	curse("t-c");
+	curse("t-m", { make: (ctx, to) => ({ piece: to === "b" ? "n" : "p" }) }); // A CURSE'S OWN FIELDS COME FROM ITS make
 	const s = fresh(), ctx = makeCtx(s);
 	const c1 = ctx.giveCurse("b", "t-c", "w");
 	assert.ok(/^c\d+$/.test(c1.id) && c1.key === "t-c");
@@ -927,7 +928,7 @@ test("ctx.giveCurse: at most 2 held, the giver waits 5 of its own turns, with a 
 	assert.equal(s.players.w.curseWait, 6); // GIVEN ON WHITE'S OWN TURN (ctx.turn "w"), BEFORE ITS TICK: 6, SO 5 OWN TURNS AFTER IT ARE BLOCKED (RULING R4-6)
 	assert.equal(ctx.giveCurse("b", "t-c", "w"), false); // THE GIVER WAITS
 	s.players.w.curseWait = 0;
-	ctx.giveCurse("b", "t-c", "w", { piece: "n" });
+	ctx.giveCurse("b", "t-m", "w");
 	assert.equal(s.players.b.curses[1].piece, "n");
 	s.players.w.curseWait = 0;
 	assert.equal(ctx.giveCurse("b", "t-c", "w"), false); // BLACK ALREADY HOLDS 2
@@ -1094,14 +1095,92 @@ test("a pawn that takes a king while promoting still emits promote, and the take
 	assert.deepEqual(state.statuses, {});
 });
 
-test("the registry holds 17 actives, 23 passives and 11 curses, each with key, kind, name, text and (actives, passives) rarity", { todo: true }, () => {
-	const dir = path.resolve(__dirname, "../../cards-engine/cards");
-	for (const k of Object.keys(require.cache)) if (k.startsWith(dir)) delete require.cache[k]; // THE REAL REGISTRY, NOT THE ONE THE TESTS ABOVE EMPTIED
-	const { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS } = require("../../cards-engine/cards/index.js");
-	assert.equal(ACTIVE_KEYS.length, 17); assert.equal(PASSIVE_KEYS.length, 23); assert.equal(CURSE_KEYS.length, 11);
-	for (const k of [...ACTIVE_KEYS, ...PASSIVE_KEYS, ...CURSE_KEYS]) for (const f of ["key", "kind", "name", "text"]) assert.ok(CARDS[k][f], k + " " + f);
-	for (const k of [...ACTIVE_KEYS, ...PASSIVE_KEYS]) assert.ok(k in CARDS && CARDS[k].rarity in RARITY_WEIGHTS, k);
-	assert.deepEqual(PASSIVE_KEYS.filter((k) => CARDS[k].oncePerGame).sort(), ["grace", "unbroken-line"]);
+/**
+ * @description Run fn with a fresh copy of the engine (every cards-engine module loaded again through the public entry, so every card registers into a fresh registry), then put the modules the tests above use back.
+ */
+function freshEngine(fn) {
+	const dir = path.resolve(__dirname, "../../cards-engine"), saved = {};
+	for (const k of Object.keys(require.cache)) if (k.startsWith(dir + path.sep)) { saved[k] = require.cache[k]; delete require.cache[k]; }
+	try {
+		return fn(require("../../cards-engine/index.js"), require("../../cards-engine/cards/index.js"));
+	} finally {
+		for (const k of Object.keys(require.cache)) if (k.startsWith(dir + path.sep)) delete require.cache[k];
+		Object.assign(require.cache, saved);
+	}
+}
+
+// THE CATALOG (docs: chess-cards-catalog.md): EVERY CARD'S KIND AND RARITY, AND EVERY VERSION KEY'S RARITY
+const CATALOG = {
+	active: { "all-or-nothing": "rare", cleanse: "common", conscription: "legendary", "double-time": "rare", "fog-of-war": "uncommon", foresight: "common", "heavy-cavalry": "uncommon",
+		"heretical-subjection": "rare", hexcraft: "uncommon", "insidious-nullification": "common", "last-stand": "uncommon", mulligan: "uncommon", "opposing-finality": "rare",
+		pickpocket: "common", stronghold: "rare", swap: "rare", trapdoor: "uncommon" },
+	passive: { "interdicted-foresight": "common", "peasant-immunity": "common", "unjust-retribution": "rare", "last-rites": "uncommon", "escape-artist": "uncommon", veto: "rare",
+		reinforcements: "uncommon", retaliation: "uncommon", "bleeding-hand": "uncommon", hex: "uncommon", spite: "common", underdog: "rare", grace: "legendary", patience: "common",
+		echo: "epic", witness: "common", "four-of-a-kind": "uncommon", bounty: "common", "pawn-storm": "common", phalanx: "uncommon", overwatch: "legendary", "unbroken-line": "uncommon",
+		"bad-omen": "rare" },
+	curse: { "dead-weight": "uncommon", "traitors-mark": "common", rust: "uncommon", tremor: "common", debt: "uncommon", shackles: "common", mirage: "uncommon", leech: "rare",
+		"hollow-crown": "epic", hunger: "rare", pact: "uncommon" },
+	versions: { "double-time-legendary": "legendary", "all-or-nothing-epic": "epic", "all-or-nothing-legendary": "legendary", "hexcraft-legendary": "legendary", "fog-of-war-rare": "rare",
+		"fog-of-war-epic": "epic", "pickpocket-uncommon": "uncommon", "pickpocket-epic": "epic", "foresight-rare": "rare", "foresight-epic": "epic", "insidious-nullification-rare": "rare",
+		"cleanse-rare": "rare", "swap-epic": "epic", "heavy-cavalry-epic": "epic", "stronghold-common": "common", "interdicted-foresight-rare": "rare", "bad-omen-epic": "epic" },
+};
+test("the registry holds 17 actives, 23 passives and 11 curses, each with key, kind, name, text and (actives, passives) rarity", () => {
+	freshEngine((engine, { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS }) => {
+		const base = (keys) => keys.filter((k) => !CARDS[k].base); // VERSIONS ARE ENTRIES OF THEIR OWN
+		assert.equal(base(ACTIVE_KEYS).length, 17); assert.equal(base(PASSIVE_KEYS).length, 23); assert.equal(base(CURSE_KEYS).length, 11);
+		for (const k of [...ACTIVE_KEYS, ...PASSIVE_KEYS, ...CURSE_KEYS]) for (const f of ["key", "kind", "name", "text"]) assert.ok(CARDS[k][f], k + " " + f);
+		for (const k of [...ACTIVE_KEYS, ...PASSIVE_KEYS]) assert.ok(k in CARDS && CARDS[k].rarity in RARITY_WEIGHTS, k);
+		assert.deepEqual(base(PASSIVE_KEYS).filter((k) => CARDS[k].oncePerGame).sort(), ["grace", "unbroken-line"]);
+	});
+});
+
+test("through the public entry every catalog card and version is registered with the catalog's kind and rarity; the loader lists every card file, in sorted order", () => {
+	const fs = require("node:fs"), dir = path.resolve(__dirname, "../../cards-engine/cards");
+	freshEngine((engine, { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS }) => {
+		for (const kind of ["active", "passive", "curse"]) { // FIRST, BEFORE THIS TEST REQUIRES cards/all.js ITSELF: THE PUBLIC ENTRY ALONE REGISTERED THEM
+			for (const [key, rarity] of Object.entries(CATALOG[kind])) {
+				assert.deepEqual([CARDS[key] && CARDS[key].kind, CARDS[key] && CARDS[key].rarity], [kind, rarity], key);
+			}
+		}
+		for (const [key, rarity] of Object.entries(CATALOG.versions)) assert.deepEqual([CARDS[key] && CARDS[key].rarity, CARDS[key] && CARDS[key].base], [rarity, key.slice(0, key.lastIndexOf("-"))], key);
+		const { FILES } = require("../../cards-engine/cards/all.js");
+		for (const kind of ["active", "passive", "curse"]) assert.deepEqual(FILES[kind], fs.readdirSync(path.join(dir, kind)).map((f) => f.replace(/\.js$/, "")).sort(), kind + ": every file, sorted");
+		const all = [...ACTIVE_KEYS, ...PASSIVE_KEYS, ...CURSE_KEYS];
+		assert.deepEqual(all.filter((k) => !(k in CATALOG.versions) && !(k in CATALOG[CARDS[k].kind])), []); // NOTHING OUTSIDE THE CATALOG
+		assert.deepEqual([base(ACTIVE_KEYS), base(PASSIVE_KEYS), base(CURSE_KEYS)], [FILES.active, FILES.passive, FILES.curse]); // REGISTERED IN FILE ORDER, EACH VERSION RIGHT AFTER ITS CARD
+		for (const list of [ACTIVE_KEYS, PASSIVE_KEYS]) list.forEach((k, i) => { if (CARDS[k].base) assert.ok(CARDS[list[i - 1]].base === CARDS[k].base || list[i - 1] === CARDS[k].base, k); });
+		const lists = JSON.stringify([ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS]), cards = Object.keys(CARDS).length;
+		const { register: again } = require("../../cards-engine/cards/index.js");
+		for (const k of all.filter((x) => !CARDS[x].base)) again(require(path.join(dir, CARDS[k].kind, k + ".js")));
+		assert.equal(JSON.stringify([ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS]), lists); // A SECOND REGISTRATION IS HARMLESS: SAME KEYS, SAME ORDER
+		assert.equal(Object.keys(CARDS).length, cards);
+		function base(keys) { return keys.filter((k) => !CARDS[k].base); }
+	});
+});
+
+test("a seeded game played through the public entry draws and plays cards without throwing, and replays identically", () => {
+	freshEngine((engine) => {
+		const seen = new Set(), played = new Set(), runs = [];
+		for (let seed = 1; seed <= 4; seed++) for (let run = 0; run < 2; run++) { // EACH SEED TWICE: SAME SEED, SAME CHOICES → THE SAME STATES AND EVENTS
+			let s = engine.newGame({ vesper: "b", level: 1300, seed }), pick = seed, log = "";
+			const roll = (n) => { pick = (pick * 1103515245 + 12345) % 2147483648; return pick % n; }; // THE TEST'S OWN CHOICES, SEEDED
+			for (let i = 0; i < 160 && !s.result; i++) {
+				const color = ["w", "b"].find((c) => engine.legalActions(s, c).length);
+				assert.ok(color, "seed " + seed + ": nobody can act and the game isn't over");
+				const acts = engine.legalActions(s, color), cards = acts.filter((a) => a.type !== "move" && a.type !== "discard");
+				const a = cards.length && roll(2) ? cards[roll(cards.length)] : acts[roll(acts.length)];
+				const r = engine.applyAction(s, color, a);
+				for (const e of r.events) { seen.add(e.type); if (e.type === "card-played") played.add(e.card.key); }
+				for (const c of ["w", "b"]) { engine.playerView(r.state, c); engine.playerEvents(r.state, r.events, c); }
+				s = JSON.parse(JSON.stringify(r.state));
+				log += JSON.stringify(r.state) + JSON.stringify(r.events);
+			}
+			if (run) assert.equal(log, runs[runs.length - 1], "seed " + seed + " replays differently");
+			runs.push(log);
+		}
+		for (const t of ["draw", "card-played", "passive-placed"]) assert.ok(seen.has(t), t);
+		assert.ok(played.size >= 3, [...played].join()); // REAL CARDS FROM THE LOADED REGISTRY, NOT ONE TEST CARD
+	});
 });
 
 test("a check made off a chess move is announced once: by a choice's resolve, by a card-defined action, not twice by an active that already said it", () => {

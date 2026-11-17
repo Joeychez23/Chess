@@ -36,13 +36,7 @@ active("t-pit", (ctx, player) => {
 	toggle(ctx, player, "trapdoor", { square }, null);
 	ctx.emit({ type: "enchant", player, card: { id: "x" + ctx.state.nextId++, key: "trapdoor" }, target: { square }, square }); // HOW A REAL PLACEMENT EVENT MIGHT CARRY IT
 });
-active("t-illusion", (ctx, player) => {
-	const s = ctx.state, o = s.players[other(player)];
-	if (o.curses.length >= 2) return;
-	const card = { id: "c" + s.nextId++, key: "mirage", piece: ctx.rng.pick(["p", "n", "b", "r", "q"]) };
-	o.curses.push(card);
-	ctx.emit({ type: "curse-given", player, card });
-});
+active("t-illusion", (ctx, player) => ctx.giveCurse(other(player), "mirage", player, { wait: false })); // WAITS, THEN ENTERS AT THE HOLDER'S REFILL
 active("t-peek", (ctx, player) => {
 	const s = ctx.state, ids = ctx.rng.shuffle(handOf(s.players[other(player)]).map((c) => c.id));
 	s.players[player].seen = { ids: ids.slice(0, Math.ceil(ids.length / 2)), fake: [{ id: "c" + s.nextId++, key: "t-pocket" }] };
@@ -53,7 +47,7 @@ active("t-faceup", (ctx, player) => {
 });
 active("t-pocket", () => {}); // A HIDDEN KEY THAT MUST NEVER SHOW
 register({ key: "t-hidden-passive", kind: "passive", name: "x", rarity: "common", text: "" });
-register({ key: "mirage", kind: "curse", name: "Mirage", rarity: "common", text: "" });
+register(require("../../cards-engine/cards/curse/mirage.js"));
 
 /**
  * @description Oracle: true when viewer may see this card of the opponent's (face up, a curse, the opponent fogged, or revealed by viewer's seen).
@@ -112,7 +106,8 @@ function checkView(s, viewer) {
 		const { sq: _s, castling: _c, ep: _e, history: _h, half: _f, ...realRest } = real;
 		assert.deepEqual(rest, realRest, "other board fields");
 	} else assert.deepEqual(v.board, s.board);
-	const mine = s.players[viewer].curses.filter((c) => c.key === "mirage");
+	const mine = s.players[viewer].curses.filter((c) => c.key === "mirage" && !c.waiting); // A WAITING ONE IS NOWHERE IN THE VIEW
+	for (const m of s.players[viewer].curses.filter((c) => c.waiting)) assert.ok(!JSON.stringify(v).includes("\"" + m.id + "\""), "waiting mirage id in its holder's view");
 	const gave = o.curses.some((c) => c.key === "mirage"); // A HOLDER WHO ALSO GAVE ONE SEES THAT ONE IN shown
 	if (mine.length) assert.ok(!JSON.stringify(gave ? v.players[viewer] : v).includes("mirage"), "mirage in its holder's view");
 	for (const m of mine) assert.ok(v.players[viewer].moves.some((c) => c.id === m.id && c.key === "move" && c.piece === m.piece), "mirage not a move card");
@@ -128,19 +123,20 @@ function checkEvents(next, events, viewer) {
 	const ev = playerEvents(next, events, viewer), json = JSON.stringify(ev);
 	assert.equal(JSON.stringify(events), rawEvents, "events mutated");
 	assert.equal(JSON.stringify(next), rawState, "state mutated");
+	const given = (e) => e.type === "curse-given" && e.card.key === "mirage" && e.player === opp; // LEFT OUT FOR ITS HOLDER: IT SHOWS WHEN IT ENTERS AT A REFILL
+	events = events.filter((e) => !given(e));
 	assert.equal(ev.length, events.length);
 	assert.ok(!json.includes("\"rng\""));
 	const allowed = allowedKeys(playerView(next, viewer), viewer), fog = fogBy(next, opp);
 	for (const e of events) if (e.type === "card-played" || e.type === "passive-placed") allowed.add(e.card.key); // PLAYED CARDS ARE PUBLIC
 	events.forEach((e, i) => {
 		const one = JSON.stringify(ev[i]);
-		if (e.player === opp && (e.type === "draw" || e.type === "discard") && !visibleTo(next, viewer, e.card)) {
+		if (e.player === opp && (e.type === "draw" || e.type === "discard") && e.card.key !== "mirage" && !visibleTo(next, viewer, e.card)) { // A MIRAGE OF THE OPPONENT'S IS ONE viewer GAVE: KNOWN, ALSO ONCE IT IS GONE
 			assert.ok(!noSquares(json).includes("\"" + e.card.id + "\""), "hidden card id " + e.card.id + " in events");
 			if (!allowed.has(e.card.key)) assert.ok(!json.includes("\"" + e.card.key + "\""), "hidden key " + e.card.key + " in events");
 		}
 		if (e.card && e.card.key === "mirage" && next.players[viewer].curses.some((c) => c.id === e.card.id)) {
 			assert.ok(!one.includes("mirage"), "mirage in its holder's events");
-			if (e.type === "curse-given") assert.equal(ev[i].type, "draw");
 		}
 		if (e.player === opp && e.card && e.card.key === "trapdoor") assert.ok(!("square" in ev[i]) && !("target" in ev[i]), "trapdoor square in events");
 		if (fog && e.type === "move" && e.player === opp) assert.ok(!("card" in ev[i]) && !("castle" in ev[i]), "fogged move card");
@@ -226,7 +222,7 @@ test("Mirage shows as a move card to its holder, and the key mirage is nowhere i
 	assert.ok(g.players.b.hand.shown.some((c) => c.id === "c99" && c.key === "mirage"));
 	assert.equal(g.players.b.hand.count, 8);
 	const given = [{ type: "curse-given", player: "w", card: m }];
-	assert.deepEqual(playerEvents(s, given, "b"), [{ type: "draw", player: "b", card: { id: "c99", key: "move", piece: "n" } }]);
+	assert.deepEqual(playerEvents(s, given, "b"), []); // NOTHING UNTIL IT ENTERS AT A REFILL
 	assert.deepEqual(playerEvents(s, given, "w"), given);
 	const spent = [{ type: "move", player: "b", card: m, piece: "b2", from: "g8", to: "f6" }];
 	assert.ok(!JSON.stringify(playerEvents(s, spent, "b")).includes("mirage"));

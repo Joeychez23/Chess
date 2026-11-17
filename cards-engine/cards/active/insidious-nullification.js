@@ -20,11 +20,11 @@ function cancel(ctx, player) {
 }
 
 /**
- * @description Ids of player's non-king pieces (board order) whose type has a move card in player's hand (a held Mirage counts as its fake type: its holder can't tell it apart) and whose loss leaves player's king out of check.
+ * @description Ids of player's non-king pieces (board order) whose type has a move card in player's hand (an entered Mirage counts as its fake type: its holder can't tell it apart; a waiting one, not yet seen, doesn't) and whose loss leaves player's king out of check.
  */
 function forfeitable(state, player) {
 	const pl = state.players[player], sq = state.board.sq;
-	const types = [...pl.moves, ...pl.curses.filter((c) => c.key === "mirage")].map((c) => c.piece);
+	const types = require("../../hand.js").moveCards(pl).map((c) => c.piece); // LAZY hand.js: SEE shackles.js
 	const safe = (p) => !inCheck({ ...state, board: { ...state.board, sq: sq.map((q) => (q === p ? null : q)) } }, player);
 	return sq.filter((p) => p && p.c === player && p.t !== "k" && types.includes(p.t) && safe(p)).map((p) => p.id);
 }
