@@ -9,7 +9,7 @@ const { legalMoves, inCheck } = require("../../rules.js");
 const cardless = (m) => (m.promotion ? { type: "move", card: null, from: m.from, to: m.to, promotion: m.promotion } : { type: "move", card: null, from: m.from, to: m.to });
 
 module.exports = {
-	key: "escape-artist", kind: "passive", name: "Escape Artist", skulls: 0, rarity: "rare",
+	key: "escape-artist", kind: "passive", name: "Escape Artist", skulls: 0, rarity: "uncommon",
 	text: "Your king is in check → any of your pieces may make a legal move that gets out of check, without a card.",
 	on: {
 		/**

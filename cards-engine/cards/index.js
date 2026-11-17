@@ -9,11 +9,23 @@ const RARITY_WEIGHTS = { common: 12, uncommon: 6, rare: 3, epic: 2, legendary: 1
 const LISTS = { active: ACTIVE_KEYS, passive: PASSIVE_KEYS, curse: CURSE_KEYS };
 
 /**
- * @description Add a card unit (or replace the one with the same key). Test-only until the card files register themselves.
+ * @description Add a card unit (or replace the one with the same key), and each of its versions as its own entry { ...unit, ...version, key: "<base>-<rarity>", base } (no nested versions). Test-only until the card files register themselves.
  */
 function register(card) {
-	if (!CARDS[card.key]) LISTS[card.kind].push(card.key);
+	if (card.kind !== "curse" && !(card.rarity in RARITY_WEIGHTS)) throw new Error("Card " + card.key + " has no known rarity: " + card.rarity); // A WEIGHTLESS CARD WOULD SILENTLY STOP EVERY DRAW OF ITS KIND
+	const list = LISTS[card.kind];
+	for (const k of list.filter((k) => CARDS[k].base === card.key)) { delete CARDS[k]; list.splice(list.indexOf(k), 1); } // VERSIONS FROM AN EARLIER REGISTRATION OF THIS CARD
+	if (!CARDS[card.key]) list.push(card.key);
 	CARDS[card.key] = card;
+	const { versions, ...unit } = card;
+	for (const v of versions || []) register({ ...unit, ...v, key: card.key + "-" + v.rarity, base: card.key });
+}
+
+/**
+ * @description The base card's key: a version's base, else the key itself (an unknown key too). Every "is this card X" check compares it.
+ */
+function baseKey(key) {
+	return (CARDS[key] && CARDS[key].base) || key;
 }
 
 /**
@@ -24,4 +36,4 @@ function reset() {
 	for (const list of Object.values(LISTS)) list.length = 0;
 }
 
-module.exports = { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS, RARITY_WEIGHTS, register, reset };
+module.exports = { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS, RARITY_WEIGHTS, register, reset, baseKey };

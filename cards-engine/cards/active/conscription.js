@@ -9,7 +9,7 @@ const { pieceById } = require("../../board.js");
 const KEY = "conscription";
 
 module.exports = {
-	key: KEY, kind: "active", name: "Conscription", skulls: 3, rarity: "rare",
+	key: KEY, kind: "active", name: "Conscription", skulls: 3, rarity: "legendary",
 	text: "Turn a pawn into one of your captured pieces (queen allowed). Debuff: the revived piece is Shaken for 2 turns and Marked.",
 	/**
 	 * @description { piece, t } for every own pawn and every non-pawn type in player's captured list (queen, rook, bishop, knight order).

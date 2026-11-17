@@ -1,30 +1,30 @@
 /*
  *  trapdoor.js  --  chess cards engine
- *	Active: a hidden trap on an empty square of your half; the first enemy piece (never the king) to land there is removed.
+ *	Active: a hidden trap on an empty square of your half; the first enemy piece to land there is Frozen and Marked for 3 turns (a king: Frozen only).
  *
  */
 
 const { sqIndex, sqName } = require("../../board.js");
-const { hooksFor } = require("../../rules.js");
 
 const KEY = "trapdoor";
 const far = (a, b) => Math.max(Math.abs((a >> 3) - (b >> 3)), Math.abs((a & 7) - (b & 7)));
 
 /**
- * @description An enemy non-king piece landed on the trap square: it is removed (ctx.capture) and the trap fires; removing a piece that shielded its king leaves that king open. Nothing, and the trap stays, when: a king or an own piece landed; the piece is protected from capture (Warded, or a canCapture rule such as Heavy Cavalry's); the entry has no square (a state rebuilt from the opponent's view); or this is a legality trial (ctx.trial), so the offered actions never depend on the hidden square.
+ * @description An enemy piece landed on the trap square: it is Frozen and Marked for 3 turns (a king Frozen only; it may still move out with a King skull, turn.kingMoves) and stays on the board, and the trap is spent. Protection (Warded, a Ward rule) doesn't stop it: nothing is captured. Nothing, and the trap stays, when: an own piece landed; the entry has no square (a state rebuilt from the opponent's view); or this is a legality trial (ctx.trial), so the offered actions never depend on the hidden square.
  */
 function spring(ctx, owner, ev, src) {
 	const sq = src.data && src.data.square;
 	if (ctx.trial || !sq || ev.to !== sq) return false;
-	const s = ctx.state, p = s.board.sq[sqIndex(sq)], hooks = hooksFor(s);
-	if (!p || p.id !== ev.piece || p.c === owner || p.t === "k") return false;
-	if (hooks.canCapture && !hooks.canCapture(s, { id: null, c: owner, t: null }, p)) return false; // THE TRAP IS A CAPTURE BY NO PIECE: WARDED AND WARD RULES HOLD
-	return ctx.capture(owner, p.id);
+	const p = ctx.state.board.sq[sqIndex(sq)];
+	if (!p || p.id !== ev.piece || p.c === owner) return false;
+	ctx.giveStatus(p.id, "frozen", 3, owner);
+	if (p.t !== "k") ctx.giveStatus(p.id, "marked", 3, owner);
+	return true;
 }
 
 module.exports = {
 	key: KEY, kind: "active", name: "Trapdoor", skulls: 0, rarity: "uncommon",
-	text: "Mark a hidden empty square on your own half of the board, at least 4 squares from the enemy king and not next to any piece. The first enemy piece to land there is removed, even when it was shielding its king (that king is then open to capture); a king landing there is not affected, and a protected piece (Warded) is not removed.",
+	text: "Mark a hidden empty square on your own half of the board, at least 4 squares from the enemy king and not next to any piece. The first enemy piece to land there is Frozen and Marked for 3 turns. If the enemy king lands there it is Frozen for 3 turns instead (not Marked); it may still move, and each such move costs it a king skull.",
 	/**
 	 * @description { square } for every empty square on player's half, 4 or more king steps from the enemy king, with no piece beside it, and not already one of player's traps.
 	 */

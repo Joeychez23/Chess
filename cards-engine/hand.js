@@ -4,7 +4,7 @@
  *
  */
 
-const { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, RARITY_WEIGHTS } = require("./cards/index.js");
+const { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, RARITY_WEIGHTS, baseKey } = require("./cards/index.js");
 
 const MOVES = 6, ACTIVES = 1, MOVE_CAP = 9, ACTIVE_CAP = 3;
 
@@ -37,13 +37,13 @@ function drawMove(ctx, color) {
 }
 
 /**
- * @description Draw one active or passive card from the registry, weighted by rarity, leaving out keys color holds, has waiting in Board Effects or has used. null when nothing is left.
+ * @description Draw one active or passive card from the registry, weighted by rarity, leaving out every version of a card color holds, has waiting in Board Effects or has used (compared by baseKey). null when nothing is left.
  */
 function drawCard(ctx, color, kind) {
 	const s = ctx.state, p = s.players[color];
 	const held = [...p.moves, ...p.actives, ...p.curses, p.passive].filter(Boolean).map((c) => c.key);
-	const out = new Set([...held, ...s.effects.filter((e) => e.owner === color).map((e) => e.card.key), ...p.used]);
-	const keys = (kind === "active" ? ACTIVE_KEYS : PASSIVE_KEYS).filter((k) => !out.has(k));
+	const out = new Set([...held, ...s.effects.filter((e) => e.owner === color).map((e) => e.card.key), ...p.used].map(baseKey));
+	const keys = (kind === "active" ? ACTIVE_KEYS : PASSIVE_KEYS).filter((k) => !out.has(baseKey(k)));
 	const weight = (k) => RARITY_WEIGHTS[CARDS[k].rarity];
 	const total = keys.reduce((n, k) => n + weight(k), 0);
 	if (!total) return null;

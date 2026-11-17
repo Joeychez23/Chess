@@ -5,7 +5,7 @@
  */
 
 module.exports = {
-	key: "reinforcements", kind: "passive", name: "Reinforcements", skulls: 0, rarity: "common",
+	key: "reinforcements", kind: "passive", name: "Reinforcements", skulls: 0, rarity: "uncommon",
 	text: "Your pawn is captured → draw an extra card.",
 	on: {
 		/**

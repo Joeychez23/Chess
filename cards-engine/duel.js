@@ -33,10 +33,10 @@ function deal(ctx) {
 }
 
 /**
- * @description Start a duel for player's piece: state.duel = { player, piece, step, wins, deck, hands, picked, round, spades }, then the first deal. The turn waits until the duel is over (turn.js).
+ * @description Start a duel for player's piece: state.duel = { player, piece, card, step, wins, deck, hands, picked, round, spades }, then the first deal. card is the played key (All or Nothing or a version): it sets a lost hand's stakes and rides in the saved state. The turn waits until the duel is over (turn.js).
  */
-function start(ctx, player, piece) {
-	ctx.state.duel = { player, piece, wins: 0, round: 0 };
+function start(ctx, player, piece, card) {
+	ctx.state.duel = { player, piece, card, wins: 0, round: 0 };
 	deal(ctx);
 }
 
@@ -87,16 +87,18 @@ function act(ctx, player, a) {
 }
 
 /**
- * @description A decided round: duel-result { winner }. A win counts and gives the next upgrade (Knight or Bishop by the player's choice, asked with ctx.ask; Rook; Queen, which ends the duel), then step "decide". A loss ends the duel: 6 random cards forfeit, then the piece leaves the board. refillLock holds back this turn's whole refill, the played card's active slot too: all of it comes back at the end of the player's next turn. Losing the piece is a removal, not a capture by the winner: Marked is cleared first so it pays no one, and the capture event names the piece's own player (player === c, by null), so no "the opponent captured" trigger fires. Returns true when the duel is over.
+ * @description A decided round: duel-result { winner }. A win counts and gives the next upgrade (Knight or Bishop by the player's choice, asked with ctx.ask; Rook; Queen, which ends the duel), then step "decide". A loss ends the duel: 6 random cards forfeit, then the piece leaves the board (the epic version forfeits the piece only, the legendary version the cards only: the piece stays as it is, upgrades already won included). refillLock holds back this turn's whole refill, the played card's active slot too: all of it comes back at the end of the player's next turn. Losing the piece is a removal, not a capture by the winner: Marked is cleared first so it pays no one, and the capture event names the piece's own player (player === c, by null), so no "the opponent captured" trigger fires. Returns true when the duel is over.
  */
 function result(ctx, winner) {
 	const s = ctx.state, d = s.duel;
 	ctx.emit({ type: "duel-result", winner });
 	if (winner !== d.player) {
 		s.duel = null;
-		ctx.discardRandom(d.player, 6);
-		s.players[d.player].refillLock = Math.max(s.players[d.player].refillLock, 1);
-		if (pieceById(s.board, d.piece) >= 0) { statuses.clear(ctx, d.piece, "marked"); ctx.capture(d.player, d.piece); } // A TARGET IS NEVER A KING; A TRIGGER MAY HAVE TAKEN IT ALREADY
+		if (d.card !== "all-or-nothing-epic") { // THE EPIC VERSION LOSES NO CARDS, SO NOTHING HOLDS ITS REFILL BACK EITHER
+			ctx.discardRandom(d.player, 6);
+			s.players[d.player].refillLock = Math.max(s.players[d.player].refillLock, 1);
+		}
+		if (d.card !== "all-or-nothing-legendary" && pieceById(s.board, d.piece) >= 0) { statuses.clear(ctx, d.piece, "marked"); ctx.capture(d.player, d.piece); } // A TARGET IS NEVER A KING; A TRIGGER MAY HAVE TAKEN IT ALREADY
 		return true;
 	}
 	d.wins++;

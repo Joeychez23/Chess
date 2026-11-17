@@ -72,14 +72,16 @@ const KNIGHT = "4k3/8/8/3n4/4P3/8/8/4K3 w - - 0 1";
 const QUEEN = "4k3/8/8/3q4/4P3/8/8/4K3 w - - 0 1";
 
 describe("Last Rites", () => {
-	test("the piece that captured the owner's piece is Frozen for its owner's next turn", () => {
+	test("the piece that captured the owner's piece is Frozen for its owner's next 3 turns", () => {
 		const { s, state, events } = takeD5(PAWN, "last-rites", "b"), pawn = id(s, "e4");
 		assert.ok(fired(events, "last-rites"));
-		assert.ok(statuses.has(state, pawn, "frozen"));
-		const t = pass(state, "b").state;
-		assert.ok(!legalMoves(t, "w").some((m) => m.piece === pawn)); // WHITE'S NEXT TURN: FROZEN
-		const u = pass(pass(t, "w").state, "b").state;
-		assert.ok(!statuses.has(u, pawn, "frozen"));
+		assert.deepEqual(state.statuses[pawn].map((e) => [e.s, e.left]), [["frozen", 3]]);
+		let t = pass(state, "b").state;
+		for (let turn = 0; turn < 3; turn++) {
+			assert.ok(!legalMoves(t, "w").some((m) => m.piece === pawn), "white turn " + (turn + 1)); // WHITE'S NEXT 3 TURNS: FROZEN
+			t = pass(pass(t, "w").state, "b").state;
+		}
+		assert.ok(!statuses.has(t, pawn, "frozen"));
 	});
 
 	test("no trigger: the owner's own capture, or a card effect's capture (no capturing piece)", () => {
@@ -178,10 +180,10 @@ describe("Bleeding Hand", () => {
 });
 
 describe("Hex", () => {
-	test("the piece that took the owner's knight is Hexed for 2 turns: no card moves it", () => {
+	test("the piece that took the owner's knight is Hexed for 3 turns: no card moves it", () => {
 		const { s, state, events } = takeD5(KNIGHT, "hex", "b"), pawn = id(s, "e4");
 		assert.ok(fired(events, "hex"));
-		assert.deepEqual(state.statuses[pawn].map((e) => [e.s, e.left]), [["hexed", 2]]);
+		assert.deepEqual(state.statuses[pawn].map((e) => [e.s, e.left]), [["hexed", 3]]);
 		const t = pass(state, "b").state;
 		assert.ok(t.players.w.moves.some((c) => c.piece === "p"));
 		assert.ok(!legalActions(t, "w").some((a) => a.from === "d5"));
@@ -233,20 +235,27 @@ describe("Bounty", () => {
 });
 
 describe("Bad Omen", () => {
-	test("the owner's queen captured: a random curse goes to the opponent", () => {
-		const { state, events } = takeD5(QUEEN, "bad-omen", "b");
-		assert.ok(fired(events, "bad-omen"));
-		assert.deepEqual(state.players.w.curses.map((c) => c.key), ["t-curse"]);
-		assert.ok(ofType(events, "curse-given").some((e) => e.player === "b"));
+	test("any of the owner's pieces captured by the opponent: a random curse goes to the opponent", () => {
+		for (const fen of [QUEEN, PAWN]) {
+			const { state, events } = takeD5(fen, "bad-omen", "b");
+			assert.ok(fired(events, "bad-omen"));
+			assert.deepEqual(state.players.w.curses.map((c) => c.key), ["t-curse"]);
+			assert.ok(ofType(events, "curse-given").some((e) => e.player === "b"));
+		}
 	});
 
-	test("the curse limit holds (it still fires); no trigger on a pawn", () => {
-		const full = takeD5(QUEEN, "bad-omen", "b", (s) => { s.players.w.curses = [{ id: "c72", key: "t-curse" }, { id: "c73", key: "t-curse" }]; });
+	test("the curse limit holds (it still fires); no trigger on the owner's own capture or a removal by the owner's side", () => {
+		const full = takeD5(PAWN, "bad-omen", "b", (s) => { s.players.w.curses = [{ id: "c72", key: "t-curse" }, { id: "c73", key: "t-curse" }]; });
 		assert.ok(fired(full.events, "bad-omen"));
 		assert.equal(full.state.players.w.curses.length, 2);
 		assert.equal(ofType(full.events, "curse-given").length, 0);
-		const { state, events } = takeD5(PAWN, "bad-omen", "b");
+		const { state, events } = takeD5(PAWN, "bad-omen", "w");
 		assert.ok(!fired(events, "bad-omen") && waits(state, "bad-omen"));
+		const s = game(PAWN);
+		place(s, "bad-omen", "b");
+		const ctx = makeCtx(s);
+		ctx.capture("b", id(s, "d5")); // A REMOVAL (A FORFEIT, A LOST DUEL PIECE) IS NOT A CAPTURE
+		assert.ok(waits(s, "bad-omen") && !ofType(ctx.events, "curse-given").length);
 	});
 });
 
@@ -346,15 +355,16 @@ describe("Grace", () => {
 	};
 	const MATING = { type: "move", card: "c61", from: "a1", to: "e1" };
 
-	test("a mating move is taken back once: the state before it, Grace used, the opponent +2 actives, the move barred this turn only; a second mate goes through", () => {
+	test("a mating move is taken back once: the state before it, Grace used, the opponent +1 active, the move barred this turn only; a second mate goes through", () => {
 		const s = setup(), { state, events } = applyAction(s, "w", MATING);
 		assert.equal(state.result, null);
-		assert.deepEqual(events.map((e) => e.type), ["move", "passive-fired", "draw", "draw", "move-undone"]);
+		assert.deepEqual(events.map((e) => e.type), ["move", "passive-fired", "draw", "move-undone"]);
 		assert.deepEqual(state.board, s.board);
 		assert.deepEqual(state.players.b.moves, s.players.b.moves);
 		assert.deepEqual(state.players.b.actives, s.players.b.actives);
 		assert.deepEqual(state.players.w.moves, s.players.w.moves);
-		assert.deepEqual(state.players.w.actives.map((c) => c.key).sort(), ["t-pass", "t-pass2"]);
+		assert.equal(state.players.w.actives.length, 1);
+		assert.ok(["t-pass", "t-pass2"].includes(state.players.w.actives[0].key));
 		assert.ok(!waits(state, "grace"));
 		assert.deepEqual(state.players.b.used, ["grace"]);
 		assert.equal(state.barred, actionKey({ type: "move", from: "a1", to: "e1" })); // THE MOVE, WHATEVER THE CARD

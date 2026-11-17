@@ -223,7 +223,7 @@ function move(ctx, player, a) {
 	for (const e of held) ctx.trigger(e);
 	const check = inCheck(s, other(player)); // AFTER THE TRIGGERS, SO THE check EVENT AND THE TWO-MOVE DECISION ARE TRUE
 	if (check) ctx.emit({ type: "check", player: other(player) }); // player = THE SIDE IN CHECK
-	if (inCheck(s, player)) ctx.emit({ type: "check", player }); // A TRIGGER LEFT THE MOVER IN CHECK (A SHIELD TAKEN BY A TRAP OR A GUARD): SAID NOW, ALSO INSIDE A TWO-MOVE TURN
+	if (inCheck(s, player)) ctx.emit({ type: "check", player }); // A TRIGGER LEFT THE MOVER IN CHECK (A SHIELD TAKEN BY A GUARD, OVERWATCH): SAID NOW, ALSO INSIDE A TWO-MOVE TURN
 	const m = s.multi;
 	if (!m || m.player !== player) return false;
 	m.left--;
@@ -360,7 +360,7 @@ function tickEnchant(ctx, color, enchants) {
 }
 
 /**
- * @description Start of color's turn: a turn-start event (triggers run on it); a check event for each side in check that no check event of this action named, but not for color when its check already stood before this action began (ctx.stood, set by act: it was announced then; the side that just played and is still in check is always named) (a trigger or a status ending made it, e.g. a Trapdoor removing a shield); a player with lostTurns has one less and loses this turn (a turn-skipped event, then endTurn: ticks, refill, half + 1, play passes; no passive roll; not a discard skip), unless in check with a King skull: the skull is spent and the lost turn is void, so the turn is played; else the passive roll (from their second turn, empty slot only); no card action (move, active, or card-defined action) → move cards thrown out and a full hand redrawn, max(thrown out, 6) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Then the board draws (repetition, fifty, material), even when plain chess has no move.
+ * @description Start of color's turn: a turn-start event (triggers run on it); a check event for each side in check that no check event of this action named, but not for color when its check already stood before this action began (ctx.stood, set by act: it was announced then; the side that just played and is still in check is always named) (a trigger or a status ending made it, e.g. Overwatch taking a shield); a player with lostTurns has one less and loses this turn (a turn-skipped event, then endTurn: ticks, refill, half + 1, play passes; no passive roll; not a discard skip), unless in check with a King skull: the skull is spent and the lost turn is void, so the turn is played; else the passive roll (from their second turn, empty slot only); no card action (move, active, or card-defined action) → move cards thrown out and a full hand redrawn, max(thrown out, 6) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Then the board draws (repetition, fifty, material), even when plain chess has no move.
  */
 function startTurn(ctx, color) {
 	const s = ctx.state, p = s.players[color];
@@ -368,7 +368,7 @@ function startTurn(ctx, color) {
 	ctx.resetHalf = false; // A NEW TURN
 	ctx.emit({ type: "turn-start", player: color });
 	if (s.result) return;
-	for (const c of [other(color), color]) if (inCheck(s, c) && !(c === color && (ctx.stood || []).includes(c)) && !ctx.events.some((e) => e.type === "check" && e.player === c)) ctx.emit({ type: "check", player: c }); // A CHECK NO MOVE ANNOUNCED: A TRIGGER REMOVED A SHIELD (TRAPDOOR), A STATUS ENDED, A TURN-START EFFECT
+	for (const c of [other(color), color]) if (inCheck(s, c) && !(c === color && (ctx.stood || []).includes(c)) && !ctx.events.some((e) => e.type === "check" && e.player === c)) ctx.emit({ type: "check", player: c }); // A CHECK NO MOVE ANNOUNCED: A TRIGGER REMOVED A SHIELD (OVERWATCH), A STATUS ENDED, A TURN-START EFFECT
 	if (p.lostTurns > 0) {
 		p.lostTurns--; // GONE FOR GOOD, LOST OR VOID
 		if (p.kingSkulls > 0 && inCheck(s, color)) spendSkull(ctx, color, "lost-turn"); // VOID: THE PLAYER ANSWERS THE CHECK

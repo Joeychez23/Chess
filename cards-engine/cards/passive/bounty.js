@@ -9,7 +9,7 @@ const hand = require("../../hand.js");
 const other = (c) => (c === "w" ? "b" : "w");
 
 module.exports = {
-	key: "bounty", kind: "passive", name: "Bounty", skulls: 0, rarity: "uncommon",
+	key: "bounty", kind: "passive", name: "Bounty", skulls: 0, rarity: "common",
 	text: "You capture the enemy queen → steal a random card from their hand.",
 	on: {
 		/**

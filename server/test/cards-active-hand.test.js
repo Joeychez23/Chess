@@ -7,9 +7,10 @@
 const { describe, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { newGame, legalActions, applyAction, playerView, playerEvents } = require("../../cards-engine/index.js");
+const { fromView } = require("../../cards-engine/view.js");
 const { fromFen } = require("../../cards-engine/board.js");
 const hand = require("../../cards-engine/hand.js");
-const { register, reset, CURSE_KEYS } = require("../../cards-engine/cards/index.js");
+const { register, reset, CURSE_KEYS, CARDS, baseKey } = require("../../cards-engine/cards/index.js");
 const statuses = require("../../cards-engine/statuses.js");
 
 reset();
@@ -43,6 +44,12 @@ const play = (s, color, id) => applyAction(s, color, { type: "active", card: id 
  * @description Apply color's first legal move action.
  */
 const step = (s, color) => applyAction(s, color, legalActions(s, color).find((a) => a.type === "move")).state;
+
+/**
+ * @description color's legal move actions; varied applies the i-th (mod their number), so a long run doesn't repeat a position.
+ */
+const movesOf = (s, color) => legalActions(s, color).filter((a) => a.type === "move");
+const varied = (s, color, i) => applyAction(s, color, movesOf(s, color)[(i * 7 + 3) % movesOf(s, color).length]).state;
 
 // TEST-ONLY CURSE: WHEN ITS HOLDER PLAYS AN ACTIVE IT TAKES THE ROOK ON e2, SO ANY ACTIVE WOULD END THE CHECK
 register({ key: "t-rescue", kind: "curse", name: "t-rescue", text: "", on: {
@@ -102,41 +109,150 @@ describe("Foresight", () => {
 		assert.equal(playerView(last.state, "w").players.b.hand.shown.length, 0);
 	});
 
+	test("rare and epic versions: the opponent's whole hand, live (a card drawn later shows too), until the end of the player's next turn (rare) or for 3 of the player's turns (epic)", () => {
+		for (const [key, turns] of [["foresight-rare", 1], ["foresight-epic", 3]]) {
+			const { s, id } = holding(key);
+			s.players.b.passive = hand.newCard(s, "t-none");
+			s.players.b.moves.pop(); // BLACK'S END-OF-TURN REFILL DRAWS A NEW MOVE CARD
+			const whole = (st) => ids([...st.players.b.moves, ...st.players.b.actives, st.players.b.passive, ...st.players.b.curses]).sort(byId);
+			const r = play(s, "w", id);
+			assert.deepEqual(ofType(r.events, "enchant").map((e) => e.key), ["foresight"]);
+			assert.deepEqual(ids(playerView(r.state, "w").players.b.hand.shown), whole(r.state), key);
+			let st = r.state, n = 0;
+			for (let i = 0; st.players.w.seen && i < 20; i++) {
+				const b = applyAction(st, "b", movesOf(st, "b")[(i * 7 + 3) % movesOf(st, "b").length]);
+				st = b.state;
+				const drawn = ofType(b.events, "draw").filter((e) => e.player === "b");
+				if (i === 0) assert.ok(drawn.length > 0);
+				assert.deepEqual(ids(playerView(st, "w").players.b.hand.shown), whole(st), key + ": not the whole hand on turn " + n);
+				assert.ok(playerEvents(st, b.events, "w").filter((e) => e.type === "draw" && e.player === "b").every((e) => e.card), key + ": a draw hidden");
+				st = varied(st, "w", i);
+				n++;
+			}
+			assert.equal(st.result, null);
+			assert.equal(n, turns, key);
+			assert.equal(st.players.w.seen, null);
+			assert.equal(playerView(st, "w").players.b.hand.shown.length, 0);
+		}
+		assert.deepEqual(["foresight-rare", "foresight-epic"].map((k) => [CARDS[k].name, CARDS[k].rarity, CARDS[k].skulls]), [["Foresight", "rare", 0], ["Foresight", "epic", 0]]);
+	});
+
 	test("not playable in check", () => notInCheck("foresight", true));
+
+	test("a rare Foresight ending while a later base one lasts leaves only the base card's half", () => {
+		const { s, id } = holding("foresight-rare");
+		let st = varied(play(s, "w", id).state, "b", 0);
+		const base = hand.newCard(st, "foresight");
+		st.players.w.actives = [base];
+		st = play(st, "w", base.id).state; // THE RARE ENTRY ENDS AT THE END OF THIS TURN, THE BASE ONE A TURN LATER
+		assert.deepEqual(st.enchant.filter((e) => e.key === "foresight").map((e) => !!(e.data && e.data.all)), [false]);
+		assert.equal(st.players.w.seen.all, false);
+		const half = st.players.w.seen.ids;
+		assert.ok(half.length > 0 && half.length < st.players.b.moves.length + st.players.b.actives.length);
+		assert.deepEqual(ids(playerView(st, "w").players.b.hand.shown).sort(byId), half.filter((x) => [...st.players.b.moves, ...st.players.b.actives].some((c) => c.id === x)).sort(byId));
+	});
+
+	test("a base Foresight played while the epic one lasts keeps the whole-hand sight for the epic's turns", () => {
+		const { s, id } = holding("foresight-epic");
+		const whole = (st) => ids([...st.players.b.moves, ...st.players.b.actives, ...(st.players.b.passive ? [st.players.b.passive] : []), ...st.players.b.curses]).sort(byId);
+		let st = varied(play(s, "w", id).state, "b", 0);
+		const base = hand.newCard(st, "foresight");
+		st.players.w.actives = [base];
+		st = play(st, "w", base.id).state;
+		assert.deepEqual(st.enchant.filter((e) => e.key === "foresight").map((e) => e.left).sort(), [1, 2]);
+		for (let i = 1; st.enchant.some((e) => e.key === "foresight" && e.data && e.data.all); i++) {
+			assert.deepEqual(ids(playerView(st, "w").players.b.hand.shown).sort(byId), whole(st), "turn " + i);
+			st = varied(st, "b", i);
+			if (st.enchant.some((e) => e.key === "foresight")) assert.deepEqual(ids(playerView(st, "w").players.b.hand.shown).sort(byId), whole(st), "after Black's move " + i);
+			st = varied(st, "w", i);
+		}
+		assert.equal(st.players.w.seen, null);
+	});
 });
 
 describe("Fog of War", () => {
-	test("puts a fog-of-war enchantment up: the opponent sees the player's pieces as '?' and the player's whole hand", () => {
-		const { s, id } = holding("fog-of-war");
-		const r = play(s, "w", id);
-		const fog = r.state.enchant.filter((e) => e.key === "fog-of-war");
-		assert.equal(fog.length, 1);
-		const { fresh: f, ...entry } = fog[0];
-		assert.deepEqual(entry, { id: entry.id, key: "fog-of-war", owner: "w", pieces: [], left: 1, data: {} });
-		assert.deepEqual(ofType(r.events, "enchant").map((e) => [e.player, e.key]), [["w", "fog-of-war"]]);
-		const v = playerView(r.state, "b");
-		for (const p of v.board.sq.filter(Boolean)) assert.equal(p.t === "?", p.c === "w");
-		assert.deepEqual(v.board.history, []);
-		assert.equal(v.board.half, 0);
-		const w = r.state.players.w, all = ids([...w.moves, ...w.actives, ...(w.passive ? [w.passive] : []), ...w.curses]).sort(byId);
-		assert.deepEqual(ids(v.players.w.hand.shown), all);
-		const own = playerView(r.state, "w");
-		assert.ok(own.board.sq.filter(Boolean).every((p) => p.t !== "?"));
+	const FOGS = { "fog-of-war": { turns: 3, hand: true }, "fog-of-war-rare": { turns: 3, hand: false }, "fog-of-war-epic": { turns: 5, hand: false } };
+	const fogUp = (s) => s.enchant.some((e) => e.owner === "w" && baseKey(e.key) === "fog-of-war");
+
+	test("puts a fog-of-war enchantment up: the opponent sees the player's pieces on the player's half as '?'; the hand shows for the base card only", () => {
+		for (const [key, { turns, hand: open }] of Object.entries(FOGS)) {
+			const { s, id } = holding(key);
+			s.players.w.moves.pop(); // THE END-OF-TURN REFILL DRAWS A MOVE CARD
+			const r = play(s, "w", id);
+			const fog = r.state.enchant.filter((e) => baseKey(e.key) === "fog-of-war");
+			assert.equal(fog.length, 1);
+			const { fresh: f, ...entry } = fog[0];
+			assert.deepEqual(entry, { id: entry.id, key, owner: "w", pieces: [], left: turns, data: {} });
+			assert.deepEqual(ofType(r.events, "enchant").map((e) => [e.player, e.key]), [["w", key]]);
+			const v = playerView(r.state, "b");
+			for (const p of v.board.sq.filter(Boolean)) assert.equal(p.t === "?", p.c === "w", key); // EVERY WHITE PIECE STARTS ON WHITE'S HALF
+			assert.deepEqual(v.board.history, []);
+			assert.equal(v.board.half, 0);
+			const w = r.state.players.w, all = ids([...w.moves, ...w.actives, ...(w.passive ? [w.passive] : []), ...w.curses]).sort(byId);
+			assert.deepEqual(ids(v.players.w.hand.shown), open ? all : [], key);
+			const draws = playerEvents(r.state, r.events, "b").filter((e) => e.type === "draw" && e.player === "w");
+			assert.ok(draws.length > 0);
+			assert.ok(draws.every((e) => !!e.card === open), key + ": the fogged player's draws");
+			assert.ok(playerView(r.state, "w").board.sq.filter(Boolean).every((p) => p.t !== "?"));
+		}
+		assert.deepEqual(["fog-of-war", "fog-of-war-rare", "fog-of-war-epic"].map((k) => [CARDS[k].name, CARDS[k].rarity, CARDS[k].skulls]),
+			[["Fog of War", "uncommon", 2], ["Fog of War", "rare", 0], ["Fog of War", "epic", 0]]);
+		assert.equal(CARDS["fog-of-war"].text, "For 3 turns the opponent sees your pieces on your half of the board as blank tokens. Debuff: your hand is visible to the opponent while the fog lasts.");
 	});
 
-	test("lasts through the opponent's next turn and ends at the end of the player's next turn", () => {
-		const { s, id } = holding("fog-of-war");
-		const r = play(s, "w", id);
-		assert.equal(r.state.board.turn, "b");
-		assert.ok(playerView(r.state, "b").board.sq.some((p) => p && p.t === "?"), "no fog on the opponent's turn");
-		const evs = playerEvents(r.state, r.events, "b");
-		assert.ok(evs.every((e) => !(e.type === "draw" && e.player === "w") || e.card), "the fogged player's draws show their card to the opponent");
-		const t = step(r.state, "b");
-		assert.ok(t.enchant.some((e) => e.key === "fog-of-war"), "fog ended before the player's next turn");
-		const last = applyAction(t, "w", legalActions(t, "w").find((a) => a.type === "move"));
-		assert.ok(!last.state.enchant.some((e) => e.key === "fog-of-war"));
-		assert.deepEqual(ofType(last.events, "enchant-ended").map((e) => e.key), ["fog-of-war"]);
-		assert.ok(playerView(last.state, "b").board.sq.every((p) => !p || p.t !== "?"));
+	test("lasts 3 of the player's turns (the epic version 5), the hand open (base card) or hidden (versions) throughout", () => {
+		for (const [key, { turns, hand: open }] of Object.entries(FOGS)) {
+			const { s, id } = holding(key);
+			let st = play(s, "w", id).state, n = 0;
+			for (let i = 0; fogUp(st) && i < 20; i++) {
+				st = varied(st, "b", i);
+				assert.ok(fogUp(st), key + ": fog ended before the player's turn");
+				assert.ok(playerView(st, "b").board.sq.some((p) => p && p.t === "?"), key);
+				assert.equal(playerView(st, "b").players.w.hand.shown.length > 0, open, key);
+				const r = applyAction(st, "w", movesOf(st, "w")[i % movesOf(st, "w").length]);
+				st = r.state;
+				n++;
+				if (!fogUp(st)) assert.deepEqual(ofType(r.events, "enchant-ended").map((e) => e.key), [key]);
+			}
+			assert.equal(st.result, null);
+			assert.equal(n, turns, key);
+			assert.ok(playerView(st, "b").board.sq.every((p) => !p || p.t !== "?"));
+			assert.equal(playerView(st, "b").players.w.hand.shown.length, 0);
+		}
+	});
+
+	test("a piece that leaves the player's half is shown, one that comes back is hidden; the opponent's events never name a hidden type", () => {
+		const { s, id } = holding("fog-of-war", "w", 1, "4k3/8/8/8/R7/8/8/4K3 w - - 0 1"); // THE ROOK ON a4 STANDS ON WHITE'S HALF
+		const rook = at(s, "a4").id;
+		s.players.w.moves = [moveCard(s, "r"), moveCard(s, "r")];
+		const r = play(s, "w", id), seen = (st, sq) => playerView(st, "b").board.sq[sqIndex(sq)];
+		assert.deepEqual(seen(r.state, "a4"), { id: rook, c: "w", t: "?" });
+		assert.equal(seen(r.state, "e1").t, "?");
+		const up = applyAction(step(r.state, "b"), "w", moveFrom(step(r.state, "b"), "w", "a4", "a5"));
+		assert.deepEqual(seen(up.state, "a5"), { id: rook, c: "w", t: "r" }); // ON BLACK'S HALF: SHOWN
+		assert.equal(seen(up.state, "e1").t, "?");
+		assert.deepEqual(playerEvents(up.state, up.events, "b").filter((e) => e.type === "move"), [{ type: "move", player: "w", piece: rook, from: "a4", to: "a5" }]);
+		const t = step(up.state, "b"), back = applyAction(t, "w", moveFrom(t, "w", "a5", "a4"));
+		assert.ok(fogUp(back.state));
+		assert.deepEqual(seen(back.state, "a4"), { id: rook, c: "w", t: "?" }); // BACK ON WHITE'S HALF: HIDDEN
+		assert.deepEqual(playerEvents(back.state, back.events, "b").filter((e) => e.type === "move"), [{ type: "move", player: "w", piece: rook, from: "a5", to: "a4" }]);
+		const v = playerView(back.state, "b");
+		assert.deepEqual([v.board.history, v.board.half, v.board.castling, v.players.w.captured], [[], 0, "-", []]);
+		const cap = [{ type: "capture", player: "b", piece: rook, t: "r", c: "w", by: "b5", sq: "a4" }];
+		assert.equal(playerEvents(back.state, cap, "b")[0].t, "?");
+	});
+
+	test("a visible king on the opponent's half: fromView gives the fogged side no second king", () => {
+		const s = fresh(5);
+		s.board = fromFen("8/8/4k3/1K6/8/8/PPPP4/RNBQ4 b - - 0 1"); // WHITE'S KING ON b5: BLACK'S HALF, SO SHOWN
+		s.enchant.push({ id: "e1", key: "fog-of-war", owner: "w", pieces: [], left: 3, data: {} });
+		const v = playerView(s, "b");
+		assert.equal(v.board.sq[sqIndex("b5")].t, "k");
+		for (let seed = 1; seed <= 20; seed++) {
+			const f = fromView(v, seed);
+			assert.equal(f.board.sq.filter((p) => p && p.c === "w" && p.t === "k").length, 1, "seed " + seed);
+			assert.ok(f.board.sq.every((p) => !p || "pnbrqk".includes(p.t)));
+		}
 	});
 
 	test("not playable in check", () => notInCheck("fog-of-war", false));
@@ -298,7 +414,58 @@ describe("Pickpocket", () => {
 		assert.deepEqual(r.state.pending.options, tokens(playerView(r.state, "b").players.w.hand.count)); // NOTHING KNOWN LEFT TO NAME
 	});
 
-	test("not playable in check", () => notInCheck("pickpocket", true));
+	test("uncommon version: the taker picks from the opponent's move and active cards (shown to the taker for that choice only), then the opponent takes one of the taker's cards back at random", () => {
+		const back = new Set();
+		for (let seed = 1; seed <= 8; seed++) {
+			const { s, id } = holding("pickpocket-uncommon", "w", seed);
+			s.players.b.passive = hand.newCard(s, "t-none");
+			s.players.b.curses = [hand.newCard(s, "t-curse")];
+			const b = s.players.b, options = ids([...b.moves, ...b.actives]).sort(byId);
+			const r = play(s, "w", id), st = r.state;
+			assert.ok(!ofType(r.events, "card-taken").length);
+			assert.deepEqual({ player: st.pending.player, kind: st.pending.kind, options: st.pending.options }, { player: "w", kind: "pick", options });
+			assert.deepEqual(ids(playerView(st, "w").players.b.hand.shown), [...options, ...ids(b.curses)].sort(byId)); // NEVER THE PASSIVE
+			assert.deepEqual(playerView(st, "b").pending, { player: "w", kind: "pick" });
+			assert.equal(st.board.turn, "w");
+			const saved = JSON.parse(JSON.stringify(st));
+			assert.throws(() => applyAction(saved, "b", { type: "choice", option: options[1] }), /isn't available/);
+			const pick = b.moves.concat(b.actives).find((c) => c.id === options[seed % options.length]);
+			const res = applyAction(saved, "w", { type: "choice", option: pick.id }), end = res.state, ev = ofType(res.events, "card-taken");
+			assert.equal(ev.length, 2);
+			assert.deepEqual(ev[0], { type: "card-taken", player: "w", from: "b", card: pick });
+			assert.deepEqual([ev[1].player, ev[1].from], ["b", "w"]);
+			const held = [...st.players.w.moves, ...st.players.w.actives, pick];
+			assert.ok(held.some((c) => c.id === ev[1].card.id));
+			assert.ok(end.players.b[ev[1].card.key === "move" ? "moves" : "actives"].some((c) => c.id === ev[1].card.id));
+			back.add(ev[1].card.id);
+			assert.equal(end.pending, null);
+			assert.equal(end.board.turn, "b");
+			assert.deepEqual(ids(playerView(end, "w").players.b.hand.shown), ids(end.players.b.curses), "the opponent's cards still shown after the choice");
+			assert.ok(end.players.b.passive && end.players.b.king);
+		}
+		assert.ok(back.size > 1, "the card taken back is not random");
+		assert.deepEqual([CARDS["pickpocket-uncommon"].name, CARDS["pickpocket-uncommon"].rarity, CARDS["pickpocket-uncommon"].skulls], ["Pickpocket", "uncommon", 1]);
+	});
+
+	test("epic version: the taker picks and nothing is taken back; a picked card that doesn't fit the hand cap is lost", () => {
+		const { s, id } = holding("pickpocket-epic", "w", 2);
+		const pick = s.players.b.moves[3];
+		const r = play(s, "w", id);
+		assert.equal(r.state.pending.kind, "pick");
+		const res = applyAction(r.state, "w", { type: "choice", option: pick.id });
+		assert.deepEqual(ofType(res.events, "card-taken"), [{ type: "card-taken", player: "w", from: "b", card: pick }]);
+		assert.ok(res.state.players.w.moves.some((c) => c.id === pick.id));
+		assert.equal(res.state.board.turn, "b");
+		const full = holding("pickpocket-epic", "w", 4);
+		while (full.s.players.w.moves.length < hand.MOVE_CAP) full.s.players.w.moves.push(moveCard(full.s, "p"));
+		const lost = full.s.players.b.moves[0];
+		const l = applyAction(play(full.s, "w", full.id).state, "w", { type: "choice", option: lost.id });
+		assert.deepEqual(ofType(l.events, "card-taken"), [{ type: "card-taken", player: "w", from: "b", card: lost, lost: true }]);
+		assert.ok(![...l.state.players.w.moves, ...l.state.players.b.moves].some((c) => c.id === lost.id));
+		assert.deepEqual([CARDS["pickpocket-epic"].rarity, CARDS["pickpocket-epic"].skulls], ["epic", 0]);
+	});
+
+	test("not playable in check", () => { notInCheck("pickpocket", true); notInCheck("pickpocket-uncommon", true); });
 });
 
 const { sqIndex } = require("../../cards-engine/board.js");
@@ -373,6 +540,25 @@ describe("Insidious Nullification", () => {
 		assert.deepEqual(back.events.filter((e) => e.type === "draw" || e.type === "discard"), []);
 		assert.equal(at(back.state, "b1"), null);
 		assert.equal(back.state.board.half, 0);
+	});
+});
+
+describe("Insidious Nullification, rare version", () => {
+	test("cancels the opponent's waiting passives with no forfeit, and is playable with no forfeitable piece", () => {
+		const { s, id } = holding("insidious-nullification-rare");
+		s.players.w.moves = [];
+		s.players.w.refillLock = 1;
+		const card = hand.newCard(s, "t-pass");
+		s.effects = [{ id: "x1", owner: "b", card, placedAt: 1 }];
+		assert.equal(activeIds(s, "w", id).length, 1);
+		const r = play(s, "w", id);
+		assert.deepEqual(ofType(r.events, "passive-cancelled"), [{ type: "passive-cancelled", player: "b", card }]);
+		assert.deepEqual(r.state.effects, []);
+		assert.equal(r.state.pending, null);
+		assert.ok(!ofType(r.events, "capture").length && !ofType(r.events, "choice").length);
+		assert.equal(r.state.board.sq.filter(Boolean).length, 32);
+		assert.equal(r.state.board.turn, "b");
+		assert.deepEqual([CARDS["insidious-nullification-rare"].rarity, CARDS["insidious-nullification-rare"].skulls], ["rare", 0]);
 	});
 });
 
@@ -470,6 +656,22 @@ describe("Double Time", () => {
 		assert.equal(two.board.turn, "b");
 	});
 
+	test("legendary version: two moves with two different pieces and no skipped turn", () => {
+		const { s, id } = holding("double-time-legendary");
+		s.players.w.moves = [moveCard(s, "p"), moveCard(s, "n")];
+		const r = play(s, "w", id);
+		assert.deepEqual(r.state.multi, { player: "w", left: 2, moved: [], differ: true });
+		const one = applyAction(r.state, "w", moveFrom(r.state, "w", "e2", "e4")).state;
+		assert.equal(one.board.turn, "w");
+		const two = applyAction(one, "w", moveFrom(one, "w", "g1", "f3")).state;
+		assert.equal(two.board.turn, "b");
+		assert.equal(two.players.w.lostTurns, 0);
+		const next = applyAction(two, "b", movesOf(two, "b")[0]);
+		assert.ok(!ofType(next.events, "turn-skipped").length);
+		assert.equal(next.state.board.turn, "w");
+		assert.deepEqual([CARDS["double-time-legendary"].name, CARDS["double-time-legendary"].rarity, CARDS["double-time-legendary"].skulls], ["Double Time", "legendary", 0]);
+	});
+
 	test("not playable in check", () => notInCheck("double-time", false));
 });
 
@@ -564,5 +766,33 @@ describe("Cleanse", () => {
 		assert.ok(!statuses.has(r.state, n, "warded"));
 		assert.ok(!r.state.enchant.some((e) => e.key === "stronghold"));
 		assert.deepEqual(ofType(r.events, "enchant-ended").map((e) => e.key), ["stronghold"]);
+	});
+
+	test("rare version: clears every status on the player's side, never a curse or the opponent's; Stronghold ends with its Warded; needs a status", () => {
+		const { s, id } = holding("cleanse-rare");
+		const curse = hand.newCard(s, "t-hex-a");
+		s.players.w.curses = [curse];
+		assert.equal(activeIds(s, "w", id).length, 0, "playable with only a curse");
+		const wp = at(s, "e2").id, wn = at(s, "b1").id, bp = at(s, "e7").id;
+		s.statuses[wp] = [{ s: "frozen", left: 2, by: "b" }, { s: "shaken", left: 1, by: "b" }];
+		s.statuses[wn] = [{ s: "marked", left: 2, by: "b" }];
+		s.statuses[bp] = [{ s: "shaken", left: 2, by: "w" }];
+		assert.equal(activeIds(s, "w", id).length, 1);
+		const r = play(s, "w", id);
+		assert.deepEqual(ofType(r.events, "status-ended").map((e) => [e.piece, e.s]), [[wp, "frozen"], [wp, "shaken"], [wn, "marked"]]);
+		assert.deepEqual(Object.keys(r.state.statuses), [bp]);
+		assert.deepEqual(r.state.players.w.curses, [curse]);
+		assert.equal(r.state.board.turn, "b");
+		const g = holding("stronghold");
+		const cl = hand.newCard(g.s, "cleanse-rare");
+		g.s.players.w.actives.push(cl);
+		const n = at(g.s, "g1").id;
+		const t = step(applyAction(g.s, "w", { type: "active", card: g.id, target: { piece: n } }).state, "b");
+		assert.ok(t.enchant.some((e) => baseKey(e.key) === "stronghold"));
+		const e = play(t, "w", cl.id);
+		assert.ok(!statuses.has(e.state, n, "warded"));
+		assert.ok(!e.state.enchant.some((x) => baseKey(x.key) === "stronghold"));
+		assert.deepEqual(ofType(e.events, "enchant-ended").map((x) => baseKey(x.key)), ["stronghold"]);
+		assert.deepEqual([CARDS["cleanse-rare"].name, CARDS["cleanse-rare"].rarity], ["Cleanse", "rare"]);
 	});
 });
