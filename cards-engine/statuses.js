@@ -37,11 +37,11 @@ function give(ctx, pieceId, s, turns = 3, by = ctx.turn || ctx.state.board.turn)
  */
 function clear(ctx, pieceId, s) {
 	if (!has(ctx.state, pieceId, s)) return;
-	const list = ctx.state.statuses[pieceId].filter((e) => e.s !== s);
+	const veiled = ctx.state.statuses[pieceId].some((e) => e.s === s && e.veiled), list = ctx.state.statuses[pieceId].filter((e) => e.s !== s);
 	if (list.length) ctx.state.statuses[pieceId] = list;
 	else delete ctx.state.statuses[pieceId];
 	const b = ctx.state.board, p = b.sq[pieceById(b, pieceId)];
-	if (p) ctx.emit({ type: "status-ended", player: p.c, piece: pieceId, s }); // THE OWNER ON THE BOARD, NOT THE ID; OFF THE BOARD: NO EVENT
+	if (p) ctx.emit(veiled ? { type: "status-ended", player: p.c, piece: pieceId, s, veiled } : { type: "status-ended", player: p.c, piece: pieceId, s }); // THE OWNER ON THE BOARD, NOT THE ID; OFF THE BOARD: NO EVENT
 }
 
 /**

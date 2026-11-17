@@ -45,7 +45,7 @@ function cardMoves(state, color) {
  */
 function kingMoves(state, color, moves = cardMoves(state, color)) {
 	const p = state.players[color], m = state.multi, k = state.board.sq.find((q) => q && q.c === color && q.t === "k");
-	if (!p.king || !k) return [];
+	if (!hand.kingFree(state, color) || !k) return [];
 	const free = moves.filter((mv) => mv.t === "k"), own = state.statuses[k.id];
 	if (p.kingSkulls <= 0 || !(own && own.length)) return free; // NO SKULL TO SPEND, OR NOTHING IT WOULD BUY
 	const same = (x, y) => x.to === y.to && x.castle === y.castle;
@@ -64,13 +64,14 @@ function spendSkull(ctx, player, why) {
 }
 
 /**
- * @description Move actions for color: one per move card per legal move of its piece type (cardMoves), and the King card's moves (kingMoves).
+ * @description Move actions for color: one per move card per legal move of its piece type (cardMoves), the cards by id, an entered Mirage among them as the move card it shows (not in check: playing it moves nothing; its act resolves it), and the King card's moves (kingMoves).
  */
 function moveActions(state, color) {
 	const p = state.players[color], moves = cardMoves(state, color);
 	const out = [], add = (card, mv) => out.push(mv.promotion
 		? { type: "move", card, from: mv.from, to: mv.to, promotion: mv.promotion } : { type: "move", card, from: mv.from, to: mv.to });
-	for (const c of p.moves) for (const mv of moves) if (mv.t === c.piece) add(c.id, mv);
+	const checked = inCheck(state, color), cards = hand.moveCards(p).filter((c) => c.key === "move" || !checked); // BY ID, THE ORDER ITS HOLDER SEES, SO A MIRAGE'S PLACE GIVES NOTHING AWAY
+	for (const c of cards) for (const mv of moves) if (mv.t === c.piece) add(c.id, mv);
 	for (const mv of kingMoves(state, color, moves)) add("king", mv);
 	return out;
 }
@@ -171,7 +172,7 @@ function turnActions(state, player) {
 		if (!checked) {
 			const def = p.passive && CARDS[p.passive.key];
 			if (p.passive && !(def && def.canPlace && !def.canPlace(state, player))) out.push({ type: "passive" });
-			for (const c of [...p.moves, ...p.actives]) out.push({ type: "discard", card: c.id }); // NEVER THE KING CARD OR A CURSE
+			for (const c of [...hand.moveCards(p), ...p.actives]) out.push({ type: "discard", card: c.id }); // NEVER THE KING CARD OR A CURSE (AN ENTERED MIRAGE SHOWS AS A MOVE CARD)
 		}
 	}
 	const built = new Set(out.map(actionKey));
@@ -180,7 +181,7 @@ function turnActions(state, player) {
 	const ok = (a) => !!a && typeof a === "object" && (built.has(actionKey(a))
 		|| (a.type === "move" ? addedMoveOk(state, player, a) && (!routed(state, player, a) || survives(a))
 			: !BUILT_IN.includes(a.type) && !multi && !!sourceOf(state, player, a) && survives(a))); // AN ADDED active, passive OR discard IS DROPPED
-	return out.filter((a) => ok(a) && actionKey(a) !== state.barred && barKey(a) !== state.barred); // THE EXACT KEY, OR A MOVE'S SHAPE (barKey)
+	return out.filter((a) => ok(a) && (!state.barred || (actionKey(a) !== state.barred && barKey(a) !== state.barred))); // THE EXACT KEY, OR A MOVE'S SHAPE (barKey)
 }
 
 /**
@@ -205,6 +206,7 @@ function move(ctx, player, a) {
 	s.board = makeMove(s.board, mv);
 	const ev = { type: "move", player, card, piece: mv.piece, from: mv.from, to: mv.to };
 	if (mv.castle) ev.castle = mv.castle;
+	if (mv.through) ev.through = true; // A CASTLE ONLY castleThroughCheck ALLOWED (rules.legalMoves)
 	if (victim && victim.t === "k") { // A KING LEFT IN CHECK ON ITS OWNER'S OPPONENT'S TURN: TAKING IT WINS, NOTHING ELSE RESOLVES
 		s.players[victim.c].captured.push("k");
 		delete s.statuses[victim.id];
@@ -231,7 +233,7 @@ function move(ctx, player, a) {
 	if (m.left <= 0) return false;
 	s.board.turn = player; // TRY THE TURN GOING ON: UNDO makeMove'S HANDOVER
 	if (!turnActions(s, player).length) { s.board.turn = other(player); return false; } // NO FURTHER MOVE: THE TURN ENDS ON THIS POSITION (NO SKULL)
-	if (check && s.players[other(player)].kingSkulls > 0) { // THE CHECKED PLAYER'S SKULL ENDS THE TWO-MOVE TURN; WITHOUT ONE THE SECOND MOVE MAY TAKE THE KING
+	if (check && s.players[other(player)].king && s.players[other(player)].kingSkulls > 0) { // THE CHECKED PLAYER'S SKULL ENDS THE TWO-MOVE TURN; WITHOUT ONE (OR WITHOUT THE KING CARD: HOLLOW CROWN) THE SECOND MOVE MAY TAKE THE KING
 		s.board.turn = other(player);
 		spendSkull(ctx, other(player), "double-move");
 		return false;
@@ -250,8 +252,8 @@ function act(ctx, player, a) {
 	if (a.type === "choice") return choose(ctx, a.option);
 	if (a.type === "duel") return duelAct(ctx, player, a);
 	if (a.type === "discard") {
-		const wasMove = p.moves.some((c) => c.id === a.card);
-		ctx.emit({ type: "discard", player, card: hand.take(p, a.card) });
+		const wasMove = hand.moveCards(p).some((c) => c.id === a.card);
+		hand.discard(ctx, player, a.card);
 		if (wasMove) hand.drawMove(ctx, player);
 		else hand.drawCard(ctx, player, "active");
 		if (++p.skips >= 3) return end(ctx, other(player), "skips");
@@ -360,7 +362,7 @@ function tickEnchant(ctx, color, enchants) {
 }
 
 /**
- * @description Start of color's turn: a turn-start event (triggers run on it); a check event for each side in check that no check event of this action named, but not for color when its check already stood before this action began (ctx.stood, set by act: it was announced then; the side that just played and is still in check is always named) (a trigger or a status ending made it, e.g. Overwatch taking a shield); a player with lostTurns has one less and loses this turn (a turn-skipped event, then endTurn: ticks, refill, half + 1, play passes; no passive roll; not a discard skip), unless in check with a King skull: the skull is spent and the lost turn is void, so the turn is played; else the passive roll (from their second turn, empty slot only); no card action (move, active, or card-defined action) → move cards thrown out and a full hand redrawn, max(thrown out, 6) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Then the board draws (repetition, fifty, material), even when plain chess has no move.
+ * @description Start of color's turn: a turn-start event (triggers run on it); a check event for each side in check that no check event of this action named, but not for color when its check already stood before this action began (ctx.stood, set by act: it was announced then; the side that just played and is still in check is always named) (a trigger or a status ending made it, e.g. Overwatch taking a shield); a player with lostTurns has one less and loses this turn (a turn-skipped event, then endTurn: ticks, refill, half + 1, play passes; no passive roll; not a discard skip; a two-move turn started at this turn start is dropped, so its refill is the usual one), unless in check with a King skull: the skull is spent and the lost turn is void, so the turn is played; else the passive roll (from their second turn, empty slot only); a just-started two-move turn with no move to make is dropped (a normal turn, so the actives are offered); no card action (move, active, or card-defined action) → move cards thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Then the board draws (repetition, fifty, material), even when plain chess has no move.
  */
 function startTurn(ctx, color) {
 	const s = ctx.state, p = s.players[color];
@@ -371,13 +373,15 @@ function startTurn(ctx, color) {
 	for (const c of [other(color), color]) if (inCheck(s, c) && !(c === color && (ctx.stood || []).includes(c)) && !ctx.events.some((e) => e.type === "check" && e.player === c)) ctx.emit({ type: "check", player: c }); // A CHECK NO MOVE ANNOUNCED: A TRIGGER REMOVED A SHIELD (OVERWATCH), A STATUS ENDED, A TURN-START EFFECT
 	if (p.lostTurns > 0) {
 		p.lostTurns--; // GONE FOR GOOD, LOST OR VOID
-		if (p.kingSkulls > 0 && inCheck(s, color)) spendSkull(ctx, color, "lost-turn"); // VOID: THE PLAYER ANSWERS THE CHECK
+		if (p.king && p.kingSkulls > 0 && inCheck(s, color)) spendSkull(ctx, color, "lost-turn"); // VOID: THE PLAYER ANSWERS THE CHECK (NO SKULL IS SPENT WHILE THE KING CARD IS GONE: HOLLOW CROWN)
 		else {
 			ctx.emit({ type: "turn-skipped", player: color });
+			if (s.multi && s.multi.player === color) s.multi = null; // A TWO-MOVE TURN STARTED AT THIS TURN START (FOUR OF A KIND SAW A VOID LOST TURN, THEN DEBT TOOK THE KING CARD: HOLLOW CROWN): NOT PLAYED, SO ITS DEBUFF IS DROPPED (THE CARD STAYS SPENT)
 			return endTurn(ctx, color);
 		}
 	}
 	if (s.ply >= 2 && !p.passive && ctx.rng.next() < PASSIVE_CHANCE) hand.drawCard(ctx, color, "passive");
+	if (s.multi && s.multi.player === color && !s.multi.moved.length && !turnActions(s, color).some((a) => a.type === "move")) s.multi = null; // A TURN-START EFFECT (DEBT AND HUNGER, FOR TWO) TOOK A JUST-STARTED TWO-MOVE TURN'S ONLY MOVE: A NORMAL TURN, SO THE ACTIVES ARE OFFERED (FOUR OF A KIND STAYS SPENT, ITS DEBUFF DROPPED)
 	if (noAction(ctx, color)) return;
 	if (ctx.resetHalf) s.board.half = 0; // A CARD CAPTURED AT THE START OF THE TURN
 	const draw = boardDraw(s.board); // CARD MATE AND STALEMATE ARE DECIDED ABOVE, FROM THE HAND
@@ -385,16 +389,15 @@ function startTurn(ctx, color) {
 }
 
 /**
- * @description The no-legal-action rule for color (startTurn, and Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Returns true when the game ended.
+ * @description The no-legal-action rule for color (startTurn, and Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Returns true when the game ended.
  */
 function noAction(ctx, color) {
 	const s = ctx.state, p = s.players[color];
 	const cardActions = () => turnActions(s, color).filter((a) => a.type !== "passive" && a.type !== "discard");
 	if (cardActions().length) return false;
-	const n = p.moves.length;
-	p.moves = [];
+	const { out, ms } = hand.throwMoves(p); // AN ENTERED MIRAGE GOES WITH THEM AND COMES BACK HIDDEN AMONG THE DRAWS
 	ctx.emit({ type: "redraw", player: color });
-	ctx.draw(color, Math.max(n, hand.MOVES));
+	hand.drawMoves(ctx, color, Math.max(out.length, hand.MOVES + hand.big(s, color)), ms); // UNDERDOG BEHIND: 7
 	if (cardActions().length) return false;
 	const mate = inCheck(s, color);
 	end(ctx, mate ? other(color) : null, mate ? "checkmate" : "stalemate");

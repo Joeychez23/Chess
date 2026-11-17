@@ -9,6 +9,7 @@ const { pieceById, sqIndex, sqName } = require("../../board.js");
 const { LOSES } = require("../../movegen.js");
 const { legalMoves, hooksFor } = require("../../rules.js");
 const { capture } = require("../../ctx.js");
+const { kingFree } = require("../../hand.js");
 
 const KEY = "last-stand";
 const RAYS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
@@ -32,11 +33,11 @@ function rays(board, kid) {
 }
 
 /**
- * @description The legal queen moves of player's king (rules.legalMoves with the rays added, so statuses, check and the kings' distance apply), no castling; none for a Hexed king (cards can't move it).
+ * @description The legal queen moves of player's king (rules.legalMoves with the rays added, so statuses, check and the kings' distance apply), no castling; none for a Hexed king (cards can't move it) or without the King card (hand.kingFree: Hollow Crown).
  */
 function kingMoves(state, player) {
 	const k = state.board.sq.find((p) => p && p.c === player && p.t === "k");
-	if (!k || statuses.has(state, k.id, "hexed")) return [];
+	if (!k || statuses.has(state, k.id, "hexed") || !kingFree(state, player)) return [];
 	const hooks = hooksFor(state), extra = hooks.extraMoves;
 	hooks.extraMoves = (s, p) => [...(extra ? extra(s, p) : []), ...(p.id === k.id ? rays(s.board, k.id) : [])];
 	return legalMoves(state, player, (m) => m.piece === k.id && !m.castle, hooks);

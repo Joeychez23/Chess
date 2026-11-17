@@ -7,6 +7,7 @@
 const statuses = require("../../statuses.js");
 const { pieceById, sqName } = require("../../board.js");
 const { LOSES } = require("../../movegen.js");
+const { kingFree } = require("../../hand.js");
 
 const KEY = "swap";
 
@@ -23,13 +24,13 @@ function sound(board, i, j) {
 }
 
 /**
- * @description { pieces: [a, b] } (board order) for every sound pair of own pieces that may move: none Hexed (cards can't move it) or Frozen. Not a canMove rule: the common Stronghold's piece can't move by itself but Swap may move it.
+ * @description { pieces: [a, b] } (board order) for every sound pair of own pieces that may move: none Hexed (cards can't move it) or Frozen, and not the king without the King card (hand.kingFree: Hollow Crown). Not a canMove rule: the common Stronghold's piece can't move by itself but Swap may move it.
  */
 function pairs(state, player) {
 	const b = state.board, out = [];
 	const free = b.sq.map((p, i) => i).filter((i) => {
 		const p = b.sq[i];
-		return p && p.c === player && !statuses.has(state, p.id, "hexed") && !statuses.has(state, p.id, "frozen");
+		return p && p.c === player && !statuses.has(state, p.id, "hexed") && !statuses.has(state, p.id, "frozen") && (p.t !== "k" || kingFree(state, player));
 	});
 	for (let x = 0; x < free.length; x++) for (let y = x + 1; y < free.length; y++) if (sound(b, free[x], free[y])) out.push({ pieces: [b.sq[free[x]].id, b.sq[free[y]].id] });
 	return out;

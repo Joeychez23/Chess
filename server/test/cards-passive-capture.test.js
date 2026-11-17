@@ -11,12 +11,14 @@ const { fromFen, sqIndex } = require("../../cards-engine/board.js");
 const { legalMoves, inCheck } = require("../../cards-engine/rules.js");
 const { makeCtx } = require("../../cards-engine/ctx.js");
 const statuses = require("../../cards-engine/statuses.js");
-const { register } = require("../../cards-engine/cards/index.js");
+const { register, reset } = require("../../cards-engine/cards/index.js");
+
+reset(); // THE ENGINE ENTRY REGISTERS EVERY CARD: THESE TESTS DRAW FROM ONLY THE CARDS THEY REGISTER
 
 const KEYS = ["last-rites", "unjust-retribution", "reinforcements", "retaliation", "bleeding-hand", "hex", "spite", "bounty", "bad-omen", "overwatch", "escape-artist", "grace"];
 for (const key of KEYS) register(require("../../cards-engine/cards/passive/" + key + ".js"));
 for (const key of ["t-pass", "t-pass2"]) register({ key, kind: "active", name: key, rarity: "common", text: "", targets: () => [null], play: () => {} });
-register({ key: "t-curse", kind: "curse", name: "t-curse", text: "" });
+register({ key: "t-curse", kind: "curse", name: "t-curse", rarity: "common", text: "" });
 register({ key: "t-kingguard", kind: "passive", name: "t-kingguard", rarity: "common", text: "", rules: { canCapture: (s, a, t, src) => !(t.t === "k" && t.c === src.owner) } }); // ONLY THE OWNER'S KING SHIELDED: CASTLING PAST A WATCHED SQUARE
 register({ key: "t-guard", kind: "passive", name: "t-guard", rarity: "common", text: "", rules: { canCapture: (s, a, t, src) => t.c !== src.owner } }); // A CAPTURE RULE (LIKE HEAVY CAVALRY'S), NOT A STATUS
 
@@ -341,6 +343,20 @@ describe("Escape Artist", () => {
 		const r = applyAction(t, "w", { type: "move", card: "king", from: "e1", to: "d2" });
 		assert.ok(!fired(r.events, "escape-artist") && waits(r.state, "escape-artist"));
 		assert.deepEqual(JSON.parse(JSON.stringify(r.state)), r.state);
+	});
+	test("a king that lost its King card (Hollow Crown) still gets out of check by a cardless move; no King-card move is offered", () => {
+		const s = game("r3k3/8/8/8/8/8/8/4K3 b - - 0 1");
+		s.players.w.king = false;
+		s.players.b.moves = [mv("r", "c71")];
+		place(s, "escape-artist", "w");
+		const { state } = applyAction(s, "b", { type: "move", card: "c71", from: "a8", to: "a1" }); // Ra1+
+		assert.equal(state.result, null);
+		assert.ok(!legalActions(state, "w").some((a) => a.card === "king"));
+		assert.deepEqual(cardless(state, "w").map((a) => a.from + a.to).sort(), ["e1d2", "e1e2", "e1f2"]);
+		const r = applyAction(state, "w", { type: "move", card: null, from: "e1", to: "e2" });
+		assert.ok(fired(r.events, "escape-artist"));
+		assert.equal(id(r.state, "e2"), id(state, "e1"));
+		assert.equal(r.state.players.w.king, false);
 	});
 });
 

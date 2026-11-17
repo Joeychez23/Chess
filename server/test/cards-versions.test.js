@@ -104,7 +104,12 @@ test("every built card has the catalog's rarity", () => {
 			"heretical-subjection": "rare", hexcraft: "uncommon", "insidious-nullification": "common", "last-stand": "uncommon", mulligan: "uncommon", "opposing-finality": "rare",
 			pickpocket: "common", stronghold: "rare", swap: "rare", trapdoor: "uncommon" },
 		passive: { "bad-omen": "rare", "bleeding-hand": "uncommon", bounty: "common", "escape-artist": "uncommon", grace: "legendary", hex: "uncommon", "last-rites": "uncommon",
-			overwatch: "legendary", reinforcements: "uncommon", retaliation: "uncommon", spite: "common", "unjust-retribution": "rare" },
+			overwatch: "legendary", reinforcements: "uncommon", retaliation: "uncommon", spite: "common", "unjust-retribution": "rare",
+			"interdicted-foresight": "common", witness: "common", veto: "rare", echo: "epic",
+			"peasant-immunity": "common", phalanx: "uncommon", "unbroken-line": "uncommon", "pawn-storm": "common",
+			underdog: "rare", "four-of-a-kind": "uncommon", patience: "common" },
+		curse: { "dead-weight": "uncommon", "traitors-mark": "common", rust: "uncommon", tremor: "common", debt: "uncommon", shackles: "common", mirage: "uncommon", leech: "rare",
+			"hollow-crown": "epic", hunger: "rare", pact: "uncommon" },
 	};
 	for (const kind of Object.keys(want)) for (const [key, rarity] of Object.entries(want[kind])) assert.equal(require("../../cards-engine/cards/" + kind + "/" + key + ".js").rarity, rarity, key);
 	for (const kind of Object.keys(want)) { // A CARD FILE ADDED LATER MUST BE LISTED HERE TOO
@@ -112,6 +117,15 @@ test("every built card has the catalog's rarity", () => {
 		for (const key of files) assert.ok(key in want[kind], key + " has no catalog rarity in this test");
 	}
 	assert.equal(require("../../cards-engine/cards/active/fog-of-war.js").skulls, 2);
+});
+
+test("register refuses an unknown rarity, and a repeat registration drops the versions it no longer has", () => {
+	setup();
+	assert.throws(() => register({ key: "t-bad", kind: "active", name: "t-bad", rarity: "mythic", text: "" }), /no known rarity/);
+	assert.throws(() => register({ key: "t-bad", kind: "active", name: "t-bad", rarity: "common", text: "", versions: [{ rarity: "mythic" }] }), /no known rarity/);
+	register({ ...CARDS["t-card"], versions: [{ rarity: "epic", text: "only" }] });
+	assert.deepEqual(ACTIVE_KEYS.filter((k) => baseKey(k) === "t-card"), ["t-card", "t-card-epic"]);
+	assert.ok(!("t-card-rare" in CARDS) && CARDS["t-card-epic"].text === "only");
 });
 
 test("a version of Trapdoor keeps its square from the opponent in the events and the view", () => {

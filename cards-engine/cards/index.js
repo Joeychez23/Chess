@@ -9,12 +9,13 @@ const RARITY_WEIGHTS = { common: 12, uncommon: 6, rare: 3, epic: 2, legendary: 1
 const LISTS = { active: ACTIVE_KEYS, passive: PASSIVE_KEYS, curse: CURSE_KEYS };
 
 /**
- * @description Add a card unit (or replace the one with the same key), and each of its versions as its own entry { ...unit, ...version, key: "<base>-<rarity>", base } (no nested versions). Test-only until the card files register themselves.
+ * @description Add a card unit (or replace the one with the same key, keeping its place in its key list), and each of its versions as its own entry { ...unit, ...version, key: "<base>-<rarity>", base } (no nested versions). cards/all.js registers every card file; tests register their own (a repeat is harmless).
  */
 function register(card) {
-	if (card.kind !== "curse" && !(card.rarity in RARITY_WEIGHTS)) throw new Error("Card " + card.key + " has no known rarity: " + card.rarity); // A WEIGHTLESS CARD WOULD SILENTLY STOP EVERY DRAW OF ITS KIND
+	if (!(card.rarity in RARITY_WEIGHTS)) throw new Error("Card " + card.key + " has no known rarity: " + card.rarity); // A WEIGHTLESS CARD WOULD SILENTLY STOP EVERY DRAW OF ITS KIND
 	const list = LISTS[card.kind];
-	for (const k of list.filter((k) => CARDS[k].base === card.key)) { delete CARDS[k]; list.splice(list.indexOf(k), 1); } // VERSIONS FROM AN EARLIER REGISTRATION OF THIS CARD
+	const keep = new Set((card.versions || []).map((v) => card.key + "-" + v.rarity)); // A REPEAT REGISTRATION KEEPS ITS VERSIONS' PLACES IN THE LIST (DRAW ORDER)
+	for (const k of list.filter((k) => CARDS[k].base === card.key && !keep.has(k))) { delete CARDS[k]; list.splice(list.indexOf(k), 1); } // VERSIONS FROM AN EARLIER REGISTRATION OF THIS CARD
 	if (!CARDS[card.key]) list.push(card.key);
 	CARDS[card.key] = card;
 	const { versions, ...unit } = card;

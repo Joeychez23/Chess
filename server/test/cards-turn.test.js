@@ -12,7 +12,9 @@ const { legalMoves, inCheck } = require("../../cards-engine/rules.js");
 const { makeCtx } = require("../../cards-engine/ctx.js");
 const hand = require("../../cards-engine/hand.js");
 const turn = require("../../cards-engine/turn.js");
-const { register } = require("../../cards-engine/cards/index.js");
+const { register, reset } = require("../../cards-engine/cards/index.js");
+
+reset(); // THE ENGINE ENTRY REGISTERS EVERY CARD: THESE TESTS DRAW FROM ONLY THE CARDS THEY REGISTER
 
 // TEST-ONLY CARDS: AN ACTIVE (PLAYABLE ONLY WHILE activeOn; ITS PLAY RUNS onPlay, ELSE DOES NOTHING) AND A PASSIVE
 let activeOn = false, onPlay = null;

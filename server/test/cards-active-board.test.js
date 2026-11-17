@@ -12,7 +12,9 @@ const { legalMoves, inCheck } = require("../../cards-engine/rules.js");
 const { makeCtx } = require("../../cards-engine/ctx.js");
 const { startTurn } = require("../../cards-engine/turn.js");
 const statuses = require("../../cards-engine/statuses.js");
-const { register } = require("../../cards-engine/cards/index.js");
+const { register, reset } = require("../../cards-engine/cards/index.js");
+
+reset(); // THE ENGINE ENTRY REGISTERS EVERY CARD: THESE TESTS DRAW FROM ONLY THE CARDS THEY REGISTER
 
 for (const key of ["stronghold", "heavy-cavalry", "heretical-subjection", "last-stand", "opposing-finality", "swap", "conscription", "trapdoor"]) register(require("../../cards-engine/cards/active/" + key + ".js"));
 register(require("../../cards-engine/cards/active/double-time.js")); // TASK 8'S CARD, READ ONLY: A TWO-MOVE TURN FOR THE TRAPDOOR TEST
@@ -404,6 +406,15 @@ describe("Heavy Cavalry", () => {
 			const r = applyAction(t, "w", a[0]);
 			assert.deepEqual(r.state.enchant, []);
 			assert.ok(captures(pass(r.state, "b"), "b", "g4", "e2") || captures(r.state, "b", "g4", "e2"));
+		});
+
+		test("the rare Cleanse ends it too, with no status on the side", () => {
+			const s = game(ONE, "heavy-cavalry-epic"), n = id(s, "c3");
+			const t = pass(play(s, { piece: n }).state, "b");
+			t.players.w.actives = [{ id: "c93", key: "cleanse-rare" }];
+			const a = legalActions(t, "w").filter((x) => x.type === "active");
+			assert.equal(a.length, 1);
+			assert.deepEqual(applyAction(t, "w", a[0]).state.enchant, []);
 		});
 	});
 });

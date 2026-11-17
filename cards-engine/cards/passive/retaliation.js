@@ -6,6 +6,7 @@
 
 const { legalMoves } = require("../../rules.js");
 const { pieceById } = require("../../board.js");
+const { kingFree } = require("../../hand.js");
 
 const cardless = (m) => (m.promotion ? { type: "move", card: null, from: m.from, to: m.to, promotion: m.promotion } : { type: "move", card: null, from: m.from, to: m.to });
 
@@ -36,12 +37,12 @@ module.exports = {
 	},
 	rules: {
 		/**
-		 * @description While the window is open, owner gets a cardless move for each legal capture of the target (a Hexed piece too: Hex stops card moves only), none for a piece already moved in a two-move turn that must use different pieces.
+		 * @description While the window is open, owner gets a cardless move for each legal capture of the target (a Hexed piece too: Hex stops card moves only), none for a piece already moved in a two-move turn that must use different pieces, none by the king without the King card (hand.kingFree: Hollow Crown).
 		 */
 		actions(state, player, actions, src) {
 			const c = src.card, m = state.multi;
 			if (player !== src.owner || !c.open) return actions;
-			const moves = legalMoves(state, player, (mv) => mv.capture === c.target && !(m && m.differ && m.moved.includes(mv.piece)));
+			const free = kingFree(state, player), moves = legalMoves(state, player, (mv) => mv.capture === c.target && !(m && m.differ && m.moved.includes(mv.piece)) && (free || mv.t !== "k"));
 			return [...actions, ...moves.map(cardless)];
 		},
 	},
