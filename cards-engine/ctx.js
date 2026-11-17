@@ -7,19 +7,19 @@
 const rng = require("./rng.js");
 const hand = require("./hand.js");
 const statuses = require("./statuses.js");
-const { pieceById } = require("./board.js");
+const { pieceById, sqName } = require("./board.js");
 const { LOSES } = require("./movegen.js");
 const { CARDS } = require("./cards/index.js");
 
 const other = (c) => (c === "w" ? "b" : "w");
 
 /**
- * @description A captured piece (already off the board): a capture event { player, piece, t, c: the victim's colour, by: the capturing piece's id, null for a card effect }, its statuses cleared, its type added to its owner's captured list, ctx.resetHalf set (for a capture made outside a chess move); a Marked piece makes the capturer draw a move card and its owner discard 2 random cards.
+ * @description A captured piece (already off the board): a capture event { player, piece, t, c: the victim's colour, by: the capturing piece's id, null for a card effect, sq: the square it stood on (en passant: the pawn's square), passed in since the piece is gone }, its statuses cleared, its type added to its owner's captured list, ctx.resetHalf set (for a capture made outside a chess move); a Marked piece makes the capturer draw a move card and its owner discard 2 random cards.
  */
-function capture(ctx, player, victim, by = null) {
+function capture(ctx, player, victim, by = null, sq) {
 	const s = ctx.state, marked = statuses.has(s, victim.id, "marked");
 	ctx.resetHalf = true;
-	ctx.emit({ type: "capture", player, piece: victim.id, t: victim.t, c: victim.c, by });
+	ctx.emit({ type: "capture", player, piece: victim.id, t: victim.t, c: victim.c, by, sq });
 	for (const e of s.statuses[victim.id] || []) statuses.clear(ctx, victim.id, e.s);
 	s.players[victim.c].captured.push(victim.t);
 	if (marked) { ctx.draw(player, 1); ctx.discardRandom(victim.c, 2); }
@@ -50,11 +50,11 @@ function trigger(ctx, ev) {
 }
 
 /**
- * @description A ctx over state (changed in place). ctx.turn is the colour whose turn is in progress, set before the action applies (board.turn flips inside makeMove). ctx.resetHalf: set by a capture or a pawn move made outside a chess move, so a turn without a move ends with half 0. Every emit runs ctx.trigger, except while ctx.held is an array (a move being applied): then the event waits there and turn.move triggers it once the move is whole. ctx.ticked: the colour whose end-of-turn tick has run in this ctx (what is given to it afterwards is not fresh). ctx.cancelled: set by ctx.cancel() during card-played.
+ * @description A ctx over state (changed in place). ctx.turn is the colour whose turn is in progress, set before the action applies (board.turn flips inside makeMove). ctx.resetHalf: set by a capture or a pawn move made outside a chess move, so a turn without a move ends with half 0. Every emit runs ctx.trigger, except while ctx.held is an array (a move being applied): then the event waits there and turn.move triggers it once the move is whole. ctx.ticked: the colour whose end-of-turn tick has run in this ctx (what is given to it afterwards is not fresh). ctx.cancelled: set by ctx.cancel() during card-played. ctx.trial: true on the copies turn.js plays to test an action's legality (activeActions, a card-defined action's trial): a hidden effect (Trapdoor) does not fire there, so the offered actions never depend on it. ctx.stood: the sides in check when the action began (turn.act sets it; turn.endTurn drops a side no longer in check): their check was already announced, so startTurn doesn't name the side to move again.
  */
 function makeCtx(state) {
 	const ctx = {
-		state, events: [], turn: state.board.turn, resetHalf: false, busy: [], held: null, ticked: null, cancelled: false,
+		state, events: [], turn: state.board.turn, resetHalf: false, busy: [], held: null, ticked: null, cancelled: false, trial: false, stood: [],
 		emit(ev) { ctx.events.push(ev); if (ctx.held) ctx.held.push(ev); else ctx.trigger(ev); },
 		trigger: (ev) => trigger(ctx, ev),
 		rng: { next: () => rng.next(state), int: (n) => rng.int(state, n), shuffle: (a) => rng.shuffle(state, a), pick: (a) => rng.pick(state, a) },
@@ -71,7 +71,7 @@ function makeCtx(state) {
 			b.sq[i] = null;
 			for (const ch of LOSES[i] || "") b.castling = b.castling.replace(ch, "");
 			b.castling = b.castling || "-";
-			capture(ctx, player, victim);
+			capture(ctx, player, victim, null, sqName(i));
 			return true;
 		},
 		/**

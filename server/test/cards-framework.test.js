@@ -219,7 +219,9 @@ test("a turn whose only capture came from a card's play ends with board.half 0",
 
 test("active and passive draws follow rarity, never a held, waiting or used card", () => {
 	reset();
-	for (const r of ["common", "uncommon", "rare"]) active("t-" + r, () => {}, { rarity: r });
+	const tiers = Object.keys(RARITY_WEIGHTS), total = tiers.reduce((sum, r) => sum + RARITY_WEIGHTS[r], 0);
+	assert.deepEqual(RARITY_WEIGHTS, { common: 12, uncommon: 6, rare: 3, epic: 2, legendary: 1 });
+	for (const r of tiers) active("t-" + r, () => {}, { rarity: r });
 	passive("t-p1");
 	passive("t-p2");
 	const s = fresh(), ctx = makeCtx(s), p = s.players.w, n = 10000, count = {};
@@ -228,10 +230,10 @@ test("active and passive draws follow rarity, never a held, waiting or used card
 		const c = hand.drawCard(ctx, "w", "active");
 		count[c.key] = (count[c.key] || 0) + 1;
 	}
-	for (const r of ["common", "uncommon", "rare"]) assert.ok(Math.abs(count["t-" + r] / n - RARITY_WEIGHTS[r] / 10) < 0.03, r + " " + count["t-" + r] / n);
+	for (const r of tiers) assert.ok(Math.abs(count["t-" + r] / n - RARITY_WEIGHTS[r] / total) < 0.03, r + " " + count["t-" + r] / n);
 	p.actives = [{ id: "c90", key: "t-common" }];
 	for (let i = 0; i < 300; i++) { p.actives.length = 1; assert.notEqual(hand.drawCard(ctx, "w", "active").key, "t-common"); }
-	p.actives = [{ id: "c90", key: "t-common" }, { id: "c91", key: "t-uncommon" }, { id: "c92", key: "t-rare" }];
+	p.actives = tiers.map((r, i) => ({ id: "c9" + i, key: "t-" + r }));
 	assert.equal(hand.drawCard(ctx, "w", "active"), null);
 	p.used = ["t-p1"]; // A USED KEY (FIRING PUTS IT THERE: "a fired passive leaves Board Effects") IS NEVER DRAWN
 	for (let i = 0; i < 300; i++) { p.passive = null; assert.equal(hand.drawCard(ctx, "w", "passive").key, "t-p2"); }
@@ -726,7 +728,7 @@ test("capturing a king wins at once; a king left in check by a card is taken onl
 	const r = applyAction(s, "b", take);
 	assert.deepEqual(r.state.result, { winner: "b", reason: "king" });
 	assert.deepEqual(r.events.map((e) => e.type), ["move", "capture", "game-over"]); // NOTHING ELSE RESOLVES
-	assert.deepEqual(r.events[1], { type: "capture", player: "b", piece: kingId, t: "k", c: "w", by: rookId });
+	assert.deepEqual(r.events[1], { type: "capture", player: "b", piece: kingId, t: "k", c: "w", by: rookId, sq: "e1" });
 	assert.deepEqual(r.state.players.w.captured, ["q", "k"]); // THE TAKEN KING JOINS ITS OWNER'S TAKEN PIECES (AFTER THE TRAPPED QUEEN)
 	assert.deepEqual(legalActions(r.state, "w"), []);
 	// NO ROOK CARD: PLAY GOES ON, WHITE MUST ANSWER THE CHECK ON ITS OWN TURN
@@ -893,7 +895,7 @@ test("the capture event names the capturing piece, or null for a card", () => {
 	assert.equal(ofType(r.events, "capture")[0].by, mover);
 	const ctx = makeCtx(r.state);
 	assert.equal(ctx.capture("b", at(r.state, "d5").id), true); // A REAL CAPTURE SAYS SO
-	assert.deepEqual(ofType(ctx.events, "capture")[0], { type: "capture", player: "b", piece: mover, t: "p", c: "w", by: null });
+	assert.deepEqual(ofType(ctx.events, "capture")[0], { type: "capture", player: "b", piece: mover, t: "p", c: "w", by: null, sq: "d5" });
 });
 
 test("a lost turn doesn't roll for a passive", () => {
@@ -1098,6 +1100,74 @@ test("the registry holds 17 actives, 23 passives and 11 curses, each with key, k
 	const { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS } = require("../../cards-engine/cards/index.js");
 	assert.equal(ACTIVE_KEYS.length, 17); assert.equal(PASSIVE_KEYS.length, 23); assert.equal(CURSE_KEYS.length, 11);
 	for (const k of [...ACTIVE_KEYS, ...PASSIVE_KEYS, ...CURSE_KEYS]) for (const f of ["key", "kind", "name", "text"]) assert.ok(CARDS[k][f], k + " " + f);
-	for (const k of [...ACTIVE_KEYS, ...PASSIVE_KEYS]) assert.ok(["common", "uncommon", "rare"].includes(CARDS[k].rarity), k);
+	for (const k of [...ACTIVE_KEYS, ...PASSIVE_KEYS]) assert.ok(k in CARDS && CARDS[k].rarity in RARITY_WEIGHTS, k);
 	assert.deepEqual(PASSIVE_KEYS.filter((k) => CARDS[k].oncePerGame).sort(), ["grace", "unbroken-line"]);
+});
+
+test("a check made off a chess move is announced once: by a choice's resolve, by a card-defined action, not twice by an active that already said it", () => {
+	reset();
+	// WHITE ROOK e1 BEHIND BLACK'S e7 PAWN: REMOVING THE PAWN CHECKS THE e8 KING
+	const FEN = "4k3/4p3/8/8/8/8/8/4RK2 w - - 0 1";
+	active("t-ask-cap", (ctx, p) => ctx.ask(p, "pick", ["e7"], { card: "t-ask-cap" }), { choice: { resolve: (ctx, pend, opt) => ctx.capture(pend.player, at(ctx.state, opt).id) } });
+	const s = game(FEN);
+	s.players.w.actives = [{ id: "c80", key: "t-ask-cap" }];
+	const asked = applyAction(s, "w", { type: "active", card: "c80" });
+	assert.deepEqual(ofType(asked.events, "check"), []); // NOT IN CHECK YET: THE CHOICE IS OPEN
+	const chosen = applyAction(asked.state, "w", { type: "choice", option: "e7" });
+	assert.ok(inCheck(chosen.state, "b"));
+	assert.deepEqual(ofType(chosen.events, "check"), [{ type: "check", player: "b" }]);
+
+	curse("t-clear-cap", {
+		rules: { actions: (st, player, acts, src) => (player === src.owner ? [...acts, { type: "clear", card: src.card.id }] : acts) },
+		act: (ctx, pl) => { ctx.capture(pl, at(ctx.state, "e7").id); },
+	});
+	const c = game(FEN);
+	c.players.w.curses = [{ id: "c90", key: "t-clear-cap" }];
+	assert.deepEqual(ofType(applyAction(c, "w", { type: "clear", card: "c90" }).events, "check"), [{ type: "check", player: "b" }]);
+
+	active("t-says-check", (ctx, p) => { ctx.capture(p, at(ctx.state, "e7").id); ctx.emit({ type: "check", player: other(p) }); }, { targets: (st) => (at(st, "e7") ? [null] : []) });
+	const d = game(FEN);
+	d.players.w.actives = [{ id: "c81", key: "t-says-check" }];
+	assert.equal(ofType(applyAction(d, "w", { type: "active", card: "c81" }).events, "check").length, 1);
+});
+
+test("a card-defined action that gives check announces it with the action, before the next turn starts (checkAfter)", () => {
+	reset();
+	curse("t-clear-cap2", {
+		rules: { actions: (st, player, acts, src) => (player === src.owner ? [...acts, { type: "clear", card: src.card.id }] : acts) },
+		act: (ctx, pl) => { ctx.capture(pl, at(ctx.state, "e7").id); },
+	});
+	const s = game("4k3/4p3/8/8/8/8/8/4RK2 w - - 0 1"); // REMOVING e7 OPENS THE e-FILE ON e8
+	s.players.w.curses = [{ id: "c91", key: "t-clear-cap2" }];
+	const types = applyAction(s, "w", { type: "clear", card: "c91" }).events.map((e) => e.type);
+	assert.equal(types.filter((x) => x === "check").length, 1);
+	assert.ok(types.indexOf("check") < types.indexOf("turn-start"), types.join(" "));
+});
+
+test("a capture event names the square the piece stood on: a chess capture, en passant (the pawn's square), a card's capture", () => {
+	const s = game("4k3/8/8/2pP4/8/8/8/4K3 w - c6 0 1"), pawn = at(s, "c5").id;
+	s.players.w.moves = [card("p", "c95")];
+	const ep = applyAction(s, "w", { type: "move", card: "c95", from: "d5", to: "c6" });
+	assert.deepEqual(ofType(ep.events, "capture").map((e) => [e.piece, e.sq]), [[pawn, "c5"]]);
+	const FEN = "4k3/8/8/8/7r/8/8/4K2R w - - 0 1", t = game(FEN), rook = at(t, "h4").id;
+	t.players.w.moves = [card("r", "c96")];
+	const mv = applyAction(t, "w", { type: "move", card: "c96", from: "h1", to: "h4" });
+	assert.deepEqual(ofType(mv.events, "capture").map((e) => [e.piece, e.sq]), [[rook, "h4"]]);
+	const ctx = makeCtx(game(FEN));
+	assert.equal(ctx.capture("w", rook), true);
+	assert.deepEqual(ofType(ctx.events, "capture").map((e) => [e.piece, e.sq, e.by]), [[rook, "h4", null]]);
+});
+
+test("a trigger that leaves the mover in check during a two-move turn is announced at once, and once", () => {
+	reset();
+	// BLACK ROOK e8, WHITE BISHOP e2 SHIELDS THE e1 KING. THE GUARD TAKES THE BISHOP WHEN WHITE'S a-PAWN MOVES
+	passive("t-snipe", { on: { move: (ctx, o, ev) => { if (ev.player === o) return false; ctx.capture(o, at(ctx.state, "e2").id); return true; } } });
+	const s = game("4r1k1/8/8/8/8/8/P3B3/4K2R w - - 0 1");
+	s.multi = { player: "w", left: 2, moved: [], differ: true };
+	s.players.w.moves = [card("p", "t1"), card("r", "t2")];
+	s.effects = [placed("c90", "t-snipe", "b", 1)];
+	const { state, events } = applyAction(s, "w", { type: "move", card: "t1", from: "a2", to: "a3" });
+	assert.equal(state.board.turn, "w"); // THE TWO-MOVE TURN GOES ON
+	assert.ok(inCheck(state, "w"));
+	assert.deepEqual(ofType(events, "check"), [{ type: "check", player: "w" }]);
 });

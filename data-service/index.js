@@ -21,6 +21,7 @@ const userRoutes = require("./routes/userRoutes.js");
 const sessionRoutes = require("./routes/sessionRoutes.js");
 
 const BODY_LIMIT = "16kb"; // THE BIGGEST REAL BODY IS A FEW HUNDRED BYTES
+const CARDS_BODY_LIMIT = "640kb"; // A CARD GAME'S ENGINE STATE, UP TO 300 000 BYTES (gameController.js CARDS_STATE_BYTES). IT TRAVELS AS A JSON STRING INSIDE THE BODY, SO EVERY " IN IT COSTS 2 BYTES: TWICE THE CAP, PLUS THE OTHER FIELDS
 
 /* ---------------------------------------------------------------- */
 // App
@@ -30,6 +31,9 @@ const app = express();
 app.disable("x-powered-by"); // DOESN'T SAY IT'S EXPRESS
 app.get("/health", (req, res) => res.json({ status: 200, message: "OK" })); // NO DYNAMODB & NO PLAYER: Chess-Stockfish'S CHECK THAT IT'S UP
 app.use((req, res, next) => hasBody(req) && !req.is("application/json") ? refuse(req, res, 415, "JSON only") : next()); // A BODY MUST BE JSON, A POST WITH NO BODY IS FINE
+const cardsJson = express.json({ limit: CARDS_BODY_LIMIT, verify: keepRawBody });
+app.post("/games/cards", cardsJson); // ONLY THE TWO CARD GAME ROUTES TAKE A BIG BODY, THE PARSER BELOW SKIPS A BODY ALREADY READ. LIKE THE 16kb ONE IT PARSES BEFORE THE SIGNATURE IS CHECKED (THE SIGNATURE NEEDS THE BODY), ONLY THE CHESS SERVER REACHES THIS SERVICE
+app.put("/games/:gameId/cards", cardsJson);
 app.use(express.json({ limit: BODY_LIMIT, verify: keepRawBody })); // req.rawBody: THE BODY AS SENT, FOR THE SIGNATURE
 app.use(checkSignature); // EVERYTHING BELOW /health COMES SIGNED FROM THE CHESS SERVER, OR IT'S REFUSED (401)
 app.get("/health/tables", async (req, res) => { // SIGNED, NO PLAYER: THE CHESS SERVER'S GET /api/health (#194)

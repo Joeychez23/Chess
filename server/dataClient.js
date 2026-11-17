@@ -16,7 +16,7 @@ const config = require("./config");
 const { signedHeaders } = require("./utils/signature.js");
 const { readSessionUser, readGuestCookie } = require("./middleware/auth.js");
 
-const timeouts = { GET: 3000, POST: 10000 }; // A DATA SERVICE THAT TAKES LONGER IS TREATED AS DOWN (503 "Try again in a moment"). WRITES GET LONGER: A CLOSING MOVE, AN ACCEPT OR A REMATCH IS MANY DYNAMODB CALLS & THROTTLING BACKOFF CAN SLOW THEM (#281)
+const timeouts = { GET: 3000, POST: 10000, PUT: 10000 }; // A DATA SERVICE THAT TAKES LONGER IS TREATED AS DOWN (503 "Try again in a moment"). WRITES GET LONGER: A CLOSING MOVE, AN ACCEPT OR A REMATCH IS MANY DYNAMODB CALLS & THROTTLING BACKOFF CAN SLOW THEM (#281)
 const SIGNATURE_REFUSALS = ["Unsigned request", "Bad signature headers", "Bad signature", "Request too old", "Replayed request"]; // data-service/middleware/signature.js'S 401s ARE A SETUP PROBLEM, ANY OTHER 401 IS AN ANSWER ABOUT THE PLAYER OR THEIR SESSION
 const PLAYER_REFUSALS = ["No player", "Bad player token", "Session ended"]; // data-service/middleware/player.js'S 401s, FOR A REQUEST THAT CAME SIGNED IN: ITS TOKEN RAN OUT (#278) OR ITS SESSION ENDED (#277)
 const context = new AsyncLocalStorage(); // { headers, signedIn }: WHO THE REQUEST (OR SOCKET HANDSHAKE) THE CALLS ARE MADE FOR IS, DECIDED ONCE
@@ -65,7 +65,7 @@ function playerHeaders(req) {
 /**
  * @description One signed call to the data service. Answers keep dynamoDB.js's shapes ({ status, game_data | user_data, message }),
  * a refusal is { status: 400 | 401 | 403 | 409, message }
- * @param  {[string]} method ["GET" or "POST"]
+ * @param  {[string]} method ["GET", "POST" or "PUT"]
  * @param  {[string]} path [e.g. "/games/<id>/move", ids already encoded]
  * @param  {[object]} body [sent as JSON, left out = none]
  * @return {[object]} answer [the data service's JSON]
@@ -84,7 +84,7 @@ async function call(method, path, body) {
 	} catch (err) {
 		const timedOut = err.name == "TimeoutError";
 		const failed = down(`${method} ${path}: ${timedOut ? `no answer in ${timeouts[method] / 1000} seconds` : err.message}`);
-		failed.unanswered = timedOut && method == "POST"; // THE DATA SERVICE MAY STILL HAVE SAVED IT (ifSaved)
+		failed.unanswered = timedOut && method != "GET"; // THE DATA SERVICE MAY STILL HAVE SAVED IT (ifSaved)
 		throw failed;
 	}
 	if (res.status >= 500) { throw down(`${method} ${path}: ${res.status} ${answer?.message}`); }
@@ -231,6 +231,22 @@ const newAiGame = (settings) => call("POST", "/games/ai", settings);
 const newGuestGame = (settings) => call("POST", "/games/guest", settings);
 
 /**
+ * @description A Chess Cards game vs the AI for the requester (signed in or a guest), the data service makes the game id & stores the engine's state as sent
+ * @param  {[object]} settings [{ color, level, state (the engine's state, a JSON string), fen (its board) }]
+ * @return {[object]} response [{ status, game_data (cards_version 1), message }, guest_token for a guest]
+ */
+const newCardsGame = (settings) => call("POST", "/games/cards", settings);
+
+/**
+ * @description Saves a card game's new engine state, only on the version it was made from
+ * @param  {[number]} version [the cards_version the state was made from]
+ * @param  {[string]} state [the engine's state as a JSON string]
+ * @param  {[object]} extra [{ fen, winner & reason when the game ended }]
+ * @return {[object]} response [{ status, game_data (cards_version + 1), message }, 409 "Board changed before the move saved" when another save landed first]
+ */
+const saveCardsState = (gameId, version, state, extra) => call("PUT", `/games/${id(gameId)}/cards`, { version, state, ...extra });
+
+/**
  * @description The requester invites a friend, a PENDING game. The names come from the usernames, else the screennames
  * @param  {[object]} details [{ opponent_id, color, start_fen, takebacks, days_per_move }], the data service makes the game id
  */
@@ -363,4 +379,4 @@ const changeFriend = (action, username) => call("POST", `/users/me/friends/${act
 const deleteUser = () => call("POST", "/users/me/delete");
 
 
-module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, invite, challenge, retrieveChallenge, join, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };
+module.exports = { findUsername, searchUsernames, retrieveFriends, changeFriend, timeouts, checkTables, ifSaved, playerContext, withRequest, dataServiceDown, down, startSession, refreshSession, endSession, retrieveGame, saveMove, saveAiMove, takeback, declineTakeback, saveOpening, forfeit, offerDraw, declineDraw, answerAiDraw, retrieveRatings, newAiGame, newGuestGame, newCardsGame, saveCardsState, invite, challenge, retrieveChallenge, join, accept, decline, rematch, cancelRematch, retrieveUser, myGames, updateUserSettings, claimUsername, deleteUser };

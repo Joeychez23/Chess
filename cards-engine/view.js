@@ -10,6 +10,7 @@ const hand = require("./hand.js");
 const { inCheck } = require("./rules.js");
 const { makeCtx } = require("./ctx.js");
 const { CARDS } = require("./cards/index.js");
+const duel = require("./duel.js");
 
 const other = (c) => (c === "w" ? "b" : "w");
 const copy = (x) => JSON.parse(JSON.stringify(x));
@@ -47,6 +48,7 @@ function playerView(state, player) {
 	const shown = handOf(o).filter((c) => shownTo(state, player, c)).concat(seen ? seen.fake : []).sort(byId);
 	vo.hand = { count: handOf(o).length, shown };
 	for (const e of v.enchant) if (e.key === "trapdoor" && e.owner !== player && e.data) delete e.data.square;
+	if (v.duel) duel.hide(v.duel); // NO DECK, NO FACE-DOWN CARD, FOR EITHER PLAYER
 	if (v.pending) { // THE CURRENT CHOICE ONLY: QUEUED ONES (next) SHOW TO NOBODY UNTIL THEY ARE CURRENT
 		const { next, ...cur } = v.pending;
 		v.pending = cur.player === player ? cur : { player: cur.player, kind: cur.kind }; // THE OTHER PLAYER: WHAT THE choice EVENT TOLD THEM
@@ -139,6 +141,7 @@ function fromView(view, seed) {
 		s.players[c].lostTurns = s.players[c].lostTurns || 0; // A VIEW FROM BEFORE THE FIELD
 		if (s.players[c].kingSkulls === undefined) s.players[c].kingSkulls = require("./index.js").KING_SKULLS; // LAZY: index.js REQUIRES THIS FILE
 	}
+	if (s.duel) duel.fill(ctx, s.duel); // THE DUEL'S HIDDEN CARDS AND DECK, DEALT AGAIN FROM THE SEED
 	return s;
 }
 
@@ -149,4 +152,4 @@ function toFen(stateOrView) {
 	return board.toFen(stateOrView.board);
 }
 
-module.exports = { playerView, playerEvents, fromView, toFen };
+module.exports = { playerView, playerEvents, fromView, toFen, shownTo };
