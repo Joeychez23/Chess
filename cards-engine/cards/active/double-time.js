@@ -1,6 +1,6 @@
 /*
  *  double-time.js  --  chess cards engine
- *	Active: move two different pieces this turn; debuff: skip your next turn.
+ *	Active: move two different pieces this turn; debuff: skip your next turn. Legendary version: no skipped turn.
  *
  */
 
@@ -24,4 +24,5 @@ module.exports = {
 		ctx.state.multi = multi(player);
 		ctx.skipTurn(player, 1);
 	},
+	versions: [{ rarity: "legendary", skulls: 0, text: "Move two different pieces this turn. No skipped turn.", play(ctx, player) { ctx.state.multi = multi(player); } }],
 };

@@ -5,7 +5,7 @@
  */
 
 module.exports = {
-	key: "bleeding-hand", kind: "passive", name: "Bleeding Hand", skulls: 0, rarity: "common",
+	key: "bleeding-hand", kind: "passive", name: "Bleeding Hand", skulls: 0, rarity: "uncommon",
 	text: "Opponent captures → they discard a random card.",
 	on: {
 		/**

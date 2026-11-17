@@ -18,6 +18,7 @@ for (const key of ["stronghold", "heavy-cavalry", "heretical-subjection", "last-
 register(require("../../cards-engine/cards/active/double-time.js")); // TASK 8'S CARD, READ ONLY: A TWO-MOVE TURN FOR THE TRAPDOOR TEST
 for (const key of ["cleanse", "hexcraft", "insidious-nullification"]) register(require("../../cards-engine/cards/active/" + key + ".js")); // HAND CARDS, READ ONLY: A MARK REMOVED OR GIVEN ON TOP OF A CLAIMED ONE
 register({ key: "t-pass", kind: "active", name: "t-pass", rarity: "common", text: "", targets: () => [null], play: () => {} });
+register({ key: "t-trap", kind: "active", name: "t-trap", rarity: "common", text: "", on: { move: (ctx, owner, ev, src) => ev.to === src.data.square && ev.player !== owner && ctx.capture(owner, ev.piece) } }); // A REMOVAL TRAP (TRAPDOOR BEFORE 10b): A CARD CAPTURE ON THE MOVER'S OWN TURN
 
 let passes = 0;
 const ofType = (events, type) => events.filter((e) => e.type === type);
@@ -131,6 +132,51 @@ describe("Stronghold", () => {
 		m.emit({ type: "move", player: "b", card: null, piece: rook, from: "d1", to: "d1" });
 		assert.deepEqual(m.state.enchant, []);
 		assert.ok(!has(m.state, rook, "warded"));
+	});
+
+	test("common version: Warded, can't attack and can't move; it still blocks", () => {
+		const s = game(FEN, "stronghold-common"), rook = id(s, "d1");
+		const { state } = play(s, { piece: rook });
+		assert.deepEqual(state.enchant.map((e) => [e.key, e.pieces]), [["stronghold-common", [rook]]]);
+		assert.ok(has(state, rook, "warded") && !captures(state, "b", "g4", "d1"));
+		const w = JSON.parse(JSON.stringify(state));
+		w.board.turn = "w";
+		assert.ok(!legalMoves(w, "w").some((m) => m.from === "d1"));
+		assert.ok(legalMoves(w, "w").some((m) => m.from === "c2"));
+		w.board.sq[sqIndex("h1")] = { id: "b16", c: "b", t: "r" };
+		assert.ok(!inCheck(w, "w")); // THE ROOK STILL STANDS BETWEEN h1 AND THE KING
+	});
+
+	test("common version: no cardless move either (Heretical Subjection's bishop)", () => {
+		let s = game("3k4/p7/8/8/8/8/P7/K1B5 w - - 0 1");
+		const bishop = id(s, "c1"), from = (t) => legalActions(t, "w").filter((a) => a.type === "move" && a.from === "c1");
+		s = pass(cardPlay(s, "w", "heretical-subjection").state, "b");
+		assert.ok(from(s).some((a) => a.card === null));
+		s = pass(cardPlay(s, "w", "stronghold-common", { piece: bishop }).state, "b");
+		assert.deepEqual(from(s), []);
+	});
+
+	test("common version: Swap can still move the piece, and the Stronghold stays", () => {
+		const s = game("3k4/8/8/8/8/8/8/K2R3N w - - 0 1", "stronghold-common"), rook = id(s, "d1"), knight = id(s, "h1");
+		const t = pass(play(s, { piece: rook }).state, "b");
+		t.players.w.actives = [{ id: "c91", key: "swap" }];
+		assert.ok(actives(t).some((a) => a.target.pieces.includes(rook)));
+		const { state } = play(t, { pieces: [rook, knight] }, "c91");
+		assert.equal(sqOf(state, rook), "h1");
+		assert.deepEqual(state.enchant.map((e) => [e.key, e.pieces]), [["stronghold-common", [rook]]]);
+		assert.ok(has(state, rook, "warded"));
+	});
+
+	test("common and base versions count as one Stronghold: playing one on another piece moves the protection", () => {
+		const s = game(FEN, "stronghold-common"), rook = id(s, "d1"), pawn = id(s, "c2");
+		const t = pass(play(s, { piece: rook }).state, "b");
+		t.players.w.actives = [{ id: "c91", key: "stronghold" }];
+		assert.deepEqual(actives(t).map((a) => a.target.piece), [pawn]);
+		const { state } = play(t, { piece: pawn }, "c91");
+		assert.deepEqual(state.enchant.map((e) => [e.key, e.pieces]), [["stronghold", [pawn]]]);
+		assert.ok(!has(state, rook, "warded"));
+		state.board.turn = "w";
+		assert.ok(legalMoves(state, "w").some((m) => m.from === "d1"));
 	});
 });
 
@@ -308,6 +354,57 @@ describe("Heavy Cavalry", () => {
 		ctx.state.board.sq[sqIndex("c3")].t = "r";
 		ctx.emit({ type: "promote", player: "w", piece: n, t: "r" });
 		assert.deepEqual(ctx.state.enchant, []);
+	});
+
+	describe("epic version (one knight)", () => {
+		// ONE KNIGHT c3; PAWN e2 ON A SQUARE IT COVERS (BLACK BISHOP g4 ATTACKS IT); BISHOP e7 BY THE e8 ROOK, A SQUARE d5 COVERS
+		const ONE = "4r2k/4B3/8/8/6b1/2N5/P3P3/7K w - - 0 1";
+
+		test("targets: any own knight in no entry, alone; a knight in an epic entry is not offered to the base card", () => {
+			const s = game(ONE, "heavy-cavalry-epic");
+			assert.deepEqual(actives(s).map((a) => sqOf(s, a.target.piece)), ["c3"]);
+			assert.deepEqual(actives(game(ONE, "heavy-cavalry")), []); // THE BASE CARD STILL NEEDS TWO
+			const two = game(FEN, "heavy-cavalry-epic");
+			let t = pass(play(two, { piece: id(two, "c3") }).state, "b");
+			t.players.w.actives = [{ id: "c91", key: "heavy-cavalry-epic" }];
+			assert.deepEqual(actives(t).map((a) => sqOf(t, a.target.piece)), ["e4"]);
+			t.players.w.actives = [{ id: "c92", key: "heavy-cavalry" }];
+			assert.deepEqual(actives(t), []); // e4'S ONLY PARTNER c3 IS TAKEN
+		});
+
+		test("the knight is enchanted and Wards the friendly non-king pieces it covers; nothing is Marked; no switch", () => {
+			const s = game(ONE, "heavy-cavalry-epic"), n = id(s, "c3");
+			assert.ok(captures(s, "b", "g4", "e2"));
+			const { state, events } = play(s, { piece: n });
+			assert.deepEqual(state.enchant.map((e) => [e.key, e.pieces]), [["heavy-cavalry-epic", [n]]]);
+			assert.deepEqual([state.statuses, ofType(events, "status")], [{}, []]);
+			assert.ok(!captures(state, "b", "g4", "e2"));
+			assert.ok(!legalActions(pass(state, "b"), "w").some((a) => a.type === "switch"));
+		});
+
+		test("lasts while the knight is on the board: a move keeps it (the Ward follows), a capture ends it", () => {
+			const s = game(ONE, "heavy-cavalry-epic"), n = id(s, "c3");
+			const t = pass(play(s, { piece: n }).state, "b");
+			assert.ok(captures(t, "b", "e8", "e7"));
+			const r = chess(t, "w", "c3", "d5");
+			assert.equal(r.state.enchant.length, 1);
+			assert.ok(!captures(r.state, "b", "e8", "e7") && captures(r.state, "b", "g4", "e2"));
+			const ctx = makeCtx(r.state);
+			assert.equal(ctx.capture("b", n), true);
+			assert.deepEqual(ctx.state.enchant, []);
+			assert.deepEqual(ofType(ctx.events, "enchant-ended").map((e) => e.key), ["heavy-cavalry-epic"]);
+		});
+
+		test("Cleanse on the knight ends it (there is no Mark to remove)", () => {
+			const s = game(ONE, "heavy-cavalry-epic"), n = id(s, "c3");
+			const t = pass(play(s, { piece: n }).state, "b");
+			t.players.w.actives = [{ id: "c93", key: "cleanse" }];
+			const a = legalActions(t, "w").filter((x) => x.type === "active");
+			assert.deepEqual(a.map((x) => x.target.piece), [n]);
+			const r = applyAction(t, "w", a[0]);
+			assert.deepEqual(r.state.enchant, []);
+			assert.ok(captures(pass(r.state, "b"), "b", "g4", "e2") || captures(r.state, "b", "g4", "e2"));
+		});
 	});
 });
 
@@ -603,10 +700,10 @@ describe("Opposing Finality", () => {
 	});
 
 	test("on the owner's own turn, a piece whose leaving would put the owner in check is not handed over", () => {
-		// THE BLACK KNIGHT a5 SHIELDS WHITE'S KING a1 FROM THE ROOK a8; WHITE'S OF ROOK STEPS ONTO BLACK'S TRAP h6
+		// THE BLACK KNIGHT a5 SHIELDS WHITE'S KING a1 FROM THE ROOK a8; WHITE'S OF ROOK STEPS ONTO BLACK'S REMOVAL TRAP h6
 		const s = game("r3k3/8/8/n7/8/8/8/K6R w - - 0 1", "opposing-finality"), rook = id(s, "h1"), knight = id(s, "a5");
 		const t = pass(play(s, { piece: rook }).state, "b");
-		t.enchant.push({ id: "e901", key: "trapdoor", owner: "b", pieces: [], left: null, data: { square: "h6" } });
+		t.enchant.push({ id: "e901", key: "t-trap", owner: "b", pieces: [], left: null, data: { square: "h6" } });
 		const { state, events } = chess(t, "w", "h1", "h6");
 		assert.equal(sqOf(state, rook), null);
 		assert.deepEqual([ofType(events, "handover"), state.pending, state.enchant], [[], null, []]); // THE TRAP FIRED, THE OF ENDED
@@ -615,10 +712,10 @@ describe("Opposing Finality", () => {
 	});
 
 	test("only what the handed piece causes counts: a check already on the giver is not its to block", () => {
-		// THE OF ROOK c3 STEPS ONTO BLACK'S TRAP c6, UNCOVERING Ba1 ON h8: THE KNIGHT STILL GOES HOME TO b1, NOT b2
+		// THE OF ROOK c3 STEPS ONTO BLACK'S REMOVAL TRAP c6, UNCOVERING Ba1 ON h8: THE KNIGHT STILL GOES HOME TO b1, NOT b2
 		const s = game("7k/8/8/8/1n6/2R5/8/B3K3 w - - 0 1", "opposing-finality"), rook = id(s, "c3"), knight = id(s, "b4");
 		const t = pass(play(s, { piece: rook }).state, "b");
-		t.enchant.push({ id: "e902", key: "trapdoor", owner: "b", pieces: [], left: null, data: { square: "c6" } });
+		t.enchant.push({ id: "e902", key: "t-trap", owner: "b", pieces: [], left: null, data: { square: "c6" } });
 		const { state, events } = chess(t, "w", "c3", "c6");
 		assert.equal(sqOf(state, knight), "b1");
 		assert.ok(inCheck(state, "b"));
@@ -703,6 +800,21 @@ describe("Swap", () => {
 		const { state } = play(s, { pieces: [id(s, "a1"), id(s, "h1")] });
 		assert.equal(state.board.castling, "-");
 	});
+
+	test("epic version: the same pairs, and only the one piece the owner picks is Marked for 1 turn", () => {
+		const s = game(FEN, "swap-epic"), b = id(s, "e2"), p = id(s, "a2");
+		const ts = actives(s).map((a) => a.target);
+		assert.equal(ts.length, 2 * pairs(game(FEN, "swap")).length);
+		const pick = ts.filter((t) => t.pieces.includes(b) && t.pieces.includes(p));
+		assert.deepEqual(pick.map((t) => t.mark).sort(), [b, p].sort());
+		const { state, events } = play(s, pick.find((t) => t.mark === b));
+		assert.deepEqual([sqOf(state, b), sqOf(state, p)], ["a2", "e2"]);
+		assert.ok(has(state, b, "marked") && !has(state, p, "marked"));
+		assert.deepEqual(ofType(events, "status").map((e) => [e.piece, e.s, e.left]), [[b, "marked", 1]]);
+		assert.equal(ofType(events, "card-played")[0].card.key, "swap-epic");
+		const t = pass(pass(state, "b"), "w");
+		assert.ok(!has(t, b, "marked"));
+	});
 });
 
 describe("Conscription", () => {
@@ -760,7 +872,7 @@ describe("Trapdoor", () => {
 		assert.deepEqual(actives(chk), []);
 	});
 
-	test("hidden from the opponent; the first enemy piece to land there is removed (half-move counter 0)", () => {
+	test("hidden from the opponent; the first enemy piece to land there is Frozen and Marked for 3 turns and stays (no capture)", () => {
 		const s = game(FEN, "trapdoor"), rook = id(s, "a8");
 		const { state, events } = play(s, { square: "a3" });
 		assert.deepEqual(state.enchant.map((e) => [e.key, e.owner, e.pieces, e.data]), [["trapdoor", "w", [], { square: "a3" }]]);
@@ -771,14 +883,19 @@ describe("Trapdoor", () => {
 		assert.ok(!JSON.stringify(playerView(quiet.state, "b")).includes("\"a3\""));
 		assert.equal(quiet.state.enchant.length, 1);
 		const r = chess(pass(quiet.state, "w"), "b", "a5", "a3");
-		assert.equal(sqOf(r.state, rook), null);
-		assert.deepEqual(ofType(r.events, "capture").map((e) => [e.piece, e.c, e.by]), [[rook, "b", null]]);
+		assert.equal(sqOf(r.state, rook), "a3");
+		assert.deepEqual(ofType(r.events, "capture"), []);
+		assert.deepEqual(r.state.statuses[rook].map((e) => [e.s, e.left]), [["frozen", 3], ["marked", 3]]);
 		assert.deepEqual(r.state.enchant, []);
-		assert.equal(r.state.board.half, 0);
-		assert.deepEqual(r.state.players.b.captured, ["r"]);
+		assert.deepEqual(r.state.players.b.captured, []);
+		// 3 OF BLACK'S TURNS: STILL FROZEN AFTER 2, FREE AFTER 3
+		let t = pass(pass(pass(pass(r.state, "w"), "b"), "w"), "b");
+		assert.ok(has(t, rook, "frozen") && has(t, rook, "marked"));
+		t = pass(pass(t, "w"), "b");
+		assert.ok(!has(t, rook, "frozen") && !has(t, rook, "marked"));
 	});
 
-	test("a king landing there is not removed or frozen; the trap stays", () => {
+	test("an enemy king landing there is Frozen for 3 turns, not Marked; the trap is spent", () => {
 		const s = game(FEN, "trapdoor"), k = id(s, "e6");
 		let t = pass(play(s, { square: "a3" }).state, "b");
 		t = pass(t, "w");
@@ -786,13 +903,26 @@ describe("Trapdoor", () => {
 		t.board.sq[sqIndex("e6")] = null;
 		const r = applyAction(t, "b", { type: "move", card: "king", from: "b4", to: "a3" });
 		assert.equal(sqOf(r.state, k), "a3");
-		assert.ok(!r.state.statuses[k]);
-		assert.equal(r.state.enchant.length, 1);
+		assert.deepEqual(r.state.statuses[k].map((e) => [e.s, e.left]), [["frozen", 3]]);
+		assert.deepEqual(r.state.enchant, []);
 		assert.deepEqual(ofType(r.events, "capture"), []);
-		// THE SAME TRAP, STILL ARMED: THE KING STEPS OFF, THEN AN ENEMY ROOK LANDS AND IS REMOVED
-		t = pass(applyAction(pass(r.state, "w"), "b", { type: "move", card: "king", from: "a3", to: "b3" }).state, "w");
-		const rook = id(t, "a8"), x = chess(t, "b", "a8", "a3");
-		assert.deepEqual([sqOf(x.state, rook), x.state.enchant], [null, []]);
+	});
+
+	test("Trapdoor on a king, then the king moves out of check for a King skull (the status-stuck king rule)", () => {
+		const s = game("r7/8/4k3/8/8/8/8/4K2R w - - 0 1", "trapdoor"), k = id(s, "e6");
+		let t = pass(pass(play(s, { square: "a3" }).state, "b"), "w");
+		t.board.sq[sqIndex("b4")] = t.board.sq[sqIndex("e6")];
+		t.board.sq[sqIndex("e6")] = null;
+		t = applyAction(t, "b", { type: "move", card: "king", from: "b4", to: "a3" }).state;
+		assert.ok(has(t, k, "frozen"));
+		t = chess(t, "w", "h1", "h3").state; // CHECK ALONG THE THIRD RANK
+		assert.ok(inCheck(t, "b"));
+		const out = legalActions(t, "b").filter((a) => a.type === "move" && a.from === "a3");
+		assert.deepEqual(out.map((a) => a.to).sort(), ["a2", "a4", "b2", "b4"]);
+		const r = applyAction(t, "b", { type: "move", card: "king", from: "a3", to: "a2" });
+		assert.equal(sqOf(r.state, k), "a2");
+		assert.deepEqual(ofType(r.events, "king-skull").map((e) => [e.player, e.left, e.why]), [["b", KING_SKULLS - 1, "status"]]);
+		assert.ok(!has(r.state, k, "frozen"));
 	});
 
 	test("an entry without its square (rebuilt from the opponent's view) does nothing", () => {
@@ -803,16 +933,16 @@ describe("Trapdoor", () => {
 		const { state } = chess(st, "b", "a8", "a3");
 		assert.equal(sqOf(state, rook), "a3");
 		assert.equal(state.enchant.length, 1);
-		assert.equal(sqOf(chess(armed, "b", "a8", "a3").state, rook), null); // THE SAME STATE WITH ITS SQUARE: IT FIRES
+		assert.ok(has(chess(armed, "b", "a8", "a3").state, rook, "frozen")); // THE SAME STATE WITH ITS SQUARE: IT FIRES
 	});
 
-	test("a shield removed by the trap leaves its king open, and the check is announced", () => {
+	test("a trapped shield stays on the board and still shields its king: no check", () => {
 		const s = game("k7/8/8/8/8/7r/8/R3K3 b - - 0 1"), rook = id(s, "h3");
 		s.enchant.push({ id: "e900", key: "trapdoor", owner: "w", pieces: [], left: null, data: { square: "a3" } });
 		const { state, events } = chess(s, "b", "h3", "a3");
-		assert.equal(sqOf(state, rook), null);
-		assert.ok(inCheck(state, "b"));
-		assert.deepEqual(ofType(events, "check"), [{ type: "check", player: "b" }]);
+		assert.ok(sqOf(state, rook) === "a3" && has(state, rook, "frozen"));
+		assert.ok(!inCheck(state, "b"));
+		assert.deepEqual(ofType(events, "check"), []);
 	});
 
 	test("never fires in a legality trial: Swap offers the same actions whether or not the hidden trap is there", () => {
@@ -826,21 +956,35 @@ describe("Trapdoor", () => {
 		assert.deepEqual(list(false), ["d5-d3"]);
 	});
 
+	test("a move event inside a legality trial (ctx.trial) leaves the trap armed and the piece untouched; outside one it fires", () => {
+		const fired = (trial) => {
+			const s = game("k7/8/8/8/8/r7/8/4K3 w - - 0 1"), rook = id(s, "a3");
+			s.enchant.push({ id: "e906", key: "trapdoor", owner: "w", pieces: [], left: null, data: { square: "a3" } });
+			const ctx = makeCtx(s);
+			if (trial) ctx.trial = true;
+			ctx.emit({ type: "move", player: "b", piece: rook, from: "h3", to: "a3" });
+			return [has(ctx.state, rook, "frozen"), ctx.state.enchant.length];
+		};
+		assert.deepEqual(fired(true), [false, 1]);
+		assert.deepEqual(fired(false), [true, 0]);
+	});
+
 	test("fires on Swap's moves and on a hand-over", () => {
 		const s = game("4k3/8/8/8/n6r/8/8/4K3 b - - 0 1"), rook = id(s, "h4"), kn = id(s, "a4");
 		s.enchant.push({ id: "e906", key: "trapdoor", owner: "w", pieces: [], left: null, data: { square: "a4" } });
 		s.players.b.actives = [{ id: "c77", key: "swap" }];
 		assert.ok(actives(s, "b").length);
 		const { state } = applyAction(s, "b", { type: "active", card: "c77", target: { pieces: [kn, rook] } });
-		assert.deepEqual([sqOf(state, rook), sqOf(state, kn), state.enchant], [null, "h4", []]);
+		assert.deepEqual([sqOf(state, rook), sqOf(state, kn), state.enchant], ["a4", "h4", []]);
+		assert.deepEqual(state.statuses[rook].map((e) => [e.s, e.left]), [["frozen", 3], ["marked", 3]]); // SWAP'S 1-TURN MARK NEVER CUTS IT
 		const h = game("4k3/8/8/8/8/8/8/r3K3 b - - 0 1"), r = id(h, "a1");
 		h.enchant.push({ id: "e907", key: "trapdoor", owner: "w", pieces: [], left: null, data: { square: "a1" } });
 		const ctx = makeCtx(h);
 		ctx.emit({ type: "handover", player: "b", piece: r, from: "h8", to: "a1" });
-		assert.deepEqual([sqOf(ctx.state, r), ctx.state.enchant], [null, []]);
+		assert.deepEqual([sqOf(ctx.state, r), has(ctx.state, r, "frozen"), ctx.state.enchant], ["a1", true, []]);
 	});
 
-	test("a protected piece (Warded, or a Ward rule like Heavy Cavalry's) is not removed and the trap stays", () => {
+	test("protection no longer matters: a Warded piece, or one under a Ward rule like Heavy Cavalry's, is Frozen and Marked too", () => {
 		// BLACK KNIGHTS c6 (ENCHANTED) AND e5; c6 COVERS d4, THE TRAP
 		const FEN2 = "4k3/8/2n5/4n3/7r/8/8/4K3 b - - 0 1";
 		const run = (prep) => {
@@ -848,11 +992,11 @@ describe("Trapdoor", () => {
 			s.enchant.push({ id: "e908", key: "trapdoor", owner: "w", pieces: [], left: null, data: { square: "d4" } });
 			prep(s);
 			const { state } = chess(s, "b", "h4", "d4");
-			return [sqOf(state, rook), state.enchant.filter((e) => e.key === "trapdoor").length];
+			return [sqOf(state, rook), state.enchant.filter((e) => e.key === "trapdoor").length, has(state, rook, "frozen") && has(state, rook, "marked")];
 		};
-		assert.deepEqual(run(() => {}), [null, 0]);
-		assert.deepEqual(run((s) => { s.statuses[id(s, "h4")] = [{ s: "warded", left: null, by: "b" }]; }), ["d4", 1]);
-		assert.deepEqual(run((s) => { s.enchant.push({ id: "e909", key: "heavy-cavalry", owner: "b", pieces: [id(s, "c6"), id(s, "e5")], left: null, data: {} }); }), ["d4", 1]);
+		assert.deepEqual(run(() => {}), ["d4", 0, true]);
+		assert.deepEqual(run((s) => { s.statuses[id(s, "h4")] = [{ s: "warded", left: null, by: "b" }]; }), ["d4", 0, true]);
+		assert.deepEqual(run((s) => { s.enchant.push({ id: "e909", key: "heavy-cavalry", owner: "b", pieces: [id(s, "c6"), id(s, "e5")], left: null, data: {} }); }), ["d4", 0, true]);
 	});
 
 	test("an existing own trap square is not offered again", () => {
@@ -863,12 +1007,12 @@ describe("Trapdoor", () => {
 		const sqs = actives(t).map((a) => a.target.square);
 		assert.ok(!sqs.includes("h1") && sqs.includes("h2"));
 	});
-	test("a shield removed on the first move of a two-move turn: the mover's check is announced and must be answered", () => {
+	test("a shield trapped on the first move of a two-move turn still shields: no check, the turn goes on", () => {
 		let s = game("k3r3/8/8/8/8/4R3/8/4K3 b - - 0 1");
 		s = cardPlay(s, "b", "trapdoor", { square: "e5" }).state;
 		s = cardPlay(s, "w", "double-time").state;
-		const r = chess(s, "w", "e3", "e5");
-		assert.deepEqual([r.state.board.turn, inCheck(r.state, "w")], ["w", true]);
-		assert.deepEqual(ofType(r.events, "check"), [{ type: "check", player: "w" }]);
+		const rook = id(s, "e3"), r = chess(s, "w", "e3", "e5");
+		assert.deepEqual([r.state.board.turn, inCheck(r.state, "w"), has(r.state, rook, "frozen")], ["w", false, true]);
+		assert.deepEqual(ofType(r.events, "check"), []);
 	});
 });

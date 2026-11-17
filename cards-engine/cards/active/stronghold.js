@@ -1,14 +1,15 @@
 /*
  *  stronghold.js  --  chess cards engine
- *	Active: one of your non-king pieces is Warded for good and can't attack (no capture, no check); one Stronghold piece per player.
+ *	Active: one of your non-king pieces is Warded for good and can't attack (no capture, no check); one Stronghold piece per player (either version). Common version: the piece also can't move.
  *
  */
 
 const statuses = require("../../statuses.js");
 const { pieceById } = require("../../board.js");
+const { baseKey } = require("../index.js");
 
 const KEY = "stronghold";
-const mine = (state, player) => state.enchant.filter((e) => e.key === KEY && e.owner === player);
+const mine = (state, player) => state.enchant.filter((e) => baseKey(e.key) === KEY && e.owner === player);
 
 /**
  * @description True when the entry's piece is off the board or no longer its owner's: the Stronghold ends.
@@ -18,8 +19,22 @@ function gone(ctx, owner, ev, src) {
 	return i < 0 || b.sq[i].c !== src.owner;
 }
 
+/**
+ * @description The play hook for the card whose enchantment key is key: player's old Stronghold (either version) ends (its piece loses Warded), then the piece is Warded with no end and an enchantment of key on it carries the debuff (key's own rules).
+ */
+const place = (key) => (ctx, player, target) => {
+	for (const e of mine(ctx.state, player)) ctx.endEnchant(e);
+	ctx.giveStatus(target.piece, "warded", null);
+	ctx.enchant(player, key, [target.piece]);
+};
+
+/**
+ * @description The Stronghold piece never captures, so it gives no check either (a check is a capture of the king).
+ */
+const canCapture = (state, attacker, target, src) => attacker.id !== src.pieces[0];
+
 module.exports = {
-	key: KEY, kind: "active", name: "Stronghold", skulls: 2, rarity: "uncommon",
+	key: KEY, kind: "active", name: "Stronghold", skulls: 2, rarity: "rare",
 	text: "A non-king piece becomes Warded permanently. You can have only one Stronghold piece: playing Stronghold on another piece moves the protection to it. Cleanse removes it. Debuff: the piece can't attack (can't capture, doesn't give check).",
 	/**
 	 * @description { piece } for every own non-king piece, except the one that already holds player's Stronghold.
@@ -28,14 +43,7 @@ module.exports = {
 		const held = mine(state, player).flatMap((e) => e.pieces);
 		return state.board.sq.filter((p) => p && p.c === player && p.t !== "k" && !held.includes(p.id)).map((p) => ({ piece: p.id }));
 	},
-	/**
-	 * @description player's old Stronghold ends (its piece loses Warded), then the piece is Warded with no end and a stronghold enchantment on it carries the debuff.
-	 */
-	play(ctx, player, target) {
-		for (const e of mine(ctx.state, player)) ctx.endEnchant(e);
-		ctx.giveStatus(target.piece, "warded", null);
-		ctx.enchant(player, KEY, [target.piece]);
-	},
+	play: place(KEY),
 	on: {
 		/**
 		 * @description The piece lost Warded (Cleanse), left the board or changed sides: the Stronghold ends.
@@ -50,10 +58,14 @@ module.exports = {
 		 */
 		"enchant-ended": (ctx, owner, ev, src) => { statuses.clear(ctx, src.pieces[0], "warded"); },
 	},
-	rules: {
+	rules: { canCapture },
+	versions: [{
+		rarity: "common",
+		text: "A non-king piece becomes Warded permanently. You can have only one Stronghold piece: playing Stronghold on another piece moves the protection to it. Cleanse removes it. Debuff: the piece can't attack (can't capture, doesn't give check) and can't move.",
+		play: place(KEY + "-common"),
 		/**
-		 * @description The Stronghold piece never captures, so it gives no check either (a check is a capture of the king).
+		 * @description canMove: the piece moves by no card and no cardless move; it still blocks, and Swap (which asks only for Frozen) may move it.
 		 */
-		canCapture: (state, attacker, target, src) => attacker.id !== src.pieces[0],
-	},
+		rules: { canCapture, canMove: (state, p, src) => p.id !== src.pieces[0] },
+	}],
 };

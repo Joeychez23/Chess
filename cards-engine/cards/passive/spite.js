@@ -9,7 +9,7 @@ const hand = require("../../hand.js");
 const other = (c) => (c === "w" ? "b" : "w");
 
 module.exports = {
-	key: "spite", kind: "passive", name: "Spite", skulls: 1, rarity: "uncommon",
+	key: "spite", kind: "passive", name: "Spite", skulls: 1, rarity: "common",
 	text: "Your queen is captured → the opponent's move cards are thrown out and redrawn. Debuff: you also lose your next active card.",
 	on: {
 		/**

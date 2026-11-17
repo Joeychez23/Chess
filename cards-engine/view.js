@@ -9,7 +9,7 @@ const board = require("./board.js");
 const hand = require("./hand.js");
 const { inCheck } = require("./rules.js");
 const { makeCtx } = require("./ctx.js");
-const { CARDS } = require("./cards/index.js");
+const { CARDS, baseKey } = require("./cards/index.js");
 const duel = require("./duel.js");
 
 const other = (c) => (c === "w" ? "b" : "w");
@@ -18,24 +18,26 @@ const byId = (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1));
 const handOf = (p) => [...p.moves, ...p.actives, ...(p.passive ? [p.passive] : []), ...p.curses];
 const disguise = (c) => ({ id: c.id, key: "move", piece: c.piece }); // MIRAGE AS ITS HOLDER SEES IT
 const OPEN_FIELDS = ["king", "used", "skips", "refillLock", "curseWait", "lostTurns", "kingSkulls", "captured"]; // THE OPPONENT'S PLAYER FIELDS A VIEW SHOWS
+const onHalf = (i, color) => (color === "w" ? i >= 32 : i < 32); // SQUARE INDEX i (0 = a8) ON color'S HALF OF THE BOARD
 
 /**
- * @description True when color's pieces are hidden from viewer: viewer is the other player and color has a Fog of War up.
+ * @description True when color's pieces on color's half are hidden from viewer: viewer is the other player and color has a Fog of War (any version) up.
  */
 function fogged(state, color, viewer) {
-	return color !== viewer && state.enchant.some((e) => e.key === "fog-of-war" && e.owner === color);
+	return color !== viewer && state.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === color);
 }
 
 /**
- * @description True when viewer may see this card of the opponent's: face up, any curse (the giver knows it), the whole hand while the opponent's fog lasts, or revealed by viewer's Foresight/Witness (viewer's seen.ids).
+ * @description True when viewer may see this card of the opponent's: face up, any curse (the giver knows it), the whole hand while the opponent's base Fog of War lasts (its versions, under their own keys, keep it hidden), revealed by viewer's Foresight/Witness (viewer's seen.ids, or the whole hand with seen.all), or an option of viewer's current choice that shows the opponent's cards (pending.show: Pickpocket's pick).
  */
 function shownTo(state, viewer, card) {
-	const opp = other(viewer), seen = state.players[viewer].seen;
-	return !!card.faceUp || fogged(state, opp, viewer) || state.players[opp].curses.some((c) => c.id === card.id) || (!!seen && seen.ids.includes(card.id));
+	const opp = other(viewer), seen = state.players[viewer].seen, p = state.pending;
+	return !!card.faceUp || state.enchant.some((e) => e.key === "fog-of-war" && e.owner === opp) || state.players[opp].curses.some((c) => c.id === card.id)
+		|| (!!seen && (!!seen.all || seen.ids.includes(card.id))) || (!!p && !!p.show && p.player === viewer && p.options.includes(card.id));
 }
 
 /**
- * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id), so a field not listed stays hidden; no seen field on player's own side (it would tell the fakes apart); Mirage in player's own hand as a move card of its fake type; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces t "?", its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both). View.you = player.
+ * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id), so a field not listed stays hidden; no seen field on player's own side (it would tell the fakes apart); Mirage in player's own hand as a move card of its fake type; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half t "?", its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both). View.you = player.
  */
 function playerView(state, player) {
 	const v = copy(state), opp = other(player), me = v.players[player], o = v.players[opp], seen = state.players[player].seen;
@@ -47,7 +49,7 @@ function playerView(state, player) {
 	delete me.seen;
 	const shown = handOf(o).filter((c) => shownTo(state, player, c)).concat(seen ? seen.fake : []).sort(byId);
 	vo.hand = { count: handOf(o).length, shown };
-	for (const e of v.enchant) if (e.key === "trapdoor" && e.owner !== player && e.data) delete e.data.square;
+	for (const e of v.enchant) if (baseKey(e.key) === "trapdoor" && e.owner !== player && e.data) delete e.data.square;
 	if (v.duel) duel.hide(v.duel); // NO DECK, NO FACE-DOWN CARD, FOR EITHER PLAYER
 	if (v.pending) { // THE CURRENT CHOICE ONLY: QUEUED ONES (next) SHOW TO NOBODY UNTIL THEY ARE CURRENT
 		const { next, ...cur } = v.pending;
@@ -55,7 +57,7 @@ function playerView(state, player) {
 	}
 	if (fogged(state, opp, player)) {
 		const b = v.board, letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g;
-		for (const p of b.sq) if (p && p.c === opp) p.t = "?";
+		b.sq.forEach((p, i) => { if (p && p.c === opp && onHalf(i, opp)) p.t = "?"; });
 		vo.captured = vo.captured.map(() => "?");
 		b.history = [];
 		b.half = 0;
@@ -66,7 +68,7 @@ function playerView(state, player) {
 }
 
 /**
- * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): the opponent's draws and discards of cards player can't see become { type, player }; a Mirage reads as a move card to everyone but its giver, and its curse-given as player's draw; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?".
+ * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): under a Fog of War the fogged side's moves, captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }; a Mirage reads as a move card to everyone but its giver, and its curse-given as player's draw; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?".
  */
 function playerEvents(state, events, player) {
 	const opp = other(player), fog = fogged(state, opp, player);
@@ -84,18 +86,19 @@ function playerEvents(state, events, player) {
 		if (fog && (ev.type === "capture" || ev.type === "promote") && colorOf(ev) === opp) ev.t = "?";
 		if (ev.player !== opp) return ev;
 		if ((ev.type === "draw" || ev.type === "discard") && c && !shownTo(state, player, c)) return { type: ev.type, player: opp };
-		if (c && c.key === "trapdoor") { delete ev.square; delete ev.target; }
+		if (c && baseKey(c.key) === "trapdoor") { delete ev.square; delete ev.target; }
 		if (fog && ev.type === "move") { delete ev.card; delete ev.castle; }
 		return ev;
 	});
 }
 
 /**
- * @description Give color's "?" pieces types from ctx.rng: a king and the rest from a shuffled starting set (queens past it), no pawn on a back rank. Re-drawn, one try per king square, until the side not to move isn't in check; if no try works the last one stays (that position is illegal).
+ * @description Give color's "?" pieces types from ctx.rng: a king (unless color's king is in sight, off its fogged half) and the rest from a shuffled starting set (queens past it), no pawn on a back rank. Re-drawn, one try per "?" piece, until the side not to move isn't in check; if no try works the last one stays (that position is illegal).
  */
 function fillPieces(ctx, color) {
 	const sq = ctx.state.board.sq, unknown = sq.map((p, i) => i).filter((i) => sq[i] && sq[i].c === color && sq[i].t === "?");
-	for (const k of ctx.rng.shuffle([...unknown])) {
+	const king = sq.some((p) => p && p.c === color && p.t === "k");
+	for (const k of king ? unknown.map(() => -1) : ctx.rng.shuffle([...unknown])) {
 		const pool = ctx.rng.shuffle([..."qrrbbnnpppppppp"]);
 		for (const i of unknown) {
 			const j = i < 8 || i >= 56 ? pool.findIndex((t) => t !== "p") : 0;

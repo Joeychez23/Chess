@@ -27,12 +27,12 @@ const STOP = { type: "duel", stop: true }, GO = { type: "duel", stop: false };
 const roundTrip = (s) => JSON.parse(JSON.stringify(s));
 
 /**
- * @description A fresh game on fen where White holds All or Nothing as its only active; returns { s, id }.
+ * @description A fresh game on fen where White holds All or Nothing (or the version key) as its only active; returns { s, id }.
  */
-function holding(fen, seed = 1) {
+function holding(fen, seed = 1, key = "all-or-nothing") {
 	const s = newGame({ vesper: "b", level: 1300, seed });
 	s.board = fromFen(fen);
-	const c = hand.newCard(s, "all-or-nothing");
+	const c = hand.newCard(s, key);
 	s.players.w.actives = [c];
 	return { s, id: c.id };
 }
@@ -47,10 +47,10 @@ function go(s, player, action) {
 }
 
 /**
- * @description Start the duel on the piece standing on sq.
+ * @description Start the duel on the piece standing on sq (with All or Nothing, or the version key).
  */
-function start(fen, sq, seed) {
-	const { s, id } = holding(fen, seed);
+function start(fen, sq, seed, key) {
+	const { s, id } = holding(fen, seed, key);
 	const piece = at(s, sq).id;
 	return { ...go(s, "w", { type: "active", card: id, target: { piece } }), piece };
 }
@@ -400,7 +400,7 @@ describe("All or Nothing: the card duel", () => {
 		let { s } = start("N6k/6pp/8/8/8/8/8/4K3 w - - 0 1", "a8");
 		rig(s, ["As", "2c", "3d"], ["Kh", "4c", "5d"]);
 		({ s } = both(s, 0, 0)); // KNIGHT TO ROOK ON a8: BACK-RANK MATE ONCE THE DUEL ENDS
-		Object.assign(s.players.w, { king: false, moves: [], actives: [], used: ["all-or-nothing", "opposing-finality"] }); // NO ACTIVE LEFT TO DRAW: GRACE'S 2 DRAWS GIVE NO CARD ACTION
+		Object.assign(s.players.w, { king: false, moves: [], actives: [], used: ["all-or-nothing", "opposing-finality"] }); // NO ACTIVE LEFT TO DRAW: GRACE'S DRAW GIVES NO CARD ACTION
 		s.effects.push({ id: "g1", owner: "b", card: { id: "g1", key: "grace" }, placedAt: s.ply });
 		const { s: u, events } = go(s, "w", STOP);
 		assert.ok(events.some((e) => e.type === "passive-fired" && e.card.key === "grace"));
@@ -421,5 +421,107 @@ describe("All or Nothing: the card duel", () => {
 		assert.deepEqual(s.enchant, []);
 		assert.deepEqual(ofType(events, "status"), []);
 		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, 6); // THE FORFEIT ONLY
+	});
+});
+
+describe("All or Nothing versions: the stakes of a lost hand", () => {
+	const EPIC = "all-or-nothing-epic", LEGENDARY = "all-or-nothing-legendary";
+	const count = (p) => p.moves.length + p.actives.length + (p.passive ? 1 : 0);
+
+	/**
+	 * @description Win one hand (Bishop chosen) and play on: the duel at its second deal, the piece already a bishop.
+	 */
+	function oneWin(key, seed) {
+		let { s, piece } = start(PAWN, "e4", seed, key);
+		rig(s, ["As", "2c", "3d"], ["Kh", "4c", "5d"]);
+		({ s } = both(s, 0, 0));
+		({ s } = go(s, "w", { type: "choice", option: "b" }));
+		({ s } = go(s, "w", GO));
+		return { s, piece };
+	}
+
+	/**
+	 * @description Lose the current hand: White picks its low card, Black its Ace.
+	 */
+	function lose(s) {
+		rig(s, ["2c", "3c", "4c"], ["Ac", "Kc", "Qc"]);
+		return both(s, 1, 0);
+	}
+
+	test("the duel records the played key", () => {
+		assert.equal(start(PAWN, "e4", 1).s.duel.card, "all-or-nothing");
+		assert.equal(start(PAWN, "e4", 1, EPIC).s.duel.card, EPIC);
+		assert.equal(start(PAWN, "e4", 1, LEGENDARY).s.duel.card, LEGENDARY);
+	});
+
+	test("epic: a lost hand forfeits the piece but no cards, and the refill isn't held back", () => {
+		let { s, events, piece } = start(KNIGHT, "a4", 1, EPIC);
+		const before = count(s.players.w);
+		({ s, events } = lose(s));
+		assert.deepEqual(ofType(events, "duel-result"), [{ type: "duel-result", winner: "b" }]);
+		assert.deepEqual(ofType(events, "capture"), [{ type: "capture", player: "w", piece, t: "n", c: "w", by: null, sq: "a4" }]);
+		assert.equal(at(s, "a4"), null);
+		assert.deepEqual(ofType(events, "discard"), []);
+		assert.ok(count(s.players.w) >= before);
+		assert.equal(s.players.w.refillLock, 0); // NO CARDS LOST: THE NORMAL REFILL RUNS
+		assert.equal(s.players.w.actives.length, 1);
+		assert.equal(s.duel, null);
+		assert.equal(s.board.turn, "b");
+	});
+
+	test("legendary: a piece shielding the own king may be chosen (it is never lost); epic may not", () => {
+		const PIN = "4r1k1/8/8/8/8/8/4B3/Q3K2N w - - 0 1"; // THE BISHOP ON e2 IS PINNED
+		const offered = (key) => { const { s } = holding(PIN, 1, key); return legalActions(s, "w").filter((x) => x.type === "active").map((x) => x.target.piece).sort(); };
+		const { s } = holding(PIN);
+		assert.deepEqual(offered(LEGENDARY), [at(s, "e2").id, at(s, "h1").id].sort());
+		assert.deepEqual(offered(EPIC), [at(s, "h1").id]);
+	});
+
+	test("legendary: a lost hand forfeits 6 cards but not the piece, which keeps the upgrade won earlier", () => {
+		let { s, piece } = oneWin(LEGENDARY, 1), events;
+		const before = count(s.players.w);
+		({ s, events } = lose(s));
+		assert.deepEqual(ofType(events, "duel-result"), [{ type: "duel-result", winner: "b" }]);
+		assert.deepEqual(ofType(events, "capture"), []);
+		assert.deepEqual(at(s, "e4"), { id: piece, c: "w", t: "b" }); // THE BASE CARD NEVER UNDOES A WON UPGRADE; ONLY THE FORFEIT IS LIFTED
+		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, 6);
+		assert.equal(count(s.players.w), before - 6);
+		assert.deepEqual(ofType(events, "draw").filter((e) => e.player === "w"), []); // NOT REFILLED THIS TURN
+		assert.equal(s.duel, null);
+		assert.equal(s.board.turn, "b");
+		assert.equal(s.board.half, 1); // NO CAPTURE: THE COUNT GOES ON
+	});
+
+	test("a won duel plays as the base card for both versions", () => {
+		const run = (key) => {
+			let { s, piece } = oneWin(key, 3), events;
+			rig(s, ["Qs", "2c", "3d"], ["Jh", "4c", "5d"]);
+			({ s, events } = both(s, 0, 1));
+			const promotes = ofType(events, "promote");
+			({ s, events } = go(s, "w", STOP));
+			return { promotes, piece: at(s, "e4"), duel: s.duel, turn: s.board.turn, w: count(s.players.w), discards: ofType(events, "discard") };
+		};
+		const base = run("all-or-nothing");
+		assert.equal(base.piece.t, "r");
+		assert.deepEqual(run(EPIC), base);
+		assert.deepEqual(run(LEGENDARY), base);
+	});
+
+	test("a JSON round trip mid-duel, and fromView, keep each version's stakes", () => {
+		for (const key of [EPIC, LEGENDARY]) {
+			const { s: s0, piece } = oneWin(key, 5);
+			for (const s1 of [roundTrip(s0), fromView(playerView(s0, "w"), 7)]) {
+				assert.equal(s1.duel.card, key);
+				const { s, events } = lose(s1);
+				const discards = ofType(events, "discard").filter((e) => e.player === "w").length;
+				if (key === EPIC) {
+					assert.equal(at(s, "e4"), null);
+					assert.equal(discards, 0);
+				} else {
+					assert.deepEqual(at(s, "e4"), { id: piece, c: "w", t: "b" });
+					assert.equal(discards, 6);
+				}
+			}
+		}
 	});
 });

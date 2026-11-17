@@ -13,7 +13,7 @@ const own = (state, owner, id) => { const i = pieceById(state.board, id); return
 const bishops = (state, player) => state.board.sq.filter((p) => p && p.c === player && p.t === "b").map((p) => p.id);
 
 module.exports = {
-	key: KEY, kind: "active", name: "Heretical Subjection", skulls: 2, rarity: "uncommon",
+	key: KEY, kind: "active", name: "Heretical Subjection", skulls: 2, rarity: "rare",
 	text: "For 3 turns both bishops move without a card, and each may move like a bishop or like a king (changing square color). Debuff: when it ends, both bishops are Shaken for 1 turn.",
 	/**
 	 * @description No target; needs a bishop, and none while player's own Heretical Subjection lasts (no refresh).

@@ -1,13 +1,12 @@
 /*
  *  swap.js  --  chess cards engine
- *	Active: two of your pieces trade squares; both are Marked for 1 turn.
+ *	Active: two of your pieces trade squares; both are Marked for 1 turn (epic version: only the one the owner picks).
  *
  */
 
 const statuses = require("../../statuses.js");
 const { pieceById, sqName } = require("../../board.js");
 const { LOSES } = require("../../movegen.js");
-const { hooksFor } = require("../../rules.js");
 
 const KEY = "swap";
 
@@ -23,23 +22,25 @@ function sound(board, i, j) {
 	return true;
 }
 
+/**
+ * @description { pieces: [a, b] } (board order) for every sound pair of own pieces that may move: none Hexed (cards can't move it) or Frozen. Not a canMove rule: the common Stronghold's piece can't move by itself but Swap may move it.
+ */
+function pairs(state, player) {
+	const b = state.board, out = [];
+	const free = b.sq.map((p, i) => i).filter((i) => {
+		const p = b.sq[i];
+		return p && p.c === player && !statuses.has(state, p.id, "hexed") && !statuses.has(state, p.id, "frozen");
+	});
+	for (let x = 0; x < free.length; x++) for (let y = x + 1; y < free.length; y++) if (sound(b, free[x], free[y])) out.push({ pieces: [b.sq[free[x]].id, b.sq[free[y]].id] });
+	return out;
+}
+
 module.exports = {
-	key: KEY, kind: "active", name: "Swap", skulls: 1, rarity: "common",
+	key: KEY, kind: "active", name: "Swap", skulls: 1, rarity: "rare",
 	text: "Two of your pieces trade squares. Debuff: both are Marked for 1 turn.",
+	targets: pairs,
 	/**
-	 * @description { pieces: [a, b] } (board order) for every sound pair of own pieces that may move: none Hexed (cards can't move it) or stopped by a canMove rule (Frozen).
-	 */
-	targets(state, player) {
-		const b = state.board, hooks = hooksFor(state), out = [];
-		const free = b.sq.map((p, i) => i).filter((i) => {
-			const p = b.sq[i];
-			return p && p.c === player && !statuses.has(state, p.id, "hexed") && (!hooks.canMove || hooks.canMove(state, p));
-		});
-		for (let x = 0; x < free.length; x++) for (let y = x + 1; y < free.length; y++) if (sound(b, free[x], free[y])) out.push({ pieces: [b.sq[free[x]].id, b.sq[free[y]].id] });
-		return out;
-	},
-	/**
-	 * @description The two pieces trade squares (a move event each, card null; triggers run once both stand), castling rights their squares hold go, a pawn moved resets the half-move counter; then both are Marked for 1 turn.
+	 * @description The two pieces trade squares (a move event each, card null; triggers run once both stand), castling rights their squares hold go, a pawn moved resets the half-move counter; then both are Marked for 1 turn (only target.mark when the epic version gives one).
 	 */
 	play(ctx, player, target) {
 		const b = ctx.state.board, [i, j] = target.pieces.map((id) => pieceById(b, id));
@@ -53,6 +54,14 @@ module.exports = {
 		const held = ctx.held;
 		ctx.held = null;
 		for (const e of held) ctx.trigger(e);
-		for (const id of target.pieces) ctx.giveStatus(id, "marked", 1);
+		for (const id of target.mark ? [target.mark] : target.pieces) ctx.giveStatus(id, "marked", 1);
 	},
+	versions: [{
+		rarity: "epic",
+		text: "Two of your pieces trade squares. Debuff: only one of the two pieces, your choice, is Marked for 1 turn.",
+		/**
+		 * @description Each sound pair twice, once per piece to Mark: { pieces: [a, b], mark } (the owner's choice is part of the target).
+		 */
+		targets: (state, player) => pairs(state, player).flatMap((t) => t.pieces.map((mark) => ({ ...t, mark }))),
+	}],
 };

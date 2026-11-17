@@ -103,7 +103,7 @@ function checkView(s, viewer) {
 	if (fogBy(s, opp)) {
 		const letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g, rank = opp === "w" ? "3" : "6";
 		const { sq, castling, ep, history, half, ...rest } = v.board, real = s.board;
-		sq.forEach((p, i) => assert.deepEqual(p, real.sq[i] && real.sq[i].c === opp ? { ...real.sq[i], t: "?" } : real.sq[i], "fogged square " + i));
+		sq.forEach((p, i) => assert.deepEqual(p, real.sq[i] && real.sq[i].c === opp && (opp === "w" ? i >= 32 : i < 32) ? { ...real.sq[i], t: "?" } : real.sq[i], "fogged square " + i)); // ONLY ITS HALF IS FOGGED (i 0 = a8)
 		assert.ok(vo.captured.every((t) => t === "?"), "fogged captured list");
 		assert.deepEqual(history, [], "fogged history"); // ITS CASTLING AND EN PASSANT TOKENS NAME THE FOGGED KING, ROOKS AND PAWNS
 		assert.equal(half, 0, "fogged half-move counter"); // A RESET COUNTER NAMES A PAWN MOVE
