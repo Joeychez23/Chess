@@ -25,6 +25,7 @@ const handFog = (s, c) => s.enchant.some((e) => e.key === "fog-of-war" && e.owne
 const boardFog = (s, c) => s.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === c); // EVERY VERSION HIDES THE PIECES
 const noSquares = (json) => json.replace(/"(square|from|to|ep|sq)":"[a-h][1-8]"/g, ""); // SQUARES c1..c8 LOOK LIKE CARD IDS
 const quoted = (x) => "\"" + x + "\"";
+const hiddenIds = (s, c) => s.board.sq.filter((p, i) => p && p.c === c && (c === "w" ? i >= 32 : i < 32)).map((p) => p.id); // THE PIECES c'S FOG HIDES
 
 /**
  * @description The picker's own seeded generator (mulberry32), so a failing seed replays: roll(n) is an integer in 0..n-1.
@@ -97,10 +98,11 @@ function checkView(s, viewer) {
 	if (s.duel) for (const set of [v.duel, v.duel.spades].filter(Boolean)) assert.ok(!("deck" in set), "duel deck in view");
 	if (boardFog(s, opp)) {
 		const letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g, rank = opp === "w" ? "3" : "6";
-		const { sq, castling, ep, history, half, ...rest } = v.board, real = s.board;
-		sq.forEach((p, i) => assert.deepEqual(p, real.sq[i] && real.sq[i].c === opp && (opp === "w" ? i >= 32 : i < 32) ? { ...real.sq[i], t: "?" } : real.sq[i], "fogged square " + i)); // ONLY ITS HALF IS FOGGED (i 0 = a8)
+		const { sq, castling, ep, history, half, hidden, ...rest } = v.board, real = s.board, ids = hiddenIds(s, opp);
+		sq.forEach((p, i) => assert.deepEqual(p, real.sq[i] && ids.includes(real.sq[i].id) ? null : real.sq[i], "fogged square " + i)); // ONLY ITS HALF IS FOGGED (i 0 = a8): NO PIECE THERE AT ALL
+		assert.equal(hidden, ids.length, "how many are hidden");
+		for (const id of ids) assert.ok(!flat.includes(quoted(id)), "hidden piece id " + id + " in view");
 		assert.ok(vo.captured.every((t) => t === "?"), "fogged captured list");
-		sq.forEach((p) => { if (p && p.t === "?") assert.ok(!(v.statuses[p.id] || []).some((e) => e.veiled), "veiled status of a fogged piece in view"); });
 		assert.deepEqual(history, [], "fogged history");
 		assert.equal(half, 0, "fogged half-move counter");
 		assert.equal(castling, real.castling.replace(letters, "") || "-", "fogged castling");
@@ -130,7 +132,10 @@ function checkEvents(next, events, viewer, v) {
 	assert.equal(JSON.stringify(next), rawState, "state mutated");
 	const card = (e) => (e.card && typeof e.card === "object" ? e.card : null);
 	events = events.filter((e) => !(e.type === "curse-given" && isMirage(e.card) && e.player === opp)); // LEFT OUT FOR ITS HOLDER: IT SHOWS WHEN IT ENTERS AT A REFILL
+	const hid = boardFog(next, opp) ? hiddenIds(next, opp) : [], taken = hid.length || boardFog(next, opp) ? events.filter((e) => e.type === "capture" && e.c === opp).map((e) => e.piece) : [];
+	events = events.filter((e) => !(hid.includes(e.piece) && e.type !== "move")); // ABOUT A PIECE HIDDEN NOW: NOT TOLD (ITS MOVE IS, BARE)
 	assert.equal(ev.length, events.length);
+	for (const id of hid.concat(taken)) assert.ok(!flat.includes(quoted(id)), "hidden piece id " + id + " in events");
 	assert.ok(!json.includes("\"rng\""), "seed in events");
 	assert.deepEqual(keyLike(ev), [], "generator key in events");
 	assert.ok(!json.includes("\"denied\"") && !json.includes("\"stopping\"") && !json.includes("\"veiled\""), "bookkeeping in events");
@@ -153,6 +158,7 @@ function checkEvents(next, events, viewer, v) {
 		}
 		if (e.player === opp && c && baseKey(c.key) === "trapdoor") assert.ok(!("square" in ev[i]) && !("target" in ev[i]), "trapdoor square in events");
 		if (fog && e.type === "move" && e.player === opp) assert.ok(!("card" in ev[i]) && !("castle" in ev[i]), "fogged move card");
+		if (hid.includes(e.piece)) assert.deepEqual(ev[i], { type: "move", player: e.player }, "a hidden piece's move is told bare");
 		if (fog && (e.type === "capture" || e.type === "promote") && colorOf(e) === opp) assert.equal(ev[i].t, "?", "fogged " + e.type);
 	});
 }

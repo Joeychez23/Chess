@@ -38,10 +38,10 @@ const firstMove = (state, color) => {
  */
 function expected(state, color, events = []) {
 	const vesper = color === "w" ? "b" : "w";
-	return { mode: "cards", you: color, view: E.playerView(state, color), legal: E.legalActions(state, color), events: E.playerEvents(state, events, color), vesper_due: E.legalActions(state, vesper).length > 0, result: state.result };
+	return { mode: "cards", you: color, view: E.playerView(state, color), legal: E.playerLegal(state, color), legal_hidden: state.enchant.some((e) => e.key.startsWith("fog-of-war") && e.owner === vesper), events: E.playerEvents(state, events, color), vesper_due: E.legalActions(state, vesper).length > 0, result: state.result };
 }
 
-const pick = (response) => ({ mode: response.mode, you: response.you, view: response.view, legal: response.legal, events: response.events, vesper_due: response.vesper_due, result: response.result });
+const pick = (response) => ({ mode: response.mode, you: response.you, view: response.view, legal: response.legal, legal_hidden: response.legal_hidden, events: response.events, vesper_due: response.vesper_due, result: response.result });
 
 test("a guest starts a card game and gets a view without hidden information", async () => {
 	const created = await start();
@@ -438,6 +438,33 @@ test("a save that timed out and didn't land answers 503, not the action's events
 	assert.equal(version(created.game_id), "1");
 });
 
+test("under Vesper's Fog of War the response has no hidden piece and no move list, a legal move sent blind is taken and an illegal one refused", async () => {
+	const fog = (s) => { s.enchant.push({ id: "e1", key: "fog-of-war-rare", owner: "b", pieces: [], left: 3, data: {} }); };
+	const { gameId, state } = await position("3rkr2/3p1p2/8/8/8/8/8/R5K1 w - - 0 1", ["r", "r"], fog);
+	const loaded = await call("GET", `/api/chess/cards/${gameId}`);
+	assert.equal(loaded.legal_hidden, true);
+	assert.ok(loaded.legal.length > 0 && loaded.legal.every((a) => a.type !== "move")); // DISCARDS STAY: THEY SHOW NOTHING
+	assert.ok(loaded.view.board.sq.filter(Boolean).every((p) => p.c === "w"));
+	assert.equal(loaded.view.board.hidden, 5);
+	for (const p of state.board.sq.filter((q) => q && q.c === "b")) assert.ok(!JSON.stringify(loaded).replace(/"(square|from|to|ep|sq)":"[a-h][1-8]"/g, "").includes(`"${p.id}"`), p.id);
+	const card = state.players.w.moves[0].id;
+	const blocked = await act(gameId, { type: "move", card, from: "a1", to: "h1" }); // THROUGH ITS OWN KING: NOT LEGAL
+	assert.equal(blocked.http, 409);
+	assert.equal(blocked.message, "That action isn't available");
+	const blind = await act(gameId, { type: "move", card, from: "a1", to: "a8" }); // LEGAL ON THE TRUE BOARD, NEVER LISTED
+	assert.equal(blind.http, 200);
+	assert.equal(stored(gameId).board.sq[0].t, "r");
+	const open = await position("3rkr2/3p1p2/8/8/8/8/8/R5K1 w - - 0 1", ["r"]);
+	const plain = await call("GET", `/api/chess/cards/${open.gameId}`);
+	assert.equal(plain.legal_hidden, false);
+	const { gameId: lost } = await position("3rkr2/3p1p2/8/8/8/8/8/R5K1 w - - 0 1", ["r"], fog);
+	assert.equal((await call("POST", `/api/chess/game/${lost}/forfeit`)).http, 200);
+	const over = await call("GET", `/api/chess/cards/${lost}`);
+	assert.deepEqual([over.legal, over.legal_hidden], [[], false]); // OVER: NO LIST TO HIDE
+	assert.deepEqual(plain.legal, E.legalActions(open.state, "w"));
+	assert.ok(plain.legal.some((a) => a.type === "move"));
+});
+
 test("only Vesper's Fog of War, in any version, holds game_board: the player's own fog doesn't", async () => {
 	const run = async (key, owner, guest) => {
 		const created = await start({}, { guest });
@@ -455,3 +482,33 @@ test("only Vesper's Fog of War, in any version, holds game_board: the player's o
 	assert.equal(await run("fog-of-war", "w", "three"), false);
 });
 
+
+test("a guest's new card game forfeits the game their cookie named (card or normal), an earlier one already over is left as it ended", async () => {
+	const first = await start({}, { guest: "again" });
+	const second = await start({}, { guest: "again" });
+	assert.equal(second.http, 200);
+	assert.notEqual(second.game_id, first.game_id);
+	assert.equal(peek("chess_db", first.game_id).reason.S, "forfeit"); // NOT LEFT OPEN UNTIL ITS TTL
+	assert.equal(peek("chess_db", first.game_id).winner.S, first.you == "w" ? "b" : "w");
+	assert.equal(peek("chess_db", second.game_id).reason, undefined);
+	assert.equal((await load(second.game_id, { guest: "again" })).http, 200);
+	assert.equal((await call("POST", `/api/chess/game/${second.game_id}/forfeit`, { guest: "again" })).http, 200);
+	const third = await start({}, { guest: "again" }); // THE COOKIE'S GAME IS OVER ALREADY: THE REFUSED FORFEIT STOPS NOTHING
+	assert.equal(third.http, 200);
+	assert.equal(peek("chess_db", third.game_id).reason, undefined);
+	const chess = await call("POST", "/api/chess/game", { body: { start_color: "w" }, guest: "mixed" });
+	assert.equal((await start({}, { guest: "mixed" })).http, 200);
+	assert.equal(peek("chess_db", chess.game_id).reason.S, "forfeit");
+});
+
+test("a stored state that can't be read answers 500 with the server's own message, and nothing of the state", async (t) => {
+	const logged = t.mock.method(console, "error", () => {});
+	const created = await start();
+	poke("chess_db", created.game_id, { cards_state: { S: "{\"board\":" } });
+	const broken = await load(created.game_id);
+	assert.equal(broken.http, 500);
+	assert.equal(broken.error, "Something went wrong on our side.");
+	assert.ok(!JSON.stringify(broken).includes("board") && !("view" in broken));
+	assert.ok(logged.mock.callCount() >= 1); // THE HANDLER LOGS THE ERROR (logServerErrors LOGS THE 500 TOO)
+	assert.equal((await act(created.game_id, { type: "discard", card: "c1" })).http, 500);
+});

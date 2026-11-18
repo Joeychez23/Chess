@@ -687,3 +687,27 @@ test("a check that stood, was lifted, and comes back before the turn passes is a
 	assert.deepEqual([state.board.turn, inCheck(state, "w")], ["w", true]);
 	assert.deepEqual(events.filter((e) => e.type === "check"), [{ type: "check", player: "w" }]);
 });
+
+test("a Frozen pawn gives no check, so a king may stand in its reach; when the Frozen ends (the end of its owner's turn) the king is in check at its own turn start, and with no answer that is checkmate", () => {
+	const E = require("../../cards-engine/index.js"), { inCheck: checked } = require("../../cards-engine/rules.js");
+	const from = (fen) => { // WHITE HOLDS ONE ROOK CARD, NO OTHER CARD IN PLAY; THE e6 PAWN IS FROZEN FOR ONE MORE TURN
+		const s = E.newGame({ vesper: "b", level: 1300, seed: 1 });
+		s.board = E.board.fromFen(fen);
+		for (const c of ["w", "b"]) Object.assign(s.players[c], { actives: [], passive: null, curses: [] });
+		s.players.w.moves = [require("../../cards-engine/hand.js").newCard(s, "move", { piece: "r" })];
+		s.statuses[s.board.sq[E.board.sqIndex("e6")].id] = [{ s: "frozen", left: 1, by: "b" }];
+		return s;
+	};
+	const wait = (s) => E.applyAction(s, "w", E.legalActions(s, "w").find((a) => a.type === "move" && a.from === "h1" && a.to === "h2"));
+	const types = (r) => r.events.map((e) => e.type + ":" + (e.player || "")).filter((t) => /^(status-ended|turn-start|check|game-over)/.test(t));
+	const open = from("8/3k4/4P3/8/8/8/8/4K2R w - - 0 1");
+	assert.equal(checked(open, "b"), false); // FROZEN: NO CHECK ON d7
+	const r = wait(open);
+	assert.deepEqual(types(r), ["status-ended:w", "turn-start:b", "check:b"]);
+	assert.equal(r.state.result, null);
+	assert.ok(checked(r.state, "b"));
+	assert.ok(E.legalActions(r.state, "b").some((a) => a.type === "move")); // IT MUST, AND CAN, ANSWER
+	const mate = wait(from("2nbn3/2pkp3/4P3/3P4/5B2/8/8/4K2R w - - 0 1")); // NO SQUARE, NO CAPTURE OF THE PAWN (d5 GUARDS IT)
+	assert.deepEqual(types(mate), ["status-ended:w", "turn-start:b", "check:b", "game-over:w"]);
+	assert.deepEqual(mate.state.result, { winner: "w", reason: "checkmate" });
+});

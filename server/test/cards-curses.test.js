@@ -224,13 +224,13 @@ describe("Tremor", () => {
 		assert.ok(ofType(playerEvents(open, octx.events, "b"), "status").length === 1 && !JSON.stringify(playerEvents(open, octx.events, "b")).includes("veiled"));
 	});
 
-	test("under its holder's Fog of War a Frozen already on the pawn stays shown, and one given a pawn off the fogged half is told", () => {
+	test("under its holder's Fog of War a Frozen already on a hidden pawn is hidden with it, and one given a pawn off the fogged half is told", () => {
 		const s = game("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"), ctx = makeCtx(s), id = at(s, "a2").id;
 		s.enchant.push({ id: "e990", key: "fog-of-war", owner: "w", pieces: [], left: null, data: {} });
 		s.statuses[id] = [{ s: "frozen", left: 1, by: "b" }];
 		CARDS.tremor.on.draw(ctx, "w", { type: "draw", player: "w", card: moveCard(s, "p") }, { owner: "w", card: curse(s, "w", "tremor") });
 		assert.ok(!s.statuses[id].some((e) => e.veiled));
-		assert.ok(playerView(s, "b").statuses[id]);
+		assert.ok(!JSON.stringify(playerView(s, "b")).includes("\"" + id + "\"")); // THE PAWN ISN'T IN THE VIEW, NOR ANYTHING OF IT
 		const off = game("4k3/8/8/P7/8/8/8/4K3 w - - 0 1"), octx = makeCtx(off), oid = at(off, "a5").id; // a5: NOT ON WHITE'S HALF, SO NOT FOGGED
 		off.enchant.push({ id: "e990", key: "fog-of-war", owner: "w", pieces: [], left: null, data: {} });
 		CARDS.tremor.on.draw(octx, "w", { type: "draw", player: "w", card: moveCard(off, "p") }, { owner: "w", card: curse(off, "w", "tremor") });

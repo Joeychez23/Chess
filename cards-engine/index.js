@@ -76,7 +76,7 @@ function graceUndo(state, player, action, done, graceId) {
 
 module.exports = {
 	ENGINE_VERSION, KING_SKULLS, IllegalAction, newGame, applyAction, legalActions: turn.legalActions, actionKey: turn.actionKey, rng, board,
-	playerView: view.playerView, playerEvents: view.playerEvents, fromView: view.fromView, toFen: view.toFen,
+	playerView: view.playerView, playerEvents: view.playerEvents, fromView: view.fromView, toFen: view.toFen, playerLegal: view.playerLegal,
 };
 
 require("./cards/all.js"); // EVERY CARD, REGISTERED ONCE THE CORE MODULES (AND THESE EXPORTS) ARE WHOLE
