@@ -12,11 +12,11 @@
 /* ---------------------------------------------------------------- */
 
 const crypto = require("crypto");
-const { newGame, applyAction, legalActions, playerView, playerEvents, toFen, ENGINE_VERSION, IllegalAction } = require("../../cards-engine/index.js");
+const { newGame, applyAction, legalActions, playerLegal, playerView, playerEvents, toFen, ENGINE_VERSION, IllegalAction } = require("../../cards-engine/index.js");
 const { baseKey } = require("../../cards-engine/cards/index.js");
 const { readLevel } = require("../utils/ai.js");
 const { gameOpen, isColor } = require("../utils/games.js");
-const { setGuestCookie } = require("../middleware/auth.js");
+const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { ifSaved, forfeit, newCardsGame: createCardsGame, saveCardsState } = require("../dataClient.js");
 const { retrieveGame, currentGame, playerInGame, notYours, notInGame, reply, aiLevel } = require("./chessController.js");
 
@@ -27,7 +27,7 @@ const ACTION_CHARS = 2000; // AN ACTION AS JSON, THE LONGEST LEGAL ONE IS UNDER 
 /* ---------------------------------------------------------------- */
 /**
  * @description Creates a card game vs Vesper for the requester (signed in or a guest, who gets a guest_game cookie for it). Signed in players have one AI or card game open at a time:
- * while one is open this answers 409, unless replace_current forfeits it first. The seed is 32 random bytes, an integer only from CARDS_TEST_SEED while NODE_ENV is "test", never from the request
+ * while one is open this answers 409, unless replace_current forfeits it first. A guest's earlier game (the one their cookie names, card or normal) is forfeited: the cookie moves to the new game. The seed is 32 random bytes, an integer only from CARDS_TEST_SEED while NODE_ENV is "test", never from the request
  * @param  {[object]} req.body [{ start_color ("alternate" | "random" | "w" | "b", anything else is random), ai_level (Vesper's level, as /api/chess/game), replace_current (true = forfeit the open AI or card game) }]
  * @return {[object]} response [cardsResponse | { status: 409, game_id (the open one), message }]
  */
@@ -37,7 +37,7 @@ async function newCardsGame(req, res) {
 		const current = await currentGame(true);
 		if (current && !replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "AI game already open" }); }
 		if (current) { await forfeit(current.game_id.S); } // NEW GAME FORFEITS THE OPEN ONE
-	}
+	} else if (readGuestGame(req)) { await forfeit(readGuestGame(req)); } // THEIR COOKIE'S GAME CAN'T BE REACHED AGAIN: CLOSED NOW, NOT LEFT OPEN UNTIL ITS TTL (ALREADY OVER: REFUSED, NOTHING CHANGES)
 
 	const color = isColor(start_color) ? start_color : "random";
 	const level = readLevel(ai_level);
@@ -158,7 +158,7 @@ async function loadCardsGame(req, res) {
  * @param  {[object]} gameData [the stored card game]
  * @param  {[object]} state [its engine state]
  * @param  {[array]} events [the action's events, left out = none]
- * @return {[object]} body [{ status, game_id, mode: "cards", ai_level, you: "w" | "b", view: playerView, legal: the requester's legal actions ([] once it's over), events: playerEvents,
+ * @return {[object]} body [{ status, game_id, mode: "cards", ai_level, you: "w" | "b", view: playerView, legal: the requester's legal actions as playerLegal tells them ([] once it's over), legal_hidden: Vesper's Fog of War is up, so legal leaves out the moves (any legal action is still taken), events: playerEvents,
  * vesper_due: Vesper owes an action (its turn, or a duel pick or a choice), result: { winner, reason } | null (a forfeit: from the game, the state doesn't have it) }]
  */
 function cardsResponse(gameData, state, events = []) {
@@ -171,7 +171,8 @@ function cardsResponse(gameData, state, events = []) {
 		ai_level: aiLevel(gameData),
 		you,
 		view: playerView(state, you),
-		legal: open ? legalActions(state, you) : [],
+		legal: open ? playerLegal(state, you) : [],
+		legal_hidden: open && state.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === vesper), // ANY VERSION OF THE CARD
 		events: playerEvents(state, events, you),
 		vesper_due: open && legalActions(state, vesper).length > 0,
 		result: state.result || (open ? null : { winner: gameData.winner?.S || null, reason: gameData.reason?.S || null }),

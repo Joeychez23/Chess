@@ -6,7 +6,7 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { newGame, legalActions, applyAction, playerView, playerEvents, fromView, toFen, rng, board } = require("../../cards-engine/index.js");
+const { newGame, legalActions, applyAction, playerView, playerEvents, playerLegal, fromView, toFen, rng, board } = require("../../cards-engine/index.js");
 const hand = require("../../cards-engine/hand.js");
 const { register, reset } = require("../../cards-engine/cards/index.js");
 const { inCheck } = require("../../cards-engine/rules.js");
@@ -96,8 +96,11 @@ function checkView(s, viewer) {
 	for (const e of v.enchant) if (e.key === "trapdoor") assert.equal("square" in e.data, e.owner === viewer, "trapdoor square");
 	if (fogBy(s, opp)) {
 		const letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g, rank = opp === "w" ? "3" : "6";
-		const { sq, castling, ep, history, half, ...rest } = v.board, real = s.board;
-		sq.forEach((p, i) => assert.deepEqual(p, real.sq[i] && real.sq[i].c === opp && (opp === "w" ? i >= 32 : i < 32) ? { ...real.sq[i], t: "?" } : real.sq[i], "fogged square " + i)); // ONLY ITS HALF IS FOGGED (i 0 = a8)
+		const { sq, castling, ep, history, half, hidden, ...rest } = v.board, real = s.board;
+		const gone = (p, i) => !!p && p.c === opp && (opp === "w" ? i >= 32 : i < 32); // ONLY ITS HALF IS FOGGED (i 0 = a8)
+		sq.forEach((p, i) => assert.deepEqual(p, gone(real.sq[i], i) ? null : real.sq[i], "fogged square " + i)); // NO PIECE THERE AT ALL
+		assert.equal(hidden, real.sq.filter(gone).length, "how many are hidden");
+		for (const p of real.sq.filter(gone)) assert.ok(!noSquares(json).includes("\"" + p.id + "\""), "hidden piece id " + p.id + " in view");
 		assert.ok(vo.captured.every((t) => t === "?"), "fogged captured list");
 		assert.deepEqual(history, [], "fogged history"); // ITS CASTLING AND EN PASSANT TOKENS NAME THE FOGGED KING, ROOKS AND PAWNS
 		assert.equal(half, 0, "fogged half-move counter"); // A RESET COUNTER NAMES A PAWN MOVE
@@ -228,13 +231,15 @@ test("Mirage shows as a move card to its holder, and the key mirage is nowhere i
 	assert.ok(!JSON.stringify(playerEvents(s, spent, "b")).includes("mirage"));
 });
 
-test("under Fog of War the opponent's view has t '?' and no piece type for the caster's pieces", () => {
+test("under Fog of War the opponent's view has none of the caster's pieces on the caster's half, nor their ids", () => {
 	const s = fresh();
 	s.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 1, data: {} });
 	s.players.b.captured = ["p", "n"];
 	s.board.half = 3;
 	const v = playerView(s, "w");
-	for (const p of v.board.sq.filter(Boolean)) assert.equal(p.t === "?", p.c === "b");
+	assert.ok(v.board.sq.filter(Boolean).every((p) => p.c === "w"));
+	assert.equal(v.board.hidden, 16);
+	for (const p of s.board.sq.filter((q) => q && q.c === "b")) assert.ok(!JSON.stringify(v).includes("\"" + p.id + "\""), p.id);
 	assert.deepEqual(v.players.b.captured, ["?", "?"]);
 	assert.deepEqual(v.board.history, []);
 	assert.equal(v.board.half, 0);
@@ -242,7 +247,7 @@ test("under Fog of War the opponent's view has t '?' and no piece type for the c
 	assert.equal(s.board.half, 3);
 	assert.equal(v.board.castling, "KQ");
 	assert.deepEqual(v.players.b.hand.shown.map((c) => c.id).sort(), handOf(s.players.b).map((c) => c.id).sort());
-	assert.equal(toFen(v), "????????/????????/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1");
+	assert.equal(toFen(v), "8/8/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ - 0 1");
 	assert.equal(toFen(s), board.toFen(s.board));
 	assert.deepEqual(playerView(s, "b").board, s.board); // THE CASTER SEES ITS OWN PIECES, THE HISTORY AND THE COUNTER
 	const id = s.board.sq.find((p) => p && p.c === "b").id;
@@ -252,9 +257,10 @@ test("under Fog of War the opponent's view has t '?' and no piece type for the c
 		{ type: "promote", player: "b", piece: id, t: "q" },
 	];
 	const w = playerEvents(s, ev, "w");
-	assert.deepEqual(w[0], { type: "move", player: "b", piece: id, from: "e8", to: "g8" });
-	assert.equal(w[1].t, "?");
-	assert.equal(w[2].t, "?");
+	assert.deepEqual(w, [{ type: "move", player: "b" }]); // A HIDDEN PIECE: ITS MOVE BARE, NOTHING ELSE ABOUT IT
+	const mine = s.board.sq.find((p) => p && p.c === "w").id;
+	assert.deepEqual(playerEvents(s, [{ type: "capture", player: "b", piece: mine, t: "p", c: "w", by: id, sq: "e7" }], "w"), [{ type: "capture", player: "b", piece: mine, t: "p", c: "w", sq: "e7" }]); // TAKEN BY A HIDDEN PIECE: WHICH ONE ISN'T TOLD
+	assert.deepEqual(playerEvents(s, [{ type: "capture", player: "w", piece: "b99", t: "q", c: "b", sq: "e7" }], "w"), [{ type: "capture", player: "w", t: "?", c: "b", sq: "e7" }]); // TAKEN: NEITHER TYPE NOR ID
 	assert.deepEqual(playerEvents(s, ev, "b"), ev);
 });
 
@@ -295,6 +301,18 @@ test("fromView keeps everything the view shows", () => {
 	const after = applyAction(h, "w", a).state;
 	assert.ok(legalActions(after, "b").length);
 	assert.ok(!toFen(h).includes("?"));
+	const guessed = h.board.sq.map((p, i) => [p, i]).filter(([p]) => p && p.c === "b");
+	assert.equal(guessed.length, 16); // board.hidden OF THEM, ON THEIR OWN HALF, UNDER IDS NO REAL PIECE HAS
+	assert.ok(guessed.every(([p, i]) => i < 32 && /^b\?\d+$/.test(p.id)));
+	assert.equal(new Set(guessed.map(([p]) => p.id)).size, 16);
+	assert.ok(!("hidden" in h.board));
+	g.board = board.fromFen("4k3/pp6/8/8/8/8/8/4K3 w - - 0 1"); // 3 HIDDEN ON 32 SQUARES: THE SQUARES ARE GUESSED TOO, PER SEED
+	const where = (seed) => fromView(playerView(g, "w"), seed).board.sq.map((p, i) => (p && p.c === "b" ? i : -1)).filter((i) => i >= 0);
+	assert.equal(where(11).length, 3);
+	assert.ok(where(11).every((i) => i < 32));
+	assert.deepEqual(where(11), where(11));
+	assert.ok([12, 13, 14].some((seed) => where(seed).join() !== where(11).join()));
+	assert.notDeepEqual(where(11), [0, 1, 2]); // NOT SIMPLY THE FIRST FREE SQUARES
 });
 
 test("the opponent's player shows only the fields the view is meant to show", () => {
@@ -350,12 +368,26 @@ test("a piece's colour comes from the board, never its id: a white piece with a 
 	s.enchant.push({ id: "e1", key: "fog-of-war", owner: "w", pieces: ["b78"], left: 1, data: {} });
 	s.statuses = { b78: [{ s: "frozen", left: 1, by: "b" }] };
 	const v = playerView(s, "b");
-	assert.equal(v.board.sq.find((p) => p && p.id === "b77").t, "?");
+	assert.ok(!JSON.stringify(v).includes("\"b77\"") && !JSON.stringify(v).includes("\"b78\"")); // GONE FROM THE BOARD, THE ENCHANTMENT'S PIECES AND THE STATUSES
 	const ev = [{ type: "promote", player: "w", piece: "b77", t: "q" }, { type: "capture", player: "b", piece: "b79", t: "n", c: "w", by: "b5" }];
 	const out = playerEvents(s, ev, "b");
-	assert.deepEqual(out.map((e) => e.t), ["?", "?"]);
+	assert.deepEqual(out, [{ type: "capture", player: "b", t: "?", c: "w", by: "b5" }]); // THE HIDDEN QUEEN'S PROMOTION ISN'T TOLD; THE TAKEN PIECE HAS NO TYPE AND NO ID
 	assert.deepEqual(playerEvents(s, ev, "w").map((e) => e.t), ["q", "n"]);
 	const ctx = require("../../cards-engine/ctx.js").makeCtx(s);
 	require("../../cards-engine/statuses.js").tick(ctx, "w"); // THE b78 ROOK IS WHITE'S: WHITE'S TICK ENDS ITS STATUS
 	assert.equal(s.statuses.b78, undefined);
+});
+
+test("playerLegal: the whole list, but under the opponent's Fog of War no move and nothing that names a hidden piece", () => {
+	const s = fresh();
+	assert.deepEqual(playerLegal(s, "w"), legalActions(s, "w"));
+	s.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 3, data: {} });
+	const told = playerLegal(s, "w"), all = legalActions(s, "w");
+	assert.ok(all.some((a) => a.type === "move"));
+	assert.deepEqual(told, all.filter((a) => a.type !== "move")); // THE DISCARDS AND PLAYS THAT SHOW NOTHING STAY
+	assert.ok(told.length > 0);
+	assert.doesNotThrow(() => applyAction(s, "w", all.find((a) => a.type === "move"))); // THE RULES DON'T CHANGE: AN UNLISTED LEGAL MOVE IS TAKEN
+	const t = fresh();
+	t.enchant.push({ id: "e1", key: "fog-of-war", owner: "w", pieces: [], left: 3, data: {} });
+	assert.deepEqual(playerLegal(t, "w"), legalActions(t, "w")); // ITS OWN FOG HIDES NOTHING FROM ITS OWNER
 });

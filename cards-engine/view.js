@@ -22,6 +22,28 @@ const OPEN_FIELDS = ["king", "used", "skips", "refillLock", "curseWait", "lostTu
 const onHalf = (i, color) => (color === "w" ? i >= 32 : i < 32); // SQUARE INDEX i (0 = a8) ON color'S HALF OF THE BOARD
 
 /**
+ * @description The ids of color's pieces on color's half: the pieces a Fog of War of color's hides.
+ */
+const hiddenIds = (state, color) => state.board.sq.filter((p, i) => p && p.c === color && onHalf(i, color)).map((p) => p.id);
+
+const SQUARE_KEYS = ["square", "from", "to", "ep", "sq", "through"]; // FIELDS THAT HOLD SQUARE NAMES, NEVER PIECE IDS
+
+/**
+ * @description x with every trace of these piece ids removed, in place, at any depth: an array element or a property value equal to one, and a property keyed by one; fields in SQUARE_KEYS are left alone.
+ * shortcut: a square name held under any other key (a card target) that equals a hidden black piece's id is removed too; name such a field in SQUARE_KEYS if a client misses it.
+ */
+function scrub(x, ids) {
+	if (!x || typeof x !== "object" || !ids.length) return x;
+	if (Array.isArray(x)) for (let i = x.length - 1; i >= 0; i--) if (ids.includes(x[i])) x.splice(i, 1);
+	for (const k of Object.keys(x)) {
+		if (SQUARE_KEYS.includes(k)) continue; // A SQUARE NAME (b1..b8) CAN LOOK LIKE A BLACK PIECE'S ID
+		if (!Array.isArray(x) && (ids.includes(k) || ids.includes(x[k]))) delete x[k];
+		else scrub(x[k], ids);
+	}
+	return x;
+}
+
+/**
  * @description True when color's pieces on color's half are hidden from viewer: viewer is the other player and color has a Fog of War (any version) up.
  */
 function fogged(state, color, viewer) {
@@ -38,7 +60,7 @@ function shownTo(state, viewer, card) {
 }
 
 /**
- * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id, a fake under a card shown for real left out), so a field not listed stays hidden; no enchantment's data.ids or data.fake (sight bookkeeping); no seen field on player's own side (it would tell the fakes apart); an entered Mirage in player's own hand as a move card of its fake type, a waiting one (given, not yet entered at a refill) nowhere; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half t "?", its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both). View.you = player.
+ * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id, a fake under a card shown for real left out), so a field not listed stays hidden; no enchantment's data.ids or data.fake (sight bookkeeping); no seen field on player's own side (it would tell the fakes apart); an entered Mirage in player's own hand as a move card of its fake type, a waiting one (given, not yet entered at a refill) nowhere; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half are not in the view at all (their squares null, board.hidden = how many, and every field holding one of their ids removed: statuses, enchantment pieces and data, card fields, choice options), its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both). View.you = player.
  */
 function playerView(state, player) {
 	const v = copy(state), opp = other(player), me = v.players[player], o = v.players[opp], seen = state.players[player].seen;
@@ -61,12 +83,10 @@ function playerView(state, player) {
 	}
 	if (fogged(state, opp, player)) {
 		const b = v.board, letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g;
-		b.sq.forEach((p, i) => {
-			if (!p || p.c !== opp || !onHalf(i, opp)) return;
-			p.t = "?";
-			const left = (v.statuses[p.id] || []).filter((e) => !e.veiled); // TREMOR'S FROZEN WOULD NAME A PAWN
-			if (left.length) v.statuses[p.id] = left; else delete v.statuses[p.id];
-		});
+		const ids = hiddenIds(state, opp);
+		b.sq.forEach((p, i) => { if (p && ids.includes(p.id)) b.sq[i] = null; });
+		b.hidden = ids.length; // HOW MANY, NEVER WHICH OR WHERE (fromView PLACES THAT MANY)
+		scrub(v, ids); // STATUSES, ENCHANTMENT PIECES AND DATA, CARD FIELDS, CHOICE OPTIONS: NOTHING KEEPS A HIDDEN PIECE'S ID
 		vo.captured = vo.captured.map(() => "?");
 		b.history = [];
 		b.half = 0;
@@ -77,7 +97,7 @@ function playerView(state, player) {
 }
 
 /**
- * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): under a Fog of War the fogged side's moves, captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }, except one under a fake of player's (a sight entry's data.fake: Interdicted Foresight), which carries that fake, as real sight would carry the card; player's own Mirage reads as a move card (its curse-given is left out: it shows only once it has taken over a held move card at a refill: that card's id and type), except in its curse-cleared and curse-fired (it is gone then); the other player sees it as it is; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?".
+ * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): under a Fog of War no event names a piece hidden after the action or a fogged piece taken in it (the id is removed wherever it stands: piece, by, any card field); a hidden piece's move is { type, player } alone and any other event about it is left out; a piece that came out of the fog loses its from; the fogged side's captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }, except one under a fake of player's (a sight entry's data.fake: Interdicted Foresight), which carries that fake, as real sight would carry the card; player's own Mirage reads as a move card (its curse-given is left out: it shows only once it has taken over a held move card at a refill: that card's id and type), except in its curse-cleared and curse-fired (it is gone then); the other player sees it as it is; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?".
  */
 function playerEvents(state, events, player) {
 	const opp = other(player), fog = fogged(state, opp, player);
@@ -85,8 +105,11 @@ function playerEvents(state, events, player) {
 		const q = state.board.sq.find((x) => x && x.id === ev.piece), cap = events.find((e) => e.type === "capture" && e.piece === ev.piece && e.c);
 		return ev.c || (q ? q.c : cap && cap.c);
 	};
+	const gone = fog ? events.filter((e) => e.type === "capture" && colorOf(e) === opp).map((e) => e.piece) : []; // TAKEN IN THIS ACTION: OFF THE BOARD, STILL NOT NAMED
+	const hid = fog ? hiddenIds(state, opp) : [];
 	const fakes = state.enchant.filter((e) => e.owner === player && e.data && e.data.fake && isSight(e)).flatMap((e) => e.data.fake); // KEPT AFTER resight DROPS A GONE CARD'S FAKE
-	return copy(events).map((ev) => {
+	return copy(events).map((ev) => scrub(see(ev), hid.concat(gone))).filter(Boolean);
+	function see(ev) {
 		const c = ev.card && typeof ev.card === "object" ? ev.card : null;
 		if (c) { delete c.denied; delete c.stopping; } // AS IN THE VIEW: THIS BOOKKEEPING NAMES A FOGGED PAWN
 		if (c && baseKey(c.key) === "mirage" && (ev.type === "curse-given" ? other(ev.player) : ev.player) === player) { // player HOLDS IT (A curse-given NAMES THE GIVER)
@@ -98,6 +121,11 @@ function playerEvents(state, events, player) {
 			if (fog && i >= 0 && state.board.sq[i].c === opp && onHalf(i, opp)) return null;
 			delete ev.veiled;
 		}
+		if (hid.includes(ev.piece)) { // A PIECE HIDDEN NOW: ITS MOVE IS TOLD BARE, ANYTHING ELSE ABOUT IT NOT AT ALL
+			if (ev.type !== "move") return null;
+			return { type: "move", player: ev.player };
+		}
+		if (fog && ev.type === "move" && colorOf(ev) === opp && onHalf(board.sqIndex(ev.from), opp)) delete ev.from; // IT CAME OUT OF THE FOG: WHERE IT STOOD STAYS HIDDEN
 		if (fog && (ev.type === "capture" || ev.type === "promote") && colorOf(ev) === opp) ev.t = "?";
 		if (ev.player !== opp) return ev;
 		if ((ev.type === "draw" || ev.type === "discard") && c && !shownTo(state, player, c)) {
@@ -107,7 +135,7 @@ function playerEvents(state, events, player) {
 		if (c && baseKey(c.key) === "trapdoor") { delete ev.square; delete ev.target; }
 		if (fog && ev.type === "move") { delete ev.card; delete ev.castle; delete ev.through; }
 		return ev;
-	}).filter(Boolean);
+	}
 }
 
 /**
@@ -147,7 +175,7 @@ function fillHand(ctx, color) {
 }
 
 /**
- * @description A full state from a view, for Vesper's search only: rng from seed (rng.seed: a 64-character hex string or an integer), "?" pieces and the opponent's unknown cards filled from it (deterministic for a view and seed), seen null. The view is not changed. A hidden Trapdoor stays without its square.
+ * @description A full state from a view, for Vesper's search only: rng from seed (rng.seed: a 64-character hex string or an integer), the fogged pieces (board.hidden of them) put on empty squares of their half under ids "<colour>?<n>" and given types, and the opponent's unknown cards, all filled from it (deterministic for a view and seed), seen null. The view is not changed. A hidden Trapdoor stays without its square.
  */
 function fromView(view, seed) {
 	const s = copy(view);
@@ -155,6 +183,11 @@ function fromView(view, seed) {
 	s.rng = rng.seed(seed);
 	const ctx = makeCtx(s);
 	ctx.trigger = () => {}; // FILLING IN HIDDEN CARDS IS NOT PLAY: NO CARD FIRES ON THESE DRAWS
+	if (s.board.hidden) { // THE FOGGED PIECES, GUESSED ONTO EMPTY SQUARES OF THEIR HALF ("?" TYPES, FILLED BELOW)
+		const c = other(view.you), free = s.board.sq.map((p, i) => i).filter((i) => !s.board.sq[i] && onHalf(i, c));
+		ctx.rng.shuffle(free).slice(0, s.board.hidden).forEach((i, n) => { s.board.sq[i] = { id: c + "?" + n, c, t: "?" }; });
+	}
+	delete s.board.hidden;
 	for (const c of ["w", "b"]) fillPieces(ctx, c);
 	for (const c of ["w", "b"]) {
 		if (s.players[c].hand) fillHand(ctx, c);
@@ -167,10 +200,20 @@ function fromView(view, seed) {
 }
 
 /**
- * @description FEN of a state's or a view's board; a fogged piece prints as "?" (not a valid FEN).
+ * @description FEN of a state's or a view's board; a fogged view prints its hidden squares empty.
  */
 function toFen(stateOrView) {
 	return board.toFen(stateOrView.board);
 }
 
-module.exports = { playerView, playerEvents, fromView, toFen, shownTo };
+/**
+ * @description The legal actions player is told: all of them, but under the opponent's Fog of War none that would show where a hidden piece stands: no move, no action with a move in it (Last Stand) and none naming a hidden piece. The rules don't change: applyAction still takes any legal action.
+ */
+function playerLegal(state, player) {
+	const all = require("./turn.js").legalActions(state, player); // LAZY: turn.js LOADS THE CARDS, WHICH LOAD THIS FILE'S NEIGHBOURS
+	if (!fogged(state, other(player), player)) return all;
+	const ids = hiddenIds(state, other(player));
+	return all.filter((a) => !JSON.stringify(a).includes('"move"') && !ids.some((id) => JSON.stringify(a).includes('"' + id + '"')));
+}
+
+module.exports = { playerView, playerEvents, fromView, toFen, shownTo, playerLegal, fogged };

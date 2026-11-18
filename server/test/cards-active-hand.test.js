@@ -174,7 +174,7 @@ describe("Fog of War", () => {
 	const FOGS = { "fog-of-war": { turns: 3, hand: true }, "fog-of-war-rare": { turns: 3, hand: false }, "fog-of-war-epic": { turns: 5, hand: false } };
 	const fogUp = (s) => s.enchant.some((e) => e.owner === "w" && baseKey(e.key) === "fog-of-war");
 
-	test("puts a fog-of-war enchantment up: the opponent sees the player's pieces on the player's half as '?'; the hand shows for the base card only", () => {
+	test("puts a fog-of-war enchantment up: the opponent sees none of the player's pieces on the player's half; the hand shows for the base card only", () => {
 		for (const [key, { turns, hand: open }] of Object.entries(FOGS)) {
 			const { s, id } = holding(key);
 			s.players.w.moves.pop(); // THE END-OF-TURN REFILL DRAWS A MOVE CARD
@@ -185,7 +185,8 @@ describe("Fog of War", () => {
 			assert.deepEqual(entry, { id: entry.id, key, owner: "w", pieces: [], left: turns, data: {} });
 			assert.deepEqual(ofType(r.events, "enchant").map((e) => [e.player, e.key]), [["w", key]]);
 			const v = playerView(r.state, "b");
-			for (const p of v.board.sq.filter(Boolean)) assert.equal(p.t === "?", p.c === "w", key); // EVERY WHITE PIECE STARTS ON WHITE'S HALF
+			assert.ok(v.board.sq.filter(Boolean).every((p) => p.c === "b"), key); // EVERY WHITE PIECE STARTS ON WHITE'S HALF: NONE IN THE VIEW
+			assert.equal(v.board.hidden, 16, key);
 			assert.deepEqual(v.board.history, []);
 			assert.equal(v.board.half, 0);
 			const w = r.state.players.w, all = ids([...w.moves, ...w.actives, ...(w.passive ? [w.passive] : []), ...w.curses]).sort(byId);
@@ -193,11 +194,12 @@ describe("Fog of War", () => {
 			const draws = playerEvents(r.state, r.events, "b").filter((e) => e.type === "draw" && e.player === "w");
 			assert.ok(draws.length > 0);
 			assert.ok(draws.every((e) => !!e.card === open), key + ": the fogged player's draws");
-			assert.ok(playerView(r.state, "w").board.sq.filter(Boolean).every((p) => p.t !== "?"));
+			assert.equal(playerView(r.state, "w").board.sq.filter(Boolean).length, 32);
+			assert.ok(!("hidden" in playerView(r.state, "w").board));
 		}
 		assert.deepEqual(["fog-of-war", "fog-of-war-rare", "fog-of-war-epic"].map((k) => [CARDS[k].name, CARDS[k].rarity, CARDS[k].skulls]),
 			[["Fog of War", "uncommon", 2], ["Fog of War", "rare", 0], ["Fog of War", "epic", 0]]);
-		assert.equal(CARDS["fog-of-war"].text, "For 3 turns the opponent sees your pieces on your half of the board as blank tokens. Debuff: your hand is visible to the opponent while the fog lasts.");
+		assert.equal(CARDS["fog-of-war"].text, "For 3 turns the opponent can't see your pieces on your half of the board and isn't shown their legal moves. Debuff: your hand is visible to the opponent while the fog lasts.");
 	});
 
 	test("lasts 3 of the player's turns (the epic version 5), the hand open (base card) or hidden (versions) throughout", () => {
@@ -207,7 +209,7 @@ describe("Fog of War", () => {
 			for (let i = 0; fogUp(st) && i < 20; i++) {
 				st = varied(st, "b", i);
 				assert.ok(fogUp(st), key + ": fog ended before the player's turn");
-				assert.ok(playerView(st, "b").board.sq.some((p) => p && p.t === "?"), key);
+				assert.ok(playerView(st, "b").board.hidden > 0, key);
 				assert.equal(playerView(st, "b").players.w.hand.shown.length > 0, open, key);
 				const r = applyAction(st, "w", movesOf(st, "w")[i % movesOf(st, "w").length]);
 				st = r.state;
@@ -216,7 +218,8 @@ describe("Fog of War", () => {
 			}
 			assert.equal(st.result, null);
 			assert.equal(n, turns, key);
-			assert.ok(playerView(st, "b").board.sq.every((p) => !p || p.t !== "?"));
+			assert.ok(!("hidden" in playerView(st, "b").board));
+			assert.deepEqual(playerView(st, "b").board, st.board);
 			assert.equal(playerView(st, "b").players.w.hand.shown.length, 0);
 		}
 	});
@@ -226,20 +229,24 @@ describe("Fog of War", () => {
 		const rook = at(s, "a4").id;
 		s.players.w.moves = [moveCard(s, "r"), moveCard(s, "r")];
 		const r = play(s, "w", id), seen = (st, sq) => playerView(st, "b").board.sq[sqIndex(sq)];
-		assert.deepEqual(seen(r.state, "a4"), { id: rook, c: "w", t: "?" });
-		assert.equal(seen(r.state, "e1").t, "?");
+		assert.equal(seen(r.state, "a4"), null);
+		assert.equal(seen(r.state, "e1"), null);
+		assert.ok(!JSON.stringify(playerView(r.state, "b")).includes("\"" + rook + "\""));
 		const up = applyAction(step(r.state, "b"), "w", moveFrom(step(r.state, "b"), "w", "a4", "a5"));
 		assert.deepEqual(seen(up.state, "a5"), { id: rook, c: "w", t: "r" }); // ON BLACK'S HALF: SHOWN
-		assert.equal(seen(up.state, "e1").t, "?");
-		assert.deepEqual(playerEvents(up.state, up.events, "b").filter((e) => e.type === "move"), [{ type: "move", player: "w", piece: rook, from: "a4", to: "a5" }]);
+		assert.equal(seen(up.state, "e1"), null);
+		assert.deepEqual(playerEvents(up.state, up.events, "b").filter((e) => e.type === "move"), [{ type: "move", player: "w", piece: rook, to: "a5" }]); // WHERE IT STOOD IN THE FOG ISN'T TOLD
 		const t = step(up.state, "b"), back = applyAction(t, "w", moveFrom(t, "w", "a5", "a4"));
 		assert.ok(fogUp(back.state));
-		assert.deepEqual(seen(back.state, "a4"), { id: rook, c: "w", t: "?" }); // BACK ON WHITE'S HALF: HIDDEN
-		assert.deepEqual(playerEvents(back.state, back.events, "b").filter((e) => e.type === "move"), [{ type: "move", player: "w", piece: rook, from: "a5", to: "a4" }]);
+		assert.equal(seen(back.state, "a4"), null); // BACK ON WHITE'S HALF: HIDDEN
+		assert.deepEqual(playerEvents(back.state, back.events, "b").filter((e) => e.type === "move"), [{ type: "move", player: "w" }]); // A HIDDEN PIECE'S MOVE: NO PIECE, NO SQUARES
+		assert.ok(!JSON.stringify(playerEvents(back.state, back.events, "b")).includes("\"" + rook + "\""));
 		const v = playerView(back.state, "b");
 		assert.deepEqual([v.board.history, v.board.half, v.board.castling, v.players.w.captured], [[], 0, "-", []]);
 		const cap = [{ type: "capture", player: "b", piece: rook, t: "r", c: "w", by: "b5", sq: "a4" }];
-		assert.equal(playerEvents(back.state, cap, "b")[0].t, "?");
+		const gone = JSON.parse(JSON.stringify(back.state));
+		gone.board.sq[sqIndex("a4")] = null; // TAKEN: OFF THE BOARD
+		assert.deepEqual(playerEvents(gone, cap, "b"), [{ type: "capture", player: "b", t: "?", c: "w", by: "b5", sq: "a4" }]); // NEITHER ITS TYPE NOR ITS ID
 	});
 
 	test("a visible king on the opponent's half: fromView gives the fogged side no second king", () => {

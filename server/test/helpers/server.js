@@ -69,6 +69,7 @@ async function start() {
 	app.use("/api", require("../../routes/api"));
 	app.use(require("../../routes/pageRoutes.js")); // THE PAGES' REDIRECTS (A PAGE ITSELF NEEDS client/dist, WHICH THE SERVER TESTS DON'T BUILD)
 	app.use(dataServiceDown);
+	app.use(require("../../middleware/serverError.js").serverError); // SAME AS index.js
 
 	const server = http.createServer(app);
 	initSocket(server); // SAME AS index.js

@@ -33,16 +33,7 @@ app.use((req, res, next) => path.extname(req.path) == ".html" ? next() : serveBu
 app.use(routes);
 
 app.use(dataServiceDown); // THE DATA SERVICE DIDN'T ANSWER: 503 "Try again in a moment"
-app.use((err, req, res, next) => {
-    if (res.headersSent) return next(err);
-      if (err.type === "entity.parse.failed") return res.status(400).json({ error: "Request body must be valid JSON." });
-      if (err.type === "entity.too.large") return res.status(413).json({ error: "Request is too large." });
-    if (err.name === "ValidationError") return res.status(400).json({ error: err.message });
-    if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
-    delete err.body; // A REQUEST BODY (A LOGIN'S PASSWORD) IS NEVER LOGGED, BAD JSON IS ANSWERED ABOVE WITHOUT LOGGING
-    console.error(err);
-    res.status(500).json({ error: "Something went wrong on our side." });
-});
+app.use(require("./middleware/serverError.js").serverError); // ANYTHING ELSE: ITS 4XX, OR 500 (LOGGED)
 
 const server = http.createServer(app); // SOCKET.IO SHARES THE PORT WITH EXPRESS
 const io = initSocket(server);
