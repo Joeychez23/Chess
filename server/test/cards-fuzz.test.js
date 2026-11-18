@@ -78,7 +78,8 @@ function checkView(s, viewer) {
 	assert.equal(vo.hand.count, handOf(o).length);
 	for (const k of ["moves", "actives", "passive", "curses", "seen"]) assert.ok(!(k in vo), "opponent " + k + " in view");
 	assert.ok(!("seen" in v.players[viewer]), "own seen in view (it tells the fakes apart)");
-	assert.ok(!json.includes("\"denied\"") && !json.includes("\"stopping\""), "passive bookkeeping in view");
+	const kept = v.effects.filter((e) => "denied" in e.card || "stopping" in e.card); // PHALANX'S AND PEASANT IMMUNITY'S BOOKKEEPING: ONLY ON viewer'S OWN, NEVER UNDER THE OPPONENT'S FOG
+	assert.ok(kept.every((e) => e.owner === viewer) && !(kept.length && boardFog(s, opp)), "passive bookkeeping in view");
 	const shown = vo.hand.shown, seen = s.players[viewer].seen, fakes = seen ? seen.fake : [], allowed = allowedKeys(v, viewer);
 	const asked = s.pending && s.pending.player === viewer ? [...s.pending.options, s.pending.stolen] : []; // PICKPOCKET'S TAKE-BACK NAMES THE CARD JUST TAKEN FROM viewer (THE PUBLIC card-taken EVENT SHOWED IT)
 	for (const f of fakes) assert.ok(shown.some((c) => c.id === f.id), "fake card not shown");
