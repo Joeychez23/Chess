@@ -34,7 +34,7 @@ const cardless = (s, c) => legalActions(s, c).filter((a) => a.type === "move" &&
  * @description A game on this FEN with empty hands (King cards kept).
  */
 function game(fen) {
-	const s = newGame({ vesper: "b", level: 1300, seed: 1 });
+	const s = newGame({ cardGuy: "b", level: 1300, seed: 1 });
 	s.board = fromFen(fen);
 	for (const c of ["w", "b"]) Object.assign(s.players[c], { moves: [], actives: [], passive: null });
 	return s;

@@ -21,7 +21,7 @@ let activeOn = false, onPlay = null;
 register({ key: "test-active", kind: "active", name: "Test Active", rarity: "common", text: "", targets: () => (activeOn ? [null] : []), play: (ctx, player, target) => onPlay && onPlay(ctx, player, target) });
 register({ key: "test-passive", kind: "passive", name: "Test Passive", rarity: "common", text: "" });
 
-const fresh = (seed = 1) => newGame({ vesper: "b", level: 1300, seed });
+const fresh = (seed = 1) => newGame({ cardGuy: "b", level: 1300, seed });
 const game = (fen, seed = 1) => { const s = fresh(seed); s.board = fromFen(fen); return s; };
 const card = (piece, id) => ({ id, key: "move", piece });
 const first = (s, c, type) => legalActions(s, c).find((a) => a.type === type);
@@ -691,7 +691,7 @@ test("a check that stood, was lifted, and comes back before the turn passes is a
 test("a Frozen pawn gives no check, so a king may stand in its reach; when the Frozen ends (the end of its owner's turn) the king is in check at its own turn start, and with no answer that is checkmate", () => {
 	const E = require("../../cards-engine/index.js"), { inCheck: checked } = require("../../cards-engine/rules.js");
 	const from = (fen) => { // WHITE HOLDS ONE ROOK CARD, NO OTHER CARD IN PLAY; THE e6 PAWN IS FROZEN FOR ONE MORE TURN
-		const s = E.newGame({ vesper: "b", level: 1300, seed: 1 });
+		const s = E.newGame({ cardGuy: "b", level: 1300, seed: 1 });
 		s.board = E.board.fromFen(fen);
 		for (const c of ["w", "b"]) Object.assign(s.players[c], { actives: [], passive: null, curses: [] });
 		s.players.w.moves = [require("../../cards-engine/hand.js").newCard(s, "move", { piece: "r" })];

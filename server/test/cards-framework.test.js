@@ -16,7 +16,7 @@ const rngMod = require("../../cards-engine/rng.js");
 const { register, reset, RARITY_WEIGHTS } = require("../../cards-engine/cards/index.js");
 
 const other = (c) => (c === "w" ? "b" : "w");
-const fresh = (seed = 1) => newGame({ vesper: "b", level: 1300, seed });
+const fresh = (seed = 1) => newGame({ cardGuy: "b", level: 1300, seed });
 const game = (fen, seed = 1) => { const s = fresh(seed); s.board = fromFen(fen); return s; };
 const card = (piece, id) => ({ id, key: "move", piece });
 const placed = (id, key, owner, placedAt) => ({ id, owner, card: { id, key }, placedAt });
@@ -762,7 +762,7 @@ test("random games with skipping, trapping and card-action cards never go on wit
 	const pickSeq = (seed) => { let x = seed * 2654435761 >>> 0 || 1; return (n) => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x % n; }; };
 	const ends = {};
 	for (const seed of [130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 7, 42]) {
-		let s = newGame({ vesper: "b", level: 1300, seed });
+		let s = newGame({ cardGuy: "b", level: 1300, seed });
 		const pick = pickSeq(seed);
 		for (let ply = 0; ply < 300 && !s.result; ply++) {
 			const actor = s.pending ? s.pending.player : s.board.turn, acts = legalActions(s, actor);
@@ -1162,7 +1162,7 @@ test("a seeded game played through the public entry draws and plays cards withou
 	freshEngine((engine) => {
 		const seen = new Set(), played = new Set(), runs = [];
 		for (let seed = 1; seed <= 4; seed++) for (let run = 0; run < 2; run++) { // EACH SEED TWICE: SAME SEED, SAME CHOICES → THE SAME STATES AND EVENTS
-			let s = engine.newGame({ vesper: "b", level: 1300, seed }), pick = seed, log = "";
+			let s = engine.newGame({ cardGuy: "b", level: 1300, seed }), pick = seed, log = "";
 			const roll = (n) => { pick = (pick * 1103515245 + 12345) % 2147483648; return pick % n; }; // THE TEST'S OWN CHOICES, SEEDED
 			for (let i = 0; i < 160 && !s.result; i++) {
 				const color = ["w", "b"].find((c) => engine.legalActions(s, c).length);

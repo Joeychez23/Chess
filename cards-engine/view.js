@@ -1,6 +1,6 @@
 /*
  *  view.js  --  chess cards engine
- *	What each player may see: playerView and playerEvents remove what a player may not see (the server sends only these); fromView rebuilds a playable state from a view for Vesper's search.
+ *	What each player may see: playerView and playerEvents remove what a player may not see (the server sends only these); fromView rebuilds a playable state from a view for Card Guy's search.
  *
  */
 
@@ -176,7 +176,7 @@ function fillHand(ctx, color) {
 }
 
 /**
- * @description A full state from a view, for Vesper's search only: rng from seed (rng.seed: a 64-character hex string or an integer), the fogged pieces (board.hidden of them) put on empty squares of their half under ids "<colour>?<n>" and given types, and the opponent's unknown cards, all filled from it (deterministic for a view and seed), seen null. The view is not changed. A hidden Trapdoor stays without its square.
+ * @description A full state from a view, for Card Guy's search only: rng from seed (rng.seed: a 64-character hex string or an integer), the fogged pieces (board.hidden of them) put on empty squares of their half under ids "<colour>?<n>" and given types, and the opponent's unknown cards, all filled from it (deterministic for a view and seed), seen null. The view is not changed. A hidden Trapdoor stays without its square.
  */
 function fromView(view, seed) {
 	const s = copy(view);

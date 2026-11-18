@@ -16,7 +16,7 @@ const statuses = require("../../cards-engine/statuses.js");
 reset();
 for (const k of ["foresight", "fog-of-war", "mulligan", "pickpocket", "insidious-nullification", "double-time", "hexcraft", "cleanse", "stronghold", "heretical-subjection"]) register(require("../../cards-engine/cards/active/" + k + ".js"));
 
-const fresh = (seed = 1) => newGame({ vesper: "b", level: 1300, seed });
+const fresh = (seed = 1) => newGame({ cardGuy: "b", level: 1300, seed });
 const ofType = (events, type) => events.filter((e) => e.type === type);
 const ids = (cards) => cards.map((c) => c.id);
 const byId = (a, b) => Number(a.slice(1)) - Number(b.slice(1));

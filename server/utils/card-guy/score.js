@@ -1,6 +1,6 @@
 /*
  *  score.js  --  chess server
- *	Vesper: the card score
+ *	Card Guy: the card score
  *  What a card did that a chess engine can't see (statuses, curses, cards won and lost, a waiting passive, a lost turn), in centipawns, added to the board's evaluation.
  *
  */
@@ -55,7 +55,7 @@ function cardScore(before, after, me, events = []) {
 
 /**
  * @description All or Nothing's expected value for the next hand of the card duel (a 50/50): half the upgrade's worth minus half of what a loss forfeits
- * (6 cards and the piece; the epic version no cards, the legendary one no piece). Vesper plays the card, and goes on after a win, by this number
+ * (6 cards and the piece; the epic version no cards, the legendary one no piece). Card Guy plays the card, and goes on after a win, by this number
  * @param  {[object]} state [engine state]
  * @param  {[string]} me ["w" or "b"]
  * @param  {[string]} key [the card's key (a version's own)]

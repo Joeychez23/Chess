@@ -30,7 +30,7 @@ const roundTrip = (s) => JSON.parse(JSON.stringify(s));
  * @description A fresh game on fen where White holds All or Nothing (or the version key) as its only active; returns { s, id }.
  */
 function holding(fen, seed = 1, key = "all-or-nothing") {
-	const s = newGame({ vesper: "b", level: 1300, seed });
+	const s = newGame({ cardGuy: "b", level: 1300, seed });
 	s.board = fromFen(fen);
 	const c = hand.newCard(s, key);
 	s.players.w.actives = [c];
@@ -296,7 +296,7 @@ describe("All or Nothing: the card duel", () => {
 		for (const [pl, a] of [["w", STOP], ["b", STOP], ["b", PICK(3)], ["w", { type: "move", card: "king", from: "e1", to: "e2" }]]) {
 			assert.throws(() => applyAction(s, pl, a), IllegalAction);
 		}
-		({ s } = go(s, "b", PICK(1))); // VESPER MAY PICK FIRST
+		({ s } = go(s, "b", PICK(1))); // CARD GUY MAY PICK FIRST
 		assert.throws(() => applyAction(s, "b", PICK(0)), IllegalAction);
 		rig(s, ["As", "2c", "3d"], ["Kh", "4c", "5d"]);
 		({ s } = go(s, "w", PICK(0)));
@@ -348,7 +348,7 @@ describe("All or Nothing: the card duel", () => {
 	});
 
 	test("Black starts a duel too: Black is the duel's player, wins and stops", () => {
-		const s0 = newGame({ vesper: "b", level: 1300, seed: 1 });
+		const s0 = newGame({ cardGuy: "b", level: 1300, seed: 1 });
 		s0.board = fromFen("4k3/8/8/4p3/8/8/8/4K3 b - - 0 1");
 		const c = hand.newCard(s0, "all-or-nothing");
 		s0.players.b.actives = [c];

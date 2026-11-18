@@ -1,8 +1,8 @@
 /*
  *  cardsController.js  --  chess server
  *	Chess Cards Routes
- *  A card game vs Vesper (the AI). The rules engine (cards-engine/) runs here, the data service stores its state as a JSON string (cards_state)
- *  and saves a new one only on the version it was made from. The state holds the rng & Vesper's hand, so a client only ever gets
+ *  A card game vs Card Guy (the AI). The rules engine (cards-engine/) runs here, the data service stores its state as a JSON string (cards_state)
+ *  and saves a new one only on the version it was made from. The state holds the rng & Card Guy's hand, so a client only ever gets
  *  playerView & playerEvents of it, never the state itself
  *
  */
@@ -26,9 +26,9 @@ const ACTION_CHARS = 2000; // AN ACTION AS JSON, THE LONGEST LEGAL ONE IS UNDER 
 // New Game (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Creates a card game vs Vesper for the requester (signed in or a guest, who gets a guest_game cookie for it). Signed in players have one AI or card game open at a time:
+ * @description Creates a card game vs Card Guy for the requester (signed in or a guest, who gets a guest_game cookie for it). Signed in players have one AI or card game open at a time:
  * while one is open this answers 409, unless replace_current forfeits it first. A guest's earlier game (the one their cookie names, card or normal) is forfeited: the cookie moves to the new game. The seed is 32 random bytes, an integer only from CARDS_TEST_SEED while NODE_ENV is "test", never from the request
- * @param  {[object]} req.body [{ start_color ("alternate" | "random" | "w" | "b", anything else is random), ai_level (Vesper's level, as /api/chess/game), replace_current (true = forfeit the open AI or card game) }]
+ * @param  {[object]} req.body [{ start_color ("alternate" | "random" | "w" | "b", anything else is random), ai_level (Card Guy's level, as /api/chess/game), replace_current (true = forfeit the open AI or card game) }]
  * @return {[object]} response [cardsResponse | { status: 409, game_id (the open one), message }]
  */
 async function newCardsGame(req, res) {
@@ -43,11 +43,11 @@ async function newCardsGame(req, res) {
 	const level = readLevel(ai_level);
 	const fixed = process.env.NODE_ENV === "test" && /^\d+$/.test(process.env.CARDS_TEST_SEED || "") && Number(process.env.CARDS_TEST_SEED) <= 0xFFFFFFFF; // TESTS ONLY, A WHOLE NUMBER THE ENGINE TAKES ONLY: ANYWHERE ELSE EVERY GAME WOULD BE THE SAME ONE
 	const seed = fixed ? Number(process.env.CARDS_TEST_SEED) : crypto.randomBytes(32).toString("hex");
-	const state = newGame({ vesper: color == "b" ? "w" : "b", level, seed }); // THE DATA SERVICE PICKS THE SIDES: loadCardsGame SETS vesper FROM THE GAME ON EVERY READ
+	const state = newGame({ cardGuy: color == "b" ? "w" : "b", level, seed }); // THE DATA SERVICE PICKS THE SIDES: loadCardsGame SETS cardGuy FROM THE GAME ON EVERY READ
 	const response = await createCardsGame({ color, level, state: JSON.stringify(state), fen: toFen(state) });
 	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); }
 	if (response.guest_token) { setGuestCookie(res, response.guest_token); } // ONLY THIS BROWSER CAN PLAY IT, THE DATA SERVICE SIGNED IT FOR THIS GAME
-	state.vesper = vesperOf(response.game_data);
+	state.cardGuy = cardGuyOf(response.game_data);
 	return res.json(cardsResponse(response.game_data, state));
 }
 
@@ -82,7 +82,7 @@ async function playCardsAction(req, res) {
 	const game = await loadCardsGame(req, res);
 	if (!game) { return; }
 	const { gameData, state } = game;
-	const you = other(vesperOf(gameData));
+	const you = other(cardGuyOf(gameData));
 	if (!gameOpen(gameData)) { return res.status(409).json({ ...cardsResponse(gameData, state), status: 409, message: "Game is already over" }); }
 
 	let next;
@@ -111,22 +111,22 @@ async function playCardsAction(req, res) {
 }
 
 /* ---------------------------------------------------------------- */
-// Vesper (Task 17)
+// Card Guy (Task 17)
 /* ---------------------------------------------------------------- */
 /**
- * @description Vesper's action in a card game. Not built yet (Task 17)
+ * @description Card Guy's action in a card game. Not built yet (Task 17)
  * @return {[object]} response [{ status: 501, message }]
  */
-function vesperCardsTurn(req, res) {
-	return res.status(501).json({ status: 501, message: "Vesper can't play yet" });
+function cardGuyCardsTurn(req, res) {
+	return res.status(501).json({ status: 501, message: "Card Guy can't play yet" });
 }
 
 /**
- * @description Who Vesper is, for the card game page. Not built yet (Task 17)
+ * @description Who Card Guy is, for the card game page. Not built yet (Task 17)
  * @return {[object]} response [{ status: 501, message }]
  */
-function getVesper(req, res) {
-	return res.status(501).json({ status: 501, message: "Vesper can't play yet" });
+function getCardGuy(req, res) {
+	return res.status(501).json({ status: 501, message: "Card Guy can't play yet" });
 }
 
 /* ---------------------------------------------------------------- */
@@ -149,20 +149,20 @@ async function loadCardsGame(req, res) {
 	if (gameData.mode?.S != "cards") { res.status(400).json({ status: 400, message: "Not a card game" }); return null; }
 	const state = JSON.parse(gameData.cards_state.S);
 	if (state.v !== ENGINE_VERSION) { res.status(409).json({ status: 409, game_id: gameData.game_id.S, message: "This game is from an older version" }); return null; } // ITS STATE MAY NOT FIT THIS ENGINE
-	state.vesper = vesperOf(gameData); // newCardsGame MADE THE STATE BEFORE THE SIDES WERE PICKED
+	state.cardGuy = cardGuyOf(gameData); // newCardsGame MADE THE STATE BEFORE THE SIDES WERE PICKED
 	return { gameData, state };
 }
 
 /**
- * @description The body every card route answers with, for the requester (the side that isn't Vesper)
+ * @description The body every card route answers with, for the requester (the side that isn't Card Guy)
  * @param  {[object]} gameData [the stored card game]
  * @param  {[object]} state [its engine state]
  * @param  {[array]} events [the action's events, left out = none]
- * @return {[object]} body [{ status, game_id, mode: "cards", ai_level, you: "w" | "b", view: playerView, legal: the requester's legal actions as playerLegal tells them ([] once it's over), legal_hidden: Vesper's Fog of War is up, so legal leaves out the moves (any legal action is still taken), events: playerEvents,
- * vesper_due: Vesper owes an action (its turn, or a duel pick or a choice), result: { winner, reason } | null (a forfeit: from the game, the state doesn't have it) }]
+ * @return {[object]} body [{ status, game_id, mode: "cards", ai_level, you: "w" | "b", view: playerView, legal: the requester's legal actions as playerLegal tells them ([] once it's over), legal_hidden: Card Guy's Fog of War is up, so legal leaves out the moves (any legal action is still taken), events: playerEvents,
+ * card_guy_due: Card Guy owes an action (its turn, or a duel pick or a choice), result: { winner, reason } | null (a forfeit: from the game, the state doesn't have it) }]
  */
 function cardsResponse(gameData, state, events = []) {
-	const vesper = vesperOf(gameData), you = other(vesper);
+	const cardGuy = cardGuyOf(gameData), you = other(cardGuy);
 	const open = gameOpen(gameData);
 	return {
 		status: 200,
@@ -172,27 +172,27 @@ function cardsResponse(gameData, state, events = []) {
 		you,
 		view: playerView(state, you),
 		legal: open ? playerLegal(state, you) : [],
-		legal_hidden: open && state.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === vesper), // ANY VERSION OF THE CARD
+		legal_hidden: open && state.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === cardGuy), // ANY VERSION OF THE CARD
 		events: playerEvents(state, events, you),
-		vesper_due: open && legalActions(state, vesper).length > 0,
+		card_guy_due: open && legalActions(state, cardGuy).length > 0,
 		result: state.result || (open ? null : { winner: gameData.winner?.S || null, reason: gameData.reason?.S || null }),
 	};
 }
 
 /**
- * @description The board a save stores as game_board, what the normal game routes & Home's picture show. While Vesper's Fog of War is up
+ * @description The board a save stores as game_board, what the normal game routes & Home's picture show. While Card Guy's Fog of War is up
  * it keeps the stored one: the real board would show the pieces the fog hides from the player. A finished game hides nothing
  * @param  {[object]} gameData [the stored card game]
  * @param  {[object]} state [the state being saved]
  * @return {[string]} fen
  */
 function boardFen(gameData, state) {
-	const fogged = state.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === vesperOf(gameData)); // ANY VERSION OF THE CARD
+	const fogged = state.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === cardGuyOf(gameData)); // ANY VERSION OF THE CARD
 	return fogged && !state.result ? gameData.game_board.S : toFen(state);
 }
 
-const vesperOf = (gameData) => (gameData.white_player_id.S == "CHESS_AI" ? "w" : "b"); // VESPER PLAYS AS CHESS_AI
+const cardGuyOf = (gameData) => (gameData.white_player_id.S == "CHESS_AI" ? "w" : "b"); // CARD GUY PLAYS AS CHESS_AI
 const other = (color) => (color == "w" ? "b" : "w");
 
 
-module.exports = { newCardsGame, getCardsGame, playCardsAction, vesperCardsTurn, getVesper };
+module.exports = { newCardsGame, getCardsGame, playCardsAction, cardGuyCardsTurn, getCardGuy };

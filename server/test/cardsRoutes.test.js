@@ -19,7 +19,7 @@ const { AI_MOVE_LIMITS } = require("../middleware/rateLimit.js");
 let server;
 before(async () => { server = await testServer.start(); });
 after(() => server.close());
-beforeEach(() => { testServer.reset(); process.env.CARDS_TEST_SEED = "1"; }); // ONE KNOWN DEAL: A RANDOM ONE NOW AND THEN HAS NO FIRST MOVE, OR A VESPER CARD THAT ANSWERS A MATE
+beforeEach(() => { testServer.reset(); process.env.CARDS_TEST_SEED = "1"; }); // ONE KNOWN DEAL: A RANDOM ONE NOW AND THEN HAS NO FIRST MOVE, OR A CARD GUY CARD THAT ANSWERS A MATE
 
 const stored = (gameId) => JSON.parse(peek("chess_db", gameId).cards_state.S);
 const store = (gameId, state) => poke("chess_db", gameId, { cards_state: { S: JSON.stringify(state) } });
@@ -37,11 +37,11 @@ const firstMove = (state, color) => {
  * @description What a response must hold for color on this state (the stored game still open)
  */
 function expected(state, color, events = []) {
-	const vesper = color === "w" ? "b" : "w";
-	return { mode: "cards", you: color, view: E.playerView(state, color), legal: E.playerLegal(state, color), legal_hidden: state.enchant.some((e) => e.key.startsWith("fog-of-war") && e.owner === vesper), events: E.playerEvents(state, events, color), vesper_due: E.legalActions(state, vesper).length > 0, result: state.result };
+	const cardGuy = color === "w" ? "b" : "w";
+	return { mode: "cards", you: color, view: E.playerView(state, color), legal: E.playerLegal(state, color), legal_hidden: state.enchant.some((e) => e.key.startsWith("fog-of-war") && e.owner === cardGuy), events: E.playerEvents(state, events, color), card_guy_due: E.legalActions(state, cardGuy).length > 0, result: state.result };
 }
 
-const pick = (response) => ({ mode: response.mode, you: response.you, view: response.view, legal: response.legal, legal_hidden: response.legal_hidden, events: response.events, vesper_due: response.vesper_due, result: response.result });
+const pick = (response) => ({ mode: response.mode, you: response.you, view: response.view, legal: response.legal, legal_hidden: response.legal_hidden, events: response.events, card_guy_due: response.card_guy_due, result: response.result });
 
 test("a guest starts a card game and gets a view without hidden information", async () => {
 	const created = await start();
@@ -57,9 +57,9 @@ test("a guest starts a card game and gets a view without hidden information", as
 	assert.deepEqual(pick(created), expected(state, "w"));
 	assert.equal(created.view.rng, undefined);
 	assert.deepEqual(Object.keys(created.view.players.b.hand), ["count", "shown"]);
-	assert.equal(created.view.players.b.actives, undefined); // VESPER'S CARDS ARE ONLY A COUNT
+	assert.equal(created.view.players.b.actives, undefined); // CARD GUY'S CARDS ARE ONLY A COUNT
 	assert.ok(created.legal.length > 0);
-	assert.equal(created.vesper_due, false);
+	assert.equal(created.card_guy_due, false);
 
 	const again = await load(created.game_id); // THE COOKIE: ONLY THIS BROWSER PLAYS IT
 	assert.equal(again.http, 200);
@@ -68,22 +68,22 @@ test("a guest starts a card game and gets a view without hidden information", as
 	const black = await start({ start_color: "b", ai_level: 1600 }, { guest: "second" });
 	assert.equal(black.you, "b");
 	assert.equal(black.ai_level, 1600);
-	assert.equal(black.view.vesper, "w");
+	assert.equal(black.view.cardGuy, "w");
 	assert.deepEqual(black.legal, []);
-	assert.equal(black.vesper_due, true); // VESPER IS WHITE, IT MOVES FIRST
+	assert.equal(black.card_guy_due, true); // CARD GUY IS WHITE, IT MOVES FIRST
 	assert.equal(stored(black.game_id).level, 1600);
 });
 
-test("the sides the data service picks decide who Vesper is", async () => {
+test("the sides the data service picks decide who Card Guy is", async () => {
 	const alice = player("alice");
 	await start({}, { as: alice }); // ALICE WAS WHITE LAST
 	const alternate = await start({ start_color: "alternate", replace_current: true }, { as: alice }); // THE SERVER MADE THE STATE BEFORE THE SIDES WERE PICKED
 	assert.equal(alternate.you, "b");
-	assert.equal(alternate.view.vesper, "w");
-	assert.equal(alternate.vesper_due, true);
+	assert.equal(alternate.view.cardGuy, "w");
+	assert.equal(alternate.card_guy_due, true);
 	const state = stored(alternate.game_id);
-	store(alternate.game_id, { ...state, vesper: "b" });
-	assert.equal((await load(alternate.game_id, { as: alice })).view.vesper, "w");
+	store(alternate.game_id, { ...state, cardGuy: "b" });
+	assert.equal((await load(alternate.game_id, { as: alice })).view.cardGuy, "w");
 });
 
 test("a legal action is applied and saved; the response holds the events", async () => {
@@ -186,7 +186,7 @@ test("another guest's action on the game is refused and the state is unchanged",
 	assert.equal(signedIn.http, 403);
 	assert.equal(signedIn.message, "Player is not in this game");
 	assert.equal((await load(created.game_id, { as: bob })).http, 403);
-	assert.equal((await call("POST", `/api/chess/cards/${created.game_id}/vesper`, { guest: "other" })).http, 501); // TASK 17
+	assert.equal((await call("POST", `/api/chess/cards/${created.game_id}/card-guy`, { guest: "other" })).http, 501); // TASK 17
 	assert.equal((await load("no-such-game")).http, 404);
 	assert.deepEqual(stored(created.game_id), before);
 	assert.equal(version(created.game_id), "1");
@@ -200,7 +200,7 @@ test("forfeit closes a card game; the next GET has result forfeit and no legal a
 	const closed = await load(created.game_id);
 	assert.deepEqual(closed.result, { winner: "b", reason: "forfeit" });
 	assert.deepEqual(closed.legal, []);
-	assert.equal(closed.vesper_due, false);
+	assert.equal(closed.card_guy_due, false);
 	const refused = await act(created.game_id, action);
 	assert.equal(refused.http, 409);
 	assert.equal(refused.message, "Game is already over");
@@ -208,7 +208,7 @@ test("forfeit closes a card game; the next GET has result forfeit and no legal a
 	assert.equal(version(created.game_id), "1");
 });
 
-test("no response body contains the seed, cards_state or a hidden Vesper card key", async () => {
+test("no response body contains the seed, cards_state or a hidden Card Guy card key", async () => {
 	const alice = player("alice");
 	const created = await start({}, { as: alice });
 	const gameId = created.game_id;
@@ -216,10 +216,10 @@ test("no response body contains the seed, cards_state or a hidden Vesper card ke
 	const bodies = [created, await load(gameId, { as: alice }), await act(gameId, firstMove(state, "w"), { as: alice }),
 		await call("GET", `/api/chess/game/${gameId}`, { as: alice }), await call("GET", `/api/chess/user/alice`, { as: alice }),
 		await call("POST", `/api/chess/game/${gameId}/forfeit`, { as: alice }), await load(gameId, { as: alice })];
-	const vesper = state.players.b, mine = state.players.w;
+	const cardGuy = state.players.b, mine = state.players.w;
 	const myKeys = new Set([...mine.moves, ...mine.actives, ...mine.curses].map((c) => c.key));
-	const hidden = [...vesper.actives, ...vesper.curses, ...(vesper.passive ? [vesper.passive] : [])].filter((c) => !c.faceUp && !myKeys.has(c.key)).map((c) => c.key);
-	assert.ok(hidden.length > 0); // VESPER IS DEALT AN ACTIVE
+	const hidden = [...cardGuy.actives, ...cardGuy.curses, ...(cardGuy.passive ? [cardGuy.passive] : [])].filter((c) => !c.faceUp && !myKeys.has(c.key)).map((c) => c.key);
+	assert.ok(hidden.length > 0); // CARD GUY IS DEALT AN ACTIVE
 	for (const body of bodies) {
 		const text = JSON.stringify(body);
 		assert.equal(body.http, 200, text.slice(0, 80));
@@ -236,11 +236,11 @@ test("the seed is random hex, an integer only from CARDS_TEST_SEED, never from t
 	assert.notDeepEqual(stored(random.game_id).rng.key.slice(1), [0, 0, 0, 0, 0, 0, 0]); // A HEX SEED FILLS EVERY WORD
 	process.env.CARDS_TEST_SEED = "7";
 	const fixed = await start({ seed: 5 }, { guest: "second" });
-	assert.deepEqual(stored(fixed.game_id), E.newGame({ vesper: "b", level: 1300, seed: 7 })); // THE SAME GAME AS THE ENGINE MAKES FROM 7
+	assert.deepEqual(stored(fixed.game_id), E.newGame({ cardGuy: "b", level: 1300, seed: 7 })); // THE SAME GAME AS THE ENGINE MAKES FROM 7
 });
 
 test("CARDS_TEST_SEED is ignored outside tests, and when it isn't a whole number", async () => {
-	const seven = JSON.stringify(E.newGame({ vesper: "b", level: 1300, seed: 7 }));
+	const seven = JSON.stringify(E.newGame({ cardGuy: "b", level: 1300, seed: 7 }));
 	process.env.CARDS_TEST_SEED = "7";
 	process.env.NODE_ENV = "production";
 	try {
@@ -264,18 +264,18 @@ async function position(fen, pieces, change = () => {}) {
 	state.board = fromFen(fen);
 	state.board.sq.forEach((q) => { if (q) q.id = q.c + n[q.c]++; });
 	Object.assign(state.players.w, { moves: pieces.map((piece) => hand.newCard(state, "move", { piece })), actives: [], passive: null });
-	Object.assign(state.players.b, { actives: [], passive: null, curses: [] }); // NO VESPER CARD ANSWERS A CHECK
+	Object.assign(state.players.b, { actives: [], passive: null, curses: [] }); // NO CARD GUY CARD ANSWERS A CHECK
 	change(state);
 	store(created.game_id, state);
 	return { gameId: created.game_id, state };
 }
 
-test("an action that mates closes the game for the player: winner and reason saved, no legal actions, nothing owed by Vesper", async () => {
+test("an action that mates closes the game for the player: winner and reason saved, no legal actions, nothing owed by Card Guy", async () => {
 	const { gameId, state } = await position("3rkr2/3p1p2/8/8/8/8/8/R5K1 w - - 0 1", ["r"]); // Ra1-e1 MATES
 	const mated = await act(gameId, { type: "move", card: state.players.w.moves[0].id, from: "a1", to: "e1" });
 	assert.equal(mated.http, 200);
 	assert.deepEqual(mated.result, { winner: "w", reason: "checkmate" });
-	assert.deepEqual([mated.legal, mated.vesper_due], [[], false]);
+	assert.deepEqual([mated.legal, mated.card_guy_due], [[], false]);
 	const item = peek("chess_db", gameId);
 	assert.deepEqual([item.state.S, item.winner.S, item.reason.S], ["CLOSED", "w", "checkmate"]);
 	assert.deepEqual((await load(gameId)).result, { winner: "w", reason: "checkmate" });
@@ -287,13 +287,13 @@ test("an action that ends the game in a draw closes it as a draw", async () => {
 	const drawn = await act(gameId, { type: "move", card: state.players.w.moves[0].id, from: "a1", to: "a2" });
 	assert.equal(drawn.http, 200);
 	assert.deepEqual(drawn.result, { winner: null, reason: "fifty" });
-	assert.deepEqual([drawn.legal, drawn.vesper_due], [[], false]);
+	assert.deepEqual([drawn.legal, drawn.card_guy_due], [[], false]);
 	const item = peek("chess_db", gameId);
 	assert.deepEqual([item.state.S, item.winner.S, item.reason.S], ["CLOSED", "draw", "fifty"]);
 	assert.deepEqual((await load(gameId)).result, { winner: null, reason: "fifty" });
 });
 
-test("a game that ends under Vesper's Fog of War saves the real board: a finished game hides nothing", async () => {
+test("a game that ends under Card Guy's Fog of War saves the real board: a finished game hides nothing", async () => {
 	const { gameId, state } = await position("3rkr2/3p1p2/8/8/8/8/8/R5K1 w - - 0 1", ["r"], (s) => { s.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 3, data: {} }); });
 	const mated = await act(gameId, { type: "move", card: state.players.w.moves[0].id, from: "a1", to: "e1" });
 	assert.equal(mated.result.reason, "checkmate");
@@ -314,7 +314,7 @@ test("a save that answers too late: the player still gets the action's events, t
 	assert.equal(version(created.game_id), "2");
 });
 
-test("game_board keeps its last value while Vesper's Fog of War is up", async () => {
+test("game_board keeps its last value while Card Guy's Fog of War is up", async () => {
 	const created = await start();
 	const state = stored(created.game_id);
 	state.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 3, data: {} });
@@ -354,7 +354,7 @@ test("a second open AI or card game follows the existing 409 / replace_current r
 
 test("reloading mid-duel returns the duel exactly as it was", async () => {
 	const created = await start();
-	const state = E.newGame({ vesper: "b", level: 1300, seed: 1 });
+	const state = E.newGame({ cardGuy: "b", level: 1300, seed: 1 });
 	state.board = fromFen("4k3/8/8/8/4P3/8/8/4K3 w - - 0 1");
 	const card = hand.newCard(state, "all-or-nothing");
 	state.players.w.actives = [card];
@@ -364,33 +364,33 @@ test("reloading mid-duel returns the duel exactly as it was", async () => {
 	assert.equal(opened.http, 200);
 	assert.ok(opened.view.duel);
 	assert.ok(opened.legal.length > 0);
-	assert.equal(opened.vesper_due, true); // BOTH PICK
+	assert.equal(opened.card_guy_due, true); // BOTH PICK
 	const reloaded = await load(created.game_id);
 	assert.deepEqual(reloaded.view, opened.view);
 	assert.deepEqual(reloaded.legal, opened.legal);
-	assert.equal(reloaded.vesper_due, true);
+	assert.equal(reloaded.card_guy_due, true);
 	assert.deepEqual(reloaded.events, []);
 });
 
-test("card actions & Vesper's turns take from the AI move limits", async () => {
+test("card actions & Card Guy's turns take from the AI move limits", async () => {
 	const created = await start();
 	const action = firstMove(stored(created.game_id), "w");
-	for (let i = 0; i < AI_MOVE_LIMITS.aiMoveSession.burst; i++) { await call("POST", `/api/chess/cards/${created.game_id}/vesper`); }
+	for (let i = 0; i < AI_MOVE_LIMITS.aiMoveSession.burst; i++) { await call("POST", `/api/chess/cards/${created.game_id}/card-guy`); }
 	const limited = await act(created.game_id, action);
 	assert.equal(limited.http, 429);
 	assert.ok(limited.retry_after);
 	assert.equal(version(created.game_id), "1");
 });
 
-test("GET /vesper is its own route, not a game id", async () => {
-	const answer = await call("GET", "/api/chess/cards/vesper");
+test("GET /card-guy is its own route, not a game id", async () => {
+	const answer = await call("GET", "/api/chess/cards/card-guy");
 	assert.equal(answer.http, 501);
 });
 
-test("the events of an action reach the player redacted: Vesper's hidden discards carry no card", async () => {
+test("the events of an action reach the player redacted: Card Guy's hidden discards carry no card", async () => {
 	const created = await start();
 	const state = stored(created.game_id);
-	state.players.b.curses.push(hand.newCard(state, "debt", { left: 0 })); // DUE AT VESPER'S NEXT TURN START: IT DISCARDS 2 OF ITS CARDS
+	state.players.b.curses.push(hand.newCard(state, "debt", { left: 0 })); // DUE AT CARD GUY'S NEXT TURN START: IT DISCARDS 2 OF ITS CARDS
 	store(created.game_id, state);
 	const action = firstMove(state, "w"), next = E.applyAction(state, "w", action);
 	const gone = next.events.filter((e) => e.type === "discard" && e.player === "b").map((e) => e.card.id);
@@ -412,12 +412,12 @@ test("a second action on the same game saves on the version the first one made",
 	assert.equal(version(created.game_id), "3");
 });
 
-test("a forfeited game owes nothing from Vesper, also when it was Vesper's turn", async () => {
+test("a forfeited game owes nothing from Card Guy, also when it was Card Guy's turn", async () => {
 	const created = await start({ start_color: "b" });
-	assert.equal(created.vesper_due, true);
+	assert.equal(created.card_guy_due, true);
 	assert.equal((await call("POST", `/api/chess/game/${created.game_id}/forfeit`)).http, 200);
 	const closed = await load(created.game_id);
-	assert.deepEqual([closed.vesper_due, closed.legal, closed.result], [false, [], { winner: "w", reason: "forfeit" }]);
+	assert.deepEqual([closed.card_guy_due, closed.legal, closed.result], [false, [], { winner: "w", reason: "forfeit" }]);
 });
 
 test("a save that timed out and didn't land answers 503, not the action's events", async () => {
@@ -438,7 +438,7 @@ test("a save that timed out and didn't land answers 503, not the action's events
 	assert.equal(version(created.game_id), "1");
 });
 
-test("under Vesper's Fog of War the response has no hidden piece and no move list, a legal move sent blind is taken and an illegal one refused", async () => {
+test("under Card Guy's Fog of War the response has no hidden piece and no move list, a legal move sent blind is taken and an illegal one refused", async () => {
 	const fog = (s) => { s.enchant.push({ id: "e1", key: "fog-of-war-rare", owner: "b", pieces: [], left: 3, data: {} }); };
 	const { gameId, state } = await position("3rkr2/3p1p2/8/8/8/8/8/R5K1 w - - 0 1", ["r", "r"], fog);
 	const loaded = await call("GET", `/api/chess/cards/${gameId}`);
@@ -465,7 +465,7 @@ test("under Vesper's Fog of War the response has no hidden piece and no move lis
 	assert.ok(plain.legal.some((a) => a.type === "move"));
 });
 
-test("only Vesper's Fog of War, in any version, holds game_board: the player's own fog doesn't", async () => {
+test("only Card Guy's Fog of War, in any version, holds game_board: the player's own fog doesn't", async () => {
 	const run = async (key, owner, guest) => {
 		const created = await start({}, { guest });
 		const state = stored(created.game_id);

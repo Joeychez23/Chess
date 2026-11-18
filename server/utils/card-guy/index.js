@@ -1,7 +1,7 @@
 /*
  *  index.js  --  chess server
- *	Vesper, the card-game bot
- *  Vesper knows only its own view of the game (playerView). It rebuilds a state from it (fromView: the hidden cards and fogged pieces are guesses),
+ *	Card Guy, the card-game bot
+ *  Card Guy knows only its own view of the game (playerView). It rebuilds a state from it (fromView: the hidden cards and fogged pieces are guesses),
  *  tries each candidate action there, scores the result (the engine's evaluation of the board + the card score) and picks one.
  *
  */
@@ -26,7 +26,7 @@ const other = (c) => (c === "w" ? "b" : "w");
 const seedAt = (seed, n) => (seed + n) >>> 0;
 
 /**
- * @description A board's evaluation for Vesper, from the cached full-strength analysis. Throws when the engine can't answer
+ * @description A board's evaluation for Card Guy, from the cached full-strength analysis. Throws when the engine can't answer
  * @param  {[string]} fen [board]
  * @return {[number]} centipawns from White's side, a forced mate is 10000 (or -10000)
  */
@@ -54,7 +54,7 @@ function chessFen(fen) {
 
 /**
  * @description The score of a state that needs no engine: a finished game, or a king left in check for the side to move to take. null when the board has to be evaluated,
- * undefined when it can't be (a king in check that Vesper, still to move, can't take: no chess position)
+ * undefined when it can't be (a king in check that Card Guy, still to move, can't take: no chess position)
  */
 function decided(state, me) {
 	if (state.result) { return state.result.winner === me ? WON : state.result.winner ? -WON : 0; }
@@ -65,12 +65,12 @@ function decided(state, me) {
 }
 
 /**
- * @description The state Vesper simulates on, one with an action the real game hasn't refused. Under the visitor's Fog of War the state is a guess (the fogged pieces are put
- * somewhere), so when every action of a guess was refused another is made, and after the last one the board as Vesper sees it, the fogged pieces left off: nothing guessed stands in a move's way there
+ * @description The state Card Guy simulates on, one with an action the real game hasn't refused. Under the visitor's Fog of War the state is a guess (the fogged pieces are put
+ * somewhere), so when every action of a guess was refused another is made, and after the last one the board as Card Guy sees it, the fogged pieces left off: nothing guessed stands in a move's way there
  * @return {[object]} { sim, base: the seed sim was made from, bare: true for the board with the fogged pieces left off (no chess position: the engine isn't asked) }
  */
 function simulate(view, seed, refused) {
-	if (!Number.isFinite(seed)) { throw new TypeError("Vesper's seed must be a finite number"); } // undefined OR THE GAME'S HEX SEED WOULD BECOME 0: ONE GUESS & ONE SET OF DICE EVERY TURN
+	if (!Number.isFinite(seed)) { throw new TypeError("Card Guy's seed must be a finite number"); } // undefined OR THE GAME'S HEX SEED WOULD BECOME 0: ONE GUESS & ONE SET OF DICE EVERY TURN
 	const left = (sim) => allowed(sim, view.you, refused).length > 0;
 	for (let n = 0; n < GUESSES; n++) {
 		const base = seedAt(seed, n * (SAMPLES + 1)), sim = engine.fromView(view, base);
@@ -79,23 +79,23 @@ function simulate(view, seed, refused) {
 	}
 	const sim = view.board.hidden ? engine.fromView({ ...view, board: { ...view.board, hidden: 0 } }, seed) : null;
 	if (sim && left(sim)) { return { sim, base: seed, bare: true }; }
-	throw new Error("Vesper has no action to take");
+	throw new Error("Card Guy has no action to take");
 }
 
 /**
- * @description Scores every candidate of Vesper's turn (not a card duel's picks & decisions, vesperTurn answers those itself). The engine is asked about chess positions only (chessFen):
+ * @description Scores every candidate of Card Guy's turn (not a card duel's picks & decisions, cardGuyTurn answers those itself). The engine is asked about chess positions only (chessFen):
  * an action that leaves none scores as the board now. When an evaluation fails, or the board now is no chess position (nothing is asked then, and no alarm is logged), every board
  * scores 0 for the turn and the card scores decide: answered boards beside unanswered ones would decide the pick. Decided games keep their score
- * @param  {[object]} view [playerView(state, vesper): all Vesper knows]
- * @param  {[object]} options [{ evaluate, bestOf, seed, refused } as vesperTurn]
+ * @param  {[object]} view [playerView(state, cardGuy): all Card Guy knows]
+ * @param  {[object]} options [{ evaluate, bestOf, seed, refused } as cardGuyTurn]
  * @param  {[object]} world [simulate's answer, when the caller has it]
- * @return {[array]} scored [{ action, total, plain, discard, standsOut, favourite, samples: how many guessed states the total is the mean of }, totals in centipawns from Vesper's side]
+ * @return {[array]} scored [{ action, total, plain, discard, standsOut, favourite, samples: how many guessed states the total is the mean of }, totals in centipawns from Card Guy's side]
  */
 async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world = simulate(view, seed, refused)) {
 	const me = view.you, sign = me === "w" ? 1 : -1, { sim, base, bare } = world, raw = engine.toFen(sim), now = bare ? null : chessFen(raw); // now: THE BOARD AS IT STANDS, null WHEN THE ENGINE ISN'T ASKED ABOUT IT
 	let alarmed = false;
 	const engineDown = (err) => {
-		if (!alarmed) { console.log(`STOCKFISH FAILED, js-chess-engine PLAYS INSTEAD: ${err.message}`); } // THE LINE MUST START WITH THIS: AN ALARM MATCHES IT (terraform/modules/monitoring). ONE LINE A TURN. VESPER PLAYS BY ITS STATIC & CARD SCORES
+		if (!alarmed) { console.log(`STOCKFISH FAILED, js-chess-engine PLAYS INSTEAD: ${err.message}`); } // THE LINE MUST START WITH THIS: AN ALARM MATCHES IT (terraform/modules/monitoring). ONE LINE A TURN. CARD GUY PLAYS BY ITS STATIC & CARD SCORES
 		alarmed = true;
 	};
 
@@ -156,18 +156,18 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world =
 }
 
 /**
- * @description One action for whatever Vesper owes now: a turn action, the next move of a two-move turn, a choice, a card duel pick (random: every card is face down) or
- * a duel's stop or go on. Callers call it again while Vesper still owes something. The action is legal on Vesper's guess of the game; under the visitor's Fog of War
+ * @description One action for whatever Card Guy owes now: a turn action, the next move of a two-move turn, a choice, a card duel pick (random: every card is face down) or
+ * a duel's stop or go on. Callers call it again while Card Guy still owes something. The action is legal on Card Guy's guess of the game; under the visitor's Fog of War
  * the real game can still refuse it: call again with its key added to refused
- * @param  {[object]} view [playerView(state, vesper): all Vesper knows]
+ * @param  {[object]} view [playerView(state, cardGuy): all Card Guy knows]
  * @param  {[number]} level [the game's level, 600 - 3200]
  * @param  {[object]} options [{ evaluate(fen) -> centipawns from White's side, bestOf(fen, lans) -> { from, to, promotion }, seed: integer 0 - 4294967295, never the game's own
  * (anything but a finite number throws), refused: keys (engine.actionKey) of the actions the real game refused this turn }]
  * @return {[object]} action
  */
-async function vesperTurn(view, level, { evaluate, bestOf, seed, refused = [] }) {
+async function cardGuyTurn(view, level, { evaluate, bestOf, seed, refused = [] }) {
 	const me = view.you, world = simulate(view, seed, refused), { sim, base } = world;
-	const random = { rng: engine.rng.seed(seedAt(base, SAMPLES)) }, rng = () => engine.rng.next(random); // VESPER'S OWN DICE, NEVER THE GAME'S
+	const random = { rng: engine.rng.seed(seedAt(base, SAMPLES)) }, rng = () => engine.rng.next(random); // CARD GUY'S OWN DICE, NEVER THE GAME'S
 	const actions = allowed(sim, me, refused);
 	if (actions[0].type === "duel") {
 		if (actions[0].pick !== undefined) { return engine.rng.pick(random, actions); }
@@ -177,4 +177,4 @@ async function vesperTurn(view, level, { evaluate, bestOf, seed, refused = [] })
 	return pick(await scoreTurn(view, { evaluate, bestOf, seed, refused }, world), level, rng);
 }
 
-module.exports = { vesperTurn, scoreTurn, evaluate, MAX_EVALS };
+module.exports = { cardGuyTurn, scoreTurn, evaluate, MAX_EVALS };

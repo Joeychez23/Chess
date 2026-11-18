@@ -28,10 +28,10 @@ class IllegalAction extends Error {
 /**
  * @description A new game from the start position (seed: a 64-character hex string, or an integer in tests; see rng.seed): each colour's piece ids shuffled with the game rng (so an id never tells the piece type), each player dealt 6 move cards and 1 active and given KING_SKULLS King skulls (kingSkulls), White to move.
  */
-function newGame({ vesper, level, seed }) {
+function newGame({ cardGuy, level, seed }) {
 	const player = () => ({ king: true, moves: [], actives: [], passive: null, curses: [], used: [], skips: 0, refillLock: 0, curseWait: 0, lostTurns: 0, kingSkulls: KING_SKULLS, captured: [], seen: null });
 	const state = {
-		v: ENGINE_VERSION, rng: rng.seed(seed), board: board.fromFen(START), vesper, level, ply: 0, nextId: 1,
+		v: ENGINE_VERSION, rng: rng.seed(seed), board: board.fromFen(START), cardGuy, level, ply: 0, nextId: 1,
 		players: { w: player(), b: player() }, statuses: {}, effects: [], enchant: [], duel: null, pending: null, multi: null, barred: null, result: null,
 	};
 	for (const c of ["w", "b"]) {

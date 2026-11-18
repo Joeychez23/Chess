@@ -1,7 +1,7 @@
 /*
  *  pick.js  --  chess server
- *	Vesper: the pick
- *  The level weakens Vesper here: the low levels overlook plain moves (as noticedMove does, a capture, check or promotion 3 times less often) and the discard (one roll a turn, whatever the cards held), every level under 2400 misjudges scores by some noise.
+ *	Card Guy: the pick
+ *  The level weakens Card Guy here: the low levels overlook plain moves (as noticedMove does, a capture, check or promotion 3 times less often) and the discard (one roll a turn, whatever the cards held), every level under 2400 misjudges scores by some noise.
  *  Then the best total wins, unless a favourite card is close enough to it.
  *
  */
@@ -19,7 +19,7 @@ function normal(rng) {
 }
 
 /**
- * @description Picks Vesper's action from the scored candidates
+ * @description Picks Card Guy's action from the scored candidates
  * @param  {[array]} scored [{ action, total, plain, discard, standsOut, favourite }, at least one]
  * @param  {[number]} level [the game's level, 600 - 3200]
  * @param  {[function]} rng [() => a number in 0 - 1, seeded]

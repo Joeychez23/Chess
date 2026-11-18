@@ -22,7 +22,7 @@ const LOG = [];
 register({ key: "t-made", kind: "curse", name: "t-made", rarity: "common", text: "", make: (ctx, to) => ({ piece: to === "b" ? "n" : "p", roll: ctx.rng.int(1000) }) });
 for (const k of ["t-crown", "t-watch"]) register({ key: k, kind: "curse", name: k, rarity: "epic", text: "", on: { "curse-cleared": (ctx, owner, ev, src) => { LOG.push(k + ":" + ev.card.key + ":" + src.card.key); return true; } } });
 
-const fresh = (seed = 1) => newGame({ vesper: "b", level: 1300, seed });
+const fresh = (seed = 1) => newGame({ cardGuy: "b", level: 1300, seed });
 const game = (fen, seed = 1) => { const s = fresh(seed); s.board = fromFen(fen); return s; };
 const ofType = (events, type) => events.filter((e) => e.type === type);
 const at = (s, sq) => s.board.sq[sqIndex(sq)];

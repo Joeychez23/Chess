@@ -1,6 +1,6 @@
 /*
- *  vesper.test.js  --  chess server tests
- *	Vesper, the card-game bot (server/utils/vesper): candidates, scoring and the pick. The engine is stubbed: no test reaches Stockfish.
+ *  card-guy.test.js  --  chess server tests
+ *	Card Guy, the card-game bot (server/utils/card-guy): candidates, scoring and the pick. The engine is stubbed: no test reaches Stockfish.
  *
  */
 
@@ -13,11 +13,11 @@ const { fromFen } = engine.board;
 const hand = require("../../cards-engine/hand.js");
 const { makeCtx } = require("../../cards-engine/ctx.js");
 const { PASSIVE_KEYS } = require("../../cards-engine/cards/index.js");
-const vesper = require("../utils/vesper/index.js");
-const { vesperTurn, scoreTurn, MAX_EVALS } = vesper;
-const { candidates, staticScore } = require("../utils/vesper/candidates.js");
-const { cardScore, duelValue, WEIGHTS } = require("../utils/vesper/score.js");
-const { pick, FLAIR_MARGIN } = require("../utils/vesper/pick.js");
+const cardGuy = require("../utils/card-guy/index.js");
+const { cardGuyTurn, scoreTurn, MAX_EVALS } = cardGuy;
+const { candidates, staticScore } = require("../utils/card-guy/candidates.js");
+const { cardScore, duelValue, WEIGHTS } = require("../utils/card-guy/score.js");
+const { pick, FLAIR_MARGIN } = require("../utils/card-guy/pick.js");
 const { noticeFor, bestOf } = require("../utils/ai.js");
 const { Chess } = require("chess.js");
 
@@ -32,7 +32,7 @@ const owes = (s) => [s.board.turn, other(s.board.turn)].find((c) => legalActions
 const fogUp = (s, owner, key = "fog-of-war-rare", left = 40) => { const ctx = makeCtx(s); ctx.trigger = () => {}; ctx.enchant(owner, key, [], left); };
 const hasFog = (s, c) => s.enchant.some((e) => e.owner === c && e.key.startsWith("fog-of-war"));
 const place = (s, key, owner, more = {}) => { const card = { ...hand.newCard(s, key), ...more }; s.effects.push({ id: card.id, owner, card, placedAt: s.ply }); }; // A PASSIVE ALREADY WAITING
-const FOGGED_SWAP = JSON.parse('{"v":1,"rng":{"key":[1003,0,0,0,0,0,0,0],"n":276},"board":{"sq":[{"id":"b10","c":"b","t":"r"},{"id":"b8","c":"b","t":"n"},null,null,null,{"id":"w3","c":"w","t":"n"},null,null,{"id":"b3","c":"b","t":"p"},null,null,{"id":"b9","c":"b","t":"q"},{"id":"b13","c":"b","t":"n"},null,null,null,null,null,null,null,null,{"id":"b7","c":"b","t":"p"},null,{"id":"b2","c":"b","t":"r"},null,{"id":"w11","c":"w","t":"p"},{"id":"b12","c":"b","t":"k"},null,{"id":"w8","c":"w","t":"k"},{"id":"w12","c":"w","t":"p"},null,null,null,null,null,null,null,null,null,{"id":"b11","c":"b","t":"p"},null,null,null,{"id":"w1","c":"w","t":"p"},{"id":"b15","c":"b","t":"p"},{"id":"w16","c":"w","t":"p"},null,null,{"id":"w14","c":"w","t":"r"},null,null,null,null,null,{"id":"w15","c":"w","t":"p"},{"id":"w13","c":"w","t":"p"},null,{"id":"w2","c":"w","t":"n"},{"id":"w4","c":"w","t":"b"},{"id":"w10","c":"w","t":"q"},{"id":"b16","c":"b","t":"b"},{"id":"w6","c":"w","t":"b"},null,{"id":"w7","c":"w","t":"r"}],"turn":"w","castling":"-","ep":null,"half":0,"full":28,"history":[]},"vesper":"w","level":1300,"ply":54,"nextId":98,"players":{"w":{"king":true,"moves":[{"id":"c68","key":"move","piece":"p"},{"id":"c69","key":"move","piece":"p"},{"id":"c77","key":"move","piece":"n"},{"id":"c80","key":"move","piece":"p"},{"id":"c83","key":"move","piece":"n"},{"id":"c85","key":"move","piece":"n"}],"actives":[{"id":"c97","key":"swap-epic"}],"passive":null,"curses":[],"used":[],"skips":0,"refillLock":0,"curseWait":0,"lostTurns":0,"kingSkulls":3,"captured":["p","p"],"seen":null},"b":{"king":true,"moves":[{"id":"c12","key":"move","piece":"p"},{"id":"c46","key":"move","piece":"p"},{"id":"c88","key":"move","piece":"p"},{"id":"c92","key":"move","piece":"p"},{"id":"c94","key":"move","piece":"p"},{"id":"c96","key":"move","piece":"p"}],"actives":[{"id":"c61","key":"pickpocket-epic"}],"passive":{"id":"c39","key":"reinforcements"},"curses":[],"used":[],"skips":0,"refillLock":0,"curseWait":0,"lostTurns":0,"kingSkulls":3,"captured":["p","p","p","b","b"],"seen":null}},"statuses":{"w7":[{"s":"warded","left":null,"by":"w"}],"b3":[{"s":"frozen","left":1,"by":"b","veiled":true}]},"effects":[{"id":"c43","owner":"w","card":{"id":"c43","key":"phalanx","denied":false},"placedAt":52}],"enchant":[{"id":"e30","key":"fog-of-war-rare","owner":"b","pieces":[],"left":36,"data":{}},{"id":"e52","key":"stronghold-common","owner":"w","pieces":["w7"],"left":null,"data":{}}],"duel":null,"pending":null,"multi":null,"barred":null,"result":null}'); // A REVIEW FUZZ STATE (tremor, GAME 3, ACTION 66; ITS HISTORY CUT): VESPER WHITE, LEVEL 1300, AN EPIC SWAP IN HAND UNDER BLACK'S FOG: 115 CANDIDATES
+const FOGGED_SWAP = JSON.parse('{"v":1,"rng":{"key":[1003,0,0,0,0,0,0,0],"n":276},"board":{"sq":[{"id":"b10","c":"b","t":"r"},{"id":"b8","c":"b","t":"n"},null,null,null,{"id":"w3","c":"w","t":"n"},null,null,{"id":"b3","c":"b","t":"p"},null,null,{"id":"b9","c":"b","t":"q"},{"id":"b13","c":"b","t":"n"},null,null,null,null,null,null,null,null,{"id":"b7","c":"b","t":"p"},null,{"id":"b2","c":"b","t":"r"},null,{"id":"w11","c":"w","t":"p"},{"id":"b12","c":"b","t":"k"},null,{"id":"w8","c":"w","t":"k"},{"id":"w12","c":"w","t":"p"},null,null,null,null,null,null,null,null,null,{"id":"b11","c":"b","t":"p"},null,null,null,{"id":"w1","c":"w","t":"p"},{"id":"b15","c":"b","t":"p"},{"id":"w16","c":"w","t":"p"},null,null,{"id":"w14","c":"w","t":"r"},null,null,null,null,null,{"id":"w15","c":"w","t":"p"},{"id":"w13","c":"w","t":"p"},null,{"id":"w2","c":"w","t":"n"},{"id":"w4","c":"w","t":"b"},{"id":"w10","c":"w","t":"q"},{"id":"b16","c":"b","t":"b"},{"id":"w6","c":"w","t":"b"},null,{"id":"w7","c":"w","t":"r"}],"turn":"w","castling":"-","ep":null,"half":0,"full":28,"history":[]},"cardGuy":"w","level":1300,"ply":54,"nextId":98,"players":{"w":{"king":true,"moves":[{"id":"c68","key":"move","piece":"p"},{"id":"c69","key":"move","piece":"p"},{"id":"c77","key":"move","piece":"n"},{"id":"c80","key":"move","piece":"p"},{"id":"c83","key":"move","piece":"n"},{"id":"c85","key":"move","piece":"n"}],"actives":[{"id":"c97","key":"swap-epic"}],"passive":null,"curses":[],"used":[],"skips":0,"refillLock":0,"curseWait":0,"lostTurns":0,"kingSkulls":3,"captured":["p","p"],"seen":null},"b":{"king":true,"moves":[{"id":"c12","key":"move","piece":"p"},{"id":"c46","key":"move","piece":"p"},{"id":"c88","key":"move","piece":"p"},{"id":"c92","key":"move","piece":"p"},{"id":"c94","key":"move","piece":"p"},{"id":"c96","key":"move","piece":"p"}],"actives":[{"id":"c61","key":"pickpocket-epic"}],"passive":{"id":"c39","key":"reinforcements"},"curses":[],"used":[],"skips":0,"refillLock":0,"curseWait":0,"lostTurns":0,"kingSkulls":3,"captured":["p","p","p","b","b"],"seen":null}},"statuses":{"w7":[{"s":"warded","left":null,"by":"w"}],"b3":[{"s":"frozen","left":1,"by":"b","veiled":true}]},"effects":[{"id":"c43","owner":"w","card":{"id":"c43","key":"phalanx","denied":false},"placedAt":52}],"enchant":[{"id":"e30","key":"fog-of-war-rare","owner":"b","pieces":[],"left":36,"data":{}},{"id":"e52","key":"stronghold-common","owner":"w","pieces":["w7"],"left":null,"data":{}}],"duel":null,"pending":null,"multi":null,"barred":null,"result":null}'); // A REVIEW FUZZ STATE (tremor, GAME 3, ACTION 66; ITS HISTORY CUT): CARD GUY WHITE, LEVEL 1300, AN EPIC SWAP IN HAND UNDER BLACK'S FOG: 115 CANDIDATES
 
 /**
  * @description Why a chess engine can't be asked about this board (chess.js refuses it, or the side not to move is in check), null when it can.
@@ -45,21 +45,21 @@ function notChess(fen) {
 }
 
 /**
- * @description A game on this board (ids as board.fromFen numbers them), Vesper the side to move unless told, both hands as newGame dealt them.
+ * @description A game on this board (ids as board.fromFen numbers them), Card Guy the side to move unless told, both hands as newGame dealt them.
  */
-function position(fen, { vesper: v = fen.split(" ")[1], level = 2400, seed = 1 } = {}) {
-	const s = newGame({ vesper: v, level, seed });
+function position(fen, { cardGuy: v = fen.split(" ")[1], level = 2400, seed = 1 } = {}) {
+	const s = newGame({ cardGuy: v, level, seed });
 	s.board = fromFen(fen);
 	return s;
 }
 
 /**
- * @description Vesper's action for color on the true state: asked again with each refused action until one is legal (only a Fog of War of the other side's may refuse one). Returns { action, refused: how many }.
+ * @description Card Guy's action for color on the true state: asked again with each refused action until one is legal (only a Fog of War of the other side's may refuse one). Returns { action, refused: how many }.
  */
 async function ask(s, c, o) {
 	const refused = [];
 	for (;;) {
-		const action = await vesperTurn(playerView(s, c), s.level, opts({ ...o, refused }));
+		const action = await cardGuyTurn(playerView(s, c), s.level, opts({ ...o, refused }));
 		if (isLegal(s, c, action)) return { action, refused: refused.length };
 		assert.ok(hasFog(s, other(c)), "an illegal action with no fog up: " + JSON.stringify(action));
 		assert.ok(!refused.includes(actionKey(action)), "a refused action came back: " + JSON.stringify(action));
@@ -69,7 +69,7 @@ async function ask(s, c, o) {
 }
 
 /**
- * @description Vesper plays both sides of s for up to n actions (each tested against applyAction on the true state). Returns { state, actions, refused, foggy: the turns asked with the other side's fog up }.
+ * @description Card Guy plays both sides of s for up to n actions (each tested against applyAction on the true state). Returns { state, actions, refused, foggy: the turns asked with the other side's fog up }.
  */
 async function play(s, n, o = {}) {
 	let actions = 0, refused = 0, foggy = 0;
@@ -83,44 +83,44 @@ async function play(s, n, o = {}) {
 	return { state: s, actions, refused, foggy };
 }
 
-test("Vesper only ever returns an action in legalActions", async () => {
+test("Card Guy only ever returns an action in legalActions", async () => {
 	for (const seed of [1, 2, 3]) {
-		const r = await play(newGame({ vesper: "b", level: [600, 1300, 2400][seed - 1], seed }), 40, { seed }); // ask FAILS ON AN ILLEGAL ACTION UNLESS THE OTHER SIDE'S FOG OF WAR IS UP (ONE IS PLAYED IN THESE GAMES)
+		const r = await play(newGame({ cardGuy: "b", level: [600, 1300, 2400][seed - 1], seed }), 40, { seed }); // ask FAILS ON AN ILLEGAL ACTION UNLESS THE OTHER SIDE'S FOG OF WAR IS UP (ONE IS PLAYED IN THESE GAMES)
 		assert.ok(r.actions === 40 || r.state.result);
 		assert.ok(r.refused <= 2 * r.foggy, r.refused + " refusals over " + r.foggy + " turns under a fog"); // NONE WITH NO FOG UP, A FEW UNDER ONE (1 OVER 3 TURNS IN THE FIRST GAME), NOT A TURN OF THEM
 	}
 });
 
-test("Vesper never discards with two skips already", async () => {
-	const s = newGame({ vesper: "w", level: 2400, seed: 3 }), still = toFen(s).split(" ")[0];
+test("Card Guy never discards with two skips already", async () => {
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 3 }), still = toFen(s).split(" ")[0];
 	s.players.w.actives = []; // ONLY MOVES AND DISCARDS LEFT
 	const lazy = async (fen) => (fen.split(" ")[0] === still ? 5000 : 0); // AN ENGINE THAT LOVES A BOARD NOBODY MOVED ON: A DISCARD
-	assert.equal((await vesperTurn(playerView(s, "w"), 2400, opts({ evaluate: lazy }))).type, "discard"); // THE STUB DOES TEMPT IT
+	assert.equal((await cardGuyTurn(playerView(s, "w"), 2400, opts({ evaluate: lazy }))).type, "discard"); // THE STUB DOES TEMPT IT
 	s.players.w.skips = 2;
 	assert.ok(legalActions(s, "w").some((a) => a.type === "discard"));
 	assert.ok(!candidates(engine.fromView(playerView(s, "w"), 1), "w").some((a) => a.type === "discard"));
-	for (const seed of [1, 2, 3, 4]) assert.notEqual((await vesperTurn(playerView(s, "w"), 600, opts({ evaluate: lazy, seed }))).type, "discard");
+	for (const seed of [1, 2, 3, 4]) assert.notEqual((await cardGuyTurn(playerView(s, "w"), 600, opts({ evaluate: lazy, seed }))).type, "discard");
 });
 
-test("Vesper takes a free queen over a card with a small card score", async () => {
+test("Card Guy takes a free queen over a card with a small card score", async () => {
 	const s = position("4k3/8/8/r2Q4/8/8/8/4K3 b - - 0 1");
 	Object.assign(s.players.b, { moves: [hand.newCard(s, "move", { piece: "r" }), hand.newCard(s, "move", { piece: "r" })], actives: [], passive: hand.newCard(s, "patience") });
 	assert.ok(legalActions(s, "b").some((a) => a.type === "passive"));
-	const a = await vesperTurn(playerView(s, "b"), 2400, opts());
+	const a = await cardGuyTurn(playerView(s, "b"), 2400, opts());
 	assert.deepEqual([a.type, a.from, a.to], ["move", "a5", "d5"]);
 	const quiet = position("4k3/8/8/r7/8/8/8/3QK3 b - - 0 1"); // NOTHING TO TAKE: THE SMALL CARD SCORE WINS
 	Object.assign(quiet.players.b, { moves: [hand.newCard(quiet, "move", { piece: "r" })], actives: [], passive: hand.newCard(quiet, "patience") });
-	assert.equal((await vesperTurn(playerView(quiet, "b"), 2400, opts())).type, "passive");
+	assert.equal((await cardGuyTurn(playerView(quiet, "b"), 2400, opts())).type, "passive");
 });
 
 test("a favourite card within the flair margin is played; outside it never is", async () => {
-	const s = newGame({ vesper: "w", level: 2400, seed: 5 }), now = toFen(s);
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 5 }), now = toFen(s);
 	s.players.w.actives = [hand.newCard(s, "double-time-legendary")]; // NO DEBUFF: ITS SCORE IS THE BOARD IT LEAVES, THE ONE IT FOUND
 	const card = s.players.w.actives[0].id, view = playerView(s, "w");
 	const worth = (cp) => async (fen) => (fen === now ? cp : 0); // THE FAVOURITE'S BOARD AGAINST EVERY MOVE'S
 	for (const seed of [1, 2, 3]) {
-		assert.deepEqual(await vesperTurn(view, 2400, opts({ evaluate: worth(-(FLAIR_MARGIN - 10)), seed })), { type: "active", card });
-		assert.equal((await vesperTurn(view, 2400, opts({ evaluate: worth(-(FLAIR_MARGIN + 10)), seed }))).type, "move");
+		assert.deepEqual(await cardGuyTurn(view, 2400, opts({ evaluate: worth(-(FLAIR_MARGIN - 10)), seed })), { type: "active", card });
+		assert.equal((await cardGuyTurn(view, 2400, opts({ evaluate: worth(-(FLAIR_MARGIN + 10)), seed }))).type, "move");
 	}
 	const scored = [{ action: "best", total: 100 }, { action: "near", total: 100 - FLAIR_MARGIN, favourite: true }, { action: "far", total: 100 - FLAIR_MARGIN - 1, favourite: true }];
 	assert.equal(pick(scored, 2400, () => 0.5), "near");
@@ -129,10 +129,10 @@ test("a favourite card within the flair margin is played; outside it never is", 
 });
 
 test("the same view and seed give the same action", async () => {
-	const s = newGame({ vesper: "w", level: 600, seed: 9 }), view = playerView(s, "w"), seen = new Set();
+	const s = newGame({ cardGuy: "w", level: 600, seed: 9 }), view = playerView(s, "w"), seen = new Set();
 	for (let seed = 1; seed <= 12; seed++) {
-		const a = await vesperTurn(view, 600, opts({ seed }));
-		assert.deepEqual(await vesperTurn(view, 600, opts({ seed })), a);
+		const a = await cardGuyTurn(view, 600, opts({ seed }));
+		assert.deepEqual(await cardGuyTurn(view, 600, opts({ seed })), a);
 		seen.add(actionKey(a));
 	}
 	assert.ok(seen.size > 1, "twelve seeds at level 600 all gave one action: the seed isn't used");
@@ -180,13 +180,13 @@ test("the low levels overlook a discard as they do a plain move, see a capture, 
 	assert.ok(passed > 2000 * 0.263 * 0.8 && passed < 2000 * 0.263 * 1.2, passed + " turns in 2000 passed"); // ABOUT THE NOTICE CHANCE (0.263 AT 1200; 510 HERE, THE NOISE LOSES A FEW), NOT 9 TURNS IN 10
 });
 
-test("Vesper's input contains no hidden visitor cards", async (t) => {
-	const s = newGame({ vesper: "b", level: 1300, seed: 4 });
+test("Card Guy's input contains no hidden visitor cards", async (t) => {
+	const s = newGame({ cardGuy: "b", level: 1300, seed: 4 });
 	s.board.turn = "b";
 	const view = playerView(s, "b"), hidden = [...s.players.w.moves, ...s.players.w.actives].map((c) => "\"" + c.id + "\"");
 	assert.ok(hidden.length >= 7);
 	const spy = t.mock.method(engine, "fromView");
-	await vesperTurn(view, 1300, opts());
+	await cardGuyTurn(view, 1300, opts());
 	assert.ok(spy.mock.callCount() >= 1);
 	assert.equal(spy.mock.calls[0].arguments[1], 7); // THE FIRST GUESS IS THE SEED'S
 	assert.equal(new Set(spy.mock.calls.map((c) => c.arguments[1])).size, spy.mock.callCount()); // NO GUESS IS MADE TWICE
@@ -198,35 +198,35 @@ test("Vesper's input contains no hidden visitor cards", async (t) => {
 });
 
 test("a turn stays within 24 evaluations and 3 s with an 80 ms engine", async () => {
-	const s = newGame({ vesper: "w", level: 2400, seed: 6 }), fens = new Set();
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 6 }), fens = new Set();
 	s.players.w.actives = ["swap", "conscription", "trapdoor"].map((k) => hand.newCard(s, k));
 	const wait = () => new Promise((done) => setTimeout(done, 80));
 	const slow = async (fen) => { fens.add(fen); await wait(); return material(fen); };
 	const started = Date.now();
-	const a = await vesperTurn(playerView(s, "w"), 2400, opts({ evaluate: slow, bestOf: async (fen, lans) => { await wait(); return firstOf(fen, lans); } }));
+	const a = await cardGuyTurn(playerView(s, "w"), 2400, opts({ evaluate: slow, bestOf: async (fen, lans) => { await wait(); return firstOf(fen, lans); } }));
 	assert.ok(Date.now() - started < 3000, "took " + (Date.now() - started) + " ms");
 	assert.ok(isLegal(s, "w", a));
 	assert.equal(MAX_EVALS, 24);
 	assert.ok(fens.size <= MAX_EVALS && fens.size > 6, fens.size + " boards evaluated");
 });
 
-test("if evaluate and bestOf throw, Vesper still plays a legal action (static score and card score)", async (t) => {
+test("if evaluate and bestOf throw, Card Guy still plays a legal action (static score and card score)", async (t) => {
 	const logged = t.mock.method(console, "log", () => {});
 	const s = position("4k3/8/8/r2Q4/8/8/8/4K3 b - - 0 1");
 	Object.assign(s.players.b, { moves: [hand.newCard(s, "move", { piece: "r" }), hand.newCard(s, "move", { piece: "r" })], actives: [], passive: null });
-	const a = await vesperTurn(playerView(s, "b"), 2400, opts({ evaluate: down, bestOf: down }));
+	const a = await cardGuyTurn(playerView(s, "b"), 2400, opts({ evaluate: down, bestOf: down }));
 	assert.deepEqual([a.type, a.from, a.to], ["move", "a5", "d5"]); // THE TOP STATIC SCORE: THE FREE QUEEN
 	assert.ok(logged.mock.calls.length >= 1 && logged.mock.calls.every((c) => String(c.arguments[0]).startsWith("STOCKFISH FAILED, js-chess-engine PLAYS INSTEAD: ")));
 	s.players.b.passive = hand.newCard(s, "patience"); // EVERY BOARD SCORES 0 NOW: THE CARD SCORE DECIDES
-	assert.equal((await vesperTurn(playerView(s, "b"), 2400, opts({ evaluate: down, bestOf: down }))).type, "passive");
-	const only = await vesperTurn(playerView(s, "b"), 2400, opts({ bestOf: down })); // ONLY bestOf DOWN: THE BOARD SCORE STILL DECIDES
+	assert.equal((await cardGuyTurn(playerView(s, "b"), 2400, opts({ evaluate: down, bestOf: down }))).type, "passive");
+	const only = await cardGuyTurn(playerView(s, "b"), 2400, opts({ bestOf: down })); // ONLY bestOf DOWN: THE BOARD SCORE STILL DECIDES
 	assert.deepEqual([only.type, only.to], ["move", "d5"]);
-	const r = await play(newGame({ vesper: "b", level: 1300, seed: 8 }), 12, { evaluate: down, bestOf: down });
+	const r = await play(newGame({ cardGuy: "b", level: 1300, seed: 8 }), 12, { evaluate: down, bestOf: down });
 	assert.equal(r.refused, 0);
 });
 
 test("40 card candidates: all are scored, evaluate is called at most 24 times", async () => {
-	const s = newGame({ vesper: "w", level: 2400, seed: 6 });
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 6 });
 	let calls = 0;
 	s.players.w.actives = ["swap", "conscription", "trapdoor"].map((k) => hand.newCard(s, k));
 	const scored = await scoreTurn(playerView(s, "w"), opts({ evaluate: async (fen) => { calls++; return material(fen); } }));
@@ -240,10 +240,10 @@ test("40 card candidates: all are scored, evaluate is called at most 24 times", 
 	assert.ok(flat.length > MAX_EVALS && flat.every((c) => c.total > 4000), "a candidate past the 24 scored without the board now"); // THE BOARD NOW + ITS CARD SCORE, NOT THE CARD SCORE ALONE
 });
 
-test("Vesper answers a pending choice, a duel pick, a duel stop and the second move of Double Time", async () => {
+test("Card Guy answers a pending choice, a duel pick, a duel stop and the second move of Double Time", async () => {
 	const seen = new Set(), picks = new Set();
 	for (let seed = 1; seed <= 30 && (seen.size < 3 || picks.size < 2); seed++) {
-		let s = newGame({ vesper: "w", level: 2400, seed });
+		let s = newGame({ cardGuy: "w", level: 2400, seed });
 		s.players.w.actives = [hand.newCard(s, "all-or-nothing")];
 		const pawn = s.board.sq.find((q) => q && q.c === "w" && q.t === "p").id;
 		s = applyAction(s, "w", { type: "active", card: s.players.w.actives[0].id, target: { piece: pawn } }).state;
@@ -260,7 +260,7 @@ test("Vesper answers a pending choice, a duel pick, a duel stop and the second m
 	assert.deepEqual([...seen].sort(), ["choice", "decide", "pick"]);
 	assert.ok(picks.size > 1, "every first pick was card " + [...picks]); // RANDOM, FROM THE SEED
 
-	let s = newGame({ vesper: "w", level: 2400, seed: 2 });
+	let s = newGame({ cardGuy: "w", level: 2400, seed: 2 });
 	s.players.w.actives = [hand.newCard(s, "double-time")];
 	s = applyAction(s, "w", { type: "active", card: s.players.w.actives[0].id }).state;
 	const first = (await ask(s, "w", {})).action;
@@ -292,7 +292,7 @@ test("candidates keep bestPlain and the top 5 plain moves by static score, and e
 });
 
 test("the card score weighs what the engine can't see", () => {
-	const s = newGame({ vesper: "w", level: 2400, seed: 1 }), after = JSON.parse(JSON.stringify(s));
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 1 }), after = JSON.parse(JSON.stringify(s));
 	assert.equal(cardScore(s, s, "w"), 0);
 	const mine = s.board.sq.find((q) => q && q.c === "w" && q.t === "p").id, theirs = s.board.sq.filter((q) => q && q.c === "b").map((q) => q.id);
 	after.statuses = { [mine]: [{ s: "warded", left: 3 }, { s: "marked", left: 3 }], [theirs[0]]: [{ s: "frozen", left: 3 }], [theirs[1]]: [{ s: "shaken", left: 3 }] };
@@ -336,20 +336,20 @@ test("the production evaluate turns an analysis into centipawns from White's sid
 	t.after(() => { globalThis.fetch = real; require("../utils/ai.js").clearAnalyses(); });
 	const answer = (body) => { require("../utils/ai.js").clearAnalyses(); globalThis.fetch = async () => new Response(JSON.stringify({ type: "bestmove", from: "a1", to: "a8", winChance: 90, ...body }), { status: 200 }); };
 	answer({ eval: 4.5 });
-	assert.equal(await vesper.evaluate(fen), 450);
+	assert.equal(await cardGuy.evaluate(fen), 450);
 	answer({ eval: 99, mate: 3 });
-	assert.equal(await vesper.evaluate(fen), 10000);
+	assert.equal(await cardGuy.evaluate(fen), 10000);
 	answer({ eval: -99, mate: -2 });
-	assert.equal(await vesper.evaluate(fen), -10000);
+	assert.equal(await cardGuy.evaluate(fen), -10000);
 	answer({});
-	await assert.rejects(vesper.evaluate(fen));
+	await assert.rejects(cardGuy.evaluate(fen));
 });
 
-test("Vesper plays on from a view with a Hollow Crown (King card held or lost) or a waiting Mirage, on either side", async () => {
+test("Card Guy plays on from a view with a Hollow Crown (King card held or lost) or a waiting Mirage, on either side", async () => {
 	for (const kind of [0, 1, 2, 3]) {
-		const s = newGame({ vesper: "b", level: 1300, seed: 20 + kind }), ctx = makeCtx(s);
+		const s = newGame({ cardGuy: "b", level: 1300, seed: 20 + kind }), ctx = makeCtx(s);
 		ctx.trigger = () => {};
-		if (kind < 2) assert.ok(ctx.giveCurse("b", "hollow-crown", "w")); // VESPER HOLDS IT
+		if (kind < 2) assert.ok(ctx.giveCurse("b", "hollow-crown", "w")); // CARD GUY HOLDS IT
 		if (kind === 1) s.players.b.king = false;
 		if (kind >= 2) assert.ok(ctx.giveCurse(kind === 2 ? "w" : "b", "mirage", kind === 2 ? "b" : "w"));
 		const r = await play(s, 24, { seed: kind });
@@ -358,10 +358,10 @@ test("Vesper plays on from a view with a Hollow Crown (King card held or lost) o
 	}
 });
 
-test("under the player's Fog of War Vesper still reaches a legal action, also with a hidden Tremor Frozen on a fogged pawn", async () => {
+test("under the player's Fog of War Card Guy still reaches a legal action, also with a hidden Tremor Frozen on a fogged pawn", async () => {
 	let turns = 0, refused = 0, worst = 0;
 	for (const seed of [1, 2, 3]) {
-		let s = newGame({ vesper: "b", level: 1300, seed: 30 + seed });
+		let s = newGame({ cardGuy: "b", level: 1300, seed: 30 + seed });
 		s = (await play(s, 6, { seed })).state; // A FEW MOVES FIRST, SO LINES ARE OPEN
 		fogUp(s, "w");
 		const pawn = s.board.sq.find((q, i) => q && q.c === "w" && q.t === "p" && i >= 32).id;
@@ -376,12 +376,12 @@ test("under the player's Fog of War Vesper still reaches a legal action, also wi
 	}
 	assert.ok(turns >= 30);
 	assert.ok(refused <= turns && worst <= 6, refused + " refusals in " + turns + " turns, " + worst + " in one"); // MEASURED: 20 IN 44 TURNS, 3 IN ONE (A REFUSAL IS A WHOLE TURN THOUGHT AGAIN)
-	console.log("    under the player's fog: " + turns + " Vesper actions, " + refused + " refused first, at most " + worst + " in one turn");
+	console.log("    under the player's fog: " + turns + " Card Guy actions, " + refused + " refused first, at most " + worst + " in one turn");
 });
 
 test("All or Nothing is scored by its expected value, not played out", async () => {
 	for (const [key, value] of [["all-or-nothing", 0.5 * 225 - 0.5 * (6 * 35 + 100)], ["all-or-nothing-epic", 0.5 * 225 - 0.5 * 100], ["all-or-nothing-legendary", 0.5 * 225 - 0.5 * 6 * 35]]) {
-		const s = newGame({ vesper: "w", level: 2400, seed: 2 });
+		const s = newGame({ cardGuy: "w", level: 2400, seed: 2 });
 		s.players.w.actives = [hand.newCard(s, key)];
 		const pawn = s.board.sq.find((q) => q && q.c === "w" && q.t === "p").id, rook = s.board.sq.find((q) => q && q.c === "w" && q.t === "r").id;
 		const scored = await scoreTurn(playerView(s, "w"), opts({ evaluate: async () => 40 }));
@@ -398,11 +398,11 @@ test("a first move of a two-move turn that leaves the king for another piece to 
 	s.players.b.kingSkulls = 0; // NO SKULL ENDS THE TWO-MOVE TURN ON THE CHECK: THE SECOND MOVE TAKES THE KING
 	s = applyAction(s, "w", { type: "active", card: s.players.w.actives[0].id }).state;
 	const quiet = async () => ({ from: "h5", to: "h4" }), o = opts({ evaluate: async () => 0, bestOf: quiet });
-	const a = await vesperTurn(playerView(s, "w"), 2400, o);
+	const a = await cardGuyTurn(playerView(s, "w"), 2400, o);
 	assert.equal(a.from, "f7");
 	s = applyAction(s, "w", a).state;
 	assert.equal(s.board.turn, "w");
-	assert.equal(applyAction(s, "w", await vesperTurn(playerView(s, "w"), 2400, o)).state.result.reason, "king");
+	assert.equal(applyAction(s, "w", await cardGuyTurn(playerView(s, "w"), 2400, o)).state.result.reason, "king");
 	let lone = position("4k3/8/8/8/8/8/8/R3K3 w - - 0 1"); // THE ROOK'S CHECK ON a8 WINS NOTHING: THE SECOND MOVE IS THE KING'S
 	Object.assign(lone.players.w, { moves: [hand.newCard(lone, "move", { piece: "r" })], actives: [hand.newCard(lone, "double-time-legendary")], passive: null });
 	lone.players.b.kingSkulls = 0;
@@ -411,25 +411,25 @@ test("a first move of a two-move turn that leaves the king for another piece to 
 	assert.equal(scored.find((c) => c.action.to === "a8").total, 30);
 });
 
-test("when the real game refused every action of its guesses Vesper plays on the board it can see; with nothing hidden it has none left", async (t) => {
+test("when the real game refused every action of its guesses Card Guy plays on the board it can see; with nothing hidden it has none left", async (t) => {
 	const logged = t.mock.method(console, "log", () => {});
 	const s = position("3r3k/8/8/8/8/8/PPPPPPPP/RNBQKBNR b - - 0 1", { level: 1300 });
 	Object.assign(s.players.b, { moves: [hand.newCard(s, "move", { piece: "r" })], actives: [], passive: null });
 	const guessed = (view) => [7, 16, 25].flatMap((seed) => legalActions(engine.fromView(view, seed), "b").map(actionKey)); // THE THREE GUESSES OF SEED 7 (index.js simulate)
-	await assert.rejects(vesperTurn(playerView(s, "b"), 1300, opts({ refused: guessed(playerView(s, "b")) })), /no action/);
-	await assert.rejects(vesperTurn(playerView(s, "w"), 1300, opts()), /no action/); // NOT ITS TURN
+	await assert.rejects(cardGuyTurn(playerView(s, "b"), 1300, opts({ refused: guessed(playerView(s, "b")) })), /no action/);
+	await assert.rejects(cardGuyTurn(playerView(s, "w"), 1300, opts()), /no action/); // NOT ITS TURN
 	const over = position("3r3k/8/8/8/8/8/PPPPPPPP/RNBQKBNR b - - 0 1", { level: 1300 });
 	over.result = { winner: "w", reason: "resign" };
-	await assert.rejects(vesperTurn(playerView(over, "b"), 1300, opts()), /no action/); // THE GAME IS OVER: THE CALLER CATCHES IT (TASK 17)
+	await assert.rejects(cardGuyTurn(playerView(over, "b"), 1300, opts()), /no action/); // THE GAME IS OVER: THE CALLER CATCHES IT (TASK 17)
 	fogUp(s, "w");
 	const view = playerView(s, "b"), refused = guessed(view);
 	assert.equal(view.board.hidden, 16);
-	const a = await vesperTurn(view, 1300, opts({ refused, evaluate: down, bestOf: down })); // THE ENGINE ISN'T ASKED ABOUT A BOARD WITH NO WHITE KING
+	const a = await cardGuyTurn(view, 1300, opts({ refused, evaluate: down, bestOf: down })); // THE ENGINE ISN'T ASKED ABOUT A BOARD WITH NO WHITE KING
 	assert.ok(!refused.includes(actionKey(a)) && a.from === "d8" && ["d2", "d1"].includes(a.to), JSON.stringify(a)); // EVERY GUESS HAD A PIECE IN THE WAY
 	assert.equal(logged.mock.callCount(), 0); // NOT ASKED, SO NO ENGINE ALARM
 });
 
-test("with no fog up Vesper's own Peasant Immunity or Phalanx never leads it to an illegal action", async () => {
+test("with no fog up Card Guy's own Peasant Immunity or Phalanx never leads it to an illegal action", async () => {
 	const s = position("1k6/8/5p2/3p4/3PK3/8/8/2R5 w - - 0 1"); // d5 CHECKS e4 AND IS STOPPED; f6 ATTACKS e5 FOR REAL
 	place(s, "peasant-immunity", "w", { stopping: [s.board.sq[engine.board.sqIndex("d5")].id] });
 	assert.ok(!legalActions(s, "w").some((a) => a.to === "e5"));
@@ -438,7 +438,7 @@ test("with no fog up Vesper's own Peasant Immunity or Phalanx never leads it to 
 	assert.equal(r.refused, 0);
 	assert.notEqual(r.action.to, "e5");
 	for (const [key, owner] of [["phalanx", "w"], ["phalanx", "b"], ["peasant-immunity", "w"], ["peasant-immunity", "b"]]) {
-		const g = newGame({ vesper: "b", level: 1300, seed: 41 });
+		const g = newGame({ cardGuy: "b", level: 1300, seed: 41 });
 		place(g, key, owner);
 		assert.equal((await play(g, 16, { seed: 41 })).refused, 0);
 	}
@@ -463,7 +463,7 @@ test("the engine is only asked about chess positions: no en passant square for t
 	s = applyAction(s, "w", { type: "active", card: s.players.w.actives[0].id }).state;
 	s = applyAction(s, "w", legalActions(s, "w").find((a) => a.from === "e2" && a.to === "e4")).state; // WHITE MOVES AGAIN, THE STATE'S EN PASSANT SQUARE IS e3
 	assert.match(toFen(s), / w KQkq e3 /);
-	assert.ok(isLegal(s, "w", await vesperTurn(playerView(s, "w"), 2400, o)));
+	assert.ok(isLegal(s, "w", await cardGuyTurn(playerView(s, "w"), 2400, o)));
 	assert.ok(sent.length > 3 && sent.every((fen) => fen.split(" ")[3] !== "e3"));
 	assert.equal(sent.filter((fen) => fen === toFen(s).replace(" e3 ", " - ")).length, 2); // THE BOARD NOW IS STILL ASKED ABOUT (bestOf & evaluate), WITHOUT THE SQUARE
 	const p = position("1k6/8/5p2/3p4/3PK3/8/8/2R5 w - - 0 1"); // WHITE'S KING STANDS IN A PAWN'S CHECK ITS PEASANT IMMUNITY STOPS: AFTER A ROOK MOVE THAT IS NO CHESS POSITION
@@ -478,7 +478,7 @@ test("the engine is only asked about chess positions: no en passant square for t
 test("when the board as it stands is no chess position (or one chess.js refuses) the engine isn't asked: every board scores 0 that turn, the card scores decide, no engine alarm", async (t) => {
 	const logged = t.mock.method(console, "log", () => {}), sent = [];
 	const o = opts({ evaluate: async (fen) => { sent.push(fen); return material(fen); }, bestOf: async (fen, lans) => { sent.push(fen); return firstOf(fen, lans); } });
-	const s = position("8/4k3/3P4/8/8/8/7P/3QK3 w - - 0 1"); // A QUEEN UP. THE VISITOR'S PEASANT IMMUNITY STOPS d6'S CHECK, WHICH VESPER'S VIEW DOESN'T SAY: ITS GUESS HAS THE KING IN CHECK WITH WHITE TO MOVE
+	const s = position("8/4k3/3P4/8/8/8/7P/3QK3 w - - 0 1"); // A QUEEN UP. THE VISITOR'S PEASANT IMMUNITY STOPS d6'S CHECK, WHICH CARD GUY'S VIEW DOESN'T SAY: ITS GUESS HAS THE KING IN CHECK WITH WHITE TO MOVE
 	Object.assign(s.players.w, { moves: [hand.newCard(s, "move", { piece: "p" }), hand.newCard(s, "move", { piece: "q" })], actives: [hand.newCard(s, "all-or-nothing-epic"), hand.newCard(s, "double-time-legendary")], passive: null });
 	place(s, "peasant-immunity", "b", { stopping: [s.board.sq[engine.board.sqIndex("d6")].id] });
 	const scored = await scoreTurn(playerView(s, "w"), o), cards = scored.filter((c) => c.favourite), moves = scored.filter((c) => c.plain);
@@ -492,7 +492,7 @@ test("when the board as it stands is no chess position (or one chess.js refuses)
 	const edge = position("4k3/8/8/8/8/8/8/P3K2R w - - 0 1"); // A PAWN ON ITS FIRST RANK: chess.js REFUSES THE BOARD
 	assert.match(notChess(toFen(edge)), /edge rows/);
 	Object.assign(edge.players.w, { moves: [hand.newCard(edge, "move", { piece: "r" }), hand.newCard(edge, "move", { piece: "p" })], actives: [], passive: null });
-	const a = await vesperTurn(playerView(edge, "w"), 2400, o);
+	const a = await cardGuyTurn(playerView(edge, "w"), 2400, o);
 	assert.ok(isLegal(edge, "w", a));
 	assert.deepEqual(sent, []); // NEITHER evaluate NOR bestOf, ON ANY OF THE THREE TURNS
 	assert.equal(logged.mock.callCount(), 0);
@@ -505,7 +505,7 @@ test("a fogged epic Swap (115 candidates) is answered within 3 s on an instant e
 	let stall = 0, last = Date.now();
 	const tick = setInterval(() => { stall = Math.max(stall, Date.now() - last - 10); last = Date.now(); }, 10);
 	const started = Date.now();
-	const a = await vesperTurn(view, 1300, opts({ seed: 306675, evaluate: async (fen) => { fens.add(fen); return 0; } }));
+	const a = await cardGuyTurn(view, 1300, opts({ seed: 306675, evaluate: async (fen) => { fens.add(fen); return 0; } }));
 	const took = Date.now() - started;
 	stall = Math.max(stall, Date.now() - last - 10); // A TURN THAT NEVER LET THE TIMER RUN
 	clearInterval(tick);
@@ -543,21 +543,21 @@ test("when one evaluation fails, or isn't a number, every board scores 0 that tu
 });
 
 test("a seed that isn't a finite number is refused, and a turn makes each guess once", async (t) => {
-	const s = newGame({ vesper: "w", level: 2400, seed: 3 }), view = playerView(s, "w");
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 3 }), view = playerView(s, "w");
 	for (const seed of [undefined, null, NaN, Infinity, "7", "ab".repeat(32)]) {
-		await assert.rejects(vesperTurn(view, 2400, opts({ seed })), /seed/);
+		await assert.rejects(cardGuyTurn(view, 2400, opts({ seed })), /seed/);
 		await assert.rejects(scoreTurn(view, opts({ seed })), /seed/);
 	}
 	s.players.w.actives = []; // MOVES AND A DISCARD: ONE GUESS, AND A SECOND TO TELL A CHANCE OUTCOME
 	const spy = t.mock.method(engine, "fromView");
-	await vesperTurn(playerView(s, "w"), 2400, opts());
+	await cardGuyTurn(playerView(s, "w"), 2400, opts());
 	assert.deepEqual(spy.mock.calls.map((c) => c.arguments[1]), [7, 8]);
 });
 
-test("Vesper goes on with a card duel while the next hand is worth its risk", async () => {
+test("Card Guy goes on with a card duel while the next hand is worth its risk", async () => {
 	let went = 0;
 	for (let seed = 1; seed <= 12; seed++) {
-		let s = newGame({ vesper: "w", level: 2400, seed });
+		let s = newGame({ cardGuy: "w", level: 2400, seed });
 		Object.assign(s.players.w, { moves: s.players.w.moves.slice(0, 3), actives: [hand.newCard(s, "all-or-nothing-legendary")], passive: null }); // THE PIECE ISN'T AT STAKE, AND ONLY 3 CARDS ARE
 		const pawn = s.board.sq.find((q) => q && q.c === "w" && q.t === "p").id;
 		s = applyAction(s, "w", { type: "active", card: s.players.w.actives[0].id, target: { piece: pawn } }).state;
@@ -578,11 +578,11 @@ test("Vesper goes on with a card duel while the next hand is worth its risk", as
 test("a chance outcome is scored by its mean over 8 guessed states", async (t) => {
 	const { register } = require("../../cards-engine/cards/index.js"), statuses = require("../../cards-engine/statuses.js");
 	register({ // A COIN FLIP: HALF THE TIME IT WARDS A PAWN (LAST IN THE FILE: THE CARD STAYS REGISTERED)
-		key: "vesper-test-coin", kind: "active", name: "Coin", skulls: 0, rarity: "common", text: "", targets: () => [null],
+		key: "card-guy-test-coin", kind: "active", name: "Coin", skulls: 0, rarity: "common", text: "", targets: () => [null],
 		play(ctx, player) { if (ctx.rng.next() < 0.5) statuses.give(ctx, ctx.state.board.sq.find((q) => q && q.c === player && q.t === "p").id, "warded", 3); },
 	});
-	const s = newGame({ vesper: "w", level: 2400, seed: 12 });
-	s.players.w.actives = [hand.newCard(s, "vesper-test-coin")];
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 12 });
+	s.players.w.actives = [hand.newCard(s, "card-guy-test-coin")];
 	const spy = t.mock.method(engine, "fromView");
 	let scored, coin;
 	for (let seed = 1; seed <= 12 && !(coin && coin.samples > 1); seed++) { // THE FIRST TWO GUESSES MUST DISAGREE FOR THE REST TO BE ASKED: HALF THE SEEDS
