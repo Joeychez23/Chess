@@ -775,16 +775,29 @@ describe("Segment 2 fix round 1", () => {
 		assert.ok(fired(r.events, "phalanx") && !waits(r.state, "phalanx"));
 	});
 
-	test("Phalanx's and Peasant Immunity's bookkeeping never reaches a view", () => {
+	test("Phalanx's and Peasant Immunity's bookkeeping reaches only its owner's view, never under the opponent's Fog of War; a state rebuilt from that view plays as the real one", () => {
 		const s = game("4k3/8/8/3p4/2PPP3/8/8/4K3 w - - 0 1", { b: ["p"] });
 		place(s, "phalanx", "w");
 		const a = applyAction(s, "w", moveOf(s, "w", "e1", "f1")).state;
-		const p = game("r3k3/8/5P2/8/8/8/8/4K3 w - - 0 1", { w: ["p"] });
+		const p = game("r3k3/8/2P2P2/8/8/8/8/4K3 w - - 0 1", { w: ["p"] });
 		place(p, "peasant-immunity", "b");
-		const b = applyAction(p, "w", moveOf(p, "w", "f6", "f7")).state;
+		const b = applyAction(p, "w", moveOf(p, "w", "f6", "f7")).state; // f7 ATTACKS e8: STOPPED & RECORDED. c6 ATTACKS d7 FOR REAL
+		const kept = (e) => "denied" in e.card || "stopping" in e.card;
 		assert.equal(a.effects[0].card.denied, true);
 		assert.ok(b.effects[0].card.stopping);
-		for (const st of [a, b]) for (const viewer of ["w", "b"]) for (const e of playerView(st, viewer).effects) assert.ok(!("denied" in e.card) && !("stopping" in e.card), viewer);
+		assert.equal(playerView(a, "w").effects[0].card.denied, true); // THE OWNER'S OWN, NO FOG UP: NOTHING IT CAN'T SEE ON THE BOARD
+		assert.deepEqual(playerView(b, "b").effects[0].card.stopping, b.effects[0].card.stopping);
+		assert.ok(!playerView(a, "b").effects.some(kept) && !playerView(b, "w").effects.some(kept), "in the opponent's view");
+		for (const [st, owner] of [[a, "w"], [b, "b"]]) { // UNDER THE OPPONENT'S FOG IT WOULD TELL A HIDDEN PIECE IS A PAWN
+			const fog = JSON.parse(JSON.stringify(st));
+			fog.enchant.push({ id: "e990", key: "fog-of-war", owner: owner === "w" ? "b" : "w", pieces: [], left: null, data: {} });
+			for (const viewer of ["w", "b"]) assert.ok(!playerView(fog, viewer).effects.some(kept), viewer + " under the fog");
+		}
+		const again = fromView(playerView(a, "w"), 1); // PHALANX STILL FIRES AT ITS OWNER'S NEXT TURN START
+		assert.ok(fired(applyAction(a, "b", moveOf(a, "b", "e8", "f8")).events, "phalanx") && fired(applyAction(again, "b", moveOf(again, "b", "e8", "f8")).events, "phalanx"));
+		const kings = (st) => movesOf(st, "b").filter((m) => m.from === "e8").map((m) => m.to).sort(); // PEASANT IMMUNITY STILL EXEMPTS ONLY THE PAWN IT STOPPED
+		assert.ok(!kings(b).includes("d7"));
+		assert.deepEqual(kings(fromView(playerView(b, "b"), 1)), kings(b));
 	});
 
 	test("Pawn Storm through a real Conscription (a pawn turned into a piece by a card): 2 move cards", () => {

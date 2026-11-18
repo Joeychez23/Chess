@@ -60,7 +60,7 @@ function shownTo(state, viewer, card) {
 }
 
 /**
- * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id, a fake under a card shown for real left out), so a field not listed stays hidden; no enchantment's data.ids or data.fake (sight bookkeeping); no seen field on player's own side (it would tell the fakes apart); an entered Mirage in player's own hand as a move card of its fake type, a waiting one (given, not yet entered at a refill) nowhere; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half are not in the view at all (their squares null, board.hidden = how many, and every field holding one of their ids removed: statuses, enchantment pieces and data, card fields, choice options), its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both). View.you = player.
+ * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id, a fake under a card shown for real left out), so a field not listed stays hidden; no enchantment's data.ids or data.fake (sight bookkeeping); Phalanx's denied and Peasant Immunity's stopping only on player's own passives, and not under the opponent's Fog of War (they tell a hidden piece is a pawn); no seen field on player's own side (it would tell the fakes apart); an entered Mirage in player's own hand as a move card of its fake type, a waiting one (given, not yet entered at a refill) nowhere; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half are not in the view at all (their squares null, board.hidden = how many, and every field holding one of their ids removed: statuses, enchantment pieces and data, card fields, choice options), its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both). View.you = player.
  */
 function playerView(state, player) {
 	const v = copy(state), opp = other(player), me = v.players[player], o = v.players[opp], seen = state.players[player].seen;
@@ -75,13 +75,14 @@ function playerView(state, player) {
 	vo.hand = { count: handOf(o).length, shown };
 	for (const e of v.enchant) if (baseKey(e.key) === "trapdoor" && e.owner !== player && e.data) delete e.data.square;
 	for (const e of v.enchant) if (e.data && isSight(e)) { delete e.data.ids; delete e.data.fake; } // WHICH CARDS A SIGHT SHOWS, AND WHICH ARE FAKE (sight.js), STAY HIDDEN
-	for (const e of v.effects) { delete e.card.denied; delete e.card.stopping; } // PHALANX'S AND PEASANT IMMUNITY'S BOOKKEEPING READS TRUE PIECE TYPES (A FOGGED "?" PAWN)
+	const fog = fogged(state, opp, player);
+	for (const e of v.effects) if (fog || e.owner !== player) { delete e.card.denied; delete e.card.stopping; } // PHALANX'S AND PEASANT IMMUNITY'S BOOKKEEPING READS TRUE PIECE TYPES (A FOGGED "?" PAWN): player'S OWN STAYS WHILE NO FOG HIDES A PIECE (fromView NEEDS IT TO PLAY AS THE REAL GAME)
 	if (v.duel) duel.hide(v.duel); // NO DECK, NO FACE-DOWN CARD, FOR EITHER PLAYER
 	if (v.pending) { // THE CURRENT CHOICE ONLY: QUEUED ONES (next) SHOW TO NOBODY UNTIL THEY ARE CURRENT
 		const { next, ...cur } = v.pending;
 		v.pending = cur.player === player ? cur : { player: cur.player, kind: cur.kind }; // THE OTHER PLAYER: WHAT THE choice EVENT TOLD THEM
 	}
-	if (fogged(state, opp, player)) {
+	if (fog) {
 		const b = v.board, letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g;
 		const ids = hiddenIds(state, opp);
 		b.sq.forEach((p, i) => { if (p && ids.includes(p.id)) b.sq[i] = null; });
