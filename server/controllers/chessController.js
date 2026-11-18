@@ -59,7 +59,7 @@ async function myGames() {
 /**
  * @description Returns the board & the player's color. Used to load a game and when the socket says the opponent moved
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [{ status, game_id, game_board, ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, draw_offer, message }]
+ * @return {[object]} response [{ status, game_id, game_board, mode ("chess" | "cards"), ai, ai_level, start_params, player_color, opponent_color, opponent_name, moves, prev_move, opening, w_knight, b_knight, w_piece, b_piece, state, winner, reason, draw_offer, message }]
  */
 async function getGame(req, res) {
 	const response = await retrieveGame(req.params.gameId);
@@ -87,6 +87,7 @@ function playerGame(response, playerId) {
 		status: response.status,
 		game_id: gameData.game_id.S,
 		game_board: gameData.game_board.S,
+		mode: gameData.mode?.S || "chess", // "cards": A CHESS CARDS GAME, ITS PAGE LOADS IT FROM /api/chess/cards
 		ai: isAiGame(gameData),
 		ai_level: aiLevel(gameData),
 		start_params: startParams(gameData), // { color: "alternate" | "random" | "w" | "b", fen (a set position) }, WHAT RESTART & REMATCH REUSE
@@ -120,6 +121,7 @@ async function getPgn(req, res) {
 
 	const gameData = response.game_data;
 	if (!playerInGame(req, gameData)) { return notInGame(req, res); }
+	if (gameData.mode?.S == "cards") { return useCardsRoutes(res); }
 
 	try {
 		const player = req.user?.user_metadata?.screenname || (req.user ? "Player" : "Guest"); // AN AI GAME HAS ONE PLAYER, THE REQUESTER. ITS GAME SAVES NO NAMES
@@ -188,6 +190,7 @@ async function moveGame(req, res) {
 
 	const playerId = playerInGame(req, response.game_data);
 	if (!playerId) { return notInGame(req, res); }
+	if (response.game_data.mode?.S == "cards") { return useCardsRoutes(res); }
 	if (gamePending(response.game_data)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
 	if (!gameOpen(response.game_data)) { return res.status(409).json({ status: 500, message: "Game is over" }); }
 
@@ -222,6 +225,7 @@ async function restartGame(req, res) {
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
+	if (gameData.mode?.S == "cards") { return useCardsRoutes(res); }
 	if (!isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "Friend games can't be restarted" }); }
 
 	const params = startParams(gameData); // THE START SETTINGS ONLY CHANGE WITH A NEW GAME FROM HOME OR THE GUEST PAGE
@@ -255,6 +259,7 @@ async function aiMoveGame(req, res) {
 	const gameData = response.game_data;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
+	if (gameData.mode?.S == "cards") { return useCardsRoutes(res); }
 	if (!isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "Friend games have no AI" }); }
 
 	const aiColor = gameData.white_player_id.S == "CHESS_AI" ? "w" : "b";
@@ -306,6 +311,7 @@ async function analysisGame(req, res) {
 
 	const gameData = response.game_data;
 	if (!playerInGame(req, gameData)) { return notInGame(req, res); }
+	if (gameData.mode?.S == "cards") { return useCardsRoutes(res); }
 	if (!isAiGame(gameData) && (gameOpen(gameData) || gamePending(gameData))) { return res.status(403).json({ status: 403, message: "No hints in a friend game" }); }
 
 	const gameId = gameData.game_id.S;
@@ -345,6 +351,7 @@ async function takebackGame(req, res) {
 	const gameId = gameData.game_id.S;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
+	if (gameData.mode?.S == "cards") { return useCardsRoutes(res); }
 	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
 	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is over" }); }
 	if (!isAiGame(gameData)) { return reply(res, await friendTakeback(gameData, playerId)); }
@@ -493,6 +500,7 @@ async function drawGame(req, res) {
 	const gameId = gameData.game_id.S;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
+	if (gameData.mode?.S == "cards") { return useCardsRoutes(res); }
 	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
 	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is already over" }); }
 
@@ -581,6 +589,7 @@ async function rematchGame(req, res) {
 	const gameId = gameData.game_id.S;
 	const playerId = playerInGame(req, gameData);
 	if (!playerId) { return notInGame(req, res); }
+	if (gameData.mode?.S == "cards") { return useCardsRoutes(res); }
 	if (isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "AI games restart instead" }); }
 	if (gameOpen(gameData) || gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Game isn't over yet" }); }
 
@@ -1178,6 +1187,15 @@ function notInGame(req, res) {
 }
 
 /**
+ * @description Answers a chess route asked about a Chess Cards game: those are played & read through /api/chess/cards (cardsController.js). Forfeit is the one shared route
+ * @param  {[object]} res [express response]
+ * @return {[object]} response [{ status: 400, message }]
+ */
+function useCardsRoutes(res) {
+	return res.status(400).json({ status: 400, message: "Use the Chess Cards routes" });
+}
+
+/**
  * @description Player id for a signed in user
  * @param  {[object]} user [session user]
  * @return {[string]} playerId [auth0 user id without "auth0|", same as the client]
@@ -1187,4 +1205,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId, httpStatus };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId, httpStatus, retrieveGame, currentGame, playerInGame, notYours, notInGame, reply, aiLevel };
