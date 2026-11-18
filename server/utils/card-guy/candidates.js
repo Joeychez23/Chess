@@ -1,6 +1,6 @@
 /*
  *  candidates.js  --  chess server
- *	Vesper: the actions worth scoring
+ *	Card Guy: the actions worth scoring
  *  Every card action is kept. The plain chess moves are cut to the engine's best one plus the top 5 by a static score, so a turn fits its engine budget.
  *
  */
@@ -75,9 +75,9 @@ function plainMoves(sim, me, refused = []) {
 }
 
 /**
- * @description The actions Vesper scores, in the order the engine budget is spent: bestPlain, the top 5 other plain moves, then every card action (moves a card makes first, by static score).
+ * @description The actions Card Guy scores, in the order the engine budget is spent: bestPlain, the top 5 other plain moves, then every card action (moves a card makes first, by static score).
  * No discard with two skips already (a third forfeits the game), unless nothing else is left
- * @param  {[object]} sim [engine state Vesper simulates on]
+ * @param  {[object]} sim [engine state Card Guy simulates on]
  * @param  {[string]} me ["w" or "b"]
  * @param  {[object]} options [{ bestPlain: the engine's pick among the plain moves ({ from, to, promotion }), refused: action keys the real game refused }]
  * @return {[array]} actions

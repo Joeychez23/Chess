@@ -41,7 +41,7 @@ function start(ctx, player, piece, card) {
 }
 
 /**
- * @description The duel actions player may take: in step "pick", one { type: "duel", pick: i } per unpicked card of the current set (the spades deal when it is up) unless player is a pick ahead of the other; in step "decide", { stop: true } and { stop: false } for the duel's player only. Either player picks first; Vesper's pick comes through the same action.
+ * @description The duel actions player may take: in step "pick", one { type: "duel", pick: i } per unpicked card of the current set (the spades deal when it is up) unless player is a pick ahead of the other; in step "decide", { stop: true } and { stop: false } for the duel's player only. Either player picks first; Card Guy's pick comes through the same action.
  */
 function actions(state, player) {
 	const d = state.duel;

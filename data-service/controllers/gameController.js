@@ -452,7 +452,7 @@ function readStartFen(value) {
 // New Card Game (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description A Chess Cards game vs the AI (Vesper) for a signed in player or a guest. The chess server made the engine's start state, it's stored as sent
+ * @description A Chess Cards game vs the AI (Card Guy) for a signed in player or a guest. The chess server made the engine's start state, it's stored as sent
  * & never run here. A signed in player's game gets a new id like /games/ai, a guest's a new id & their guest token for it like /games/guest with no game_id
  * @param  {[object]} req.body [{ color ("w" | "b" | "random" | "alternate"), level (like /games/ai, left out = 1300), state (the engine's state, a JSON string), fen (its board) }]
  * @return {[object]} response [initalizeGame's { status, game_data (cards_version 1), message }, guest_token for a guest]

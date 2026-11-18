@@ -34,7 +34,7 @@ const captures = (s, c, from, to) => legalMoves(s, c).some((m) => m.from === fro
  * @description A game on this FEN with empty hands; White holds the active `key` as card c90.
  */
 function game(fen, key) {
-	const s = newGame({ vesper: "b", level: 1300, seed: 1 });
+	const s = newGame({ cardGuy: "b", level: 1300, seed: 1 });
 	s.board = fromFen(fen);
 	for (const c of ["w", "b"]) Object.assign(s.players[c], { moves: [], actives: [], passive: null });
 	if (key) s.players.w.actives = [{ id: "c90", key }];

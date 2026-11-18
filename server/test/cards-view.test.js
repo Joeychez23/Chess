@@ -14,7 +14,7 @@ const { inCheck } = require("../../cards-engine/rules.js");
 const other = (c) => (c === "w" ? "b" : "w");
 const handOf = (p) => [...p.moves, ...p.actives, ...(p.passive ? [p.passive] : []), ...p.curses];
 const fogBy = (s, c) => s.enchant.some((e) => e.key === "fog-of-war" && e.owner === c);
-const fresh = (seed = 1) => newGame({ vesper: "b", level: 1300, seed });
+const fresh = (seed = 1) => newGame({ cardGuy: "b", level: 1300, seed });
 const noSquares = (json) => json.replace(/"(square|from|to|ep)":"[a-h][1-8]"/g, ""); // SQUARES c1..c8 LOOK LIKE CARD IDS
 
 /**

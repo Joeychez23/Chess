@@ -28,7 +28,7 @@ register(require("../../cards-engine/cards/curse/debt.js"));
 register(require("../../cards-engine/cards/curse/hollow-crown.js"));
 
 const IF = "interdicted-foresight";
-const fresh = (seed = 1) => newGame({ vesper: "b", level: 1300, seed });
+const fresh = (seed = 1) => newGame({ cardGuy: "b", level: 1300, seed });
 const ofType = (events, type) => events.filter((e) => e.type === type);
 const ids = (cards) => cards.map((c) => c.id);
 const byId = (a, b) => Number(a.slice(1)) - Number(b.slice(1));

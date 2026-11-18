@@ -50,7 +50,7 @@ test("baseKey: a version's base, else the key itself (an unknown key too)", () =
 
 test("drawCard never gives a second version of a held, waiting or used card", () => {
 	setup();
-	const s = newGame({ vesper: "b", level: 1300, seed: 3 }), ctx = makeCtx(s), p = s.players.w;
+	const s = newGame({ cardGuy: "b", level: 1300, seed: 3 }), ctx = makeCtx(s), p = s.players.w;
 	for (const held of ["t-card", "t-card-rare"]) {
 		p.actives = [{ id: "c900", key: held }];
 		for (let i = 0; i < 200; i++) { p.actives.length = 1; assert.equal(hand.drawCard(ctx, "w", "active").key, "t-other"); }
@@ -72,7 +72,7 @@ test("draw shares follow the five weights, versions drawn at their own rarity", 
 	reset();
 	register({ key: "t-card", kind: "active", name: "Test Card", rarity: "common", text: "", targets: () => [null], play,
 		versions: TIERS.slice(1).map((rarity) => ({ rarity, text: "" })) });
-	const s = newGame({ vesper: "b", level: 1300, seed: 5 }), ctx = makeCtx(s), p = s.players.w, n = 10000, count = {};
+	const s = newGame({ cardGuy: "b", level: 1300, seed: 5 }), ctx = makeCtx(s), p = s.players.w, n = 10000, count = {};
 	const total = TIERS.reduce((sum, r) => sum + RARITY_WEIGHTS[r], 0);
 	for (let i = 0; i < n; i++) {
 		p.actives = [];
@@ -87,7 +87,7 @@ test("a version of Grace takes back a mating move like the base card", () => {
 	const grace = require("../../cards-engine/cards/passive/grace.js");
 	register({ ...grace, versions: [{ rarity: "epic", text: "" }] });
 	register({ key: "t-pass", kind: "active", name: "t-pass", rarity: "common", text: "", targets: () => [null], play });
-	const s = newGame({ vesper: "b", level: 1300, seed: 1 });
+	const s = newGame({ cardGuy: "b", level: 1300, seed: 1 });
 	s.board = fromFen("3rkr2/3p1p2/8/8/8/8/8/R5K1 w - - 0 1"); // Ra1-e1 MATES
 	for (const c of ["w", "b"]) Object.assign(s.players[c], { moves: [], actives: [], passive: null });
 	s.players.w.moves = [{ id: "c61", key: "move", piece: "r" }];
@@ -131,7 +131,7 @@ test("register refuses an unknown rarity, and a repeat registration drops the ve
 test("a version of Trapdoor keeps its square from the opponent in the events and the view", () => {
 	reset();
 	register({ ...require("../../cards-engine/cards/active/trapdoor.js"), versions: [{ rarity: "rare", text: "" }] });
-	const s = newGame({ vesper: "b", level: 1300, seed: 1 });
+	const s = newGame({ cardGuy: "b", level: 1300, seed: 1 });
 	s.board = fromFen("4k3/8/8/8/8/8/8/4K3 w - - 0 1");
 	s.players.w.actives = [{ id: "c90", key: "trapdoor-rare" }];
 	const a = legalActions(s, "w").find((x) => x.type === "active");

@@ -179,7 +179,7 @@ function checkMirageActions(s, color, acts) {
  * @description One seeded game to its result or the ply cap, every check at every ply; throws with the ply in the message. Adds what it met to stats. A directed run passes opts: setup(state, seed) changes the new game (or returns the state to play from), plies is its cap, note(state, events, hit) counts or checks what it looks for after each action.
  */
 function play(seed, stats, { setup, plies = PLIES, note } = {}) {
-	let s = newGame({ vesper: "b", level: 1300, seed }), ply = 0;
+	let s = newGame({ cardGuy: "b", level: 1300, seed }), ply = 0;
 	const roll = picker(seed), hit = (k) => { stats[k] = (stats[k] || 0) + 1; };
 	try {
 		if (setup) s = setup(s, seed) || s;
@@ -309,7 +309,7 @@ if (isMainThread) {
 	});
 
 	test("a Mirage holder's mating capture taken back by Grace: the Mirage it passed is back in its hand, and neither view nor the events name it to its holder", () => {
-		const s = newGame({ vesper: "b", level: 1300, seed: 1 }), n = { w: 1, b: 1 };
+		const s = newGame({ cardGuy: "b", level: 1300, seed: 1 }), n = { w: 1, b: 1 };
 		s.board = fromFen("3rkr2/3p1p2/8/8/8/8/8/R3n1K1 w - - 0 1"); // Rxe1 MATES
 		s.board.sq.forEach((q) => { if (q) q.id = q.c + n[q.c]++; });
 		Object.assign(s.players.w, { moves: [hand.newCard(s, "move", { piece: "r" }), hand.newCard(s, "move", { piece: "r" })], actives: [], passive: null });
