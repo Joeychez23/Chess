@@ -118,6 +118,9 @@ const limitForgot = limiter(FORGOT_LIMITS, "Password reset", "reset requests", (
 // POST /api/chess/game/:gameId/ai-move. AFTER optionalAuth & BEFORE THE ENGINE IS ASKED
 const limitAiMoves = limiter(AI_MOVE_LIMITS, "AI move", "AI move requests", (req) => ({ aiMoveSession: sessionKey(req), aiMoveIp: ipKey(req.ip) }));
 
+// POST /api/chess/cards/:gameId/action. AFTER optionalAuth. THE AI MOVE BUCKETS THEMSELVES: A CARD GAME'S ACTIONS & VESPER'S TURNS (limitAiMoves) SHARE ONE COUNT
+const limitCardActions = limiter(AI_MOVE_LIMITS, "Card action", "card actions", (req) => ({ aiMoveSession: sessionKey(req), aiMoveIp: ipKey(req.ip) }));
+
 // POST /api/chess/game/:gameId/analysis. AFTER optionalAuth & BEFORE THE ENGINE IS ASKED
 const limitAnalysis = limiter(ANALYSIS_LIMITS, "Analysis", "hint requests", (req) => ({ analysisSession: sessionKey(req), analysisIp: ipKey(req.ip) }));
 
@@ -224,4 +227,4 @@ function resetLimits() {
 }
 
 
-module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitAnalysis, limitClientErrors, limitPlayerSearch, limitFriends, limitAccountDeletes, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, ACCOUNT_DELETE_LIMITS, FRIEND_LIMITS };
+module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitCardActions, limitAnalysis, limitClientErrors, limitPlayerSearch, limitFriends, limitAccountDeletes, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, ACCOUNT_DELETE_LIMITS, FRIEND_LIMITS };
