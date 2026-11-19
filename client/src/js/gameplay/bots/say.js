@@ -36,12 +36,12 @@ export async function showBot(gameUrl, response) {
 	levelsRequest ||= getLevels(gameUrl);
 	const bot = botFor(await levelsRequest, response.ai_level);
 	if (!bot) { return hideBot(); }
-	if (game.bot?.level !== bot.level) {
+	if (game.bot?.level !== bot.level || game.bot?.name !== bot.name) {
 		botName.innerText = bot.name; // innerText, NEVER READ AS HTML
 		botInitial.innerText = bot.name[0];
 		botInitial.hidden = true;
-		botAvatar.hidden = false;
-		botAvatar.src = `${process.env.CHESS_ASSETS_URL}/${bot.avatar}`;
+		botAvatar.hidden = !bot.avatar; // A BOT THAT'S ONLY A NAME (CARD GUY, GET /api/chess/cards/card-guy): NO PICTURE & NO INITIAL, pickLine SAYS NOTHING FOR IT
+		if (bot.avatar) { botAvatar.src = `${process.env.CHESS_ASSETS_URL}/${bot.avatar}`; } else { botAvatar.removeAttribute("src"); }
 	}
 	game.bot = bot;
 	botDisplay.hidden = false;
