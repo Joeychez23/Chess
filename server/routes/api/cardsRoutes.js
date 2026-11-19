@@ -14,13 +14,13 @@ const { newCardsGame, getCardsGame, playCardsAction, cardGuyCardsTurn, getCardGu
 
 router.route('/').post(optionalAuth, limitNewGames, newCardsGame);                     // /api/chess/cards                  -> NEW CARD GAME VS CARD GUY AT A LEVEL & COLOR. ONE OPEN AI OR CARD GAME AT A TIME: 409, OR replace_current FORFEITS IT
 
-router.route('/card-guy').get(getCardGuy);                                             // /api/chess/cards/card-guy         -> CARD GUY (TASK 17). BEFORE /:gameId, OR "card-guy" IS READ AS A GAME ID
+router.route('/card-guy').get(getCardGuy);                                             // /api/chess/cards/card-guy         -> THE BOT'S NAME. BEFORE /:gameId, OR "card-guy" IS READ AS A GAME ID
 
 router.route('/:gameId').get(optionalAuth, getCardsGame);                              // /api/chess/cards/:gameId          -> THE GAME AS THE PLAYER MAY SEE IT, THEIR LEGAL ACTIONS & WHETHER CARD GUY OWES ONE
 
 router.route('/:gameId/action').post(optionalAuth, limitCardActions, playCardsAction); // /api/chess/cards/:gameId/action   -> PLAYS ONE OF THE PLAYER'S LEGAL ACTIONS & SAVES IT, 409 WHEN IT ISN'T ONE OR ANOTHER SAVE LANDED FIRST
 
-router.route('/:gameId/card-guy').post(optionalAuth, limitAiMoves, cardGuyCardsTurn);  // /api/chess/cards/:gameId/card-guy -> CARD GUY'S ACTION (TASK 17)
+router.route('/:gameId/card-guy').post(optionalAuth, limitAiMoves, cardGuyCardsTurn);  // /api/chess/cards/:gameId/card-guy -> CARD GUY PLAYS ONE ACTION IT OWES & IT'S SAVED
 
 
 module.exports = router

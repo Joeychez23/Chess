@@ -595,3 +595,24 @@ test("a chance outcome is scored by its mean over 8 guessed states", async (t) =
 	assert.ok(coin.total > 0 && coin.total < WEIGHTS.warded && coin.total % (WEIGHTS.warded / 8) === 0, "total " + coin.total); // SOME OF THE 8 WARDED, SOME DIDN'T
 	assert.ok(scored.filter((c) => c !== coin).every((c) => c.samples === 1));
 });
+
+test("under the player's Fog of War a sampled card is scored on the same guessed board as the plain moves (the first guess), only its card score is averaged", async () => {
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 12 }); // THE Coin OF THE TEST ABOVE
+	s.players.w.actives = [hand.newCard(s, "card-guy-test-coin")];
+	fogUp(s, "b");
+	const view = playerView(s, "w");
+	assert.ok(view.board.hidden > 0);
+	const worth = (fen) => [...fen.split(" ")[0]].reduce((sum, ch, i) => sum + ch.charCodeAt(0) * (i + 1), 0); // EVERY GUESSED PLACING HAS ITS OWN
+	let checked = 0;
+	for (let seed = 1; seed <= 12; seed++) {
+		const seen = [];
+		const coin = (await scoreTurn(view, opts({ seed, evaluate: async (fen) => { seen.push(worth(fen)); return worth(fen); } }))).find((c) => c.action.type === "active");
+		const now = worth(toFen(engine.fromView(view, seed)));
+		if (coin.samples === 1 || !seen.includes(now)) { continue; } // THE FIRST TWO GUESSES AGREED, OR THE GUESSED BOARD IS NO CHESS POSITION
+		const card = coin.total - now; // THE COIN MOVES NO PIECE: ITS BOARD IS THE BOARD NOW, ON THE FIRST GUESS
+		assert.ok(card >= 0 && card <= WEIGHTS.warded && card % (WEIGHTS.warded / 8) === 0, "seed " + seed + ": card score " + card);
+		assert.ok(seen.length <= MAX_EVALS);
+		checked++;
+	}
+	assert.ok(checked > 0, "no seed sampled the coin");
+});

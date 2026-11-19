@@ -186,7 +186,7 @@ test("another guest's action on the game is refused and the state is unchanged",
 	assert.equal(signedIn.http, 403);
 	assert.equal(signedIn.message, "Player is not in this game");
 	assert.equal((await load(created.game_id, { as: bob })).http, 403);
-	assert.equal((await call("POST", `/api/chess/cards/${created.game_id}/card-guy`, { guest: "other" })).http, 501); // TASK 17
+	assert.equal((await call("POST", `/api/chess/cards/${created.game_id}/card-guy`, { guest: "other" })).http, 401);
 	assert.equal((await load("no-such-game")).http, 404);
 	assert.deepEqual(stored(created.game_id), before);
 	assert.equal(version(created.game_id), "1");
@@ -384,7 +384,8 @@ test("card actions & Card Guy's turns take from the AI move limits", async () =>
 
 test("GET /card-guy is its own route, not a game id", async () => {
 	const answer = await call("GET", "/api/chess/cards/card-guy");
-	assert.equal(answer.http, 501);
+	assert.equal(answer.http, 200);
+	assert.equal(answer.name, "Card Guy");
 });
 
 test("the events of an action reach the player redacted: Card Guy's hidden discards carry no card", async () => {

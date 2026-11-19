@@ -125,16 +125,20 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world =
 	const outcomes = (action, isMove, key) => {
 		if (key && baseKey(key) === "all-or-nothing") { return [{ fen: now, card: duelValue(sim, me, key, action.target.piece), fixed: null }]; } // A CARD DUEL IS SCORED BY ITS EXPECTED VALUE, NOT PLAYED OUT
 		const first = tryOn(sim, action);
-		if (isMove || bare || asked.size >= MAX_EVALS) { return [first]; } // PAST THE BUDGET IT SCORES THE BOARD NOW + ITS CARD SCORE ON THIS GUESS: SAMPLING IT IS TIME SPENT ON NOTHING (115 TARGETS OF A FOGGED SWAP)
+		if (isMove || bare || asked.size + guessed >= MAX_EVALS) { return [first]; } // PAST THE BUDGET IT SCORES THE BOARD NOW + ITS CARD SCORE ON THIS GUESS: SAMPLING IT IS TIME SPENT ON NOTHING (115 TARGETS OF A FOGGED SWAP)
 		const second = tryOn(sample(1).state, action), sameBoard = sample(1).fen === raw; // UNDER A FOG THE GUESSED BOARDS DIFFER ANYWAY: ONLY THE CARD SCORE TELLS A CHANCE OUTCOME THERE
 		// shortcut: a chance outcome whose first two guesses end alike is scored as certain, sample all 8 if the balance report shows it matters (8 for every target of a Swap is too slow)
 		const chance = !second || second.card !== first.card || second.fixed !== first.fixed || (sameBoard && second.fen !== first.fen);
 		if (!chance) { return [first]; }
-		return [first, second, ...Array.from({ length: SAMPLES - 2 }, (_, k) => tryOn(sample(k + 2).state, action))].filter(Boolean);
+		const outs = [first, second, ...Array.from({ length: SAMPLES - 2 }, (_, k) => tryOn(sample(k + 2).state, action))].filter(Boolean);
+		if (sameBoard) { return outs; }
+		guessed += outs.length - 1; // THEY COUNT ON THE BUDGET AS THE BOARDS THEY'D HAVE ASKED ABOUT: 8 TRIES FOR EVERY TARGET OF A FOGGED SWAP IS TOO SLOW
+		return outs.map((o) => ({ ...o, fen: first.fen })); // UNDER A FOG EVERY SAMPLE'S BOARD IS THE FIRST GUESS'S, THE ONE THE PLAIN MOVES ARE SCORED ON: ONLY THE CARD SCORE IS AVERAGED
 	};
 
 	// THE ENGINE BUDGET, IN ORDER: THE BOARD NOW, bestPlain, THE OTHER PLAIN MOVES, THE CARD CANDIDATES. A BOARD PAST IT SCORES AS THE BOARD NOW
 	const asked = new Set(now ? [now] : []), scored = [];
+	let guessed = 0; // SAMPLES TAKEN ON OTHER GUESSES OF A FOGGED BOARD
 	for (const action of candidates(sim, me, { bestPlain, refused })) {
 		await new Promise(setImmediate); // THE SERVER ANSWERS ITS OTHER REQUESTS BETWEEN CANDIDATES
 		const isMove = isPlain(sim, me, action), key = action.type === "active" ? cardKey(action) : null, outs = outcomes(action, isMove, key);

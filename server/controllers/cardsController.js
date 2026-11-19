@@ -12,15 +12,18 @@
 /* ---------------------------------------------------------------- */
 
 const crypto = require("crypto");
-const { newGame, applyAction, legalActions, playerLegal, playerView, playerEvents, toFen, ENGINE_VERSION, IllegalAction } = require("../../cards-engine/index.js");
+const { newGame, applyAction, legalActions, playerLegal, playerView, playerEvents, actionKey, toFen, ENGINE_VERSION, IllegalAction } = require("../../cards-engine/index.js");
 const { baseKey } = require("../../cards-engine/cards/index.js");
-const { readLevel } = require("../utils/ai.js");
+const { readLevel, bestOf } = require("../utils/ai.js");
+const cardGuy = require("../utils/card-guy/index.js");
 const { gameOpen, isColor } = require("../utils/games.js");
 const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { ifSaved, forfeit, newCardsGame: createCardsGame, saveCardsState } = require("../dataClient.js");
 const { retrieveGame, currentGame, playerInGame, notYours, notInGame, reply, aiLevel } = require("./chessController.js");
 
 const ACTION_CHARS = 2000; // AN ACTION AS JSON, THE LONGEST LEGAL ONE IS UNDER 100
+const MAX_REFUSALS = 8; // TIMES CARD GUY IS ASKED AGAIN IN ONE CALL (EACH IS A WHOLE TURN OF THINKING), THEN ANY LEGAL ACTION IS PLAYED
+const cardGuyTurns = new Map(); // GAME ID -> CARD GUY'S ACTION BEING PICKED & SAVED (A PROMISE), SO PARALLEL /card-guy REQUESTS PLAY IT ONCE
 
 /* ---------------------------------------------------------------- */
 // New Game (POST)
@@ -93,14 +96,7 @@ async function playCardsAction(req, res) {
 		return res.status(409).json({ ...cardsResponse(gameData, state), status: 409, message: "That action isn't available" });
 	}
 
-	const gameId = gameData.game_id.S;
-	const json = JSON.stringify(next.state);
-	const result = next.state.result; // A WINNER & REASON CLOSE THE GAME IN THE SAME WRITE. THE ENGINE'S DRAW IS winner null, THE DATA SERVICE'S "draw"
-	const ended = result ? { winner: result.winner || "draw", reason: result.reason } : {};
-	const saved = await ifSaved(() => saveCardsState(gameId, Number(gameData.cards_version.N), json, { fen: boardFen(gameData, next.state), ...ended }), async () => {
-		const latest = await retrieveGame(gameId, true); // TOO SLOW: SAVED IF THE STORED STATE IS THIS ONE
-		return latest.game_data?.cards_state?.S == json ? latest : null;
-	});
+	const saved = await saveState(gameData, next.state);
 	if (saved.status == 409) { // ANOTHER SAVE OF THIS VERSION LANDED FIRST (THE SAME ACTION SENT TWICE, A FORFEIT): THE GAME AS IT IS NOW
 		const latest = await loadCardsGame(req, res);
 		if (!latest) { return; }
@@ -111,22 +107,74 @@ async function playCardsAction(req, res) {
 }
 
 /* ---------------------------------------------------------------- */
-// Card Guy (Task 17)
+// Card Guy (POST, GET)
 /* ---------------------------------------------------------------- */
 /**
- * @description Card Guy's action in a card game. Not built yet (Task 17)
- * @return {[object]} response [{ status: 501, message }]
+ * @description Card Guy plays one action it owes (a turn action, the second move of a two-move turn, a choice, a card duel pick) & it's saved. The client only shows it.
+ * When Card Guy owes nothing (the player's turn, the game is over) this answers with the game as it is. Parallel requests play the action once & all get it
+ * @param  {[string]} req.params.gameId [game id]
+ * @return {[object]} response [cardsResponse with the action's events, card_guy_due says whether to call again | cardsResponse (no events) when nothing is owed, or another save landed first]
  */
-function cardGuyCardsTurn(req, res) {
-	return res.status(501).json({ status: 501, message: "Card Guy can't play yet" });
+async function cardGuyCardsTurn(req, res) {
+	const game = await loadCardsGame(req, res);
+	if (!game) { return; }
+	const { gameData, state } = game, gameId = gameData.game_id.S;
+	if (!gameOpen(gameData) || !legalActions(state, cardGuyOf(gameData)).length) { return res.json(cardsResponse(gameData, state)); } // NOTHING OWED: CARD GUY ISN'T ASKED (IT THROWS)
+
+	let turn = cardGuyTurns.get(gameId);
+	if (!turn) { // NO ACTION IN FLIGHT FOR THIS GAME: THIS REQUEST PICKS IT, LATER ONES WAIT ON IT & GET THE SAME ANSWER (THE GAME HAS ONE PLAYER)
+		turn = playCardGuyTurn(gameData, state).finally(() => cardGuyTurns.delete(gameId));
+		cardGuyTurns.set(gameId, turn);
+	}
+	return reply(res, await turn);
 }
 
 /**
- * @description Who Card Guy is, for the card game page. Not built yet (Task 17)
- * @return {[object]} response [{ status: 501, message }]
+ * @description Picks Card Guy's action from its own view of the game (never the state), plays it on the state & saves it. Under the player's Fog of War the real game can refuse the action
+ * (Card Guy guessed the fogged pieces): it's asked again with the action in refused. When it has none left, throws, or was refused MAX_REFUSALS times, a legal action is played all the same
+ * (a move when there is one): the game never waits on Card Guy
+ * @param  {[object]} gameData [the stored card game, open]
+ * @param  {[object]} state [its engine state, Card Guy owes an action]
+ * @return {[object]} body [cardsResponse with the events | cardsResponse of the game as it is now (another save landed first: a forfeit) | { status, message }]
+ */
+async function playCardGuyTurn(gameData, state) {
+	const me = cardGuyOf(gameData), gameId = gameData.game_id.S;
+	const view = playerView(state, me), fogged = view.board.hidden > 0;
+	const seed = crypto.randomInt(2 ** 32); // CARD GUY'S OWN DICE, NEVER THE GAME'S
+	const refused = [];
+	let next = null;
+	while (!next && refused.length <= MAX_REFUSALS) {
+		let action;
+		try {
+			action = await cardGuy.cardGuyTurn(view, state.level, { evaluate: cardGuy.evaluate, bestOf, seed, refused });
+			next = applyAction(state, me, action);
+		} catch (err) {
+			if (!(err instanceof IllegalAction)) { console.log(`CARD GUY FOUND NO ACTION IN GAME ${gameId}: ${err.message}`); break; }
+			if (!fogged) { console.log(`CARD GUY PICKED AN ILLEGAL ACTION WITH NO FOG UP IN GAME ${gameId}: ${JSON.stringify(action)}`); } // A BUG: ONLY A GUESSED BOARD CAN BE WRONG
+			refused.push(actionKey(action));
+		}
+	}
+	if (!next) {
+		const legal = legalActions(state, me), moves = legal.filter((a) => a.type === "move"), from = moves.length ? moves : legal;
+		next = applyAction(state, me, from[crypto.randomInt(from.length)]);
+	}
+
+	const saved = await saveState(gameData, next.state);
+	if (saved.status == 409) { // ANOTHER SAVE OF THIS VERSION LANDED FIRST (A FORFEIT, A REQUEST THAT READ THE GAME BEFORE THIS TURN STARTED): THE GAME AS IT IS NOW
+		const latest = await retrieveGame(gameId, true);
+		if (!latest.game_data) { return { status: latest.status, message: latest.message }; }
+		return cardsResponse(latest.game_data, { ...JSON.parse(latest.game_data.cards_state.S), cardGuy: me });
+	}
+	if (saved.status != 200) { return { status: saved.status, message: saved.message }; }
+	return cardsResponse(saved.game_data, next.state, next.events);
+}
+
+/**
+ * @description Who the Chess Cards opponent is, for the card game page: only a name. The bot has no avatar, bio or lines
+ * @return {[object]} response [{ name }]
  */
 function getCardGuy(req, res) {
-	return res.status(501).json({ status: 501, message: "Card Guy can't play yet" });
+	return res.json({ name: "Card Guy" });
 }
 
 /* ---------------------------------------------------------------- */
@@ -151,6 +199,23 @@ async function loadCardsGame(req, res) {
 	if (state.v !== ENGINE_VERSION) { res.status(409).json({ status: 409, game_id: gameData.game_id.S, message: "This game is from an older version" }); return null; } // ITS STATE MAY NOT FIT THIS ENGINE
 	state.cardGuy = cardGuyOf(gameData); // newCardsGame MADE THE STATE BEFORE THE SIDES WERE PICKED
 	return { gameData, state };
+}
+
+/**
+ * @description Saves a state an action made, only on the version the game was read at. A result closes the game in the same write
+ * @param  {[object]} gameData [the stored card game the action was played on]
+ * @param  {[object]} state [the state after the action]
+ * @return {[object]} response [the data service's { status, game_data, message }, 409 when another save of this version landed first]
+ */
+function saveState(gameData, state) {
+	const gameId = gameData.game_id.S;
+	const json = JSON.stringify(state);
+	const result = state.result; // A WINNER & REASON CLOSE THE GAME IN THE SAME WRITE. THE ENGINE'S DRAW IS winner null, THE DATA SERVICE'S "draw"
+	const ended = result ? { winner: result.winner || "draw", reason: result.reason } : {};
+	return ifSaved(() => saveCardsState(gameId, Number(gameData.cards_version.N), json, { fen: boardFen(gameData, state), ...ended }), async () => {
+		const latest = await retrieveGame(gameId, true); // TOO SLOW: SAVED IF THE STORED STATE IS THIS ONE
+		return latest.game_data?.cards_state?.S == json ? latest : null;
+	});
 }
 
 /**
