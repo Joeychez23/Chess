@@ -7,9 +7,10 @@
  */
 
 import { TEXT, DIM, HOT, NAMES, drawText, body } from "../kit.js";
-import { CHANNELS, LOCKED, IDLES } from "../prefs.js";
+import { CHANNELS, LOCKED, IDLES, NOT_IN_CARDS } from "../prefs.js";
 
 const ROW = 12; // ONE ROW'S HEIGHT, 6 CHANNELS & THE BACKGROUND ROW
+const rowsFor = (data) => CHANNELS.filter((id) => !(data.cards && NOT_IN_CARDS.includes(id))); // THE CHANNELS WITH A ROW: A CHESS CARDS GAME HAS NO FACE OR EVAL ROW
 const BTN_H = 11; // A 7 px LABEL WITH 1 px CLEAR ABOVE & BELOW INSIDE ITS BORDER, 1 px BETWEEN ROWS
 // WHERE THINGS GO ACROSS A ROW, FROM THE BODY'S LEFT EDGE. THE ZOOMED BODY IS 144 px (THE BEZEL'S SAFE AREA), SO ITS DEFAULT MARKER IS AN ARROW AT THE DEF BUTTON
 const DESK = { name: 2, toggle: { x: 62, w: 22 }, def: { x: 88, w: 22 }, mark: { x: 114, text: "DEFAULT" }, idle: { xs: [40, 78, 116], w: 32 } };
@@ -36,13 +37,13 @@ function rowY(data, r) {
  */
 export function draw(ctx, data) {
 	const { prefs } = data;
-	const x0 = body(data).x, at = layout(data);
-	CHANNELS.forEach(function (id, r) {
+	const x0 = body(data).x, at = layout(data), rows = rowsFor(data);
+	rows.forEach(function (id, r) {
 		const y = rowY(data, r) + 2;
 		drawText(ctx, NAMES[id], x0 + at.name, y, prefs.enabled.includes(id) ? TEXT : DIM);
 		if (prefs.defaultChannel === id) { drawText(ctx, at.mark.text, x0 + at.mark.x, y, HOT); }
 	});
-	const y = rowY(data, CHANNELS.length) + 2;
+	const y = rowY(data, rows.length) + 2;
 	drawText(ctx, "BG", x0 + at.name, y, TEXT);
 	IDLES.forEach(function (name, i) {
 		if (prefs.idle === name) { drawText(ctx, "▶", x0 + at.idle.xs[i] - 6, y, HOT); }
@@ -57,15 +58,15 @@ export function draw(ctx, data) {
 export function buttons(data) {
 	if (!data.zoomed) { return []; }
 	const { prefs } = data;
-	const x0 = body(data).x, at = layout(data);
+	const x0 = body(data).x, at = layout(data), rows = rowsFor(data);
 	const list = [];
-	CHANNELS.forEach(function (id, r) {
+	rows.forEach(function (id, r) {
 		const y = rowY(data, r) + 1;
 		const on = prefs.enabled.includes(id);
 		list.push({ id: `toggle:${id}`, x: x0 + at.toggle.x, y, w: at.toggle.w, h: BTN_H, label: on ? "ON" : "OFF", enabled: !LOCKED.includes(id) });
 		if (on) { list.push({ id: `default:${id}`, x: x0 + at.def.x, y, w: at.def.w, h: BTN_H, label: "DEF", enabled: true }); }
 	});
-	const y = rowY(data, CHANNELS.length) + 1;
+	const y = rowY(data, rows.length) + 1;
 	IDLES.forEach((name, i) => list.push({ id: `idle:${name}`, x: x0 + at.idle.xs[i], y, w: at.idle.w, h: BTN_H, label: name.toUpperCase(), enabled: true }));
 	return list;
 }

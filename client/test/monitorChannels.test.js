@@ -251,6 +251,12 @@ describe("monitor channels", () => {
 		assert.deepEqual(patches, [{ defaultChannel: "moves" }, { defaultChannel: null }]);
 	});
 
+	test("setup: a card game has no face or eval row, a normal game has every row", () => {
+		const toggles = (data) => CHANNEL.setup.buttons({ ...data, zoomed: true, prefs: defaults(), ui: {} }).filter((b) => b.id.startsWith("toggle:")).map((b) => b.id);
+		assert.deepEqual(toggles({ ...base, cards: true }), ["toggle:opponent", "toggle:moves", "toggle:actions", "toggle:setup"]);
+		assert.deepEqual(toggles(base), ["toggle:face", "toggle:opponent", "toggle:eval", "toggle:moves", "toggle:actions", "toggle:setup"]);
+	});
+
 	test("setup: every button fits the body and none overlap", () => {
 		const buttons = CHANNEL.setup.buttons({ ...base, zoomed: true, prefs: defaults(), ui: {} });
 		for (const b of buttons) { assert.ok(inside(b, true), b.id); }

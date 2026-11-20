@@ -390,9 +390,9 @@ export async function deleteUserData(userUrl) {
 
 /**
  * @description fetch() for the chess routes. The server takes the player from the session cookie,
- * so a 401 means the access token expired mid game: re-up the session once & try again
+ * so a 401 means the access token expired mid game: re-up the session once & try again. The card routes use it too (gameplay/cards/api.js)
  */
-async function request(url, options) {
+export async function request(url, options) {
 	try {
 		let res = await fetch(url, options);
 		if (res.status == 401) {

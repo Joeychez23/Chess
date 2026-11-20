@@ -121,6 +121,26 @@
 					<p class="spec note" id="multiNote" role="status"></p>
 				</form>
 			</div>
+			<div class="box boxBaize" id="cardsBox">
+				<div class="boxHead"><h2 class="label">Chess Cards</h2><span class="spec">No. 07</span></div>
+				<p class="boxText">Chess where a hand of cards decides which pieces you can move, and other cards bend the rules. Against Card Guy, on the 3D board.</p>
+				<figure class="boardPicture" hidden>
+					<canvas role="img" aria-label="The board of your current Chess Cards game"></canvas>
+					<figcaption class="spec"></figcaption>
+				</figure>
+				<a class="btn btnCream continueGame" href="/" hidden>Continue current game</a>
+				<div class="field fieldStack boxBottom">
+					<select id="cardsLevel" aria-label="Card Guy's level"></select>
+					<select id="cardsColor" aria-label="Your color">
+						<option value="alternate" selected>Alternate colors</option>
+						<option value="random">Random color</option>
+						<option value="w">Play white</option>
+						<option value="b">Play black</option>
+					</select>
+					<button class="btn btnCream" id="optNewCards" type="button">Start</button>
+				</div>
+				<p class="spec note" id="cardsNote" role="status"></p> <!-- NO WEBGL: "Chess Cards needs 3D, which this device can't show." -->
+			</div>
 			<div class="box boxWalnut" id="invites">
 				<div class="boxHead"><h2 class="label">Invites</h2><span class="spec">No. 03</span></div>
 				<p id="noInvites">No invites right now. When a friend invites you, or you create a challenge link, it shows up here.</p>

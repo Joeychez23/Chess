@@ -27,6 +27,8 @@ const { drawRestartSlide } = require("./animate/index.js"); // ONE FRAME OF THE 
 const { handleCanvasClick, handleMouseMove, handleMouseDown, handleMouseUp, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = require("./input/index.js"); // MOUSE, TOUCH & REMOTE-ONLY MODE HANDLERS (ADDED IN startGame)
 const { handleKeyPress, handleCardKey } = require("./input/keys.js"); // THE KEYBOARD & REMOTE-ONLY MODE
 const { setInitialData, loadReadOnly, startSlide } = require("./moves/index.js"); // LOADS THE GAME FROM THE SERVER (TO PLAY, OR READ-ONLY)
+const { startCards } = require("./cards/flow.js"); // A CHESS CARDS GAME RUNS THERE INSTEAD
+const { getCardsGame } = require("./cards/api.js"); // & LOADS FROM THE CARD ROUTES
 const { listenersFor } = require("./input/modes.js"); // WHICH LISTENERS GO ON: THE MOUSE, REMOTE-ONLY MODE OR THE READ-ONLY BOARD
 const { addMenuListeners, handleResume, handleSound, loadSound, loadView, showView, handleView, handleResetView, handleFlip, flipWhenDone, handleDownloadPgn, handleHint, handleTakeback, handleDeclineTakeback, handleOfferDraw, handleDeclineDraw, handleRestart, handleCancelRematch, handleLeave, handleExit, socketHandlers, showReadOnlyMenu } = require("./menu/index.js"); // MENU BUTTON HANDLERS (ADDED IN startGame), THE FRIEND GAME SOCKET'S HANDLERS
 const { joinGame } = require("../socket/index.js"); // FRIEND GAMES: THE SERVER PUSHES MOVES, FORFEITS & REMATCHES
@@ -56,9 +58,9 @@ const AI_RETRY_TIME = 5000; // ASKS FOR THE AI'S MOVE AGAIN AFTER THIS WHEN IT D
 /**
  * @description Starts a game: adds the canvas to main & starts the game (startGame) once the images are loaded.
  * The rest of the game is in the files next to this one (see the top of this file), the state they share is game (gameplay/state/index.js)
- * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, REMOTE_ONLY_CONDITIONAL, SIGNED_IN, VIEW, READ_ONLY }, REMOTE_ONLY_CONDITIONAL = REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE,
+ * @param  {[object]} playerData [{ GAME_URL, GAME_ID, PLAYER_ID, REMOTE_ONLY_CONDITIONAL, SIGNED_IN, VIEW, READ_ONLY, CARD_GAME }, REMOTE_ONLY_CONDITIONAL = REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE,
  * VIEW = VIEWS.THREE_D TO START ON THE 3D BOARD (LEFT OUT: THE PLAYER'S SAVED VIEW, loadView), READ_ONLY = A BOARD THAT ONLY SHOWS THE GAME (A REPLAY, #100):
- * NO PIECE IS PICKED UP, NO MOVE OR AI REQUEST IS SENT & NO SOCKET IS OPENED
+ * NO PIECE IS PICKED UP, NO MOVE OR AI REQUEST IS SENT & NO SOCKET IS OPENED, CARD_GAME = A CHESS CARDS GAME'S { startColor }: cards/flow.js PLAYS IT, NOT chess.js
  * @return {[Promise<object|false>]} [the game (game.response) once it's started, false when it couldn't be loaded]
  */
 export async function renderCanvas(playerData) {
@@ -68,6 +70,7 @@ export async function renderCanvas(playerData) {
 	game.SIGNED_IN = playerData.SIGNED_IN; // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
 	game.GAME_ID = playerData.GAME_ID; // CHANGES WHEN AN AI GAME RESTARTS OR A FRIEND GAME REMATCHES
 	game.readOnly = Boolean(playerData.READ_ONLY); // A REPLAY: THE BOARD ONLY SHOWS THE GAME
+	game.cardGame = playerData.CARD_GAME || null; // CHESS CARDS: THE CARD ROUTES & cards/flow.js, NOT THE CHESS ONES
 
 	optBtn.style.display = "flex"; // SHOW THE MENU BUTTON
 
@@ -119,7 +122,7 @@ async function startGame(view) {
 	game.cw = 0; // SET BY renderBoard()
 	game.ch = 0;
 
-	const loaded = game.readOnly ? await loadReadOnly() : await setInitialData() !== false;
+	const loaded = game.readOnly ? await loadReadOnly() : game.cardGame ? startCards(await getCardsGame(game.GAME_URL, game.GAME_ID)) : await setInitialData() !== false;
 	if (!loaded) { // COULDN'T LOAD: NO GAME TO DRAW OR PLAY, ONLY ITS MESSAGE (setInitialData) ON THE TABLE
 		optBtn.style.display = "none"; // ITS LISTENER IS ADDED BELOW, A RELOAD STARTS AGAIN
 		document.documentElement.classList.remove("loadingPage"); // loadingPage HIDES THE MESSAGE (play.html)
@@ -153,7 +156,7 @@ async function startGame(view) {
 	document.addEventListener("visibilitychange", function () { if (!document.hidden) { game.refresh = true; } }); // SHOWN AGAIN: A SLIDE CATCHES UP TO THE TIME (stepSlide), REDRAWS A CANVAS THE BROWSER MAY HAVE THROWN AWAY
 
 	// EVENT LISTENERS (addBoardListener PUTS THE BOARD'S ON THE 2D CANVAS & THE 3D BOARD, THE BOARD'S HANDLERS ARE IN gameplay/input/index.js, handleWindowResize IN gameplay/layout/index.js, THE MENU'S IN gameplay/menu/index.js)
-	const listeners = listenersFor({ readOnly: game.readOnly, remoteOnly: game.REMOTE_ONLY_CONDITIONAL, override: OVERRIDE_REMOTE_ONLY }); // gameplay/input/modes.js
+	const listeners = listenersFor({ readOnly: game.readOnly, remoteOnly: game.REMOTE_ONLY_CONDITIONAL, override: OVERRIDE_REMOTE_ONLY, cards: Boolean(game.cardGame) }); // gameplay/input/modes.js
 	window.addEventListener("resize", handleWindowResize);
 	if (listeners.remoteKeys) { window.addEventListener("keydown", handleKeyPress) }
 	if (!game.readOnly) { window.addEventListener("keydown", handleCardKey, true); } // THE ARROWS & ENTER PICK A PROMOTION CARD, ON EVERY DEVICE. CAPTURE, BEFORE THE PAGE'S NAV & handleKeyPress (WHICH CALLS IT TOO, BUT NEVER SEES A KEY IT HANDLED). NO removeEventListener: NONE OF THE GAME'S WINDOW LISTENERS HAVE ONE
@@ -274,7 +277,7 @@ async function renderLoop() {
 		if (game.restartSlide) { // RESTART & REMATCH: THE PIECES SLIDE HOME
 			drawRestartSlide();
 		} else if ((game.refresh || game.currSlide) && !game.boardReset) {
-			if (game.ai && !game.readOnly && chessInst.turn() != game.playerColor && game.aiTurn) { // IF AI (NEVER ON A READ-ONLY BOARD)
+			if (game.ai && !game.readOnly && !game.cardGame && chessInst.turn() != game.playerColor && game.aiTurn) { // IF AI (NEVER ON A READ-ONLY BOARD, & CARD GUY'S TURNS ARE cards/flow.js'S)
 				await startAiSlide();
 			} else {
 				flipWhenDone(); // FLIP BOARD WAS PRESSED DURING THE SLIDE OR SAVE THAT JUST ENDED

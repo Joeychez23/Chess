@@ -73,6 +73,7 @@ export const game = {
 	REMOTE_ONLY_CONDITIONAL: undefined, // REMOTE-ONLY MODE CONTROLS INSTEAD OF THE MOUSE
 	SIGNED_IN: undefined, // A SIGNED IN PLAYER (NOT A GUEST): RESTART CHANGES THE URL, EXIT LOGS OUT
 	readOnly: false, // A BOARD THAT ONLY SHOWS THE GAME (A REPLAY, #100): NO PIECE IS PICKED UP, NO MOVE, AI OR SOCKET (SET BY renderCanvas)
+	cardGame: null, // A CHESS CARDS GAME: { startColor } (Restart keeps it), cards/flow.js RUNS IT & NO CHESS ROUTE GETS ITS ID BUT FORFEIT. NULL IN A CHESS GAME (SET BY renderCanvas)
 	moveAudio: undefined, // MOVE SOUND (MADE IN renderCanvas)
 	soundOn: true, // THE PLAYER'S SOUND BUTTON, SAVED IN localStorage (SET BY loadSound, CHANGED BY handleSound IN gameplay/menu/index.js)
 	response: undefined, // LATEST GAME FROM THE SERVER { game_board, w_knight, b_knight, w_piece, b_piece, player_color, state, ... }

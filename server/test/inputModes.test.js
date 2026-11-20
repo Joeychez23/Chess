@@ -24,3 +24,11 @@ test("read-only can't pick up a piece in any input mode, & a remote-only device 
 		}
 	}
 });
+
+test("a card game takes no chess input (the board, the remote's keys, typed moves, takeback & draw prompts, PGN), & keeps the menu & its game actions (Restart)", () => {
+	assert.deepEqual(listenersFor({ readOnly: false, remoteOnly: false, override: false, cards: true }), { pointer: false, remoteKeys: false, menu: true, prompts: false, gameActions: true, moveBox: false, moveList: true, pgn: false });
+	for (const [remoteOnly, override] of [[true, false], [true, true]]) {
+		const listeners = listenersFor({ readOnly: false, remoteOnly, override, cards: true });
+		assert.deepEqual([listeners.pointer, listeners.remoteKeys, listeners.moveBox, listeners.pgn], [false, false, false, false]);
+	}
+});
