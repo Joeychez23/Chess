@@ -79,7 +79,7 @@ export async function showCurrentGame(box, game, href) {
 	const picture = box.querySelector(".boardPicture");
 	const continueLink = box.querySelector(".continueGame");
 	const turn = game.game_board.split(" ")[1]; // FEN: w OR b TO MOVE
-	const opponent = game.ai ? await aiOpponent(game.ai_level) : `vs ${game.opponent_name || "Friend"}`;
+	const opponent = game.mode === "cards" ? "Chess Cards" : game.ai ? await aiOpponent(game.ai_level) : `vs ${game.opponent_name || "Friend"}`; // A CARD GAME IS ALWAYS VS CARD GUY
 	const theirMove = game.ai ? "AI's move" : "Their move";
 	picture.querySelector("figcaption").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)} // ${turn == game.player_color ? "Your move" : theirMove}${game.move_deadline ? ` // ${timeLeftText(game.move_deadline)}` : ""}`;
 	continueLink.href = href;
@@ -136,19 +136,20 @@ async function aiOpponent(aiLevel) {
 }
 
 /**
- * @description Fills a level dropdown (Play the AI on Home & the guest page, Settings) with the server's levels, each one a bot & its approx Elo: "Ada · ≈1300 Elo".
+ * @description Fills a level dropdown (Play the AI on Home & the guest page, Settings, Chess Cards) with the server's levels, each one a bot & its approx Elo: "Ada · ≈1300 Elo".
  * The level is saved with the game, so it only changes by starting a new game
  * @param  {[string]} gameUrl [chess api, "/api/chess"]
  * @param  {[object]} select [the <select>]
+ * @param  {[boolean]} named [false: the Elo only, "≈1300 Elo" (Chess Cards: every level is Card Guy, not the level's bot)]
  * @return {[object]} response [GET /levels, undefined when it failed]
  */
-export async function loadLevels(gameUrl, select) {
+export async function loadLevels(gameUrl, select, named = true) {
 	const response = await botLevels(gameUrl);
 	if (!response) { return; } // NO LEVELS -> THE SERVER USES ITS DEFAULT
 	for (let i = 0; i < response.levels.length; i++) {
 		const option = document.createElement("option");
 		option.value = response.levels[i].level;
-		option.innerText = response.levels[i].name ? `${response.levels[i].name} · ${response.levels[i].elo} Elo` : `${response.levels[i].elo} Elo`; // THE LEVEL IS ITS ELO
+		option.innerText = named && response.levels[i].name ? `${response.levels[i].name} · ${response.levels[i].elo} Elo` : `${response.levels[i].elo} Elo`; // THE LEVEL IS ITS ELO
 		if (response.levels[i].level == response.default_level) { option.selected = true; }
 		select.append(option);
 	}

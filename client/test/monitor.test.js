@@ -120,6 +120,14 @@ describe("monitor", () => {
 		assert.equal(idleChannel(friend, { ...defaults(), enabled: ["face", "setup"] }), "setup");
 		assert.equal(idleChannel(base, defaults()), "face");
 	});
+	test("a card game has no face or eval channel, so it opens on the opponent", () => {
+		const cards = { ...base, cards: true };
+		assert.deepEqual(available(cards, defaults()), ["opponent", "moves", "actions", "setup"]);
+		assert.equal(idleChannel(cards, defaults()), "opponent");
+		assert.equal(idleChannel(cards, { ...defaults(), defaultChannel: "eval" }), "opponent"); // A DEFAULT PICKED IN A NORMAL GAME
+		assert.equal(idleChannel(cards, { ...defaults(), defaultChannel: "moves" }), "moves");
+		assert.deepEqual(available(base, defaults()), ["face", "opponent", "eval", "moves", "actions", "setup"]); // A NORMAL AI GAME KEEPS THEM
+	});
 	test("the life of a zoom", () => {
 		const m = make();
 		m.update(base);

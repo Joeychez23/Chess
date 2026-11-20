@@ -1558,8 +1558,8 @@ async function batchReadGames(gameIds, listName) {
 			RequestItems: {
 				[CHESS_TABLE]: {
 					Keys: keys,
-					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, #winner, #reason, ai_level, start_params, inviter_id, opening, move_deadline", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME, HOW IT STARTED, HOW IT ENDED, ITS OPENING & WHEN THE NEXT MOVE IS DUE (YOUR GAMES, FINISHED GAMES & INVITES)
-					ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason" }
+					ProjectionExpression: "game_id, white_player_id, black_player_id, white_name, black_name, #state, #winner, #reason, ai_level, start_params, inviter_id, opening, move_deadline, #mode", // THE GAME EXISTS, WHO'S IN IT, WHETHER IT'S AN AI GAME, HOW IT STARTED, HOW IT ENDED, ITS OPENING, WHEN THE NEXT MOVE IS DUE (YOUR GAMES, FINISHED GAMES & INVITES) & WHETHER IT'S A CHESS CARDS GAME (HOME OPENS IT AS ONE)
+					ExpressionAttributeNames: { "#state": "state", "#winner": "winner", "#reason": "reason", "#mode": "mode" } // MODE IS A DYNAMODB RESERVED WORD
 				}
 			}
 		};

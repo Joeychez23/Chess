@@ -1106,12 +1106,13 @@ function readColor(value) { return isColor(value) ? value : "alternate"; } // AL
  * @description One game for Your games or Finished games on Home
  * @param  {[object]} gameData [game item, pruneGameList's projection is enough]
  * @param  {[string]} playerId [the user the list is for]
- * @return {[object]} summary [{ game_id, ai, ai_level, opponent_name, player_color, start_params, opening, move_deadline }]
+ * @return {[object]} summary [{ game_id, mode ("chess" | "cards"), ai, ai_level, opponent_name, player_color, start_params, opening, move_deadline }]
  */
 function gameSummary(gameData, playerId) {
 	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
 	return {
 		game_id: gameData.game_id.S,
+		mode: gameData.mode?.S || "chess", // "cards": HOME OPENS IT AS A CHESS CARDS GAME, LIKE GET /game/:gameId SAYS
 		ai: isAiGame(gameData),
 		ai_level: aiLevel(gameData),
 		opponent_name: playerName(gameData, playerColor == "w" ? "b" : "w"),

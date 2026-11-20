@@ -8,13 +8,16 @@
 
 /**
  * @description The listener groups for an input mode. Sound, Flip Board, View, Reset View, Home, Settings & Exit are always on
- * @param  {[object]} mode [{ readOnly, remoteOnly, override }: override = OVERRIDE_REMOTE_ONLY, remote-only mode & the mouse together (testing)]
+ * @param  {[object]} mode [{ readOnly, remoteOnly, override, cards }: override = OVERRIDE_REMOTE_ONLY, remote-only mode & the mouse together (testing), cards = a Chess Cards game]
  * @return {[object]} groups [{ pointer: the board's click, mouse, right-click & touch, remoteKeys: remote-only mode's keys (handleKeyPress),
  * menu: the menu button, a click away & Escape, prompts: a takeback's & a draw offer's Accept & Decline, gameActions: Hint, Eval Bar,
  * Takeback, Offer Draw, Restart & Cancel Rematch, moveBox: the typed move box, moveList: the move list's toggle & keys, pgn: Download PGN }]
  */
-function listenersFor({ readOnly, remoteOnly, override }) {
+function listenersFor({ readOnly, remoteOnly, override, cards }) {
 	const mouse = !remoteOnly || Boolean(override);
+	if (cards) { // CHESS CARDS: THESE ALL PICK OR CHECK A MOVE WITH chess.js, THE SERVER'S legal LIST DECIDES INSTEAD (cards/flow.js). THE MENU KEEPS RESTART & FORFEIT, NO PGN
+		return { pointer: false, remoteKeys: false, menu: true, prompts: false, gameActions: true, moveBox: false, moveList: true, pgn: false };
+	}
 	if (readOnly) { // NOTHING ON THE BOARD TAKES INPUT, A REMOTE-ONLY DEVICE STILL GETS THE MENU (BUT STILL HAS NOWHERE TO SAVE A PGN)
 		return { pointer: false, remoteKeys: false, menu: true, prompts: false, gameActions: false, moveBox: false, moveList: true, pgn: mouse };
 	}

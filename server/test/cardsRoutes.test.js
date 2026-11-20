@@ -192,6 +192,23 @@ test("another guest's action on the game is refused and the state is unchanged",
 	assert.equal(version(created.game_id), "1");
 });
 
+test("Home's game lists say which games are card games, open and finished", async () => {
+	const alice = player("alice");
+	const chess = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w", ai_level: 4 } });
+	assert.equal((await call("POST", `/api/chess/game/${chess.game_id}/forfeit`, { as: alice })).http, 200);
+	const created = await start({}, { as: alice });
+	const modes = (list) => list.map((game) => [game.game_id, game.mode]);
+
+	let home = await call("GET", "/api/chess/user/alice", { as: alice });
+	assert.deepEqual(modes(home.open_game_list), [[created.game_id, "cards"]]);
+	assert.deepEqual(modes(home.closed_game_list), [[chess.game_id, "chess"]]);
+
+	assert.equal((await call("POST", `/api/chess/game/${created.game_id}/forfeit`, { as: alice })).http, 200);
+	home = await call("GET", "/api/chess/user/alice", { as: alice });
+	assert.deepEqual(modes(home.open_game_list), []);
+	assert.deepEqual(modes(home.closed_game_list).sort(), [[chess.game_id, "chess"], [created.game_id, "cards"]].sort());
+});
+
 test("forfeit closes a card game; the next GET has result forfeit and no legal actions; an action gets 409", async () => {
 	const created = await start();
 	const action = firstMove(stored(created.game_id), "w");

@@ -1,8 +1,8 @@
 /*
  *  index.js  --  chess frontend
  *	Home Page (/, signed in)
- *	Six boxes: Play the AI (at a level & color), Play a friend (by username, with your color), Invites (sent & received), the player's open games, their finished games & Friends.
- *	A player has one AI game & one friend game open at a time: each box shows its game's board & Continue current game,
+ *	Seven boxes: Play the AI (at a level & color), Play a friend (by username, with your color), Chess Cards (vs Card Guy at a level & color, 3D only), Invites (sent & received),
+ *	the player's open games, their finished games & Friends. A player has one AI game (a card game counts) & one friend game open at a time: each box shows its game's board & Continue current game,
  *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites, a challenge link waits until someone opens it & joins,
  *	the socket redraws Play a friend & Invites when one changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
  *
@@ -16,6 +16,8 @@ import "../../../css/home.css"; // HOME PAGE STYLES
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, searchPlayers, acceptInvite, getFriends } = require("../../gameplay/validate/index.js");
+const { newCardsGame } = require("../../gameplay/cards/api.js"); // CHESS CARDS: A NEW GAME VS CARD GUY
+const { hasWebGL } = require("../../gameplay/three/load.js"); // CHESS CARDS IS 3D ONLY
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { timeLeftText } = require("../utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT ON YOUR GAMES
@@ -36,6 +38,11 @@ const aiLevelSelect = document.getElementById("aiLevel"); // ABOVE PLAY AI, FILL
 const aiColorSelect = document.getElementById("aiColor"); // ALTERNATE, RANDOM, WHITE OR BLACK, RESTART KEEPS IT
 const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BLANK = THE STANDARD POSITION, RESTART KEEPS IT
 const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEITS YOUR CURRENT GAME"
+const cardsBox = document.getElementById("cardsBox"); // CHESS CARDS, ITS OPEN GAME SHOWS HERE (THE SAME ONE AT A TIME AS AN AI GAME)
+const optNewCardsBtn = document.getElementById("optNewCards"); // CHESS CARDS: START, OR NEW GAME WHILE A CARD GAME IS OPEN. OFF WITHOUT WEBGL
+const cardsLevelSelect = document.getElementById("cardsLevel"); // CARD GUY'S LEVEL, THE SAME LEVELS AS THE AI'S
+const cardsColorSelect = document.getElementById("cardsColor"); // ALTERNATE, RANDOM, WHITE OR BLACK, RESTART KEEPS IT
+const cardsNote = document.getElementById("cardsNote"); // THE FORFEIT WARNING, OR WHY IT CAN'T START (NO 3D)
 const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND
 const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: USERNAME & INVITE
 export const multiEmailInput = document.getElementById("enterMultiEmail");
@@ -76,6 +83,7 @@ const sessionCheck = auth.getUser(); // STARTS CHECKING THE SESSION NOW INSTEAD 
 export let PLAYER_ID;
 let CURRENT_GAME_ID = null; // THE PLAYER'S OPEN AI GAME (ONE AT A TIME)
 let confirmNewGame = false; // NEW GAME NEEDS A SECOND PRESS WHILE AN AI GAME IS OPEN, IT FORFEITS THAT ONE
+let confirmNewCards = false; // THE SAME FOR CHESS CARDS' START (A CARD GAME IS THE PLAYER'S ONE OPEN AI GAME TOO)
 export let FRIEND_GAME_ID = null; // THE PLAYER'S OPEN FRIEND GAME (ONE AT A TIME)
 export let FRIEND_NAME = "Friend"; // ITS OPPONENT, FOR THE FORFEIT WARNINGS
 export let confirmAccept = null; // THE INVITE WHOSE ACCEPT WAS PRESSED ONCE WHILE A FRIEND GAME IS OPEN (SAME WARNING)
@@ -90,6 +98,8 @@ startLogoutButtons(auth); // LOGOUT IN THE MENU IS A POST (#332)
 preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
 startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
+optNewCardsBtn.addEventListener("click", handleNewCardsGame);
+if (!hasWebGL()) { optNewCardsBtn.disabled = true; cardsNote.innerText = "Chess Cards needs 3D, which this device can't show."; } // A CARD GAME IS 3D ONLY
 muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE USERNAME FIELD
 multiEmailInput.addEventListener("input", handlePlayerSearch);
 createChallengeBtn.addEventListener("click", handleCreateChallenge);
@@ -113,7 +123,7 @@ async function startHome() {
 	const name = sessionUser.username || sessionUser.screenname; // THE SERVER SENDS A PLAYER WITHOUT A USERNAME TO /settings FIRST
 	if (name) { welcome.innerText = `Welcome back, ${name}`; }
 	if (sessionUser.email) { signedInAs.innerText = `Signed in // ${sessionUser.email}`; }
-	const levelsLoaded = loadLevels(CHESS_URL, aiLevelSelect);
+	const levelsLoaded = Promise.all([loadLevels(CHESS_URL, aiLevelSelect), loadLevels(CHESS_URL, cardsLevelSelect, false)]); // ONE GET /levels FOR BOTH, CARD GUY'S BY ELO ONLY
 	const homeDrawn = refreshHome(true);
 	const settingsUsed = useSettings(levelsLoaded, homeDrawn);
 	watchGames(refreshHome); // INVITES & FRIEND GAMES CHANGE WITHOUT A RELOAD
@@ -130,6 +140,8 @@ async function useSettings(levelsLoaded, homeDrawn) {
 	if (!SETTINGS) { return; } // NO ROW YET: THE DROPDOWNS KEEP THEIR DEFAULTS
 	aiLevelSelect.value = `${SETTINGS.ai_level}`;
 	aiColorSelect.value = SETTINGS.ai_color;
+	cardsLevelSelect.value = `${SETTINGS.ai_level}`; // CARD GUY STARTS ON THE AI'S DEFAULTS, IT HAS NONE OF ITS OWN
+	cardsColorSelect.value = SETTINGS.ai_color;
 	friendColorSelect.value = SETTINGS.friend_color;
 }
 
@@ -214,8 +226,8 @@ function listGames(gameData, levels) {
 	for (let i = 0; i < openGames.length; i++) {
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
-		const opponent = openGames[i].ai ? `vs ${botName(levels, openGames[i].ai_level) || `AI // Level ${openGames[i].ai_level}`}` : `vs ${openGames[i].opponent_name || "Friend"}`;
-		gameLink.href = `/play/${encodeURIComponent(openGames[i].game_id)}`;
+		const opponent = opponentText(openGames[i], levels);
+		gameLink.href = `/play/${encodeURIComponent(openGames[i].game_id)}`; // A CARD GAME TOO: THE PLAY PAGE OPENS IT BY ITS MODE
 		gameLink.innerHTML = `<span class="label">Game ${i + 1}</span><span class="spec gameInfo"></span><span class="label gameOpen">Open</span>`;
 		const opening = openGames[i].opening ? ` // ${openGames[i].opening.eco} ${openGames[i].opening.name}` : "";
 		const timeLeft = openGames[i].move_deadline ? ` // ${timeLeftText(openGames[i].move_deadline)}` : "";
@@ -226,6 +238,17 @@ function listGames(gameData, levels) {
 	gameList.replaceChildren(...rows); // REDRAWN WHEN THE SOCKET SAYS A GAME CHANGED: BUILT FIRST, THEN SWAPPED IN ONE STEP (#240)
 	loadingDiv.hidden = openGames.length > 0;
 	if (!openGames.length) { loadingDiv.innerText = "No open games yet. Start one with the AI or a friend."; }
+}
+
+/**
+ * @description How a game's opponent reads in Your games & Finished games: "Chess Cards" (always vs Card Guy), the AI level's bot or the friend
+ * @param  {[object]} game [one of GET /api/chess/user/:userId's game lists]
+ * @param  {[object]} levels [GET /levels, botLevels()]
+ * @return {[string]} text ["Chess Cards", "vs Ada", "vs AI // Level 1300" when the levels didn't load, "vs Bob"]
+ */
+function opponentText(game, levels) {
+	if (game.mode === "cards") { return "Chess Cards"; }
+	return game.ai ? `vs ${botName(levels, game.ai_level) || `AI // Level ${game.ai_level}`}` : `vs ${game.opponent_name || "Friend"}`;
 }
 
 
@@ -243,9 +266,9 @@ function listFinishedGames(gameData, levels) {
 	const rows = games.map(function (game) {
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
-		const opponent = game.ai ? `vs ${botName(levels, game.ai_level) || `AI // Level ${game.ai_level}`}` : `vs ${game.opponent_name || "Friend"}`;
+		const opponent = opponentText(game, levels);
 		const reason = game.reason ? ` // ${game.reason[0].toUpperCase()}${game.reason.slice(1)}` : "";
-		gameLink.href = `/replay/${encodeURIComponent(game.game_id)}`; // STEP THROUGH IT (#78)
+		gameLink.href = game.mode === "cards" ? `/play/${encodeURIComponent(game.game_id)}` : `/replay/${encodeURIComponent(game.game_id)}`; // STEP THROUGH IT (#78). A CARD GAME OPENS ON ITS FINAL BOARD, THE REPLAY DOESN'T KNOW THE CARDS
 		gameLink.innerHTML = `<span class="label"></span><span class="spec gameInfo"></span>`;
 		gameLink.querySelector(".label").innerText = game.winner == "draw" ? "Draw" : game.winner == game.player_color ? "Won" : "Lost";
 		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)}${reason}`; // innerText, THE NAME IS NEVER READ AS HTML
@@ -262,16 +285,19 @@ function listFinishedGames(gameData, levels) {
 // Current Game
 /* ---------------------------------------------------------------- */
 /**
- * @description The player's open AI game: its board & Continue current game go in Play the AI, & Play AI becomes New game
+ * @description The player's open AI game: its board & Continue current game go in Play the AI, & Play AI becomes New game. A Chess Cards game goes in its own box the same way
+ * (it's the player's one open AI game: starting either kind forfeits it, both buttons ask first)
  * @param  {[string]} gameId [ai_game_id from the server]
  */
 async function loadCurrentGame(gameId) {
 	const game = await openGame(gameId);
 	if (!game) { return; } // ENDED SINCE, PLAY AI STAYS AS IT IS
 	CURRENT_GAME_ID = gameId;
-	optNewSoloBtn.innerText = "New game";
-	optNewSoloBtn.classList.replace("btnCream", "btnLine");
-	await showCurrentGame(soloBox, game, `/play/${encodeURIComponent(gameId)}`);
+	const cards = game.mode === "cards";
+	const button = cards ? optNewCardsBtn : optNewSoloBtn;
+	button.innerText = "New game";
+	button.classList.replace("btnCream", "btnLine");
+	await showCurrentGame(cards ? cardsBox : soloBox, game, `/play/${encodeURIComponent(gameId)}`);
 }
 
 
@@ -301,6 +327,35 @@ async function handleNewSoloGame(e) {
 	}
 	if (response?.status != 200) { stopLoading(); return console.log(response); }
 	goToPage(`/play/${response.game_id}`); // ONCE THE IMAGES ARE IN
+}
+
+
+/* ---------------------------------------------------------------- */
+// Chess Cards
+/* ---------------------------------------------------------------- */
+/**
+ * @description New Chess Cards game vs Card Guy at the picked level & color, then opens it (Restart keeps both). The same flow as Play AI: while an AI or card game is open
+ * the first press says it'll be forfeited, the second starts the new game, & one opened since (another tab) is shown instead. Off without WebGL (it's 3D only)
+ */
+async function handleNewCardsGame(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	if (CURRENT_GAME_ID && !confirmNewCards) { // FIRST PRESS
+		confirmNewCards = true;
+		optNewCardsBtn.innerText = "Forfeit & start";
+		return cardsNote.innerText = "This forfeits your current game. Press again to start a new one.";
+	}
+	startLoading(optNewCardsBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
+	cardsNote.innerText = "";
+	const response = await newCardsGame(CHESS_URL, cardsColorSelect.value, cardsLevelSelect.value, confirmNewCards); // THE SERVER MAKES THE ID & PICKS THE SIDES
+	if (response?.status === 400 || response?.status === 429) { stopLoading(); return cardsNote.innerText = response.message; } // TOO MANY NEW GAMES: NOTHING WAS FORFEITED
+	if (response?.status === 409) { // AN AI OR CARD GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
+		stopLoading();
+		cardsNote.innerText = "You already have an AI or Chess Cards game open";
+		return loadCurrentGame(response.game_id);
+	}
+	if (response?.status !== 200) { stopLoading(); return console.log(response); }
+	goToPage(`/play/${response.game_id}`); // ONCE THE IMAGES ARE IN, THE PLAY PAGE OPENS IT BY ITS MODE
 }
 
 

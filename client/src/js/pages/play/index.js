@@ -14,7 +14,7 @@
 import "../../../css/style.css"; // PLAY PAGE STYLES (CANVAS LAYOUT)
 import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
-const { renderCanvas } = require("../../gameplay/index.js");
+const { renderCanvas, VIEWS } = require("../../gameplay/index.js");
 const { startReplay } = require("../../gameplay/replay/index.js"); // /replay/:gameId: STEPS THROUGH THE FINISHED GAME
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
@@ -65,6 +65,7 @@ window.addEventListener("load", async function () {
 		if (!response.ai && response.opponent_name) { opponentDisplay.innerText = `vs ${response.opponent_name}`; opponentDisplay.hidden = false; } // innerText, THE NAME IS NEVER READ AS HTML
 		if (!response.ai) { showRatings(gameId); } // NOT AWAITED, THE GAME DOESN'T WAIT FOR IT
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: gameId, PLAYER_ID: playerId }
+		if (response.mode === "cards" && !replay) { Object.assign(playerData, { CARD_GAME: { startColor: response.start_params?.color }, VIEW: VIEWS.THREE_D }); } // CHESS CARDS: 3D ONLY, cards/flow.js PLAYS IT. GUESTS CAN'T START ONE (NO BOX ON THEIR PAGE), THEIR SAVED ID IS ALWAYS A CHESS GAME'S
 	} else {
 		const guestId = await newGuestGame(guestGameId()); // A GUEST'S PLAYER ID IS THEIR GAME ID
 		if (!guestId) { return gameNotFound(); } // NO SAVED ID & THE SERVER COULDN'T MAKE A GAME
