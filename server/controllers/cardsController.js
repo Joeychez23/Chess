@@ -149,7 +149,7 @@ async function playCardGuyTurn(gameData, state) {
 			action = await cardGuy.cardGuyTurn(view, state.level, { evaluate: cardGuy.evaluate, bestOf, seed, refused });
 			next = applyAction(state, me, action);
 		} catch (err) {
-			if (!(err instanceof IllegalAction)) { console.log(`CARD GUY FOUND NO ACTION IN GAME ${gameId}: ${err.message}`); break; }
+			if (!action || !(err instanceof IllegalAction)) { console.log(`CARD GUY FOUND NO ACTION IN GAME ${gameId}: ${err.message}`); break; } // NO action: CARD GUY ITSELF THREW, THERE'S NOTHING TO REFUSE & ASKING AGAIN GIVES THE SAME
 			if (!fogged) { console.log(`CARD GUY PICKED AN ILLEGAL ACTION WITH NO FOG UP IN GAME ${gameId}: ${JSON.stringify(action)}`); } // A BUG: ONLY A GUESSED BOARD CAN BE WRONG
 			refused.push(actionKey(action));
 		}

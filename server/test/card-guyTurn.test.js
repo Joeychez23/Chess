@@ -146,11 +146,13 @@ test("Card Guy is asked with its own view, the game's level and a random whole s
 	const gameId = await cardGuyToMove();
 	const state = stored(gameId), illegal = { type: "move", from: "a8", to: "a1" };
 	const asked = []; // refused AS IT WAS AT EACH CALL (THE CALLER ADDS TO ONE LIST)
-	const spy = t.mock.method(bot, "cardGuyTurn", (...args) => (asked.push([...args[2].refused]) > 1 ? spy.mock.original(...args) : illegal));
+	const real = bot.cardGuyTurn, logged = t.mock.method(console, "log");
+	const spy = t.mock.method(bot, "cardGuyTurn", (...args) => (asked.push([...args[2].refused]) > 1 ? real(...args) : illegal));
 
 	const played = await turn(gameId);
 	assert.equal(played.http, 200);
 	assert.equal(spy.mock.callCount(), 2);
+	assert.ok(!logged.mock.calls.some((c) => String(c.arguments[0]).includes("FOUND NO ACTION"))); // THE SECOND ASK ANSWERED: NOT THE FALLBACK
 	const [view, level, options] = spy.mock.calls[0].arguments;
 	assert.deepEqual(view, E.playerView({ ...state, cardGuy: "b" }, "b")); // ALL CARD GUY KNOWS, NEVER THE STATE
 	assert.equal(level, 1300);
@@ -164,7 +166,8 @@ test("Card Guy is asked with its own view, the game's level and a random whole s
 });
 
 test("when Card Guy has no action to take, or only refused ones, a legal action is played all the same: the game never waits on it", async (t) => {
-	for (const answer of [() => { throw new Error("Card Guy has no action to take"); }, () => ({ type: "move", from: "a8", to: "a1" })]) {
+	// A THROW (ALSO AN IllegalAction OF ITS OWN: IT NAMED NO ACTION TO REFUSE) IS ASKED ONCE, A REFUSED ACTION 1 + MAX_REFUSALS TIMES
+	for (const [answer, asks] of [[() => { throw new Error("Card Guy has no action to take"); }, 1], [() => ({ type: "move", from: "a8", to: "a1" }), 9], [() => { throw new E.IllegalAction(); }, 1]]) {
 		testServer.reset();
 		const gameId = await cardGuyToMove();
 		const before = stored(gameId);
@@ -172,9 +175,10 @@ test("when Card Guy has no action to take, or only refused ones, a legal action 
 		const played = await turn(gameId);
 		spy.mock.restore();
 		assert.equal(played.http, 200);
-		assert.ok(spy.mock.callCount() >= 1 && spy.mock.callCount() <= 9); // ASKED AGAIN A FEW TIMES AT MOST: EACH IS A WHOLE TURN OF THINKING
+		assert.equal(spy.mock.callCount(), asks); // ASKED AGAIN A FEW TIMES AT MOST: EACH IS A WHOLE TURN OF THINKING
 		assert.equal(version(gameId), "3");
-		assert.equal(stored(gameId).ply > before.ply || stored(gameId).board.turn !== before.board.turn || JSON.stringify(stored(gameId)) !== JSON.stringify(before), true);
+		assert.notDeepEqual(stored(gameId), before);
+		assert.ok(played.events.some((e) => e.type === "move" && e.player === "b")); // A MOVE WHEN THERE IS ONE
 		assert.deepEqual(body({ ...played, events: [] }), expected(stored(gameId), "w"));
 	}
 });
