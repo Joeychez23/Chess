@@ -65,3 +65,18 @@ test("awayFromRows, rightFromFiles, startsRight", () => {
 	assert.equal(startsRight("d8","b"), false);
 	assert.equal(startsRight("e8","b"), true);
 });
+
+test("a missing list (a card game's response) faces like an unmoved piece", () => {
+	assert.equal(parseList("w_piece", undefined), null);
+	assert.equal(parseList("w_piece", null), null);
+	for (const square of ["a1","e1","h1","d4","e8","b8","g8","c3"]) for (const color of ["w","b"]) for (const viewColor of ["w","b"]) {
+		for (const slide of [null, {from:square,to:"a5"}, {from:square,to:square[0] + "6"}]) {
+			const o = { viewColor, slide, landed: null };
+			const unmoved = [{ from: null, to: square }];
+			assert.equal(facesAway(null,square,color,o), facesAway(unmoved,square,color,o), JSON.stringify([square,color,o]));
+			assert.equal(knightFacesRight(null,square,color,o), knightFacesRight(unmoved,square,color,o), JSON.stringify([square,color,o]));
+		}
+	}
+	assert.equal(facesAway(null,"e1","w",{viewColor:"w",slide:null,landed:null}), true);
+	assert.equal(facesAway(null,"e8","b",{viewColor:"w",slide:null,landed:null}), false);
+});

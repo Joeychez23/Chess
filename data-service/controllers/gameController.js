@@ -11,8 +11,9 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, takeOpenSeat, deleteInvite, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, saveLastColor, pruneOpenGames, pruneInvites } = require("../dynamoDB.js");
+const { initalizeGame, retrieveGame, updateGame, saveOpening, closeGame, finishClosedGame, retrieveRatings, acceptInvite, takeOpenSeat, deleteInvite, offerDraw, endDrawOffer, requestTakeback, endTakeback, requestRematch, acceptRematch, cancelRematch, movePlayersGame, retrieveUser, saveLastColor, pruneOpenGames, pruneInvites, saveCardsState } = require("../dynamoDB.js");
 const { validateMove, undoMoves, gameResult, checkStartFen } = require("../utils/validate.js");
+const { validateFen } = require("chess.js");
 const { playerInGame, playerColor, inviterId, playerName, isAiGame, gameOpen, gamePending, openSeat, turnColor, newStartParams, startParams, takebacksLeft, pickSides, readAiLevel, isId, newGameId, DEFAULT_LEVEL, DAYS_PER_MOVE, OPEN_SEAT } = require("../utils/games.js");
 const { refuse } = require("../utils/refuse.js");
 const { guestToken } = require("../utils/tokens.js");
@@ -24,6 +25,11 @@ const REMATCH_REPAIR_TIME = 60 * 60 * 1000; // A CLAIMED REMATCH WITH NO GAME IS
 const ECO = /^[A-E][0-9]{2}$/;
 const OPENING_NAME_LENGTH = 150; // THE LONGEST IN THE DATA SET IS 99
 const NAME_LENGTH = 50; // AN INVITE'S SCREENNAME FROM AUTH0 (USERNAMES ARE 3 - 20)
+const CARDS_STATE_BYTES = 300000; // A CARD GAME'S ENGINE STATE (JSON) IN UTF-8 BYTES, UNDER DYNAMODB'S 400 KB ITEM LIMIT. index.js CARDS_BODY_LIMIT IS SET FROM IT
+const CARDS_FEN = /^[pnbrqkPNBRQK1-8\/]{1,90} [wb] /; // A SAVE'S BOARD: FEN SHAPED, NOT validateFen (A KING CAN BE GONE AFTER A KING CAPTURE)
+const CARDS_FEN_LENGTH = 100;
+const CARDS_WINNERS = ["w", "b", "draw"];
+const CARDS_REASONS = { checkmate: false, king: false, skips: false, stalemate: true, repetition: true, fifty: true, material: true }; // THE CARD ENGINE'S RESULT REASONS, true = A DRAW
 
 /* ---------------------------------------------------------------- */
 // Get Game (GET)
@@ -443,6 +449,95 @@ function readStartFen(value) {
 }
 
 /* ---------------------------------------------------------------- */
+// New Card Game (POST)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A Chess Cards game vs the AI (Card Guy) for a signed in player or a guest. The chess server made the engine's start state, it's stored as sent
+ * & never run here. A signed in player's game gets a new id like /games/ai, a guest's a new id & their guest token for it like /games/guest with no game_id
+ * @param  {[object]} req.body [{ color ("w" | "b" | "random" | "alternate"), level (like /games/ai, left out = 1300), state (the engine's state, a JSON string), fen (its board) }]
+ * @return {[object]} response [initalizeGame's { status, game_data (cards_version 1), message }, guest_token for a guest]
+ */
+async function newCardsGame(req, res) {
+	const { color, level, state, fen } = req.body || {};
+	const aiLevel = readAiLevel(level);
+	if (!aiLevel) { return refuse(req, res, 400, "Invalid level"); }
+	if (!isCardsState(state)) { return refuse(req, res, 400, "Invalid state"); }
+	if (typeof fen != "string" || !validateFen(fen).ok) { return refuse(req, res, 400, "Invalid FEN"); } // A NEW GAME'S BOARD IS A REAL POSITION
+
+	const params = newStartParams(color, false);
+	const cards = { state, fen };
+	if (!req.player || req.player.guest) { // A GUEST'S PLAYER ID IS THEIR GAME ID
+		const gameId = newGameId();
+		const sides = pickSides(params, gameId, "CHESS_AI");
+		const response = await initalizeGame(gameId, sides.white, sides.black, aiLevel, { start_params: params, cards });
+		if (response.game_data) { response.guest_token = guestToken(gameId, req.player?.session); } // THE CHESS SERVER SETS IT AS THE guest_game COOKIE
+		return created(req, res, response);
+	}
+	const sides = pickSides(params, req.player.id, "CHESS_AI", await lastColor(params, req.player.id, true));
+	const response = await initalizeGame(false, sides.white, sides.black, aiLevel, { start_params: params, cards });
+	if (response.game_data) { await saveLastColor(req.player.id, true, playerColor(req.player.id, response.game_data)); }
+	return created(req, res, response);
+}
+
+/* ---------------------------------------------------------------- */
+// Save Card Game (PUT)
+/* ---------------------------------------------------------------- */
+/**
+ * @description The chess server's new engine state for a card game the requester is in, made from cards_version. Only one save per version lands (saveCardsState),
+ * a winner & reason close the game in the same write, then finishClosedGame moves the game lists. The state is stored as sent, never run here
+ * @param  {[string]} req.params.gameId [game id]
+ * @param  {[object]} req.body [{ version, state, fen, winner & reason (both or neither) }]
+ * @return {[object]} response [saveCardsState's { status, game_data, message }, 409 "Board changed before the move saved" when another save landed first]
+ */
+async function saveCardsGame(req, res) {
+	const save = readCardsSave(req.body);
+	if (save.message) { return refuse(req, res, 400, save.message); }
+
+	const response = await retrieveGame(req.params.gameId, true);
+	if (!response.game_data) { return res.json(response); } // GAME NOT FOUND
+	const gameData = response.game_data;
+	if (!playerInGame(req.player, gameData)) { return refuse(req, res, 403, "Player is not in this game"); }
+	if (gameData.mode?.S != "cards") { return refuse(req, res, 409, "Not a card game"); }
+	if (!gameOpen(gameData)) { return refuse(req, res, 409, "Game is over"); }
+
+	const saved = await saveCardsState(gameData, save.version, save.state, save.fen, save.result);
+	if (saved.status != 200) { return refuse(req, res, 409, "Board changed before the move saved"); } // ANOTHER SAVE OF THIS VERSION LANDED FIRST
+
+	if (save.result) {
+		try {
+			await finishClosedGame(saved.game_data, save.result.winner);
+		} catch (err) {
+			console.log(`Finishing closed game failed: ${saved.game_data.game_id.S}: ${err.message}`); // THE STATE & RESULT ARE SAVED, A RETRY WOULD ONLY GET "Game is over"
+		}
+	}
+	return res.json(saved);
+}
+
+/**
+ * @description A card game save's body: a positive integer version, a JSON state, a FEN shaped board, and a known winner & reason that fit each other, together or neither
+ * @return {[object]} save [{ version, state, fen, result ({ winner, reason } | undefined) } | { message }]
+ */
+function readCardsSave(body) {
+	const { version, state, fen, winner, reason } = body || {};
+	if (!Number.isSafeInteger(version) || version < 1) { return { message: "Invalid version" }; }
+	if (!isCardsState(state)) { return { message: "Invalid state" }; }
+	if (typeof fen != "string" || fen.length > CARDS_FEN_LENGTH || !CARDS_FEN.test(fen)) { return { message: "Invalid FEN" }; }
+	if (winner === undefined && reason === undefined) { return { version, state, fen }; }
+	if (!CARDS_WINNERS.includes(winner) || !Object.hasOwn(CARDS_REASONS, reason)) { return { message: "Invalid result" }; }
+	if (CARDS_REASONS[reason] != (winner == "draw")) { return { message: "Invalid result" }; } // A DRAW REASON NEEDS "draw", A WIN REASON A COLOR
+	return { version, state, fen, result: { winner, reason } };
+}
+
+/**
+ * @description True for a card game's engine state: a JSON string of at most CARDS_STATE_BYTES bytes
+ */
+function isCardsState(state) {
+	if (typeof state != "string" || Buffer.byteLength(state) > CARDS_STATE_BYTES) { return false; }
+	try { JSON.parse(state); } catch { return false; }
+	return true;
+}
+
+/* ---------------------------------------------------------------- */
 // Invite (POST)
 /* ---------------------------------------------------------------- */
 /**
@@ -773,4 +868,4 @@ async function username(playerId) {
 }
 
 
-module.exports = { getGame, moveGame, aiMoveGame, takebackGame, declineTakebackGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };
+module.exports = { getGame, moveGame, newCardsGame, saveCardsGame, aiMoveGame, takebackGame, declineTakebackGame, openingGame, forfeitGame, drawGame, declineDrawGame, aiDrawGame, getRatings, newAiGame, newGuestGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, rematchGame, cancelRematchGame, currentGame };

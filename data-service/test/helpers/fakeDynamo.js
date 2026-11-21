@@ -202,9 +202,16 @@ async function batchGetItem({ RequestItems }) {
 	for (const [TableName, request] of Object.entries(RequestItems)) {
 		const keys = throttled ? request.Keys.slice(0, -1) : request.Keys;
 		if (throttled) { UnprocessedKeys[TableName] = { ...request, Keys: request.Keys.slice(-1) }; }
-		Responses[TableName] = keys.map((key) => readItem(TableName, keyOf(TableName, key), request.ConsistentRead)).filter(Boolean).map((item) => structuredClone(item));
+		Responses[TableName] = keys.map((key) => readItem(TableName, keyOf(TableName, key), request.ConsistentRead)).filter(Boolean).map((item) => project(item, request));
 	}
 	return { Responses, UnprocessedKeys };
+}
+
+// A COPY OF THE ITEM WITH ONLY THE FIELDS ITS ProjectionExpression NAMES (#name ALIASES READ FROM ExpressionAttributeNames), LIKE DYNAMODB. NO PROJECTION: THE WHOLE ITEM
+function project(item, { ProjectionExpression, ExpressionAttributeNames = {} }) {
+	if (!ProjectionExpression) { return structuredClone(item); }
+	const fields = ProjectionExpression.split(",").map((part) => ExpressionAttributeNames[part.trim()] || part.trim());
+	return Object.fromEntries(fields.filter((field) => item[field]).map((field) => [field, structuredClone(item[field])]));
 }
 
 /**

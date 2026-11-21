@@ -38,6 +38,7 @@ const guestCookies = new Map(); // GUEST BROWSER NAME -> ITS guest_game COOKIE, 
 const auth0IdTokens = []; // QUEUED id_token MAKERS FOR THE NEXT LOGINS (auth0WillSign), A REAL ONE WHEN IT'S EMPTY
 const dataServiceAnswers = []; // QUEUED DATA SERVICE ANSWERS: { path, status, message } (dataServiceWillAnswer), THE REAL DATA SERVICE WHEN NONE MATCHES
 const dataServiceStalls = []; // DATA SERVICE PATHS WHOSE NEXT ANSWER NEVER ARRIVES, AFTER THE DATA SERVICE DID THE WORK (dataServiceWillStall)
+const dataServiceHolds = []; // DATA SERVICE PATHS WHOSE NEXT REQUEST WAITS UNTIL THE TEST LETS IT GO: { path, arrived, released } (dataServiceWillWait)
 const sockets = []; // listen()'S CLIENTS, CLOSED BY reset()
 let baseUrl;
 
@@ -68,6 +69,7 @@ async function start() {
 	app.use("/api", require("../../routes/api"));
 	app.use(require("../../routes/pageRoutes.js")); // THE PAGES' REDIRECTS (A PAGE ITSELF NEEDS client/dist, WHICH THE SERVER TESTS DON'T BUILD)
 	app.use(dataServiceDown);
+	app.use(require("../../middleware/serverError.js").serverError); // SAME AS index.js
 
 	const server = http.createServer(app);
 	initSocket(server); // SAME AS index.js
@@ -97,6 +99,7 @@ function reset() {
 	auth0IdTokens.length = 0;
 	dataServiceAnswers.length = 0;
 	dataServiceStalls.length = 0;
+	dataServiceHolds.length = 0;
 	sockets.splice(0).forEach((socket) => socket.disconnect());
 	resetLimits();
 	resetHealth();
@@ -302,6 +305,12 @@ async function standInFetch(url, options) {
 			const [answer] = dataServiceAnswers.splice(queued, 1);
 			return json({ status: answer.status, message: answer.message }, answer.status);
 		}
+		const held = dataServiceHolds.findIndex((hold) => hold.path == pathname);
+		if (held != -1) {
+			const [hold] = dataServiceHolds.splice(held, 1);
+			hold.arrived();
+			await hold.released; // THEN IT GOES TO THE DATA SERVICE AS NORMAL
+		}
 		const stalled = dataServiceStalls.indexOf(pathname);
 		if (stalled != -1) {
 			dataServiceStalls.splice(stalled, 1);
@@ -417,5 +426,18 @@ function dataServiceWillStall(path) {
 	dataServiceStalls.push(path);
 }
 
+/**
+ * @description The next request to this path waits before it reaches the data service, until the test lets it go (a request that lost a race)
+ * @param  {[string]} path [data service path, "/games/<id>/cards"]
+ * @return {[object]} hold [{ reached: resolves once the request is waiting, release(): lets it go }]
+ */
+function dataServiceWillWait(path) {
+	let arrived, release;
+	const reached = new Promise((resolve) => { arrived = resolve; });
+	const released = new Promise((resolve) => { release = resolve; });
+	dataServiceHolds.push({ path, arrived, released });
+	return { reached, release };
+}
 
-module.exports = { start, reset, player, named, call, send, page, auth0WillRefuseDeletes, hasAuth0User, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, listen, peek: fakeDynamo.peek, poke: fakeDynamo.poke, throttleBatchReads: fakeDynamo.throttleBatchReads };
+
+module.exports = { start, reset, player, named, call, send, page, auth0WillRefuseDeletes, hasAuth0User, engineWillPlay, engineWillScore, engineCalls, auth0WillSign, auth0WillBlock, auth0WillStall, auth0Logins, auth0Signups, auth0Resets, dataServiceWillAnswer, dataServiceWillStall, dataServiceWillWait, listen, peek: fakeDynamo.peek, poke: fakeDynamo.poke, throttleBatchReads: fakeDynamo.throttleBatchReads };

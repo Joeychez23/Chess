@@ -14,7 +14,7 @@ const assert = require("node:assert/strict");
 const http = require("http");
 const testServer = require("./helpers/server.js");
 const { call, player, named, peek, listen, engineWillPlay, dataServiceWillAnswer, dataServiceWillStall } = testServer;
-const { timeouts, withRequest, retrieveGame } = require("../dataClient.js");
+const { timeouts, withRequest, retrieveGame, newCardsGame, saveCardsState } = require("../dataClient.js");
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
 const db = require("../../data-service/dynamoDB.js"); // THE DATA SERVICE'S OWN SAVES, TO SET UP A RACE
@@ -108,6 +108,22 @@ async function friendGame() {
 }
 
 describe("a write that saves but answers too late", () => {
+	test("a card game save (PUT) that answers too late is unanswered, not lost", async () => {
+		const state = JSON.stringify({ v: 1 });
+		const fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+		const made = await withRequest({ cookies: {} }, () => newCardsGame({ color: "w", state, fen }));
+		const gameId = made.game_data.game_id.S;
+		const req = { cookies: { guest_game: made.guest_token } };
+		dataServiceWillStall(`/games/${gameId}/cards`);
+		const saved = timeouts.PUT;
+		assert.equal(saved, timeouts.POST); // A PUT IS A WRITE: IT HAS A TIMEOUT OF ITS OWN, AS LONG AS A POST'S
+		timeouts.PUT = 300;
+		try {
+			await assert.rejects(withRequest(req, () => saveCardsState(gameId, 1, state, { fen })), (err) => err.unanswered === true);
+		} finally { timeouts.PUT = saved; }
+		assert.equal(peek("chess_db", gameId).cards_version.N, "2"); // IT SAVED, ONLY THE ANSWER WAS LATE
+	});
+
 	test("a move: the player gets the saved board and the opponent's board and Home are told", async () => {
 		const { alice, bob, gameId } = await friendGame();
 		const bobsTab = await listen(bob, gameId);

@@ -179,6 +179,25 @@ async function askEngine(fen, settings) {
 	return data;
 }
 
+/**
+ * @description The chance a level sees each legal move (the levels up to 1200), for Card Guy to overlook moves as noticedMove does
+ * @param  {[number]} level [600 - 3200]
+ * @return {[number]} notice [null from 1300 up: every move is seen]
+ */
+function noticeFor(level) {
+	return NOTICE[level] ?? null;
+}
+
+/**
+ * @description The best of these moves at analysis strength, for Card Guy: its hand allows only some moves. Throws when the engine can't answer, the caller falls back
+ * @param  {[string]} fen [game board]
+ * @param  {[[string]]} lans [the moves to choose from, like "e2e4" or "a7a8q"]
+ * @return {[object]} move [{ from, to, promotion }]
+ */
+function bestOf(fen, lans) {
+	return stockfishMove(fen, { ...ANALYSIS, searchmoves: lans.join(" ") });
+}
+
 /* ---------------------------------------------------------------- */
 // Draw Offers
 /* ---------------------------------------------------------------- */
@@ -267,4 +286,4 @@ function backupMove(fen) {
 }
 
 
-module.exports = { levelList, readLevel, levelSettings, eloSettings, aiMove, pickMove, aiAcceptsDraw, analyzePosition, clearAnalyses, checkEngine }
+module.exports = { levelList, readLevel, levelSettings, eloSettings, aiMove, pickMove, aiAcceptsDraw, analyzePosition, clearAnalyses, checkEngine, noticeFor, bestOf, STANDS_OUT }

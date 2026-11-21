@@ -1,6 +1,6 @@
 // The monitor's pure helpers: tab row, hit testing, focus, keys, zoom maths, screen reader text (no state)
 import { W, H, NAMES, SHORT, tabRow, sentence } from "./kit.js";
-import { CHANNELS } from "./prefs.js";
+import { CHANNELS, NOT_IN_CARDS } from "./prefs.js";
 import { textWidth } from "../pixelFont.js";
 
 export const ORDER = [...CHANNELS]; // CHANNEL IDS, IN TAB ORDER; A COPY SO NOTHING HERE CAN CHANGE PREFS.JS'S LIST
@@ -65,6 +65,7 @@ export function isTap(press, release, type) {
 export function available(data, prefs) {
 	return ORDER.filter(function (id) {
 		if (id === "setup") { return true; } // ALWAYS A WAY BACK TO THE SETTINGS
+		if (data.cards && NOT_IN_CARDS.includes(id)) { return false; } // CHESS CARDS: NO FACE OR EVAL, SO IT OPENS ON THE OPPONENT (idleChannel)
 		if (id === "opponent" && data.offline) { return true; } // A LOST CONNECTION SHOWS ON IT, EVEN WHEN SWITCHED OFF
 		if (!prefs.enabled.includes(id)) { return false; }
 		if (id === "face") { return !!data.ai; }

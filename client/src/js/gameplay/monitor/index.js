@@ -56,13 +56,14 @@ let said = []; // THE TEXTS WAITING TO BE WRITTEN TO THE LIVE REGION (announce)
 /* ---------------------------------------------------------------- */
 /**
  * @description What the monitor's channels show (the shared data shape, up to actions). renderer/index.js sends it when it changed
- * @return {[object]} { ai, over, yourTurn, offline, result, material, moves, opening, eval, actions }
+ * @return {[object]} { ai, cards, over, yourTurn, offline, result, material, moves, opening, eval, actions }
  */
 function monitorData() {
 	const over = Boolean(game.gameOver);
 	const { rows, opening } = moveListState();
 	const items = Object.fromEntries(Object.entries(ACTION_BUTTONS).map(([id, button]) => [id, { hidden: button.parentElement.hidden, unavailable: unavailable(button), text: button.textContent.trim() }])); // textContent: innerText WOULD LAY OUT THE PAGE EVERY FRAME
 	return {
+		cards: Boolean(game.cardGame), // CHESS CARDS: NO FACE OR EVAL CHANNEL (three/monitor/controls.js available)
 		ai: Boolean(game.ai),
 		over,
 		yourTurn: chessInst.turn() === game.playerColor && !over,

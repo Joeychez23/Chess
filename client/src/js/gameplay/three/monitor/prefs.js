@@ -10,6 +10,7 @@
 const CHANNELS = ["face", "opponent", "eval", "moves", "actions", "setup"];
 const LOCKED = ["face", "setup"]; // CAN'T BE TURNED OFF, SO THE MONITOR ALWAYS HAS A FACE & A WAY TO CHANGE ITS SETTINGS
 const IDLES = ["card", "stars", "pipes"]; // THE OPPONENT CHANNEL'S BACKGROUNDS
+const NOT_IN_CARDS = ["face", "eval"]; // A CHESS CARDS GAME HAS NEITHER: CARD GUY HAS NO FACE (USER RULING 2026-11-19) & THE ENGINE'S EVAL DOESN'T KNOW THE CARDS. THEIR SETTINGS STAY FOR THE NEXT NORMAL GAME
 const KEY = "MONITOR";
 
 /* ---------------------------------------------------------------- */
@@ -75,4 +76,4 @@ export function savePrefs(prefs, storage) {
 	}
 }
 
-export { CHANNELS, LOCKED, IDLES, KEY };
+export { CHANNELS, LOCKED, IDLES, NOT_IN_CARDS, KEY };

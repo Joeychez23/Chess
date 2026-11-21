@@ -1,6 +1,7 @@
 // Owns the end of a game: restart, forfeit, rematch, the result title, opponent left, leave & exit
 const { game, chessInst, stopFrames } = require("../state/index.js"); // THE GAME'S SHARED STATE
 const { restartGame, forfeitGame, rematchGame, cancelRematch } = require("../validate/index.js"); // REQUESTS TO THE CHESS SERVER (/api/chess)
+const { newCardsGame } = require("../cards/api.js"); // CHESS CARDS' RESTART IS A NEW CARD GAME (/api/chess/cards)
 const { handleInitialData } = require("../draw/index.js"); // NEW drawScreen FOR THE PLAYER'S COLOR
 const { getRestartPieces, startRestartSlide } = require("../animate/index.js"); // THE PIECES SLIDING HOME AFTER RESTART & REMATCH
 const { setInitialData, refreshData } = require("../moves/index.js"); // LOADS THE GAME, A FRIEND'S MOVE FROM THE SOCKET, RESETS THE BOARD, TAKES BACK A MOVE THAT ISN'T FINISHED
@@ -29,6 +30,7 @@ const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A 
 };
 let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
 let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
+let replaceOpen = false; // CHESS CARDS' RESTART: TRUE ONCE THE PLAYER WAS TOLD IT FORFEITS THEIR OTHER OPEN GAME (THE SERVER'S 409)
 
 /* ---------------------------------------------------------------- */
 // Restart Button (Menu)
@@ -42,6 +44,7 @@ export async function handleRestart(e) {
 	e.stopPropagation();
 	if (game.boardReset || isBusy(optRestartBtn)) { return; } // ALREADY LOADING A NEW BOARD OR WAITING ON THE SERVER (A SECOND PRESS, REMOTE-ONLY MODE'S ENTER)
 	if (!game.gameOver) { return await handleForfeit(); }
+	if (game.cardGame) { return await restartCards(); }
 	if (!game.ai) { return await handleRematch(); }
 	const fromPieces = getRestartPieces(true); // WHERE THE PIECES ARE NOW, THEY SLIDE HOME FROM HERE
 	game.boardReset = true; // STOP DRAWING, THE OLD BOARD STAYS ON SCREEN UNDER THE MENU WHILE THE NEW ONE LOADS
@@ -63,6 +66,32 @@ export async function handleRestart(e) {
 	if (game.SIGNED_IN) { history.replaceState(null, "", `/play/${game.GAME_ID}`); } // THE URL FOLLOWS THE NEW GAME, BACK DOESN'T RETURN TO THE OLD ONE (GUESTS STAY ON /play)
 	await loadNewBoard(fromPieces);
 	return
+}
+
+/**
+ * @description Chess Cards' Restart: a new card game at the same level & color, then its page opens. While another AI or card game is open the server answers 409:
+ * the first press says it'll be forfeited, the second sends replace_current (like Home's Start). The restart route refuses card games (server/controllers/chessController.js).
+ * Restart says Loading & fills while the new game is made, like an AI game's
+ */
+async function restartCards() {
+	setRestartLoading(0.15);
+	const response = await newCardsGame(game.GAME_URL, game.cardGame.startColor, game.response.ai_level, replaceOpen);
+	if (response?.status === 409) { // ANOTHER GAME IS OPEN (FINISHED GAMES OPENED THIS ONE): ASK BEFORE FORFEITING IT
+		replaceOpen = true;
+		setRestartLoading(false);
+		optRestartBtn.innerHTML = "Forfeit & restart"; // AFTER setRestartLoading, IT PUTS BACK "Restart"
+		showStatus("action", "This forfeits your other open game. Press Restart again to start a new one.", MESSAGE_TIME);
+		return;
+	}
+	if (response?.status !== 200 || !response.game_id) { // NOT STARTED, THIS GAME STAYS (THE MENU STAYS OPEN)
+		replaceOpen = false; // THE BUTTON SAYS "Restart" AGAIN: A PRESS THAT WOULD STILL FORFEIT ANOTHER GAME GETS THE 409 & ASKS AGAIN
+		setRestartLoading(false);
+		console.log(response?.message || "Restart failed: no answer from the server");
+		showStatus("action", "A new game couldn't be started. Try again.", MESSAGE_TIME);
+		return;
+	}
+	stopFrames(); // NOTHING MORE TO DRAW, THE NEW GAME'S PAGE LOADS
+	fillThenGo(optRestartBtn, `/play/${encodeURIComponent(response.game_id)}`); // A NEW PAGE BOOTS IT BY ITS MODE (pages/play/index.js)
 }
 
 /**

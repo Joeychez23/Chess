@@ -1,7 +1,7 @@
 /*
  *  chessRoutes.js  --  chess server
  *	Chess Routes
- *	New games, moves, the AI's moves, hints & evaluations, takebacks, draw offers, invites, rematches & ratings (controllers/chessController.js)
+ *	New games, moves, the AI's moves, hints & evaluations, takebacks, draw offers, invites, rematches & ratings (controllers/chessController.js), and the Chess Cards routes (cardsRoutes.js)
  *
  */
 
@@ -56,6 +56,8 @@ router.route('/challenge').post(requireAuth, limitNewGames, challengeGame); // /
 router.route('/game/:gameId/challenge').get(requireAuth, getChallenge); // /api/chess/game/:gameId/challenge -> WHAT THE JOIN SCREEN SHOWS
 
 router.route('/game/:gameId/join').post(requireAuth, joinGame);     // /api/chess/game/:gameId/join     -> TAKES A CHALLENGE LINK'S EMPTY SEAT, ONLY ONE PLAYER WINS IT. ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+
+router.use('/cards', require('./cardsRoutes.js'));                  // /api/chess/cards/...              -> CHESS CARDS GAMES VS CARD GUY (routes/api/cardsRoutes.js)
 
 router.route('/user/:userId').get(requireAuth, getUserGames);       // /api/chess/user/:userId          -> OPEN GAMES FOR HOME (WITH THEIR START SETTINGS), THE OPEN AI & FRIEND GAMES (ai_game_id, friend_game_id) & INVITES
 
