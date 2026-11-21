@@ -1,6 +1,6 @@
 /*
  *  turn.js  --  chess cards engine
- *	The turn: legal actions, resolving one, end of turn (ticks, refill), start of turn (passive roll, automatic redraw), skips and game end.
+ *	The turn: legal actions, resolving one, the free discard, end of turn (ticks, refill), start of turn (passive roll, automatic redraw) and game end.
  *
  */
 
@@ -172,9 +172,9 @@ function turnActions(state, player) {
 		if (!checked) {
 			const def = p.passive && CARDS[p.passive.key];
 			if (p.passive && !(def && def.canPlace && !def.canPlace(state, player))) out.push({ type: "passive" });
-			for (const c of [...hand.moveCards(p), ...p.actives]) out.push({ type: "discard", card: c.id }); // NEVER THE KING CARD OR A CURSE (AN ENTERED MIRAGE SHOWS AS A MOVE CARD)
 		}
 	}
+	if (!checked && state.discarded !== player && (!multi || state.multi.mulled)) out.push(...freeDiscards(p)); // ONCE A TURN, BEFORE THE PLAY: NONE IN A TWO-MOVE TURN, BUT AFTER MULLIGAN (USER RULINGS 2026-11-21)
 	const built = new Set(out.map(actionKey));
 	for (const [r, src] of rulesInPlay(state)) if (r.actions) out = r.actions(state, player, out, src);
 	const survives = (a) => { const ctx = makeCtx(JSON.parse(JSON.stringify(state))); ctx.trial = true; cardAct(ctx, player, a); return !inCheck(ctx.state, player); };
@@ -185,7 +185,15 @@ function turnActions(state, player) {
 }
 
 /**
- * @description End the game: result { winner, reason } (winner null for a draw; reason "checkmate", "stalemate", "repetition", "fifty", "material", "skips" or "king"), no pending choice, and a game-over event that no card hears (nothing resolves after the game ends).
+ * @description The free discard's actions for p (user ruling 2026-11-21): each pair of move cards in hand order (by id; an entered Mirage shows as a move card), { type: "discard", cards: [a, b] }, then each active alone, { type: "discard", cards: [id] }. Never the King card or a curse.
+ */
+function freeDiscards(p) {
+	const ms = hand.moveCards(p).map((c) => c.id);
+	return [...ms.flatMap((a, i) => ms.slice(i + 1).map((b) => [a, b])), ...p.actives.map((c) => [c.id])].map((cards) => ({ type: "discard", cards }));
+}
+
+/**
+ * @description End the game: result { winner, reason } (winner null for a draw; reason "checkmate", "stalemate", "repetition", "fifty", "material" or "king"), no pending choice, and a game-over event that no card hears (nothing resolves after the game ends).
  */
 function end(ctx, winner, reason) {
 	ctx.state.result = { winner, reason };
@@ -244,7 +252,7 @@ function move(ctx, player, a) {
 }
 
 /**
- * @description Resolve a legal action for player on ctx.state, then end the turn unless the game ended or a two-move turn goes on (after a move, or after an active that set state.multi for player with a move to make). After an active or a card-defined action, a check event when the opponent is in check and the action emitted none (checkAfter). A discard is a skip: the third in a row loses. An active that opens a card duel holds the turn until the duel is over; a duel action goes to duelAct. A choice asked during the action holds the end of the turn: pending.end (and resetHalf) record it, and the choice action runs it once after choice.resolve.
+ * @description Resolve a legal action for player on ctx.state, then end the turn unless the game ended or a two-move turn goes on (after a move, or after an active that set state.multi for player with a move to make). After an active or a card-defined action, a check event when the opponent is in check and the action emitted none (checkAfter). The free discard keeps the turn: its cards go, a pair draws 1 move card back at once, state.discarded marks it used, and with no card action left the automatic redraw runs now (noAction). After Mulligan (state.multi.mulled) with no move the same. An active that opens a card duel holds the turn until the duel is over; a duel action goes to duelAct. A choice asked during the action holds the end of the turn: pending.end (and resetHalf) record it, and the choice action runs it once after choice.resolve.
  */
 function act(ctx, player, a) {
 	const s = ctx.state, p = s.players[player];
@@ -252,13 +260,11 @@ function act(ctx, player, a) {
 	if (a.type === "choice") return choose(ctx, a.option);
 	if (a.type === "duel") return duelAct(ctx, player, a);
 	if (a.type === "discard") {
-		const wasMove = hand.moveCards(p).some((c) => c.id === a.card);
-		hand.discard(ctx, player, a.card);
-		if (wasMove) hand.drawMove(ctx, player);
-		else hand.drawCard(ctx, player, "active");
-		if (++p.skips >= 3) return end(ctx, other(player), "skips");
+		for (const id of a.cards) hand.discard(ctx, player, id);
+		if (a.cards.length === 2) hand.drawMove(ctx, player); // 2 MOVE CARDS: 1 BACK AT ONCE. AN ACTIVE COMES BACK WITH THIS TURN'S REFILL
+		s.discarded = player;
+		return void noAction(ctx, player); // THE TURN GOES ON. NO CARD ACTION LEFT: THE AUTOMATIC REDRAW NOW, STILL NONE IS A STALEMATE (NEVER IN CHECK HERE)
 	} else {
-		p.skips = 0; // ANY REAL PLAY ENDS A RUN OF SKIPS
 		if (a.type === "passive") {
 			s.effects.push({ id: p.passive.id, owner: player, card: p.passive, placedAt: s.ply });
 			ctx.emit({ type: "passive-placed", player, card: p.passive });
@@ -268,9 +274,9 @@ function act(ctx, player, a) {
 			playActive(ctx, player, a);
 			checkAfter(ctx, player, from);
 			if (s.duel) return; // ALL OR NOTHING STARTED A CARD DUEL: IT HOLDS THE TURN, AND THE duel ACTION THAT ENDS IT ENDS THE TURN (duelAct)
-			if (s.multi && s.multi.player === player && s.multi.left > 0 && turnActions(s, player).length) {
+			if (s.multi && s.multi.player === player && s.multi.left > 0 && (s.multi.mulled ? !noAction(ctx, player) : turnActions(s, player).length)) { // AFTER MULLIGAN WITH NO MOVE: THE AUTOMATIC REDRAW, STILL NONE IS A STALEMATE
 				if (ctx.resetHalf) s.board.half = 0; // THE ACTIVE CAPTURED OR MOVED A PAWN BEFORE THE MOVES
-				return; // THE ACTIVE STARTED A TWO-MOVE TURN
+				return; // THE ACTIVE STARTED A TWO-MOVE TURN (MULLIGAN'S: ONE MOVE)
 			}
 		} else if (a.type === "move" && !routed(s, player, a)) {
 			if (move(ctx, player, a)) {
@@ -309,7 +315,7 @@ function duelAct(ctx, player, a) {
 }
 
 /**
- * @description Resolve the current choice with option: the next queued one (pending.next) becomes current first, so a choice resolve asks queues behind those asked before it; then its card's choice.resolve runs (ctx.turn back to the turn it was asked in), with a check event when it put the opponent in check (checkAfter). While choices remain, the next current one carries what is left of the turn (end, resetHalf). After the last: the end of turn when pending.end; else, as the turn goes on, a capture made by resolve zeroes half now (as act does when an active starts a two-move turn). Also ends a two-move turn the choice left with no move (shortcut: that end adds no history entry and counts half + 1 instead of the move's value; fine while no choice card resolves into a stuck two-move turn).
+ * @description Resolve the current choice with option: the next queued one (pending.next) becomes current first, so a choice resolve asks queues behind those asked before it; then its card's choice.resolve runs (ctx.turn back to the turn it was asked in), with a check event when it put the opponent in check (checkAfter). While choices remain, the next current one carries what is left of the turn (end, resetHalf). After the last: the end of turn when pending.end; else, as the turn goes on, a capture made by resolve zeroes half now (as act does when an active starts a two-move turn). Also ends a two-move turn the choice left with no move; in Mulligan's one-move turn that is the automatic redraw instead (noAction; an open free discard doesn't keep the turn waiting) (shortcut: that end adds no history entry and counts half + 1 instead of the move's value; fine while no choice card resolves into a stuck two-move turn).
  */
 function choose(ctx, option) {
 	const s = ctx.state, pend = s.pending, [head, ...rest] = pend.next || [];
@@ -321,12 +327,13 @@ function choose(ctx, option) {
 	const resetHalf = ctx.resetHalf || !!pend.resetHalf;
 	if (s.pending && pend.end) return void Object.assign(s.pending, { end: true, resetHalf });
 	if (s.result) return;
+	if (!s.pending && !pend.end && s.multi && s.multi.mulled && noAction(ctx, pend.turn)) return; // MULLIGAN'S ONE MOVE GONE: THE AUTOMATIC REDRAW, AS RIGHT AFTER MULLIGAN (act); STILL NONE ENDED THE GAME
 	if (!s.pending && (pend.end || (s.multi && !turnActions(s, pend.turn).length))) { ctx.resetHalf = resetHalf; return endTurn(ctx, pend.turn); }
 	if (ctx.resetHalf) s.board.half = 0; // THE TURN GOES ON (A TWO-MOVE TURN, OR A CHOICE ASKED AT START OF TURN)
 }
 
 /**
- * @description End of color's turn: statuses tick, refill, the turn passes, then the other player's start of turn. A turn with no move (active, discard, passive, clear, switch) still hands it over and clears en passant, and sets half = ctx.resetHalf ? 0 : half + 1, so the fifty-move rule keeps counting; it adds no position to history (repetition counts positions reached by moves only). capture() sets ctx.resetHalf; an active that moves a pawn sets ctx.resetHalf = true itself. The flag also holds on a turn with a move: a capture after the move ends the turn with half 0, and an active that starts a two-move turn zeroes half before the moves.
+ * @description End of color's turn: statuses tick, refill, the turn passes, then the other player's start of turn. A turn with no move (active, passive, clear, switch) still hands it over and clears en passant, and sets half = ctx.resetHalf ? 0 : half + 1, so the fifty-move rule keeps counting; it adds no position to history (repetition counts positions reached by moves only). capture() sets ctx.resetHalf; an active that moves a pawn sets ctx.resetHalf = true itself. The flag also holds on a turn with a move: a capture after the move ends the turn with half 0, and an active that starts a two-move turn zeroes half before the moves.
  */
 function endTurn(ctx, color) {
 	const s = ctx.state;
@@ -346,6 +353,7 @@ function endTurn(ctx, color) {
 	s.ply++;
 	s.barred = null;
 	s.multi = null;
+	s.discarded = null; // THE FREE DISCARD IS ONCE A TURN
 	startTurn(ctx, other(color));
 }
 
@@ -362,7 +370,7 @@ function tickEnchant(ctx, color, enchants) {
 }
 
 /**
- * @description Start of color's turn: a turn-start event (triggers run on it); a check event for each side in check that no check event of this action named, but not for color when its check already stood before this action began (ctx.stood, set by act: it was announced then; the side that just played and is still in check is always named) (a trigger or a status ending made it, e.g. Overwatch taking a shield); a player with lostTurns has one less and loses this turn (a turn-skipped event, then endTurn: ticks, refill, half + 1, play passes; no passive roll; not a discard skip; a two-move turn started at this turn start is dropped, so its refill is the usual one), unless in check with a King skull: the skull is spent and the lost turn is void, so the turn is played; else the passive roll (from their second turn, empty slot only); a just-started two-move turn with no move to make is dropped (a normal turn, so the actives are offered); no card action (move, active, or card-defined action) → move cards thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Then the board draws (repetition, fifty, material), even when plain chess has no move.
+ * @description Start of color's turn: a turn-start event (triggers run on it); a check event for each side in check that no check event of this action named, but not for color when its check already stood before this action began (ctx.stood, set by act: it was announced then; the side that just played and is still in check is always named) (a trigger or a status ending made it, e.g. Overwatch taking a shield); a player with lostTurns has one less and loses this turn (a turn-skipped event, then endTurn: ticks, refill, half + 1, play passes; no passive roll; a two-move turn started at this turn start is dropped, so its refill is the usual one), unless in check with a King skull: the skull is spent and the lost turn is void, so the turn is played; else the passive roll (from their second turn, empty slot only); a just-started two-move turn with no move to make is dropped (a normal turn, so the actives are offered); no card action (move, active, or card-defined action) → move cards thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock; still none → checkmate by the cards in check, else stalemate. Then the board draws (repetition, fifty, material), even when plain chess has no move.
  */
 function startTurn(ctx, color) {
 	const s = ctx.state, p = s.players[color];
@@ -389,7 +397,7 @@ function startTurn(ctx, color) {
 }
 
 /**
- * @description The no-legal-action rule for color (startTurn, and Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock (not a skip); still none → checkmate by the cards in check, else stalemate. Returns true when the game ended.
+ * @description The no-legal-action rule for color (startTurn; after a free discard or Mulligan; Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock; still none → checkmate by the cards in check, else stalemate. Returns true when the game ended.
  */
 function noAction(ctx, color) {
 	const s = ctx.state, p = s.players[color];

@@ -266,23 +266,55 @@ describe("Fog of War", () => {
 });
 
 describe("Mulligan", () => {
-	test("discards every move card and draws the same number of new ones", () => {
+	test("discards every move card and draws the same number of new ones; the turn goes on", () => {
 		const { s, id } = holding("mulligan");
 		s.players.w.moves.splice(4); // 4 MOVE CARDS
-		s.players.w.refillLock = 1; // NO END-OF-TURN REFILL: THE HAND AFTER THE TURN IS WHAT MULLIGAN DREW
 		const old = ids(s.players.w.moves);
 		const r = play(s, "w", id), ev = r.events;
 		const discards = ofType(ev, "discard").filter((e) => e.player === "w");
 		assert.deepEqual(ids(discards.map((e) => e.card)), old);
-		const firstTurn = ev.slice(0, ev.findIndex((e) => e.type === "turn-start"));
-		const drawn = ofType(firstTurn, "draw").filter((e) => e.player === "w").map((e) => e.card);
+		const drawn = ofType(ev, "draw").filter((e) => e.player === "w").map((e) => e.card);
 		assert.equal(drawn.length, 4);
 		assert.ok(drawn.every((c) => c.key === "move" && !old.includes(c.id)));
 		assert.deepEqual(ids(r.state.players.w.moves), ids(drawn));
-		const at = firstTurn.indexOf(discards[3]);
-		assert.ok(firstTurn.indexOf(ofType(firstTurn, "draw")[0]) > at, "draws before the discards ended");
-		assert.ok(!r.state.players.w.moves.some((c) => old.includes(c.id)));
-		assert.equal(r.state.players.w.skips, 0);
+		assert.ok(ev.indexOf(ofType(ev, "draw")[0]) > ev.indexOf(discards[3]), "draws before the discards ended");
+		assert.equal(r.state.board.turn, "w");
+		assert.deepEqual(ofType(ev, "turn-start"), []);
+	});
+
+	test("then only a move, or the free discard if unused; the move ends the turn", () => {
+		const { s, id } = holding("mulligan");
+		s.players.w.passive = { id: "x1", key: "t-none" }; // A HELD PASSIVE: PLACEABLE BEFORE, NOT AFTER
+		const kinds = (st) => [...new Set(legalActions(st, "w").map((a) => a.type))].sort();
+		assert.deepEqual(kinds(s), ["active", "discard", "move", "passive"]);
+		let r = play(s, "w", id).state;
+		assert.deepEqual(kinds(r), ["discard", "move"]);
+		assert.ok(legalActions(r, "w").filter((a) => a.type === "discard").every((a) => a.cards.length === 2)); // THE ACTIVE SLOT IS EMPTY
+		r = applyAction(r, "w", legalActions(r, "w").find((a) => a.type === "discard")).state;
+		assert.equal(r.board.turn, "w");
+		assert.deepEqual(kinds(r), ["move"]);
+		r = step(r, "w");
+		assert.equal(r.board.turn, "b");
+		assert.deepEqual([r.multi, r.discarded], [null, null]);
+	});
+
+	test("the free discard first, then Mulligan, then a move", () => {
+		const { s, id } = holding("mulligan");
+		let r = applyAction(s, "w", legalActions(s, "w").find((a) => a.type === "discard" && a.cards.length === 2)).state;
+		assert.ok(legalActions(r, "w").some((a) => a.type === "active" && a.card === id));
+		r = play(r, "w", id).state;
+		assert.equal(r.board.turn, "w");
+		assert.ok(!legalActions(r, "w").some((a) => a.type === "discard"));
+		r = step(r, "w");
+		assert.equal(r.board.turn, "b");
+	});
+
+	test("no move after it: the automatic redraw at once, then stalemate", () => {
+		const { s, id } = holding("mulligan", "w", 1, "k7/8/8/8/8/8/PP6/KB6 w - - 0 1"); // KING BOXED IN BY ITS OWN HEXED PIECES
+		for (const sq of ["a2", "b2", "b1"]) s.statuses[s.board.sq[sqIndex(sq)].id] = [{ s: "hexed", left: 2, by: "b" }];
+		const r = play(s, "w", id);
+		assert.equal(ofType(r.events, "redraw").length, 1);
+		assert.deepEqual(r.state.result, { winner: null, reason: "stalemate" });
 	});
 
 	test("not playable without move cards", () => {
@@ -594,7 +626,6 @@ describe("Double Time", () => {
 		const next = applyAction(st, "b", legalActions(st, "b").find((a) => a.type === "move"));
 		assert.deepEqual(ofType(next.events, "turn-skipped"), [{ type: "turn-skipped", player: "w" }]);
 		assert.equal(next.state.board.turn, "b");
-		assert.equal(next.state.players.w.skips, 0); // NOT A DISCARD SKIP
 		assert.equal(next.state.players.w.lostTurns, 0);
 	});
 

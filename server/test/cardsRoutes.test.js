@@ -581,5 +581,5 @@ test("a stored state that can't be read answers 500 with the server's own messag
 	assert.equal(broken.error, "Something went wrong on our side.");
 	assert.ok(!JSON.stringify(broken).includes("board") && !("view" in broken));
 	assert.ok(logged.mock.callCount() >= 1); // THE HANDLER LOGS THE ERROR (logServerErrors LOGS THE 500 TOO)
-	assert.equal((await act(created.game_id, { type: "discard", card: "c1" })).http, 500);
+	assert.equal((await act(created.game_id, { type: "discard", cards: ["c1", "c2"] })).http, 500);
 });

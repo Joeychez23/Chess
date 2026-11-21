@@ -409,12 +409,13 @@ describe("Interdicted Foresight: counts, events and fake keys", () => {
 			place(s, IF, "b");
 			const st = play(s, "w", give(s, key)).state, fakes = st.players.w.seen.fake;
 			const under = fakes.find((f) => st.players.b.moves.some((c) => c.id === f.id));
-			const r = applyAction(st, "b", { type: "discard", card: under.id }), told = playerEvents(r.state, r.events, "w");
-			assert.deepEqual(told.find((e) => e.type === "discard").card, under, key);
+			const pair = (keep) => legalActions(st, "b").find((a) => a.type === "discard" && a.cards.length === 2 && keep(a.cards)); // THE FREE DISCARD: 2 MOVE CARDS
+			const a = pair((ids) => ids.includes(under.id)), r = applyAction(st, "b", a), told = playerEvents(r.state, r.events, "w");
+			assert.deepEqual(told.filter((e) => e.type === "discard")[a.cards.indexOf(under.id)].card, under, key);
 			if (key !== "foresight") continue;
 			assert.ok(told.filter((e) => e.type === "draw" && e.player === "b").every((e) => !e.card), "a new draw under a half");
-			const other = st.players.b.moves.find((c) => !fakes.some((f) => f.id === c.id)), o = applyAction(st, "b", { type: "discard", card: other.id });
-			assert.deepEqual(playerEvents(o.state, o.events, "w").find((e) => e.type === "discard"), { type: "discard", player: "b" });
+			const o = applyAction(st, "b", pair((ids) => !ids.some((id) => fakes.some((f) => f.id === id)))); // NEITHER UNDER A FAKE
+			assert.deepEqual(playerEvents(o.state, o.events, "w").filter((e) => e.type === "discard"), [{ type: "discard", player: "b" }, { type: "discard", player: "b" }]);
 		}
 	});
 

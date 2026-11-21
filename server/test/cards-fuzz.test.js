@@ -178,6 +178,25 @@ function checkMirageActions(s, color, acts) {
 }
 
 /**
+ * @description The free discard (user rulings 2026-11-21): never listed in check or twice a turn; it keeps the turn and the board; a pair of move cards gives 1 back at once, an active nothing (unless the automatic redraw ran, or the game ended on it).
+ */
+function checkDiscard(s, color, acts, a, state, events) {
+	const listed = acts.some((x) => x.type === "discard");
+	if (listed) assert.ok(!inCheck(s, color) && s.discarded !== color, "a free discard listed in check or a second time this turn");
+	if (a.type !== "discard") return;
+	assert.equal(state.ply, s.ply, "the free discard ended the turn");
+	if (state.result) return;
+	assert.deepEqual([state.board.turn, state.discarded], [color, color], "the turn didn't stay, or the discard isn't marked");
+	assert.equal(JSON.stringify(state.board.sq), JSON.stringify(s.board.sq), "the free discard changed the board");
+	assert.ok(!legalActions(state, color).some((x) => x.type === "discard"), "a second free discard this turn");
+	if (events.some((e) => e.type === "redraw")) return;
+	const before = s.players[color], after = state.players[color];
+	const hasType = state.board.sq.some((q) => q && q.c === color && q.t !== "k"); // A LONE KING HAS NO TYPE TO DRAW (CORE RULES): NOTHING BACK
+	if (a.cards.length === 2) assert.equal(hand.moveCards(after).length, hand.moveCards(before).length - (hasType ? 1 : 2), "2 move cards discarded, not 1 back");
+	else assert.equal(after.actives.length, before.actives.length - 1, "an active discarded, something back");
+}
+
+/**
  * @description One seeded game to its result or the ply cap, every check at every ply; throws with the ply in the message. Adds what it met to stats. A directed run passes opts: setup(state, seed) changes the new game (or returns the state to play from), plies is its cap, note(state, events, hit) counts or checks what it looks for after each action.
  */
 function play(seed, stats, { setup, plies = PLIES, note } = {}) {
@@ -191,8 +210,7 @@ function play(seed, stats, { setup, plies = PLIES, note } = {}) {
 			const can = toAct.map((c) => [c, legalActions(s, c)]).filter((x) => x[1].length);
 			assert.ok(can.length, "nobody can act and the game isn't over (to act: " + toAct.join() + ")");
 			const [color, acts] = can[roll(can.length)];
-			const pool = seed % 4 === 0 && acts.some((x) => x.type !== "discard") ? acts.filter((x) => x.type !== "discard") : acts; // EVERY 4TH GAME NEVER SKIPS BY CHOICE: UNIFORM PLAY ENDS 4 GAMES IN 5 BY THREE SKIPS, SO THESE REACH THE LONG GAMES AND THE DRAW RULES
-			const a = pool[roll(pool.length)];
+			const a = acts[roll(acts.length)];
 			if (!s.pending && !s.duel) checkMirageActions(s, color, acts);
 			if (ply % 10 === 0) { // A JSON ROUND TRIP (THE SERVER'S STORE) CHANGES NOTHING THAT FOLLOWS: THE SAME ACTIONS, THE SAME NEXT STATE AND EVENTS; PLAY GOES ON FROM THE COPY
 				const copy = JSON.parse(JSON.stringify(s));
@@ -203,6 +221,7 @@ function play(seed, stats, { setup, plies = PLIES, note } = {}) {
 			}
 			const { state, events } = applyAction(s, color, a);
 			for (const c of ["w", "b"]) checkEvents(state, events, c, checkView(state, c));
+			if (!s.pending && !s.duel) checkDiscard(s, color, acts, a, state, events);
 			if (note) note(state, events, hit);
 			hit("a:" + a.type);
 			for (const e of events) { hit("e:" + e.type); if (e.type === "card-played" || e.type === "passive-placed" || e.type === "curse-given") hit("k:" + baseKey(e.card.key)); }
@@ -214,6 +233,7 @@ function play(seed, stats, { setup, plies = PLIES, note } = {}) {
 			assert.ok(Number.isInteger(b.half) && b.half >= 0 && Array.isArray(b.history), "draw counters broken");
 			if (!s.pending && !s.duel && !s.multi) assert.ok(b.half < 100 && b.history.filter((k) => k === last).length < 3, "a fifty-move or repetition draw was due and not given");
 		}
+		assert.ok(!s.result || ["checkmate", "stalemate", "repetition", "fifty", "material", "king"].includes(s.result.reason), "an end reason the rules don't have: " + (s.result && s.result.reason));
 		hit(s.result ? "end:" + s.result.reason : "end:cap");
 		stats.plies = (stats.plies || 0) + ply;
 	} catch (err) {
@@ -248,7 +268,7 @@ else test("500 seeded random games with every card: no throw, never stuck, nothi
 	assert.equal(failed.length, 0, failed.length + " of " + seeds.length + " games failed; first: " + failed[0]);
 	if (only) return;
 	for (const k of new Set(Object.keys(CARDS).map(baseKey))) assert.ok(stats["k:" + k], "card " + k + " never played, placed or given"); // EVERY CARD THE LOADER REGISTERS
-	for (const k of ["a:move", "a:active", "a:passive", "a:choice", "a:duel", "e:capture", "e:curse-given", "e:enchant", "e:turn-skipped", "e:king-skull"]) assert.ok(stats[k] > 20, k + " met only " + (stats[k] || 0) + " times"); // THE SOAK REACHED THE CARD PATHS
+	for (const k of ["a:move", "a:active", "a:passive", "a:discard", "a:choice", "a:duel", "e:capture", "e:curse-given", "e:enchant", "e:turn-skipped", "e:king-skull"]) assert.ok(stats[k] > 20, k + " met only " + (stats[k] || 0) + " times"); // THE SOAK REACHED THE CARD PATHS
 });
 
 /*

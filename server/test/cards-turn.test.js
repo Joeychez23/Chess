@@ -27,6 +27,7 @@ const card = (piece, id) => ({ id, key: "move", piece });
 const first = (s, c, type) => legalActions(s, c).find((a) => a.type === type);
 const play = (s, c, type) => applyAction(s, c, first(s, c, type)).state;
 const types = (s, c) => [...new Set(legalActions(s, c).map((a) => a.type))].sort();
+const pass = (s, c) => { const t = JSON.parse(JSON.stringify(s)); t.players[c].passive = { id: "tp" + t.ply, key: "test-passive" }; return applyAction(t, c, { type: "passive" }).state; }; // A TURN WITHOUT A MOVE
 
 test("opening hand", () => {
 	const s = fresh();
@@ -89,51 +90,80 @@ test("a Hexed piece can't be moved by a card", () => {
 	assert.ok(!legalActions(s, "w").some((a) => a.type === "move" && a.card === "t1"));
 });
 
-test("three discards in a row lose", () => {
-	let s = fresh();
-	s = play(s, "w", "discard");
-	assert.equal(s.players.w.skips, 1);
-	s = play(s, "b", "move");
-	s = play(s, "w", "discard");
-	s = play(s, "b", "move");
-	assert.equal(s.result, null);
-	const r = applyAction(s, "w", first(s, "w", "discard"));
-	assert.deepEqual(r.state.result, { winner: "b", reason: "skips" });
-	assert.equal(r.events.at(-1).type, "game-over");
-	assert.deepEqual(legalActions(r.state, "b"), []);
-});
+const pairs = (ids) => ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b]));
 
-test("a discard draws a replacement of the same kind; the King card and curses can't be discarded", () => {
+test("the free discard lists each pair of move cards in hand order and each active; never the King card or a curse", () => {
 	const s = fresh();
 	s.players.w.curses = [{ id: "t9", key: "test-curse" }];
-	const discards = legalActions(s, "w").filter((a) => a.type === "discard").map((a) => a.card).sort();
-	assert.deepEqual(discards, [...s.players.w.moves, ...s.players.w.actives].map((c) => c.id).sort());
-	const gone = s.players.w.actives[0].id, { state, events } = applyAction(s, "w", { type: "discard", card: gone });
-	assert.equal(events[0].type, "discard");
-	assert.equal(state.players.w.actives.length, 1);
-	assert.notEqual(state.players.w.actives[0].id, gone);
-	assert.equal(state.players.w.moves.length, 6);
+	const moves = hand.moveCards(s.players.w).map((c) => c.id), actives = s.players.w.actives.map((c) => c.id); // HAND ORDER: BY ID
+	const want = [...pairs(moves), ...actives.map((id) => [id])].map((cards) => ({ type: "discard", cards }));
+	assert.deepEqual(legalActions(s, "w").filter((a) => a.type === "discard"), want);
+	assert.equal(want.length, 16);
 });
 
-test("placing a passive doesn't count as a skip", () => {
-	let s = fresh();
-	s = play(s, "w", "discard");
-	s = play(s, "b", "move");
-	s = play(s, "w", "discard");
-	s = play(s, "b", "move");
+test("a free discard of 2 move cards draws 1 back at once; the turn goes on; once a turn", () => {
+	const s = fresh(), [a, b] = s.players.w.moves.map((c) => c.id);
+	const { state, events } = applyAction(s, "w", { type: "discard", cards: [a, b] });
+	assert.deepEqual(events.map((e) => e.type), ["discard", "discard", "draw"]);
+	assert.deepEqual(events.slice(0, 2).map((e) => e.card.id), [a, b]);
+	assert.equal(state.players.w.moves.length, 5);
+	assert.ok(!state.players.w.moves.some((c) => c.id === a || c.id === b));
+	assert.deepEqual([state.board.turn, state.ply, state.discarded], ["w", 0, "w"]);
+	assert.ok(!legalActions(state, "w").some((x) => x.type === "discard"));
+	assert.ok(legalActions(state, "w").some((x) => x.type === "move"));
+	const after = play(state, "w", "move");
+	assert.equal(after.discarded, null);
+	assert.equal(after.players.w.moves.length, 6); // THE NORMAL END-OF-TURN REFILL
+	assert.ok(legalActions(after, "b").some((x) => x.type === "discard")); // BLACK'S OWN, ON BLACK'S TURN
+});
+
+test("a free discard of the active gives nothing back until this turn's refill", () => {
+	const s = fresh(), id = s.players.w.actives[0].id;
+	const { state, events } = applyAction(s, "w", { type: "discard", cards: [id] });
+	assert.deepEqual(events.map((e) => e.type), ["discard"]);
+	assert.deepEqual(state.players.w.actives, []);
+	assert.equal(state.players.w.moves.length, 6);
+	assert.equal(state.board.turn, "w");
+	const after = play(state, "w", "move");
+	assert.equal(after.players.w.actives.length, 1);
+	assert.notEqual(after.players.w.actives[0].id, id);
+});
+
+test("no free discard during a two-move turn", () => {
+	const s = fresh();
+	s.multi = { player: "w", left: 2, moved: [], differ: true };
+	assert.deepEqual(types(s, "w"), ["move"]);
+});
+
+test("no skip count: no player carries one", () => {
+	const s = fresh();
+	assert.ok(!("skips" in s.players.w) && !("skips" in s.players.b));
+	assert.equal(s.discarded, null);
+});
+
+test("a free discard that leaves no card action: the automatic redraw at once, then stalemate", () => {
+	activeOn = true;
+	try {
+		const s = game("k7/8/8/8/8/8/PP6/KB6 w - - 0 1"); // KING BOXED IN BY ITS OWN HEXED PIECES
+		for (const sq of ["a2", "b2", "b1"]) s.statuses[s.board.sq[sqIndex(sq)].id] = [{ s: "hexed", left: 2, by: "b" }];
+		s.players.w.moves = [card("p", "t1"), card("b", "t2")];
+		assert.deepEqual(types(s, "w"), ["active", "discard"]);
+		const { state, events } = applyAction(s, "w", { type: "discard", cards: [s.players.w.actives[0].id] });
+		const kinds = events.map((e) => e.type);
+		assert.equal(kinds[0], "discard");
+		assert.ok(kinds.indexOf("redraw") > 0 && kinds.indexOf("redraw") < kinds.indexOf("game-over"));
+		assert.deepEqual(state.result, { winner: null, reason: "stalemate" });
+	} finally { activeOn = false; }
+});
+
+test("placing a passive puts it into Board Effects and uses the turn", () => {
+	const s = fresh();
 	s.players.w.passive = { id: "t1", key: "test-passive" };
 	const r = applyAction(s, "w", { type: "passive" });
-	s = r.state;
-	assert.equal(s.players.w.skips, 0);
-	assert.equal(s.players.w.passive === null || s.players.w.passive.id !== "t1", true);
-	assert.deepEqual(s.effects, [{ id: "t1", owner: "w", card: { id: "t1", key: "test-passive" }, placedAt: 4 }]);
+	assert.equal(r.state.players.w.passive === null || r.state.players.w.passive.id !== "t1", true);
+	assert.deepEqual(r.state.effects, [{ id: "t1", owner: "w", card: { id: "t1", key: "test-passive" }, placedAt: 0 }]);
 	assert.equal(r.events[0].type, "passive-placed");
-	s = play(s, "b", "move");
-	s = play(s, "w", "discard");
-	s = play(s, "b", "move");
-	s = play(s, "w", "discard");
-	assert.equal(s.result, null);
-	assert.equal(s.players.w.skips, 2);
+	assert.equal(r.state.board.turn, "b");
 });
 
 test("in check, discard and place passive are not legal", () => {
@@ -170,7 +200,6 @@ test("no legal action → automatic redraw, then checkmate by the cards", () => 
 	s.players.w.moves = [card("r", "t1"), card("r", "t2")];
 	s.players.w.actives = [];
 	s.players.b.moves = [card("q", "t3")];
-	s.players.w.skips = 2;
 	const { state, events } = applyAction(s, "b", { type: "move", card: "t3", from: "d5", to: "g2" });
 	assert.ok(legalMoves(state, "w").some((m) => m.from === "a2" && m.to === "g2"));
 	const kinds = events.map((e) => e.type);
@@ -179,7 +208,6 @@ test("no legal action → automatic redraw, then checkmate by the cards", () => 
 	assert.ok(state.players.w.moves.every((c) => c.piece === "r"));
 	assert.equal(state.players.w.moves.length, 6); // A FULL HAND: max(2 THROWN OUT, 6)
 	assert.deepEqual(state.result, { winner: "b", reason: "checkmate" });
-	assert.equal(state.players.w.skips, 2); // THE REDRAW IS NOT A SKIP AND DOESN'T RESET THE RUN
 });
 
 test("no legal action and not in check after the redraw → stalemate", () => {
@@ -327,7 +355,7 @@ test("a barred action is left out until the mover's turn ends", () => {
 
 test("an illegal action throws IllegalAction and leaves the input unchanged", () => {
 	const s = fresh(), before = JSON.stringify(s);
-	for (const a of [{ type: "move", card: "king", from: "e1", to: "e2" }, { type: "resign" }, null, { type: "discard", card: "king" }]) {
+	for (const a of [{ type: "move", card: "king", from: "e1", to: "e2" }, { type: "resign" }, null, { type: "discard", cards: ["king"] }]) {
 		assert.throws(() => applyAction(s, "w", a), (e) => e instanceof IllegalAction && e.code === "ILLEGAL");
 	}
 	assert.throws(() => applyAction(s, "b", first(s, "w", "move")), IllegalAction);
@@ -588,28 +616,25 @@ test("an early end after a double pawn push keeps the en passant square for the 
 
 test("a turn without a move adds 1 to half and records no position", () => {
 	const s = fresh();
-	const r = applyAction(s, "w", first(s, "w", "discard")).state;
+	const r = pass(s, "w");
 	assert.equal(r.board.half, 1);
 	assert.equal(r.board.history.length, 1); // REPETITION COUNTS POSITIONS REACHED BY MOVES ONLY
 	assert.equal(r.board.ep, null);
 	// THE FIFTY-MOVE DRAW CAN ARRIVE ON A TURN WITHOUT A MOVE
 	const t = game("4k3/8/8/8/8/8/8/R3K3 w - - 99 80");
-	const { state, events } = applyAction(t, "w", first(t, "w", "discard"));
+	t.players.w.passive = { id: "tp", key: "test-passive" };
+	const { state, events } = applyAction(t, "w", { type: "passive" });
 	assert.equal(state.board.half, 100);
 	assert.deepEqual(state.result, { winner: null, reason: "fifty" });
 	assert.equal(events.at(-1).type, "game-over");
 });
 
-test("discards from the start never draw by repetition; the third in a row still loses", () => {
+test("turns without a move from the start never draw by repetition", () => {
 	let s = fresh();
-	for (const c of ["w", "b", "w", "b"]) {
-		s = play(s, c, "discard");
+	for (const c of ["w", "b", "w", "b", "w", "b"]) {
+		s = pass(s, c);
 		assert.equal(s.result, null);
 	}
-	assert.equal(s.players.w.skips, 2);
-	assert.equal(s.players.b.skips, 2);
-	s = play(s, "w", "discard");
-	assert.deepEqual(s.result, { winner: "b", reason: "skips" });
 });
 
 test("ctx.resetHalf: a turn without a move that set it ends with half 0", () => {
@@ -645,8 +670,8 @@ test("threefold repetition by moves still counts with turns without a move in be
 	const shuffle = [["w", "e1", "d1"], ["b", "e8", "d8"], ["w", "d1", "e1"], ["b", "d8", "e8"]];
 	const round = () => { for (const [c, from, to] of shuffle) { assert.equal(s.result, null); s = applyAction(s, c, { type: "move", card: "king", from, to }).state; } };
 	round(); // THE START POSITION A SECOND TIME
-	s = play(s, "w", "discard");
-	s = play(s, "b", "discard"); // SAME BOARD, SAME SIDE TO MOVE, NOTHING RECORDED
+	s = pass(s, "w");
+	s = pass(s, "b"); // SAME BOARD, SAME SIDE TO MOVE, NOTHING RECORDED
 	assert.equal(s.result, null);
 	round(); // AND A THIRD
 	assert.deepEqual(s.result, { winner: null, reason: "repetition" });
@@ -710,4 +735,13 @@ test("a Frozen pawn gives no check, so a king may stand in its reach; when the F
 	const mate = wait(from("2nbn3/2pkp3/4P3/3P4/5B2/8/8/4K2R w - - 0 1")); // NO SQUARE, NO CAPTURE OF THE PAWN (d5 GUARDS IT)
 	assert.deepEqual(types(mate), ["status-ended:w", "turn-start:b", "check:b", "game-over:w"]);
 	assert.deepEqual(mate.state.result, { winner: "w", reason: "checkmate" });
+});
+
+test("under a refill lock a discarded active waits it out: none back at the end of this turn, one at the end of the next (user ruling R4)", () => {
+	const s = fresh(), id = s.players.w.actives[0].id;
+	s.players.w.refillLock = 1;
+	let r = play(applyAction(s, "w", { type: "discard", cards: [id] }).state, "w", "move");
+	assert.deepEqual([r.players.w.actives.length, r.players.w.moves.length, r.players.w.refillLock], [0, 5, 0]); // THE LOCK HELD THE WHOLE REFILL
+	r = play(play(r, "b", "move"), "w", "move");
+	assert.deepEqual([r.players.w.actives.length, r.players.w.moves.length], [1, 6]);
 });
