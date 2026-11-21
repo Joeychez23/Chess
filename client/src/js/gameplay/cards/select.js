@@ -81,7 +81,7 @@ function handCards(view) {
 }
 
 /**
- * @description What a lifted card can do: its moves, its targets, placing the passive, paying a curse off (a clear action), & discarding it when legal lists that (a button on its prompt)
+ * @description What a lifted card can do: its moves, its targets, placing the passive, paying a curse off (a clear action), & the free discards it's in when legal lists them (buttons on its prompt)
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} view [cards.view]
  * @param  {[string]} cardId
@@ -91,7 +91,25 @@ function actionsFor(legal, view, cardId) {
 	const card = handCards(view).find((c) => c.id === cardId);
 	if (!card) { return []; }
 	if (card.kind === "passive") { return legal.filter((a) => a.type === "passive"); }
-	return legal.filter((a) => a.card === cardId);
+	return [...legal.filter((a) => a.card === cardId), ...discardsFor(legal, view, cardId)];
+}
+
+/**
+ * @description The free discards a hand card is in (user rulings 2026-11-21: 2 move cards, or an active alone): one per partner type, as two cards of a type are the same discard
+ * @param  {[array]} legal [cards.legal]
+ * @param  {[object]} view [cards.view]
+ * @param  {[string]} cardId
+ * @return {[array]} actions
+ */
+function discardsFor(legal, view, cardId) {
+	const hand = handCards(view), seen = new Set();
+	return legal.filter((a) => {
+		if (a.type !== "discard" || !a.cards.includes(cardId)) { return false; }
+		const partner = a.cards.find((id) => id !== cardId), type = partner ? (hand.find((c) => c.id === partner) || {}).piece : null;
+		if (seen.has(type)) { return false; }
+		seen.add(type);
+		return true;
+	});
 }
 
 /**
@@ -200,7 +218,7 @@ function cardlessUnderFog(view, piece) {
  */
 function lift(legal, view, cardId, hidden = false) {
 	if (cardId === null) { return { card: null, actions: legal.slice(), picks: [] }; }
-	const card = handCards(view).find((c) => c.id === cardId), discard = legal.filter((a) => a.type === "discard" && a.card === cardId); // DISCARDS STAY LISTED UNDER FOG
+	const card = handCards(view).find((c) => c.id === cardId), discard = discardsFor(legal, view, cardId); // DISCARDS STAY LISTED UNDER FOG
 	if (hidden && card && (card.kind === "king" || card.kind === "move")) { return { card: cardId, actions: [...blindMoves(view, card), ...discard], picks: [] }; }
 	if (hidden && card && isCard(card.key, "last-stand")) { return { card: cardId, actions: [...blindLastStand(view, card), ...discard], picks: [] }; }
 	return { card: cardId, actions: actionsFor(legal, view, cardId), picks: [] };
@@ -340,7 +358,7 @@ function label(action, view, catalog, taken = null) {
 	switch (action.type) {
 		case "move": return (action.promotion ? PIECE_NAMES[action.promotion] : `${action.from} to ${action.to}`) + (action.card === null ? " without a card" : "");
 		case "passive": return "Place in Board Effects (uses your turn)";
-		case "discard": return "Discard (uses your turn)";
+		case "discard": return `Discard your ${action.cards.map((id) => cardName(id) || "card").join(" & ")} (${action.cards.length === 2 ? "draw 1" : "new one at turn end"})`;
 		case "clear": {
 			if (action.discard === undefined) { return "Pay: skip this move"; }
 			return `Pay with your ${[].concat(action.discard).map((id) => cardName(id) || "card").join(" & ")}`;
@@ -405,7 +423,7 @@ function keyPlan({ key, repeat = false, on, yours, button = false, promoting = f
 }
 
 /**
- * @description The prompt's button the keys focus: Cancel (after the plays) when the first play is a discard, so Enter can't spend the turn on a dimmed card (N2), else the first
+ * @description The prompt's button the keys focus: Cancel (after the plays) when the first play is a discard, so Enter alone never discards a dimmed card (N2), else the first
  * @param  {[array]} actions [the prompt's plays, its buttons in order; Cancel follows them]
  * @return {[number]} index [of the button]
  */

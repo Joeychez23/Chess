@@ -18,7 +18,7 @@ const copy = (x) => JSON.parse(JSON.stringify(x));
 const byId = (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1));
 const handOf = (p) => [...p.moves, ...p.actives, ...(p.passive ? [p.passive] : []), ...p.curses];
 const disguise = (c) => ({ id: c.id, key: "move", piece: c.piece }); // MIRAGE AS ITS HOLDER SEES IT
-const OPEN_FIELDS = ["king", "used", "skips", "refillLock", "curseWait", "lostTurns", "kingSkulls", "captured"]; // THE OPPONENT'S PLAYER FIELDS A VIEW SHOWS
+const OPEN_FIELDS = ["king", "used", "refillLock", "curseWait", "lostTurns", "kingSkulls", "captured"]; // THE OPPONENT'S PLAYER FIELDS A VIEW SHOWS
 const onHalf = (i, color) => (color === "w" ? i >= 32 : i < 32); // SQUARE INDEX i (0 = a8) ON color'S HALF OF THE BOARD
 
 /**

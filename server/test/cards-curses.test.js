@@ -148,7 +148,7 @@ describe("the curse framework", () => {
 });
 
 describe("Dead Weight", () => {
-	test("its holder can't play an active (the discard stays); the opponent can", () => {
+	test("its holder can't play an active (the free discard of it stays); the opponent can", () => {
 		const s = fresh();
 		s.players.w.actives = [hand.newCard(s, "t-give")];
 		const id = s.players.w.actives[0].id;
@@ -157,19 +157,18 @@ describe("Dead Weight", () => {
 		assert.ok(legalActions(s, "w").some((a) => a.type === "active"));
 		curse(s, "w", "dead-weight");
 		assert.ok(!legalActions(s, "w").some((a) => a.type === "active"));
-		assert.ok(legalActions(s, "w").some((a) => a.type === "discard" && a.card === id));
+		assert.ok(legalActions(s, "w").some((a) => a.type === "discard" && a.cards[0] === id));
 	});
 
-	test("clearing it skips the move: uses the turn, not toward the 3-skip forfeit; actives come back", () => {
+	test("clearing it skips the move: uses the turn; actives come back", () => {
 		const s = fresh();
 		s.players.w.actives = [hand.newCard(s, "t-give")];
 		const dw = curse(s, "w", "dead-weight");
-		s.players.w.skips = 2;
 		assert.deepEqual(clears(s, "w"), [{ type: "clear", card: dw.id }]);
 		assert.deepEqual(clears(s, "b"), []);
 		const r = applyAction(s, "w", { type: "clear", card: dw.id });
 		assert.equal(r.state.result, null);
-		assert.deepEqual([r.state.players.w.skips, r.state.board.turn, r.state.players.w.curses], [0, "b", []]);
+		assert.deepEqual([r.state.board.turn, r.state.players.w.curses], ["b", []]);
 		assert.ok(!ofType(r.events, "move").length);
 		assert.deepEqual(ofType(r.events, "curse-cleared"), [{ type: "curse-cleared", player: "w", card: dw }]);
 		const back = applyAction(r.state, "b", firstMove(r.state, "b")).state;
@@ -677,13 +676,13 @@ describe("Mirage", () => {
 		assert.equal(playerView(r.state, "w").players.w.moves.length, 6);
 	});
 
-	test("discarding it is a real discard: a replacement move card is drawn and the curse is gone", () => {
+	test("a free discard of it is a real discard: it pairs as a move card, a move card is drawn back and the curse is gone", () => {
 		const s = fresh(), m = curse(s, "w", "mirage", { piece: "p" });
-		assert.ok(legalActions(s, "w").some((a) => a.type === "discard" && a.card === m.id));
-		const r = applyAction(s, "w", { type: "discard", card: m.id });
+		const a = legalActions(s, "w").find((x) => x.type === "discard" && x.cards.includes(m.id));
+		assert.equal(a.cards.length, 2);
+		const r = applyAction(s, "w", a);
 		assert.deepEqual(r.state.players.w.curses, []);
-		assert.equal(r.state.players.w.skips, 1);
-		assert.deepEqual(ofType(playerEvents(r.state, r.events, "w"), "discard")[0], { type: "discard", player: "w", card: { id: m.id, key: "move", piece: "p" } });
+		assert.deepEqual(ofType(playerEvents(r.state, r.events, "w"), "discard")[a.cards.indexOf(m.id)], { type: "discard", player: "w", card: { id: m.id, key: "move", piece: "p" } });
 		assert.ok(ofType(r.events, "draw").some((e) => e.player === "w" && e.card.key === "move"));
 	});
 
@@ -1289,5 +1288,31 @@ describe("Mirage: no tell from a card's age", () => {
 			at.add(now.id === m.id ? "same" : ofType(rb.events, "draw").some((e) => e.card.id === now.id) ? "new" : "old");
 		}
 		assert.deepEqual([...at].sort(), ["new", "old", "same"]);
+	});
+});
+
+describe("a cancelled Mulligan (user ruling R3)", () => {
+	const cancelled = (arm) => {
+		const s = fresh(), c = hand.newCard(s, "mulligan");
+		s.players.w.actives = [c];
+		arm(s);
+		const r = applyAction(s, "w", { type: "active", card: c.id });
+		assert.equal(ofType(r.events, "card-cancelled").length, 1);
+		assert.deepEqual(ofType(r.events, "discard").filter((e) => e.card.key === "move"), []); // THE HAND IS KEPT
+		assert.deepEqual(r.state.players.w.moves, s.players.w.moves);
+		assert.ok(!r.state.players.w.actives.some((a) => a.id === c.id)); // THE CARD IS SPENT
+		assert.deepEqual([r.state.board.turn, r.state.multi, r.state.ply], ["b", null, 1]); // THE TURN ENDS, AS AFTER ANY CANCELLED ACTIVE
+		return r;
+	};
+
+	test("by Rust: the turn ends, the hand is kept, the card is spent", () => {
+		const r = cancelled((s) => curse(s, "w", "rust"));
+		assert.deepEqual(r.state.players.w.curses, []);
+	});
+
+	test("by Veto: the same", () => {
+		register(require("../../cards-engine/cards/passive/veto.js")); // HERE, NOT AT THE TOP: THE TESTS ABOVE DRAW THEIR PASSIVES FROM THE CARDS REGISTERED THERE
+		const r = cancelled((s) => s.effects.push({ id: "v1", owner: "b", card: { id: "v1", key: "veto" }, placedAt: 0 }));
+		assert.ok(r.events.some((e) => e.type === "passive-fired" && e.card.key === "veto"));
 	});
 });

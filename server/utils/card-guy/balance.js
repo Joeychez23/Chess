@@ -29,7 +29,7 @@ const COUNTS = { draw: "drawn", "card-played": "played", "passive-placed": "play
 // Play
 /* ---------------------------------------------------------------- */
 /**
- * @description Plays one game, Card Guy on both sides, and counts the cards from the engine's own events. The result is the engine's, or a draw at MAX_PLIES.
+ * @description Plays one game, Card Guy on both sides, and counts the cards from the engine's own events (an active drawn to refill one thrown out by the free discard isn't counted as drawn). The result is the engine's, or a draw at MAX_PLIES.
  * When cardGuyTurn throws or the game refuses its action every time, the first legal action is played (a move when there is one) and stats.fallbacks counts it: the game never waits
  * @param  {[number]} seed [the game's seed, an integer. Card Guy's own dice come from it too, never from the engine's rng]
  * @param  {[object]} options [{ evaluate(fen) -> centipawns from White's side, bestOf(fen, lans) -> { from, to, promotion }, level: Card Guy's level,
@@ -39,10 +39,11 @@ const COUNTS = { draw: "drawn", "card-played": "played", "passive-placed": "play
 async function playGame(seed, { evaluate, bestOf, level, stats = {} }) {
 	Object.assign(stats, { plies: 0, capped: false, actionCapped: false, stuck: false, fallbacks: 0, turnActions: 0, discards: 0 });
 	let state = engine.newGame({ cardGuy: "b", level, seed });
-	const cards = {};
+	const cards = {}, owed = { w: 0, b: 0 }; // owed: ACTIVES A SIDE THREW OUT BY THE FREE DISCARD AND HASN'T DRAWN BACK
 	const count = (e) => {
 		const key = e.card && e.card.key, kind = CARDS[key] && CARDS[key].kind;
 		if (!COUNTS[e.type] || !(kind === "active" || kind === "passive") || e.lost) { return; } // NO MOVE CARDS (KEY "move"), NO CURSES, NO CARD THAT NEVER REACHED A HAND
+		if (e.type === "draw" && kind === "active" && owed[e.player] > 0) { owed[e.player]--; return; } // THE REFILL OF A FREE DISCARD ISN'T "drawn": CARD GUY CYCLING ITS ACTIVE WOULD RAISE EVERY CARD'S DRAWN-UNPLAYED COUNT AND THE dud FLAG
 		(cards[key] = cards[key] || tally())[e.player][COUNTS[e.type]]++;
 	};
 	for (const c of ["w", "b"]) { [...state.players[c].actives, state.players[c].passive].filter(Boolean).forEach((card) => count({ type: "draw", player: c, card })); } // newGame DEALS THE OPENING HAND BUT RETURNS NO EVENTS: COUNT IT FROM THE HANDS
@@ -63,7 +64,8 @@ async function playGame(seed, { evaluate, bestOf, level, stats = {} }) {
 				if (!action || err.code !== "ILLEGAL") { break; } // CARD GUY ITSELF THREW: ASKING AGAIN GIVES THE SAME
 				refused.push(engine.actionKey(action));
 			}
-			if (next) { Object.assign(stats, { turnActions: stats.turnActions + (action.type === "duel" || action.type === "choice" ? 0 : 1), discards: stats.discards + (action.type === "discard" ? 1 : 0) }); }
+			if (next && action.type === "discard" && action.cards.length === 1) { owed[me]++; }
+			if (next) { Object.assign(stats, { turnActions: stats.turnActions + (["duel", "choice", "discard"].includes(action.type) ? 0 : 1), discards: stats.discards + (action.type === "discard" ? 1 : 0) }); }
 		}
 		if (!next) {
 			const legal = engine.legalActions(state, me), moves = legal.filter((a) => a.type === "move");

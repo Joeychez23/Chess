@@ -108,7 +108,7 @@ test("a pending choice blocks every other action and resumes on the choice", () 
 	assert.equal(state.players.w.actives.length, 0); // NO REFILL YET
 	assert.deepEqual(legalActions(state, "w"), []);
 	assert.deepEqual(legalActions(state, "b"), [{ type: "choice", option: "x" }, { type: "choice", option: "y" }]);
-	assert.throws(() => applyAction(state, "w", { type: "discard", card: state.players.w.moves[0].id }), IllegalAction);
+	assert.throws(() => applyAction(state, "w", { type: "discard", cards: [state.players.w.moves[0].id, state.players.w.moves[1].id] }), IllegalAction);
 	assert.throws(() => applyAction(state, "b", { type: "choice", option: "z" }), IllegalAction);
 	const saved = JSON.parse(JSON.stringify(state)); // NOTHING IN pending IS A FUNCTION
 	const r = applyAction(saved, "b", { type: "choice", option: "y" });
@@ -134,12 +134,12 @@ test("an enchantment ends after its turns pass", () => {
 	const placed0 = step("w", "active"); // GIVEN DURING WHITE'S OWN TURN: THAT TURN DOESN'T COUNT FOR e1
 	assert.deepEqual(ofType(placed0, "enchant").map((e) => [e.id, e.player, e.key]), [[e1, "w", "t-spell"], [e2, "b", "t-spell"], [e3, "w", "t-spell"]]);
 	assert.deepEqual(s.enchant.map((e) => [e.id, e.left, e.data]), [[e1, 2, {}], [e2, 1, {}], [e3, null, {}]]);
-	let ev = step("b", "discard"); // e2 IS BLACK'S, GIVEN ON WHITE'S TURN: BLACK'S FIRST TURN COUNTS
+	let ev = step("b", "move"); // e2 IS BLACK'S, GIVEN ON WHITE'S TURN: BLACK'S FIRST TURN COUNTS
 	assert.deepEqual(ofType(ev, "enchant-ended"), [{ type: "enchant-ended", player: "b", id: e2, key: "t-spell" }]);
-	step("w", "discard");
+	step("w", "move");
 	assert.deepEqual(s.enchant.map((e) => [e.id, e.left]), [[e1, 1], [e3, null]]);
-	step("b", "discard");
-	ev = step("w", "discard");
+	step("b", "move");
+	ev = step("w", "move");
 	assert.deepEqual(ofType(ev, "enchant-ended"), [{ type: "enchant-ended", player: "w", id: e1, key: "t-spell" }]);
 	assert.deepEqual(s.enchant.map((e) => e.id), [e3]); // left null NEVER ENDS
 });
@@ -152,9 +152,9 @@ test("a 1-turn enchantment cast on its owner's turn covers the opponent's next t
 	const owners = () => s.enchant.map((e) => e.owner);
 	step("w", "active");
 	assert.deepEqual(owners(), ["w", "b"]); // BOTH UP WHEN BLACK'S TURN STARTS
-	step("b", "discard");
+	step("b", "move");
 	assert.deepEqual(owners(), ["w"]); // BLACK'S: GONE AFTER ITS OWNER'S NEXT TURN; WHITE'S: STILL UP AFTER THE OPPONENT'S TURN
-	step("w", "discard");
+	step("w", "move");
 	assert.deepEqual(owners(), []); // WHITE'S: GONE AFTER ITS OWNER'S NEXT TURN
 });
 
@@ -320,7 +320,7 @@ test("a card's rules.actions removes or adds actions: no actives, no castling, a
 	const has = (fn) => legalActions(s, "w").some(fn);
 	assert.ok(has((a) => a.type === "active") && has(castle) && !has((a) => a.card === null));
 	s.players.w.curses = [{ id: "c91", key: "t-dead-weight" }];
-	assert.ok(!has((a) => a.type === "active") && has((a) => a.type === "discard" && a.card === "c90") && has(castle));
+	assert.ok(!has((a) => a.type === "active") && has((a) => a.type === "discard" && a.cards[0] === "c90") && has(castle));
 	s.players.b.curses = [{ id: "c92", key: "t-shackles" }]; // THE OPPONENT'S CURSE BINDS ONLY ITS HOLDER
 	assert.ok(has(castle));
 	s.players.w.curses = [{ id: "c93", key: "t-shackles" }];
@@ -388,11 +388,13 @@ test("a card capture while resolving a choice inside a two-move turn still reset
 test("a game that ends with a choice pending leaves none", () => {
 	reset();
 	curse("t-ask-discard", { on: { discard: (ctx, owner, ev) => { if (ev.player !== owner) return false; ctx.ask(owner, "pick", ["x"], { card: "t-ask-discard" }); return true; } }, choice: { resolve: () => {} } });
-	const s = fresh();
-	s.players.w.skips = 2;
+	active("t-any", () => {});
+	const s = game("k7/8/8/8/8/8/PP6/KB6 w - - 0 1"); // KING BOXED IN BY ITS OWN HEXED PIECES: THE ACTIVE IS THE ONLY CARD ACTION
+	for (const q of ["a2", "b2", "b1"]) s.statuses[at(s, q).id] = [{ s: "hexed", left: 2, by: "b" }];
+	s.players.w.actives = [{ id: "c91", key: "t-any" }];
 	s.players.w.curses = [{ id: "c90", key: "t-ask-discard" }];
-	const { state } = applyAction(s, "w", { type: "discard", card: s.players.w.moves[0].id });
-	assert.deepEqual(state.result, { winner: "b", reason: "skips" });
+	const { state } = applyAction(s, "w", { type: "discard", cards: ["c91"] }); // ASKS, THEN NO CARD ACTION: THE REDRAW, THEN STALEMATE
+	assert.deepEqual(state.result, { winner: null, reason: "stalemate" });
 	assert.equal(state.pending, null);
 });
 
@@ -538,14 +540,13 @@ test("a card's own actions go through its act: a curse that clears itself, an en
 	});
 	const s = fresh();
 	s.players.w.curses = [{ id: "c90", key: "t-debt" }];
-	s.players.w.skips = 2;
 	const clear = { type: "clear", card: "c90" };
 	assert.ok(legalActions(s, "w").some((a) => actionKey(a) === actionKey(clear)));
 	assert.ok(!legalActions(s, "b").some((a) => a.type === "clear"));
 	assert.throws(() => applyAction(s, "w", { type: "clear", card: "c91" }), IllegalAction); // NO SUCH SOURCE
 	const r = applyAction(s, "w", clear);
 	assert.deepEqual(r.state.players.w.curses, []);
-	assert.deepEqual([r.state.players.w.skips, r.state.board.turn, r.state.ply], [0, "b", s.ply + 1]); // USES THE TURN, NOT A SKIP
+	assert.deepEqual([r.state.board.turn, r.state.ply], ["b", s.ply + 1]); // USES THE TURN
 	assert.deepEqual(r.events[0], { type: "curse-cleared", player: "w", card: { id: "c90", key: "t-debt" } });
 	assert.throws(() => applyAction(r.state, "b", clear), IllegalAction);
 	// IN CHECK: TRIED ON A COPY, DROPPED WHEN IT DOESN'T END THE CHECK
@@ -565,13 +566,12 @@ test("a lost turn: ctx.skipTurn makes the player lose their next turns, ticking 
 	reset();
 	active("t-stun", (ctx, player) => ctx.skipTurn(other(player)));
 	const s = fresh(), half = s.board.half;
-	s.players.b.skips = 1;
 	const r = applyAction(s, "w", legalActions(s, "w").find((a) => a.type === "active"));
 	assert.deepEqual(ofType(r.events, "turn-skipped"), [{ type: "turn-skipped", player: "b" }]);
 	const types = r.events.map((e) => e.type);
 	assert.equal(types[types.indexOf("turn-skipped") - 1], "turn-start"); // RIGHT AFTER BLACK'S turn-start
 	assert.deepEqual([r.state.board.turn, r.state.ply, r.state.board.half], ["w", s.ply + 2, half + 2]);
-	assert.deepEqual([r.state.players.b.lostTurns, r.state.players.b.skips], [0, 1]); // NOT A DISCARD SKIP
+	assert.equal(r.state.players.b.lostTurns, 0);
 	assert.deepEqual(ofType(r.events, "turn-start").map((e) => e.player), ["b", "w"]);
 	// TWO IN A ROW
 	const t = fresh();
@@ -798,7 +798,7 @@ test("move-shaped actions a card adds are checked whatever their card, and one u
 		{ type: "move", card: "t1", from: "e8", to: "e7" }, // BLACK'S ROOK
 		{ type: "move", card: "zz", from: "a1", to: "a2" }, // NO SUCH CARD
 		{ type: "move" },
-		{ type: "active", card: "c90" }, { type: "discard", card: "king" }, { type: "passive" }, // BUILT-IN TYPES A CARD MAY NOT ADD
+		{ type: "active", card: "c90" }, { type: "discard", cards: ["king"] }, { type: "passive" }, // BUILT-IN TYPES A CARD MAY NOT ADD
 	];
 	add = [...bad, null]; // null: A BROKEN CARD; legalActions MUST NOT THROW
 	assert.doesNotThrow(() => legalActions(s, "w"));

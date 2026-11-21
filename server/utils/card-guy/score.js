@@ -29,12 +29,12 @@ function counts(state, me) {
 	return {
 		warded: withStatus(me, "warded"), frozenEnemy: withStatus(other(me), "frozen"), shakenEnemy: withStatus(other(me), "shaken"), markedOwn: withStatus(me, "marked"),
 		curseGiven: o.curses.length, curseHeld: p.curses.length, passiveWaiting: state.effects.filter((e) => e.owner === me).length,
-		cards: held(p), lostTurns: p.lostTurns || 0, skips: p.skips,
+		cards: held(p), lostTurns: p.lostTurns || 0,
 	};
 }
 
 /**
- * @description The card score of an action for me: WEIGHTS times what changed from before to after. A discard counts as a skipped turn, like a lost one.
+ * @description The card score of an action for me: WEIGHTS times what changed from before to after.
  * While the turn is still open the card just played isn't counted as lost (the end of the turn draws it back)
  * @param  {[object]} before [engine state before the action]
  * @param  {[object]} after [engine state after it]
@@ -48,7 +48,7 @@ function cardScore(before, after, me, events = []) {
 	const cards = a.cards - b.cards + open;
 	let score = COUNTED.reduce((sum, k) => sum + WEIGHTS[k] * (a[k] - b[k]), 0);
 	score += cards < 0 ? WEIGHTS.cardLost * -cards : WEIGHTS.cardGained * cards;
-	score += WEIGHTS.turnSkipped * (Math.max(0, a.lostTurns - b.lostTurns) + (a.skips > b.skips ? 1 : 0));
+	score += WEIGHTS.turnSkipped * Math.max(0, a.lostTurns - b.lostTurns);
 	score += WEIGHTS.enemyPassiveCancelled * events.filter((e) => e.type === "passive-cancelled" && e.player === other(me)).length;
 	return score;
 }

@@ -114,6 +114,7 @@ test("only the game's player gets Card Guy to play", async () => {
 
 test("with the chess engine down Card Guy's turn still completes", async () => {
 	const gameId = await cardGuyToMove();
+	store(gameId, { ...stored(gameId), discarded: "b" }); // THE FREE DISCARD USED: THE TURN GOES TO THE SEARCH, WHICH ASKS THE ENGINE
 	const played = await turn(gameId); // NOTHING IS QUEUED: engine.test IS DOWN
 	assert.equal(played.http, 200);
 	assert.ok(engineCalls() > 0);

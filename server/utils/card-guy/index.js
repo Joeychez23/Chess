@@ -9,7 +9,7 @@
 const { Chess } = require("chess.js");
 const engine = require("../../../cards-engine/index.js");
 const { inCheck } = require("../../../cards-engine/rules.js");
-const { baseKey } = require("../../../cards-engine/cards/index.js");
+const { CARDS, baseKey } = require("../../../cards-engine/cards/index.js");
 const ai = require("../ai.js");
 const { candidates, plainMoves, allowed, staticScore, isPlain, shape } = require("./candidates.js");
 const { cardScore, duelValue } = require("./score.js");
@@ -89,7 +89,7 @@ function simulate(view, seed, refused) {
  * @param  {[object]} view [playerView(state, cardGuy): all Card Guy knows]
  * @param  {[object]} options [{ evaluate, bestOf, seed, refused } as cardGuyTurn]
  * @param  {[object]} world [simulate's answer, when the caller has it]
- * @return {[array]} scored [{ action, total, plain, discard, standsOut, favourite, samples: how many guessed states the total is the mean of }, totals in centipawns from Card Guy's side]
+ * @return {[array]} scored [{ action, total, plain, standsOut, favourite, samples: how many guessed states the total is the mean of }, totals in centipawns from Card Guy's side]
  */
 async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world = simulate(view, seed, refused)) {
 	const me = view.you, sign = me === "w" ? 1 : -1, { sim, base, bare } = world, raw = engine.toFen(sim), now = bare ? null : chessFen(raw); // now: THE BOARD AS IT STANDS, null WHEN THE ENGINE ISN'T ASKED ABOUT IT
@@ -143,7 +143,7 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world =
 		await new Promise(setImmediate); // THE SERVER ANSWERS ITS OTHER REQUESTS BETWEEN CANDIDATES
 		const isMove = isPlain(sim, me, action), key = action.type === "active" ? cardKey(action) : null, outs = outcomes(action, isMove, key);
 		for (const o of outs) { if (o.fixed === null && o.fen && asked.size < MAX_EVALS) { asked.add(o.fen); } }
-		scored.push({ action, plain: isMove, discard: action.type === "discard", standsOut: isMove && staticScore(sim, action) > 0, favourite: !!key && FAVOURITES.includes(baseKey(key)), outs });
+		scored.push({ action, plain: isMove, standsOut: isMove && staticScore(sim, action) > 0, favourite: !!key && FAVOURITES.includes(baseKey(key)), outs });
 	}
 
 	let values = new Map(), blind = false;
@@ -160,7 +160,24 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world =
 }
 
 /**
- * @description One action for whatever Card Guy owes now: a turn action, the next move of a two-move turn, a choice, a card duel pick (random: every card is face down) or
+ * @description Card Guy's free discard, at every level (user ruling 2026-11-21), decided before the search: scored, a 2-for-1 always loses to a move. The active when it has no play this turn (not even paying a curse's clear) and is common or uncommon and not Cleanse (user ruling R1),
+ * else the first 2 move cards (hand order) with no move this turn, else none
+ * @param  {[array]} actions [the legal actions on Card Guy's guess]
+ * @param  {[array]} actives [Card Guy's active cards]
+ * @return {[object]} a discard action, or null
+ */
+function freeDiscard(actions, actives) {
+	const discards = actions.filter((a) => a.type === "discard"), dead = (id) => !actions.some((a) => a.type !== "discard" && a.card === id);
+	const cheap = (id) => { const key = (actives.find((c) => c.id === id) || {}).key; return !!CARDS[key] && ["common", "uncommon"].includes(CARDS[key].rarity) && baseKey(key) !== "cleanse"; }; // RARE AND UP, AND CLEANSE, ARE KEPT FOR LATER (USER RULING R1)
+	const pays = (id) => actions.some((a) => a.type !== "discard" && a.discard === id); // IT CAN PAY A CURSE'S CLEAR (LEECH, SHACKLES): NOT DEAD
+	const active = discards.find((a) => a.cards.length === 1 && dead(a.cards[0]) && cheap(a.cards[0]) && !pays(a.cards[0]));
+	if (active) { return active; }
+	const ids = [...new Set(discards.flatMap((a) => (a.cards.length === 2 ? a.cards : [])))].filter(dead); // PAIRS COME IN HAND ORDER, SO THE IDS DO TOO
+	return ids.length >= 2 ? discards.find((a) => a.cards[0] === ids[0] && a.cards[1] === ids[1]) : null;
+}
+
+/**
+ * @description One action for whatever Card Guy owes now: the free discard (freeDiscard), a turn action, the next move of a two-move turn, a choice, a card duel pick (random: every card is face down) or
  * a duel's stop or go on. Callers call it again while Card Guy still owes something. The action is legal on Card Guy's guess of the game; under the visitor's Fog of War
  * the real game can still refuse it: call again with its key added to refused
  * @param  {[object]} view [playerView(state, cardGuy): all Card Guy knows]
@@ -178,6 +195,8 @@ async function cardGuyTurn(view, level, { evaluate, bestOf, seed, refused = [] }
 		const stop = !(duelValue(sim, me, sim.duel.card, sim.duel.piece) > 0); // GO ON ONLY WHEN THE NEXT HAND IS WORTH ITS RISK
 		return actions.find((a) => a.stop === stop) || actions[0];
 	}
+	const discard = freeDiscard(actions, sim.players[me].actives); // NONE ONCE ONE WAS REFUSED (allowed)
+	if (discard) { return discard; }
 	return pick(await scoreTurn(view, { evaluate, bestOf, seed, refused }, world), level, rng);
 }
 

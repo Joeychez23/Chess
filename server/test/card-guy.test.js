@@ -91,12 +91,25 @@ test("Card Guy only ever returns an action in legalActions", async () => {
 	}
 });
 
-test("Card Guy never discards with two skips already", async () => {
+test("Card Guy's free discard, at every level: the active when it has no play, else 2 move cards with no move, else none; never a scored candidate", async () => {
+	for (const level of [600, 1300, 2400]) {
+		const s = newGame({ cardGuy: "w", level, seed: 3 }); // WHITE TO MOVE AT THE START: BISHOP & QUEEN CARDS HAVE NO MOVE, PAWN & KNIGHT CARDS DO
+		const card = (piece) => hand.newCard(s, "move", { piece });
+		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")]; // NO KNIGHT IT CAN SEND YET: NO PLAY (UNCOMMON: CLEANSE AND RARE+ ARE KEPT, RULING R1)
+		s.players.w.moves = [card("p"), card("b"), card("q"), card("n")];
+		const dead = s.players.w.actives[0].id, turn = (st) => cardGuyTurn(playerView(st, "w"), level, opts());
+		assert.deepEqual(await turn(s), { type: "discard", cards: [dead] }, level + ": the dead active");
+		s.players.w.actives = [hand.newCard(s, "swap")]; // A LIVE ACTIVE: THE 2 DEAD MOVE CARDS GO
+		assert.deepEqual(await turn(s), { type: "discard", cards: [s.players.w.moves[1].id, s.players.w.moves[2].id] }, level + ": the 2 dead move cards");
+		s.players.w.moves.splice(2, 1); // ONE DEAD MOVE CARD: KEPT
+		assert.notEqual((await turn(s)).type, "discard", level + ": one dead card");
+		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")];
+		s.discarded = "w"; // USED THIS TURN
+		assert.notEqual((await turn(s)).type, "discard", level + ": used");
+	}
 	const s = newGame({ cardGuy: "w", level: 2400, seed: 3 }), still = toFen(s).split(" ")[0];
-	s.players.w.actives = []; // ONLY MOVES AND DISCARDS LEFT
-	const lazy = async (fen) => (fen.split(" ")[0] === still ? 5000 : 0); // AN ENGINE THAT LOVES A BOARD NOBODY MOVED ON: A DISCARD
-	assert.equal((await cardGuyTurn(playerView(s, "w"), 2400, opts({ evaluate: lazy }))).type, "discard"); // THE STUB DOES TEMPT IT
-	s.players.w.skips = 2;
+	Object.assign(s.players.w, { moves: ["p", "p", "n"].map((piece) => hand.newCard(s, "move", { piece })), actives: [] }); // NO DEAD CARD: THE STEP DOESN'T DISCARD
+	const lazy = async (fen) => (fen.split(" ")[0] === still ? 5000 : 0); // AN ENGINE THAT LOVES A BOARD NOBODY MOVED ON: A DISCARD, WERE IT SCORED
 	assert.ok(legalActions(s, "w").some((a) => a.type === "discard"));
 	assert.ok(!candidates(engine.fromView(playerView(s, "w"), 1), "w").some((a) => a.type === "discard"));
 	for (const seed of [1, 2, 3, 4]) assert.notEqual((await cardGuyTurn(playerView(s, "w"), 600, opts({ evaluate: lazy, seed }))).type, "discard");
@@ -116,6 +129,7 @@ test("Card Guy takes a free queen over a card with a small card score", async ()
 test("a favourite card within the flair margin is played; outside it never is", async () => {
 	const s = newGame({ cardGuy: "w", level: 2400, seed: 5 }), now = toFen(s);
 	s.players.w.actives = [hand.newCard(s, "double-time-legendary")]; // NO DEBUFF: ITS SCORE IS THE BOARD IT LEAVES, THE ONE IT FOUND
+	s.discarded = "w"; // THE FREE DISCARD USED: THE SEARCH DECIDES
 	const card = s.players.w.actives[0].id, view = playerView(s, "w");
 	const worth = (cp) => async (fen) => (fen === now ? cp : 0); // THE FAVOURITE'S BOARD AGAINST EVERY MOVE'S
 	for (const seed of [1, 2, 3]) {
@@ -129,7 +143,9 @@ test("a favourite card within the flair margin is played; outside it never is", 
 });
 
 test("the same view and seed give the same action", async () => {
-	const s = newGame({ cardGuy: "w", level: 600, seed: 9 }), view = playerView(s, "w"), seen = new Set();
+	const s = newGame({ cardGuy: "w", level: 600, seed: 9 }), seen = new Set();
+	s.discarded = "w"; // THE FREE DISCARD USED: THE SEARCH DECIDES
+	const view = playerView(s, "w");
 	for (let seed = 1; seed <= 12; seed++) {
 		const a = await cardGuyTurn(view, 600, opts({ seed }));
 		assert.deepEqual(await cardGuyTurn(view, 600, opts({ seed })), a);
@@ -159,25 +175,24 @@ test("the noise shrinks with the level: none from 2400 up, and a lower level som
 	assert.equal(off(2400, 1), "good");
 });
 
-test("the low levels overlook a discard as they do a plain move, see a capture, check or promotion 3 times as often, and always see one move", () => {
+test("a refused free discard isn't tried again that turn: the game refuses them all alike (a check the fog guess missed, or one already used)", async () => {
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 3 });
+	s.players.w.actives = [hand.newCard(s, "cleanse")]; // A DEAD ACTIVE, AND 3 DEAD MOVE CARDS: EVERY KIND OF FREE DISCARD ON OFFER
+	s.players.w.moves = ["p", "b", "q", "n", "r"].map((piece) => hand.newCard(s, "move", { piece }));
+	const view = playerView(s, "w"), first = await cardGuyTurn(view, 2400, opts());
+	assert.equal(first.type, "discard");
+	assert.notEqual((await cardGuyTurn(view, 2400, opts({ refused: [actionKey(first)] }))).type, "discard");
+});
+
+test("the low levels overlook a plain move, see a capture, check or promotion 3 times as often, and always see one move", () => {
 	const moves = [{ action: "best", total: 100, plain: true }, { action: "worst", total: 0, plain: true }];
 	assert.equal(pick(moves, 600, () => 0.99), "worst"); // NOTHING NOTICED: ONE AT RANDOM (THE LAST HERE), NOT THE BEST OF ALL
-	const pass = { action: "pass", total: 900, discard: true }, card = { action: "card", total: -50 };
-	assert.equal(pick([moves[1], moves[0], pass], 600, () => 0.99), "best"); // THE ONE IT ALWAYS SEES IS A MOVE (THE LAST ONE HERE), NEVER THE DISCARD
-	assert.equal(pick([pass], 600, () => 0.99), "pass"); // NOTHING ELSE TO SEE
-	assert.equal(pick([moves[0], pass, card], 600, () => 0.99), "card"); // A CARD IS ALWAYS SEEN
-	assert.equal(pick([moves[0], pass], 600, () => 0.05), "pass"); // BOTH NOTICED: THE BETTER TOTAL
-	assert.equal(pick([moves[0], pass], 1300, () => 0.99), "pass"); // FROM 1300 UP NOTHING IS OVERLOOKED
+	const card = { action: "card", total: -50 };
+	assert.equal(pick([moves[0], card], 600, () => 0.99), "card"); // A CARD IS ALWAYS SEEN
+	assert.equal(pick([moves[0], card], 1300, () => 0.99), "best"); // FROM 1300 UP NOTHING IS OVERLOOKED
 	const quiet = { action: "quiet", total: 100, plain: true }, takes = { action: "takes", total: 0, plain: true, standsOut: true };
 	assert.equal(pick([quiet, takes], 600, () => 0.33), "takes"); // 0.112 * 3 = 0.336: ONLY THE CAPTURE IS NOTICED
 	assert.equal(pick([quiet, takes], 600, () => 0.34), "quiet"); // NEITHER: ONE AT RANDOM (THE FIRST HERE)
-	const hand8 = Array.from({ length: 8 }, (_, k) => ({ action: "pass" + k, total: 900, discard: true })), dice = (list) => { let n = 0; return () => list[Math.min(n++, list.length - 1)]; };
-	assert.equal(pick([moves[0], ...hand8], 1200, dice([0.1, 0.9, 0.1])), "best"); // ONE ROLL A TURN FOR THE DISCARD, NOT ONE A CARD HELD: THE MOVE IS SEEN (0.1), THE DISCARD ISN'T (0.9), AND NO LATER ROLL (0.1) BRINGS ONE BACK
-	assert.equal(pick([moves[0], ...hand8], 1200, dice([0.1, 0.1, 0.9])), "pass0"); // SEEN ONCE, EVERY DISCARD IS
-	let passed = 0, n = 0;
-	const lcg = () => (n = (n * 1103515245 + 12345) % 2147483648) / 2147483648;
-	for (let turn = 0; turn < 2000; turn++) { if (String(pick([moves[0], ...hand8], 1200, lcg)).startsWith("pass")) passed++; }
-	assert.ok(passed > 2000 * 0.263 * 0.8 && passed < 2000 * 0.263 * 1.2, passed + " turns in 2000 passed"); // ABOUT THE NOTICE CHANCE (0.263 AT 1200; 510 HERE, THE NOISE LOSES A FEW), NOT 9 TURNS IN 10
 });
 
 test("Card Guy's input contains no hidden visitor cards", async (t) => {
@@ -200,6 +215,7 @@ test("Card Guy's input contains no hidden visitor cards", async (t) => {
 test("a turn stays within 24 evaluations and 3 s with an 80 ms engine", async () => {
 	const s = newGame({ cardGuy: "w", level: 2400, seed: 6 }), fens = new Set();
 	s.players.w.actives = ["swap", "conscription", "trapdoor"].map((k) => hand.newCard(s, k));
+	s.discarded = "w"; // THE FREE DISCARD USED: THE SEARCH DECIDES
 	const wait = () => new Promise((done) => setTimeout(done, 80));
 	const slow = async (fen) => { fens.add(fen); await wait(); return material(fen); };
 	const started = Date.now();
@@ -271,7 +287,7 @@ test("Card Guy answers a pending choice, a duel pick, a duel stop and the second
 	assert.equal(applyAction(s, "w", second).state.multi, null);
 });
 
-test("candidates keep bestPlain and the top 5 plain moves by static score, and every card action", () => {
+test("candidates keep bestPlain and the top 5 plain moves by static score, and every card action but the free discard", () => {
 	const s = position("4k3/8/8/r2Q4/8/8/8/4K3 b - - 0 1");
 	Object.assign(s.players.b, { moves: [hand.newCard(s, "move", { piece: "r" }), hand.newCard(s, "move", { piece: "r" })], actives: [hand.newCard(s, "fog-of-war")], passive: hand.newCard(s, "patience") });
 	const quiet = { from: "a5", to: "a8" }, all = legalActions(s, "b"), list = candidates(s, "b", { bestPlain: quiet });
@@ -280,7 +296,8 @@ test("candidates keep bestPlain and the top 5 plain moves by static score, and e
 	assert.deepEqual([plain[1].from, plain[1].to], ["a5", "d5"]); // THEN THE BEST STATIC SCORE
 	assert.equal(plain.length, 6);
 	assert.equal(new Set(plain.map((a) => a.from + a.to)).size, 6); // TWO ROOK CARDS: ONE CANDIDATE A MOVE
-	assert.deepEqual(list.filter((a) => a.type !== "move"), all.filter((a) => a.type !== "move"));
+	assert.deepEqual(list.filter((a) => a.type !== "move"), all.filter((a) => a.type !== "move" && a.type !== "discard"));
+	assert.ok(all.some((a) => a.type === "discard") && !list.some((a) => a.type === "discard"));
 	assert.ok(staticScore(s, { from: "a5", to: "d5" }) > staticScore(s, { from: "a5", to: "a1" })); // A CAPTURE OVER A CHECK
 	assert.ok(staticScore(s, { from: "a5", to: "a1" }) > staticScore(s, quiet)); // A CHECK OVER A QUIET MOVE
 	const promo = position("4k3/8/8/8/8/8/p7/4K3 b - - 0 1");
@@ -309,8 +326,8 @@ test("the card score weighs what the engine can't see", () => {
 	assert.equal(cardScore(s, b, "w"), WEIGHTS.curseGiven + WEIGHTS.curseHeld + 2 * WEIGHTS.cardLost + WEIGHTS.turnSkipped + WEIGHTS.passiveWaiting);
 	const c = JSON.parse(JSON.stringify(s));
 	c.players.w.moves.push({ id: "c93", key: "move", piece: "p" });
-	c.players.w.skips = 1;
-	assert.equal(cardScore(s, c, "w", [{ type: "passive-cancelled", player: "b" }, { type: "passive-cancelled", player: "w" }]), WEIGHTS.cardGained + WEIGHTS.turnSkipped + WEIGHTS.enemyPassiveCancelled);
+	c.players.w.skips = 1; // AN OLD STATE'S SKIP COUNT: NO LONGER SCORED
+	assert.equal(cardScore(s, c, "w", [{ type: "passive-cancelled", player: "b" }, { type: "passive-cancelled", player: "w" }]), WEIGHTS.cardGained + WEIGHTS.enemyPassiveCancelled);
 	const open = JSON.parse(JSON.stringify(s));
 	open.players.w.actives.pop(); // AN ACTIVE THAT LEAVES THE TURN OPEN: ITS SLOT REFILLS WHEN THE TURN ENDS
 	assert.equal(cardScore(s, open, "w"), 0);
@@ -521,10 +538,9 @@ test("when one evaluation fails, or isn't a number, every board scores 0 that tu
 	const s = position("4k3/8/8/r2Q4/8/8/8/4K3 b - - 0 1");
 	Object.assign(s.players.b, { moves: [hand.newCard(s, "move", { piece: "r" }), hand.newCard(s, "move", { piece: "r" })], actives: [], passive: hand.newCard(s, "patience") });
 	const view = playerView(s, "b"), cards = (await scoreTurn(view, opts({ evaluate: down }))).map((c) => c.total); // NO BOARD ANSWERED: THE CARD SCORES ALONE
-	const marks = (to) => { const c = cards.length && whole.find((x) => x.action.to === to); return [c.plain, c.standsOut, c.discard]; }, whole = await scoreTurn(view, opts());
-	assert.deepEqual([marks("d5"), marks("a1"), marks("a8")], [[true, true, false], [true, true, false], [true, false, false]]); // A CAPTURE & A CHECK STAND OUT, A QUIET MOVE DOESN'T
-	assert.deepEqual(whole.filter((c) => c.discard).map((c) => c.action.type), whole.filter((c) => c.action.type === "discard").map(() => "discard"));
-	assert.ok(whole.some((c) => c.discard));
+	const marks = (to) => { const c = cards.length && whole.find((x) => x.action.to === to); return [c.plain, c.standsOut]; }, whole = await scoreTurn(view, opts());
+	assert.deepEqual([marks("d5"), marks("a1"), marks("a8")], [[true, true], [true, true], [true, false]]); // A CAPTURE & A CHECK STAND OUT, A QUIET MOVE DOESN'T
+	assert.ok(!whole.some((c) => c.action.type === "discard" || "discard" in c)); // THE FREE DISCARD IS NEVER SCORED
 	logged.mock.resetCalls();
 	for (const broken of [down, async () => NaN, async () => undefined, async () => "12"]) {
 		let calls = 0;
@@ -548,7 +564,8 @@ test("a seed that isn't a finite number is refused, and a turn makes each guess 
 		await assert.rejects(cardGuyTurn(view, 2400, opts({ seed })), /seed/);
 		await assert.rejects(scoreTurn(view, opts({ seed })), /seed/);
 	}
-	s.players.w.actives = []; // MOVES AND A DISCARD: ONE GUESS, AND A SECOND TO TELL A CHANCE OUTCOME
+	s.players.w.actives = [hand.newCard(s, "mulligan")]; // MOVES AND A CARD: ONE GUESS, AND A SECOND TO TELL A CHANCE OUTCOME
+	s.discarded = "w"; // THE FREE DISCARD USED: THE SEARCH DECIDES
 	const spy = t.mock.method(engine, "fromView");
 	await cardGuyTurn(playerView(s, "w"), 2400, opts());
 	assert.deepEqual(spy.mock.calls.map((c) => c.arguments[1]), [7, 8]);
@@ -615,4 +632,47 @@ test("under the player's Fog of War a sampled card is scored on the same guessed
 		checked++;
 	}
 	assert.ok(checked > 0, "no seed sampled the coin");
+});
+
+test("Card Guy keeps a dead rare, epic or legendary active, and Cleanse; a dead common or uncommon one goes (user ruling R1)", async () => {
+	const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
+	s.players.w.moves = ["p", "n"].map((piece) => hand.newCard(s, "move", { piece })); // BOTH HAVE A MOVE: NO PAIR TO DISCARD
+	const turn = async (key) => {
+		s.players.w.actives = [hand.newCard(s, key)];
+		assert.ok(!legalActions(s, "w").some((a) => a.type === "active"), key + " has a play at the start");
+		return (await cardGuyTurn(playerView(s, "w"), 1300, opts())).type;
+	};
+	for (const key of ["heavy-cavalry", "last-stand"]) assert.equal(await turn(key), "discard", key); // UNCOMMON
+	for (const key of ["cleanse", "cleanse-rare", "conscription"]) assert.notEqual(await turn(key), "discard", key); // CLEANSE (COMMON), RARE, LEGENDARY
+});
+
+test("an active that can pay Leech or Shackles isn't dead: Card Guy doesn't throw it out for nothing", async () => {
+	for (const key of ["shackles", "leech"]) {
+		const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
+		s.players.w.moves = ["p", "n"].map((piece) => hand.newCard(s, "move", { piece }));
+		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")]; // NO PLAY AT THE START
+		s.players.w.curses = [hand.newCard(s, key)];
+		const active = s.players.w.actives[0].id;
+		assert.ok(legalActions(s, "w").some((a) => a.type === "clear" && a.discard === active));
+		assert.notEqual((await cardGuyTurn(playerView(s, "w"), 1300, opts())).type, "discard", key);
+	}
+});
+
+test("a refused free discard with nothing else to do on Card Guy's guess: no other discard is offered, it says it has no action", async () => {
+	const s = position("k7/8/8/8/8/8/PP6/KB6 w - - 0 1"); // WHITE'S KING BOXED IN BY ITS OWN HEXED PIECES: 5 DEAD MOVE CARDS, 10 PAIRS
+	for (const sq of ["a2", "b2", "b1"]) s.statuses[s.board.sq[engine.board.sqIndex(sq)].id] = [{ s: "hexed", left: 2, by: "b" }];
+	Object.assign(s.players.w, { moves: ["p", "b", "p", "b", "p"].map((piece) => hand.newCard(s, "move", { piece })), actives: [], passive: null });
+	fogUp(s, "b");
+	const view = playerView(s, "w"), refused = [];
+	let discards = 0, error = null;
+	while (!error && refused.length <= 8) { // AS cardsController AND balance.js ASK: AGAIN WITH EACH REFUSED KEY, 8 TIMES
+		try {
+			const a = await cardGuyTurn(view, 2400, opts({ refused }));
+			assert.equal(a.type, "discard");
+			discards++;
+			refused.push(actionKey(a));
+		} catch (err) { error = err; }
+	}
+	assert.equal(discards, 1, discards + " free discards offered after the first was refused");
+	assert.match(error.message, /no action/);
 });

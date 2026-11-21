@@ -358,7 +358,7 @@ test("the opponent's player shows only the fields the view is meant to show", ()
 	s.players.w.secret = "y";
 	const w = playerView(s, "w");
 	assert.ok(!("secret" in w.players.b));
-	assert.deepEqual(Object.keys(w.players.b).sort(), ["captured", "curseWait", "hand", "king", "kingSkulls", "lostTurns", "refillLock", "skips", "used"]);
+	assert.deepEqual(Object.keys(w.players.b).sort(), ["captured", "curseWait", "hand", "king", "kingSkulls", "lostTurns", "refillLock", "used"]);
 	assert.equal(w.players.w.secret, "y"); // THE VIEWER'S OWN PLAYER KEEPS EVERY FIELD BUT seen
 	assert.equal(playerView(s, "b").players.b.secret, "x");
 });

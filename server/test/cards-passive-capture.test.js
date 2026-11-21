@@ -621,3 +621,38 @@ function checked2() {
 	place(s, "escape-artist", "w");
 	return applyAction(s, "b", { type: "move", card: "t1", from: "d8", to: "e8" }).state;
 }
+
+describe("a Mulligan turn left with no move (after Mulligan the turn is one move; user ruling 2026-11-21, call 4)", () => {
+	const FEN = "5rkb/8/6KP/8/8/8/8/1N6 w - - 0 1"; // h6-h7 MATES AND IS THE PAWN'S ONLY MOVE; THE KNIGHT COULD MOVE, BUT WHITE HOLDS 2 PAWN CARDS AND NO KING CARD
+	const setup = (discarded) => {
+		const s = game(FEN);
+		Object.assign(s.players.w, { king: false, moves: [mv("p", "c63"), mv("p", "c64")] });
+		s.multi = { player: "w", left: 1, moved: [], differ: false, mulled: true }; // AS mulligan.js LEAVES IT
+		s.discarded = discarded ? "w" : null;
+		return s;
+	};
+	const redrawn = ({ state, events }) => {
+		assert.ok(ofType(events, "redraw").some((e) => e.player === "w"), "no automatic redraw");
+		assert.deepEqual([state.result, state.board.turn], [null, "w"]);
+		assert.ok(legalActions(state, "w").some((a) => a.type === "move" && a.from === "b1"), "this test needs the redraw to hold a knight card: pick another seed if the rng use before it changed");
+	};
+
+	for (const discarded of [false, true]) {
+		const name = discarded ? "the free discard used" : "the free discard unused";
+		test("Grace takes back the only move, " + name + ": the automatic redraw at once", () => {
+			const s = setup(discarded);
+			place(s, "grace", "b");
+			const r = applyAction(s, "w", { type: "move", card: "c63", from: "h6", to: "h7" });
+			assert.ok(fired(r.events, "grace"));
+			redrawn(r);
+		});
+
+		test("a choice resolved with no move left, " + name + ": the automatic redraw at once", () => {
+			register({ key: "t-ask", kind: "active", name: "t-ask", rarity: "common", text: "", targets: () => [], play: () => {}, choice: { resolve() {} } }); // HERE, NOT AT LOAD: THE GRACE TESTS ABOVE DRAW THEIR ACTIVE FROM THE REGISTRY
+			const s = setup(discarded);
+			s.statuses[id(s, "h6")] = [{ s: "hexed", left: 2, by: "b" }]; // NO CARD MOVES THE PAWN
+			s.pending = { player: "w", kind: "t", options: ["x", "y"], card: "t-ask", turn: "w" };
+			redrawn(applyAction(s, "w", { type: "choice", option: "y" }));
+		});
+	}
+});
