@@ -37,6 +37,8 @@ let shownScreen = null; // WHAT THE 3D ROOM'S MONITOR WAS LAST TOLD TO SHOW (scr
 let cardPick = null; // WHAT A PICKED PROMOTION CARD CALLS (onCardPick), gameplay/input'S choosePromotion
 let shownPromotion = null; // THE COLOUR THE 3D CARDS WERE LAST DEALT FOR, null WHEN THEY'RE ON THE DECK (syncCards3D)
 let shownCardFocus = null; // THE CARD THE 3D BOARD FRAMES (game.cardFocus)
+let tablePick = null; // WHAT A CHESS CARDS GAME'S PICKED HAND CARD OR SQUARE CALLS (onTablePick), gameplay/cards/flow.js
+let table = null; // THE CHESS CARDS TABLE AS setTable3D LAST SAID IT, PUT ON EVERY 3D BOARD MOUNTED LATER
 let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
 let monitorHooks = null; // gameplay/monitor'S { handlers, announce, onChange, data } (setMonitorHooks), GIVEN TO EVERY 3D BOARD
 let shownMonitor = null; // WHAT THE MONITOR'S CHANNELS WERE LAST SENT (monitorHooks.data() AS JSON)
@@ -310,6 +312,42 @@ export function onCardPick(handler) {
 }
 
 /**
+ * @description Sets what a Chess Cards game's picked hand card or square does on the 3D board (gameplay/cards/flow.js)
+ * @param  {[function]} handler [(hit) => {}, hit is { kind: "hand", id } or { kind: "square", square }]
+ */
+export function onTablePick(handler) {
+	tablePick = handler;
+}
+
+/**
+ * @description A Chess Cards game's table on the 3D board (three/index.js setCardTable, liftCard / dropCard & highlightSquares). Kept for a board mounted later
+ * @param  {[object]} view [cards.view]
+ * @param  {[array]} legal [cards.legal]
+ * @param  {[object]} opts [{ catalog, focus: the keyboard's hand card, focusPile: the keyboard's pile, dim: the hand cards drawn dimmer, lifted: the card being played, glow: its next squares, glowFocus: the keyboard's square }]
+ */
+export function setTable3D(view, legal, opts) {
+	table = { view, legal, opts };
+	applyTable3D();
+}
+
+/**
+ * @description Opens or closes a Board Effects pile on the 3D board (the keyboard's Enter on it, gameplay/cards/flow.js)
+ * @param  {[string]} pile ["mine" or "his"]
+ */
+export function toggleTablePile3D(pile) {
+	if (board3D) { board3D.toggleCardPile(pile); }
+}
+
+function applyTable3D() {
+	if (!board3D || !table) { return; }
+	const { view, legal, opts } = table;
+	board3D.setCardTable(view, legal, { catalog: opts.catalog, focus: opts.focus, focusPile: opts.focusPile, dim: opts.dim });
+	if (opts.lifted) { board3D.liftCard(opts.lifted); }
+	else { board3D.dropCard(); }
+	board3D.highlightSquares(opts.glow || [], opts.glowFocus || null);
+}
+
+/**
  * @description Which board is on
  * @return {[string]} [VIEWS.TWO_D or VIEWS.THREE_D]
  */
@@ -470,7 +508,7 @@ async function show3D() {
 	canvas.after(container);
 	try {
 		const monitor = monitorHooks && { handlers: monitorHooks.handlers, announce: monitorHooks.announce, onChange: monitorHooks.onChange };
-		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D, monitor, cards: { onPick: (type) => cardPick?.(type) } }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
+		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D, monitor, cards: { onPick: (type) => cardPick?.(type), onTable: (hit) => tablePick?.(hit), tableOn: () => !game.menuToggled } }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
 	} catch (err) {
 		console.warn("3D board failed to start", err);
 		reportError(`3D board couldn't start: ${err.message}`, "3d-board");
@@ -497,6 +535,7 @@ async function show3D() {
 	syncScreen3D();
 	shownMonitor = null; // A NEW BOARD (ONE REBUILT AFTER A LOST CONTEXT TOO) GETS THE DATA AGAIN
 	syncMonitor3D();
+	applyTable3D();
 	if (heldFace) { board3D.setFace(heldFace); } // THE GAME ENDED BEFORE THIS BOARD WENT UP
 	game.refresh = true;
 	requestFrame();

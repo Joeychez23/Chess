@@ -155,6 +155,7 @@ function hoverGlass(e) {
 
 export function onPointerLeave() {
 	if (view.cards) { view.cards.hover(null); }
+	if (view.table) { view.table.hover(null); }
 	view.cardCursor = false;
 	if (!view.monitor) { return; }
 	view.monitor.pointer("out");
@@ -174,12 +175,22 @@ function cardAt(e) {
 	return view.cards.hit(raycaster);
 }
 
+// THE CHESS CARDS TABLE UNDER A POINTER EVENT: ONE OF THE PLAYER'S HAND CARDS OR A BOARD EFFECTS PILE (cardTable.js hit), null FOR NONE, WHILE THE MONITOR IS ON THE DESK
+function tableAt(e) {
+	if (!view.table || !monitorIdle()) { return null; }
+	const rect = view.renderer.domElement.getBoundingClientRect();
+	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+	raycaster.setFromCamera(pointer, view.camera);
+	return view.table.hit(raycaster);
+}
+
 // A MOUSE OVER A CARD LIFTS IT & SHOWS THE HAND CURSOR. AFTER hoverGlass(), WHICH SETS THE CURSOR FOR THE GLASS
 function hoverCards(e) {
-	if (!view.cards) { return; }
-	const over = cardAt(e);
-	view.cards.hover(over);
-	if (over !== null) { view.container.style.cursor = "pointer"; view.cardCursor = true; }
+	if (!view.cards && !view.table) { return; }
+	const over = view.cards ? cardAt(e) : null, table = tableAt(e);
+	if (view.cards) { view.cards.hover(over); }
+	if (view.table) { view.table.hover(table && table.kind === "hand" ? table.id : null); }
+	if (over !== null || table) { view.container.style.cursor = "pointer"; view.cardCursor = true; }
 	else if (view.cardCursor) { view.cardCursor = false; if (!view.monitor) { view.container.style.cursor = ""; } } // WITH A MONITOR hoverGlass() ALREADY SET IT
 }
 
@@ -190,6 +201,17 @@ function pickCard(e, stop) {
 	if (index === null) { return false; }
 	if (stop) { e.stopPropagation(); }
 	view.cardOptions.onPick(CARD_ORDER[index]);
+	return true;
+}
+
+// A CHESS CARDS GAME'S TAP: A PILE OPENS OR CLOSES, A HAND CARD OR A SQUARE GOES TO cardOptions.onTable (gameplay/cards/flow.js). NOT ON THE GLASS: THAT'S THE MONITOR'S, NOR WHILE cardOptions.tableOn() IS FALSE
+function pickTable(e, stop) {
+	if (!view.table || !view.cardOptions.tableOn() || view.cameraGesture || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType) || glassHit(e)) { return false; } // THE MENU OPEN: THE PAGE'S CLICK-AWAY CLOSES IT, NOTHING IS PLAYED
+	const at = tableAt(e), square = at ? null : squareUnder(e), hit = at || (square ? { kind: "square", square } : null);
+	if (!hit) { return false; }
+	if (stop) { e.stopPropagation(); }
+	if (hit.kind === "pile") { view.table.togglePile(hit.pile); }
+	else { view.cardOptions.onTable(hit); }
 	return true;
 }
 
@@ -211,7 +233,7 @@ function monitorTap(e) {
 // CAPTURE PHASE, BEFORE gameplay/input'S CLICK: THE MOUSE'S TAP. AT THE MONITOR NO CLICK REACHES THE BOARD. A FINGER'S OR PEN'S IS onTouchTap()'S: gameplay'S
 // touchstart CANCELS THE CLICK A TOUCH (OR AN APPLE PENCIL) WOULD MAKE, & ONE THE BROWSER MAKES ANYWAY (NO TOUCH LISTENERS IN REMOTE-ONLY MODE, A WINDOWS PEN) WOULD BE THE SAME TAP TWICE
 export function onClick(e) {
-	if (view.pointerType === "mouse" && pickCard(e, true)) { return; } // A CARD, NOT THE BOARD'S OR THE MONITOR'S
+	if (view.pointerType === "mouse" && (pickCard(e, true) || pickTable(e, true))) { return; } // A CARD (OR A CARD GAME'S SQUARE), NOT THE BOARD'S OR THE MONITOR'S
 	if (!view.monitor) { return; }
 	const idle = view.monitor.state === "idle";
 	if (!idle) { e.stopPropagation(); }
@@ -223,7 +245,7 @@ export function onClick(e) {
 // touchend, WHICH THEN SEES THE MONITOR BUSY (isCameraGesture) & LEAVES THE BOARD ALONE. NOT STOPPED: THE CAMERA CONTROLS NEED THEIR pointerup
 export function onTouchTap(e) {
 	if (e.pointerType === "mouse" || view.multiTouch || view.touches.size !== 1 || !view.touches.has(e.pointerId)) { return; }
-	if (pickCard(e, false)) { return; } // NOT STOPPED: THE CAMERA CONTROLS NEED THEIR pointerup, & gameplay's touchend DOES NOTHING ON A TAP OFF THE BOARD
+	if (pickCard(e, false) || pickTable(e, false)) { return; } // NOT STOPPED: THE CAMERA CONTROLS NEED THEIR pointerup, & gameplay's touchend DOES NOTHING ON A TAP OFF THE BOARD
 	if (view.monitor) { monitorTap(e); }
 }
 

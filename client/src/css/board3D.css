@@ -101,3 +101,42 @@ body.replay #board3D { /* THE REPLAY BAR'S STRIP AT THE BOTTOM (css/style.css --
 	outline: 2px solid var(--maple);
 	outline-offset: 2px;
 }
+
+/* CHESS CARDS: A BOARD EFFECTS PILE OPENED SO EVERY CARD CAN BE READ (three/cardTable.js), OLDEST ON THE LEFT. A CLICK ANYWHERE OR ESCAPE CLOSES IT */
+.cardPile {
+	position: fixed;
+	inset: 0;
+	z-index: 30;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	background-color: rgba(10, 8, 6, 0.78);
+	cursor: pointer;
+}
+
+.cardPile p {
+	margin: 0;
+	padding: 0 16px;
+	color: #EEE3C8;
+	font: 14px sans-serif;
+	text-align: center;
+}
+
+.cardPileRow {
+	display: flex;
+	gap: 12px;
+	max-width: 100vw;
+	box-sizing: border-box;
+	padding: 0 16px;
+	overflow-x: auto;
+}
+
+.cardPileRow canvas {
+	flex: none;
+	width: 200px;
+	height: auto;
+	border-radius: 8px;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
