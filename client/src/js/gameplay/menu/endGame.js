@@ -30,6 +30,7 @@ const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A 
 };
 let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
 let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
+let replaceOpen = false; // CHESS CARDS' RESTART: TRUE ONCE THE PLAYER WAS TOLD IT FORFEITS THEIR OTHER OPEN GAME (THE SERVER'S 409)
 
 /* ---------------------------------------------------------------- */
 // Restart Button (Menu)
@@ -68,13 +69,22 @@ export async function handleRestart(e) {
 }
 
 /**
- * @description Chess Cards' Restart: a new card game at the same level & color (replace_current, so the server never answers 409 for this one), then its page opens.
- * The restart route refuses card games (server/controllers/chessController.js). Restart says Loading & fills while the new game is made, like an AI game's
+ * @description Chess Cards' Restart: a new card game at the same level & color, then its page opens. While another AI or card game is open the server answers 409:
+ * the first press says it'll be forfeited, the second sends replace_current (like Home's Start). The restart route refuses card games (server/controllers/chessController.js).
+ * Restart says Loading & fills while the new game is made, like an AI game's
  */
 async function restartCards() {
 	setRestartLoading(0.15);
-	const response = await newCardsGame(game.GAME_URL, game.cardGame.startColor, game.response.ai_level, true);
+	const response = await newCardsGame(game.GAME_URL, game.cardGame.startColor, game.response.ai_level, replaceOpen);
+	if (response?.status === 409) { // ANOTHER GAME IS OPEN (FINISHED GAMES OPENED THIS ONE): ASK BEFORE FORFEITING IT
+		replaceOpen = true;
+		setRestartLoading(false);
+		optRestartBtn.innerHTML = "Forfeit & restart"; // AFTER setRestartLoading, IT PUTS BACK "Restart"
+		showStatus("action", "This forfeits your other open game. Press Restart again to start a new one.", MESSAGE_TIME);
+		return;
+	}
 	if (response?.status !== 200 || !response.game_id) { // NOT STARTED, THIS GAME STAYS (THE MENU STAYS OPEN)
+		replaceOpen = false; // THE BUTTON SAYS "Restart" AGAIN: A PRESS THAT WOULD STILL FORFEIT ANOTHER GAME GETS THE 409 & ASKS AGAIN
 		setRestartLoading(false);
 		console.log(response?.message || "Restart failed: no answer from the server");
 		showStatus("action", "A new game couldn't be started. Try again.", MESSAGE_TIME);

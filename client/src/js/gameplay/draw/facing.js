@@ -9,6 +9,7 @@ const parsedLists = new Map();
 
 /** Parse a response list once until its raw value changes. */
 function parseList(name, raw) {
+	if (raw == null) return null; // A CARD GAME'S RESPONSE HAS NO FACING LISTS: EVERY PIECE FACES AS IF UNMOVED
 	const cached = parsedLists.get(name);
 	if (cached && cached.raw === raw) return cached.parsed;
 	const parsed = JSON.parse(raw);
@@ -74,13 +75,14 @@ function startsRight(square, viewColor) {
 	return (square[0] < "e") === (viewColor === "w");
 }
 
+// NO LIST (A CARD GAME) = THE ENTRY AN UNMOVED PIECE HAS
 function facesAway(list, square, color, options) {
-	const facing = pieceFacing(list, square, options);
+	const facing = pieceFacing(list || [{ from: null, to: square }], square, options);
 	return facing ? awayFromRows(facing.yFrom, facing.yTo, color, options.viewColor) : null;
 }
 
 function knightFacesRight(list, square, color, options) {
-	const facing = knightFacing(list, square, options);
+	const facing = knightFacing(list || [{ from: null, to: square }], square, options);
 	if (!facing) return null;
 	if (facing.kind === "side") return startsRight(square, options.viewColor);
 	if (facing.from[0] === facing.to[0]) return color === "b";
