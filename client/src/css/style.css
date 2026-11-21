@@ -100,11 +100,39 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	top: calc(env(safe-area-inset-top, 0px) + 116px);
 }
 
-#drawPrompt[hidden], #takebackPrompt[hidden] {
+#cardPrompt { /* CHESS CARDS: A CARD'S CHOICE OR CONFIRM (gameplay/cards/flow.js), CENTRED UNDER THE MESSAGE AREA, ITS BORDER THE ASKING CARD'S RARITY COLOUR */
+	position: fixed;
+	z-index: 21;
+	top: calc(env(safe-area-inset-top, 0px) + 64px);
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 8px;
+	width: max-content;
+	max-width: calc(100vw - 32px);
+	box-sizing: border-box;
+	padding: 10px 12px;
+	border: 3px solid #C9A227;
+	border-radius: 16px;
+	background-color: rgba(28, 20, 14, 0.92);
+}
+
+#cardPrompt p {
+	width: 100%;
+	margin: 0;
+	text-align: center;
+	color: var(--maple);
+	font-family: var(--font-label);
+	font-size: 15px;
+}
+
+#drawPrompt[hidden], #takebackPrompt[hidden], #cardPrompt[hidden] {
 	display: none;
 }
 
-#drawPrompt button, #takebackPrompt button {
+#drawPrompt button, #takebackPrompt button, #cardPrompt button {
 	min-height: 44px;
 	padding: 8px 14px;
 	border: 1px solid rgba(201, 163, 90, 0.45);
@@ -117,7 +145,7 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
-#drawPrompt button:focus-visible, #takebackPrompt button:focus-visible {
+#drawPrompt button:focus-visible, #takebackPrompt button:focus-visible, #cardPrompt button:focus-visible {
 	outline: 2px solid var(--maple);
 	outline-offset: 2px;
 }

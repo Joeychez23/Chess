@@ -393,12 +393,13 @@ export function refreshData(response) {
 /* ---------------------------------------------------------------- */
 /**
  * @description The menu is opening: a move that isn't finished goes back to the last server board. That's a picked up or
- * dragged piece, an open promotion picker or the player's pawn sliding to the last rank (no piece is chosen yet).
+ * dragged piece, an open promotion picker or the player's pawn sliding to the last rank (no piece is chosen yet). In a Chess Cards game the card being played goes down.
  * Any other slide of the player's lands & is sent, the click committed it. A move already sent & the opponent's slides stay.
  * !NOTE: opposingMove IS ALSO TRUE DURING THE PLAYER'S OWN SLIDE, SO THE SLIDING PIECE'S COLOR SAYS WHOSE SLIDE IT IS
  */
 export function revertUnfinishedMove() {
 	if (game.readOnly) { return; } // NOTHING OF THE PLAYER'S IS UNFINISHED, A REPLAY'S SLIDE LANDS AS IT IS
+	if (game.cardGame) { return require("../cards/flow.js").putDown(); } // A CHESS CARDS GAME: THE CARD BEING PLAYED GOES DOWN (& ITS PROMOTION CARDS BACK). HERE, NOT ABOVE: flow.js REACHES THE MENU, WHICH REQUIRES THIS FILE
 	const heldPiece = !game.opposingMove && (game.clickedTile || game.mousedownTile); // THE TURN CHECK: A DROPPED PROMOTION KEEPS clickedTile AFTER IT'S SENT
 	const promotionSlide = game.currSlide && game.moveObj.promotion && !game.moveObj.typed && game.tiles.some(function (tile) { return tile.isSliding && tile.color == game.playerColor; });
 	if (!heldPiece && !game.currPromotion && !promotionSlide) { return; }

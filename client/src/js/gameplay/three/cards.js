@@ -1,29 +1,29 @@
-/* ---- Promotion cards: four cards on the deck on the desk, dealt into the green strip when a pawn promotes ---- */
+/* ---- Promotion cards: four cards on the deck on the desk, dealt into the green strip when a pawn promotes. The Chess Cards table (cardTable.js) shares their look & timings ---- */
 
 import { CanvasTexture, SRGBColorSpace, MeshBasicMaterial, PlaneGeometry, Mesh, Shape, Path, ShapeGeometry } from "three";
 import { CARD_ORDER, CARD_SIZE, DECK, CARD_Y, cardSpots, drawCardFace } from "./cardLayout.js";
 import { blob } from "./materials.js";
 
-const CARD_LIGHT = 0xCDBE9C; // A CARD'S FACE TINT ON THE BAIZE, TO MATCH THE BAKED DECK UNDER THE LAMP
-const CARD_BACK = 0x38080A; // THE BACK, A DEEP RED
-const HOVER_LIGHT = 0xFFFFFF; // A HOVERED OR FOCUSED FACE SHOWS ITS DRAWING UNTINTED
-const FOCUS = { color: 0xFFC83D, opacity: 1 }; // THE KEYBOARD'S FRAME: HIGHLIGHTS.focus IN three/index.js
-const FRAME_GAP = 0.2; // THE GOLD FRAME'S INNER EDGE, THIS FAR OUTSIDE THE CARD...
-const FRAME_WIDTH = 0.5; // ...& ITS THICKNESS
-const SHADOW_SCALE = 1.1; // THE CONTACT SHADOW IS THIS MUCH BIGGER THAN THE CARD
-const SHADOW_OPACITY = 0.5;
-const SHADOW_DROP = 0.01; // UNDER THE CARD
-const FRAME_DROP = 0.005;
-const LIFT = 0.35; // HOW HIGH A HOVERED OR FOCUSED CARD FLOATS
-const LIFT_MS = 120;
-const DEAL_MS = 250;
-const DEAL_STAGGER_MS = 90;
+export const CARD_LIGHT = 0xCDBE9C; // A CARD'S FACE TINT ON THE BAIZE, TO MATCH THE BAKED DECK UNDER THE LAMP
+export const CARD_BACK = 0x38080A; // THE BACK, A DEEP RED
+export const HOVER_LIGHT = 0xFFFFFF; // A HOVERED OR FOCUSED FACE SHOWS ITS DRAWING UNTINTED
+export const FOCUS = { color: 0xFFC83D, opacity: 1 }; // THE KEYBOARD'S FRAME: HIGHLIGHTS.focus IN three/index.js
+export const FRAME_GAP = 0.2; // THE GOLD FRAME'S INNER EDGE, THIS FAR OUTSIDE THE CARD...
+export const FRAME_WIDTH = 0.5; // ...& ITS THICKNESS
+export const SHADOW_SCALE = 1.1; // THE CONTACT SHADOW IS THIS MUCH BIGGER THAN THE CARD
+export const SHADOW_OPACITY = 0.5;
+export const SHADOW_DROP = 0.01; // UNDER THE CARD
+export const FRAME_DROP = 0.005;
+export const LIFT = 0.35; // HOW HIGH A HOVERED OR FOCUSED CARD FLOATS
+export const LIFT_MS = 120;
+export const DEAL_MS = 250;
+export const DEAL_STAGGER_MS = 90;
 const BACK_MS = 200;
-const STACK_STEP = 0.03; // THE CARDS' THICKNESS: HOW THEY LIE ON THE DECK
-const FACE_W = 512; // THE FACE TEXTURE'S SIZE, THE CARD'S 4.3 x 6: BIG ENOUGH FOR THE CORNER GLYPH TO READ
-const FACE_H = 716;
+export const STACK_STEP = 0.03; // THE CARDS' THICKNESS: HOW THEY LIE ON THE DECK
+export const FACE_W = 512; // THE FACE TEXTURE'S SIZE, THE CARD'S 4.3 x 6: BIG ENOUGH FOR THE CORNER GLYPH TO READ
+export const FACE_H = 716;
 
-const lerp = (a, b, k) => a + (b - a) * k;
+export const lerp = (a, b, k) => a + (b - a) * k;
 
 /**
  * @description A gold rectangular frame lying flat (XZ), centred on the origin.
@@ -32,7 +32,7 @@ const lerp = (a, b, k) => a + (b - a) * k;
  * @param {number} thickness how wide the frame is
  * @returns {ShapeGeometry} the frame, facing up
  */
-function frameGeometry(w, h, thickness) {
+export function frameGeometry(w, h, thickness) {
 	const rect = (a, b) => [[-a / 2, -b / 2], [a / 2, -b / 2], [a / 2, b / 2], [-a / 2, b / 2]];
 	const outer = new Shape();
 	rect(w + thickness * 2, h + thickness * 2).forEach(([x, y], i) => (i ? outer.lineTo(x, y) : outer.moveTo(x, y)));
@@ -47,7 +47,7 @@ function frameGeometry(w, h, thickness) {
  * @param {Object3D} card the cloned template
  * @returns {{ face: Mesh, back: Mesh }|null} the two meshes, null when the template has no cardFace or cardBack
  */
-function findParts(card) {
+export function findParts(card) {
 	let face = null, back = null;
 	card.traverse(function (o) {
 		if (!o.isMesh || !o.material) { return; }

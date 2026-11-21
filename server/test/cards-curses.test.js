@@ -862,7 +862,7 @@ describe("Leech", () => {
 	});
 
 	test("cleared by discarding an active card (one clear per active held), using the turn; none without an active; the opponent learns only that a card was discarded", () => {
-		const s = game("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), a1 = hand.newCard(s, "cleanse"), a2 = hand.newCard(s, "mulligan");
+		const s = game("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"), a1 = hand.newCard(s, "cleanse"), a2 = hand.newCard(s, "mulligan"); // THE PAWN KEEPS THE GAME ON: BARE KINGS END IT (MATERIAL), AND A FINISHED GAME SHOWS EVERYTHING (USER RULING 2026-11-21)
 		Object.assign(s.players.w, { moves: [moveCard(s, "p")], actives: [a1, a2] });
 		const l = curse(s, "w", "leech");
 		assert.deepEqual(clears(s, "w"), [{ type: "clear", card: l.id, discard: a1.id }, { type: "clear", card: l.id, discard: a2.id }]);

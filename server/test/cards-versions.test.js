@@ -132,7 +132,7 @@ test("a version of Trapdoor keeps its square from the opponent in the events and
 	reset();
 	register({ ...require("../../cards-engine/cards/active/trapdoor.js"), versions: [{ rarity: "rare", text: "" }] });
 	const s = newGame({ cardGuy: "b", level: 1300, seed: 1 });
-	s.board = fromFen("4k3/8/8/8/8/8/8/4K3 w - - 0 1");
+	s.board = fromFen("4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"); // THE PAWN KEEPS THE GAME ON: BARE KINGS END IT (MATERIAL), AND A FINISHED GAME SHOWS EVERYTHING (USER RULING 2026-11-21)
 	s.players.w.actives = [{ id: "c90", key: "trapdoor-rare" }];
 	const a = legalActions(s, "w").find((x) => x.type === "active");
 	const { state, events } = applyAction(s, "w", a);

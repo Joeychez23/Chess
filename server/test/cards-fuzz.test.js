@@ -79,17 +79,18 @@ function checkView(s, viewer) {
 	for (const k of ["moves", "actives", "passive", "curses", "seen"]) assert.ok(!(k in vo), "opponent " + k + " in view");
 	assert.ok(!("seen" in v.players[viewer]), "own seen in view (it tells the fakes apart)");
 	const kept = v.effects.filter((e) => "denied" in e.card || "stopping" in e.card); // PHALANX'S AND PEASANT IMMUNITY'S BOOKKEEPING: ONLY ON viewer'S OWN, NEVER UNDER THE OPPONENT'S FOG
-	assert.ok(kept.every((e) => e.owner === viewer) && !(kept.length && boardFog(s, opp)), "passive bookkeeping in view");
+	assert.ok(kept.every((e) => e.owner === viewer) && !(kept.length && !s.result && boardFog(s, opp)), "passive bookkeeping in view");
 	const shown = vo.hand.shown, seen = s.players[viewer].seen, fakes = seen ? seen.fake : [], allowed = allowedKeys(v, viewer);
 	const asked = s.pending && s.pending.player === viewer ? [...s.pending.options, s.pending.stolen] : []; // PICKPOCKET'S TAKE-BACK NAMES THE CARD JUST TAKEN FROM viewer (THE PUBLIC card-taken EVENT SHOWED IT)
-	for (const f of fakes) assert.ok(shown.some((c) => c.id === f.id), "fake card not shown");
-	for (const c of handOf(o)) {
+	if (s.result) assert.deepEqual(shown.map((c) => c.id + ":" + c.key).sort(), handOf(o).map((c) => c.id + ":" + c.key).sort(), "a finished game shows the whole hand, no fakes"); // USER RULING 2026-11-21 03:12
+	else for (const f of fakes) assert.ok(shown.some((c) => c.id === f.id), "fake card not shown");
+	for (const c of s.result ? [] : handOf(o)) {
 		if (visibleTo(s, viewer, c)) { assert.ok(shown.some((x) => x.id === c.id && x.key === c.key), "visible card " + c.id + " not in shown"); continue; }
 		if (!fakes.some((f) => f.id === c.id) && !asked.includes(c.id)) assert.ok(!flat.includes(quoted(c.id)), "hidden card id " + c.id + " in view"); // A FAKE WEARS THE REAL CARD'S ID (RULING)
 		if (!allowed.has(c.key)) assert.ok(!json.includes(quoted(c.key)), "hidden key " + c.key + " in view");
 	}
 	for (const e of v.enchant) {
-		if (baseKey(e.key) === "trapdoor") assert.equal(!!e.data && "square" in e.data, e.owner === viewer, "trapdoor square");
+		if (baseKey(e.key) === "trapdoor") assert.equal(!!e.data && "square" in e.data, e.owner === viewer || !!s.result, "trapdoor square"); // OVER: SHOWN
 		if (e.data) assert.ok(!("ids" in e.data) && !("fake" in e.data), "sight bookkeeping in view");
 	}
 	if (s.pending) {
@@ -97,7 +98,7 @@ function checkView(s, viewer) {
 		if (s.pending.player !== viewer) assert.deepEqual(v.pending, { player: s.pending.player, kind: s.pending.kind }, "the other player's choice in view");
 	}
 	if (s.duel) for (const set of [v.duel, v.duel.spades].filter(Boolean)) assert.ok(!("deck" in set), "duel deck in view");
-	if (boardFog(s, opp)) {
+	if (!s.result && boardFog(s, opp)) { // A FINISHED GAME HIDES NOTHING (USER RULING 2026-11-21)
 		const letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g, rank = opp === "w" ? "3" : "6";
 		const { sq, castling, ep, history, half, hidden, ...rest } = v.board, real = s.board, ids = hiddenIds(s, opp);
 		sq.forEach((p, i) => assert.deepEqual(p, real.sq[i] && ids.includes(real.sq[i].id) ? null : real.sq[i], "fogged square " + i)); // ONLY ITS HALF IS FOGGED (i 0 = a8): NO PIECE THERE AT ALL
@@ -131,6 +132,7 @@ function checkEvents(next, events, viewer, v) {
 	const ev = playerEvents(next, events, viewer), json = JSON.stringify(ev), flat = noSquares(json);
 	assert.equal(JSON.stringify(events), rawEvents, "events mutated");
 	assert.equal(JSON.stringify(next), rawState, "state mutated");
+	if (next.result) { assert.deepEqual(ev, JSON.parse(rawEvents), "the action that ended the game not told in full"); return; } // USER RULING 2026-11-21 03:12; EVERY CHECK BELOW HOLDS WHILE IT IS ON
 	const card = (e) => (e.card && typeof e.card === "object" ? e.card : null);
 	events = events.filter((e) => !(e.type === "curse-given" && isMirage(e.card) && e.player === opp)); // LEFT OUT FOR ITS HOLDER: IT SHOWS WHEN IT ENTERS AT A REFILL
 	const hid = boardFog(next, opp) ? hiddenIds(next, opp) : [], taken = hid.length || boardFog(next, opp) ? events.filter((e) => e.type === "capture" && e.c === opp).map((e) => e.piece) : [];

@@ -237,14 +237,16 @@ test("no response body contains the seed, cards_state or a hidden Card Guy card 
 	const myKeys = new Set([...mine.moves, ...mine.actives, ...mine.curses].map((c) => c.key));
 	const hidden = [...cardGuy.actives, ...cardGuy.curses, ...(cardGuy.passive ? [cardGuy.passive] : [])].filter((c) => !c.faceUp && !myKeys.has(c.key)).map((c) => c.key);
 	assert.ok(hidden.length > 0); // CARD GUY IS DEALT AN ACTIVE
-	for (const body of bodies) {
+	bodies.forEach(function (body, i) {
 		const text = JSON.stringify(body);
 		assert.equal(body.http, 200, text.slice(0, 80));
 		assert.ok(!text.includes("cards_state"));
 		assert.ok(!text.includes('"rng"'));
 		assert.ok(!text.includes(state.rng.key.join(",")));
-		for (const key of hidden) { assert.ok(!text.includes(`"${key}"`), key); }
-	}
+		if (i < 6) { for (const key of hidden) { assert.ok(!text.includes(`"${key}"`), key); } } // THE LAST: THE FORFEITED GAME, WHICH SHOWS CARD GUY'S HAND (USER RULING 2026-11-21 03:12)
+	});
+	const over = JSON.stringify(bodies[6]);
+	for (const key of hidden) { assert.ok(over.includes(`"${key}"`), "a finished game shows " + key); }
 });
 
 test("the seed is random hex, an integer only from CARDS_TEST_SEED, never from the request", async () => {
@@ -315,6 +317,57 @@ test("a game that ends under Card Guy's Fog of War saves the real board: a finis
 	const mated = await act(gameId, { type: "move", card: state.players.w.moves[0].id, from: "a1", to: "e1" });
 	assert.equal(mated.result.reason, "checkmate");
 	assert.equal(peek("chess_db", gameId).game_board.S, E.toFen(stored(gameId)));
+	assert.equal(E.toFen({ board: mated.view.board }), E.toFen(stored(gameId))); // THE TABLE DRAWS THE WHOLE BOARD
+	assert.ok(!("hidden" in mated.view.board));
+	const { gameId: lost, state: before } = await position("3rkr2/3p1p2/8/8/8/8/8/R5K1 w - - 0 1", ["r"], (s) => { s.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 3, data: {} }); });
+	assert.equal((await call("POST", `/api/chess/game/${lost}/forfeit`)).http, 200);
+	const over = await load(lost);
+	assert.equal(E.toFen({ board: over.view.board }), E.toFen(before)); // FORFEITED UNDER FOG: THE WHOLE BOARD TOO
+	assert.ok(!("hidden" in over.view.board));
+});
+
+test("a finished game's answer shows Card Guy's whole hand, a hidden Trapdoor and the last action's events in full, by mate and by forfeit; a game still on shows none of them (user ruling 2026-11-21)", async () => {
+	const fen = "3rkr2/3p1p2/8/8/R3n3/8/8/6K1 w - - 0 1"; // Ra4xe4 MATES, TAKING A KNIGHT
+	const setup = (s) => { s.enchant.push({ id: "e1", key: "fog-of-war-rare", owner: "b", pieces: [], left: 3, data: {} }, { id: "e2", key: "trapdoor", owner: "b", pieces: [], left: null, data: { square: "h3" } }); };
+	const handIds = (s) => [...s.players.b.moves, ...s.players.b.actives, ...(s.players.b.passive ? [s.players.b.passive] : []), ...s.players.b.curses].map((c) => c.id).sort();
+	const trapdoor = (r) => r.view.enchant.find((e) => e.key === "trapdoor").data;
+	const { gameId, state } = await position(fen, ["r"], setup), knight = state.board.sq.find((p) => p && p.t === "n").id;
+	const on = await load(gameId);
+	assert.deepEqual(on.view.players.b.hand.shown, []);
+	assert.ok(!("square" in trapdoor(on)));
+	const mated = await act(gameId, { type: "move", card: state.players.w.moves[0].id, from: "a4", to: "e4" });
+	assert.equal(mated.result.reason, "checkmate");
+	assert.deepEqual(mated.view.players.b.hand.shown.map((c) => c.id).sort(), handIds(stored(gameId)));
+	assert.equal(trapdoor(mated).square, "h3");
+	assert.deepEqual(mated.events.filter((e) => e.type === "capture").map((e) => [e.piece, e.t]), [[knight, "n"]]); // UNDER FOG WHILE ON: NO ID, "?"
+	const { gameId: lost, state: before } = await position(fen, ["r"], setup);
+	assert.equal((await call("POST", `/api/chess/game/${lost}/forfeit`)).http, 200);
+	const over = await load(lost);
+	assert.deepEqual(over.view.players.b.hand.shown.map((c) => c.id).sort(), handIds(before));
+	assert.equal(trapdoor(over).square, "h3");
+});
+
+test("the catalog names only registered card keys: a string like \"constructor\" in the view is not one (M6)", async () => {
+	const { gameId } = await position("4k3/8/8/8/8/8/8/R3K3 w - - 0 1", ["r"], (s) => { s.barred = "constructor"; }); // THE VIEW CARRIES barred AS IT IS
+	const r = await load(gameId);
+	assert.equal(r.view.barred, "constructor");
+	assert.ok(!Object.hasOwn(r.catalog, "constructor"));
+});
+
+test("the response's catalog gives the name, kind, text, skulls and rarity of every card key in its view and events, and of no other", async () => {
+	const { gameId, state } = await position("4k3/8/8/8/8/8/8/R3K3 w - - 0 1", ["r"], (s) => {
+		s.players.w.actives = [hand.newCard(s, "fog-of-war-rare")];
+		s.players.w.passive = hand.newCard(s, "veto");
+	});
+	const r = await load(gameId);
+	const C = require("../../cards-engine/cards/index.js").CARDS;
+	const face = (k) => ({ name: C[C[k].base || k].name, kind: C[k].kind, text: C[k].text, skulls: C[k].skulls, rarity: C[k].rarity });
+	assert.deepEqual(r.catalog, { "fog-of-war-rare": face("fog-of-war-rare"), veto: face("veto") });
+	assert.equal(r.catalog["fog-of-war-rare"].name, "Fog of War"); // A VERSION SHOWS ITS BASE CARD'S NAME, IN ITS OWN RARITY
+	assert.equal(r.catalog["fog-of-war-rare"].rarity, "rare");
+	const played = await act(gameId, { type: "active", card: state.players.w.actives[0].id });
+	assert.ok(played.catalog["fog-of-war-rare"], "the played card, now only in the events and the enchantment");
+	assert.ok(Object.keys(played.catalog).every((k) => JSON.stringify([played.view, played.events]).includes(`"${k}"`)));
 });
 
 test("a save that answers too late: the player still gets the action's events, the game saved once", async () => {

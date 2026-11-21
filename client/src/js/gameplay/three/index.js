@@ -16,6 +16,7 @@ import { BAIZE_FOG } from "./materials.js";
 import { createRoom, turnRoom, disposeRoom } from "./room.js"; // THE LIBRARY AROUND THE BOARD & ITS CRT MONITOR
 import { pileSpots } from "./piles.js"; // WHERE THE TAKEN PIECES STAND ON THE DESK
 import { createCards } from "./cards.js"; // THE PROMOTION CARDS ON THE DESK
+import { createCardTable } from "./cardTable.js"; // A CHESS CARDS GAME'S HANDS, DECKS & BOARD EFFECTS
 import { createTweens } from "./tween.js"; // THEIR SLIDES
 
 import { createScreen, setScreen as showOnScreen, setFace as showFace, pauseScreen, disposeScreen, setMonitorView } from "./screen.js"; // WHAT THE MONITOR SHOWS
@@ -36,7 +37,7 @@ import { putDownHeld, stepAnim, finishAnims, animate } from "./motion.js";
 export { isCameraGesture, setSide, resetCamera } from "./camera.js";
 export { setMonitor, enterMonitor, leaveMonitor, monitorState, focusMonitor } from "./pointer.js";
 export { setHeld, animateMove, animateUndo, glideHome } from "./motion.js";
-import { BOARD_SIZE, CELL_SIZE, PIECE_SIZE, FILES, ROOM_BACKGROUND, BOARD_IMAGE, HIGHLIGHTS, FOCUS_RING, NEAR, REDUCE, NO_MONITOR, LABEL, FOV } from "./constants.js";
+import { BOARD_SIZE, CELL_SIZE, PIECE_SIZE, FILES, DESK_Y, ROOM_BACKGROUND, BOARD_IMAGE, HIGHLIGHTS, FOCUS_RING, NEAR, REDUCE, NO_MONITOR, LABEL, FOV } from "./constants.js";
 
 export let view = null; // EVERYTHING ONE mount() MADE, null WHEN UNMOUNTED
 export const raycaster = new Raycaster();
@@ -111,7 +112,6 @@ export function removePiece(mesh) {
 /* ---------------------------------------------------------------- */
 
 const SHADOW_LIFT = 0.015; // A PILE SHADOW'S HEIGHT OVER ITS SURFACE, pieces.js SHADOW_Y
-const DESK_Y = -0.76; // THE ROOM'S DESK TOP (room.js)
 const pileY = () => (view.room ? DESK_Y : view.surroundings.userData.table.position.y); // THE BAIZE TABLE'S HEIGHT WHEN THE ROOM ISN'T IN
 export const homeYaw = (type, color) => (color === "w" ? Math.PI : 0) - (type === "n" ? Math.PI / 2 : 0); // HOW createPiece TURNS A PIECE ON ITS SQUARE
 
@@ -183,6 +183,8 @@ async function addRoom(v) {
 				v.cards.deal(v.promotion.color, false);
 				frameDeal(false);
 			}
+			v.cardTemplate = card;
+			if (v.tableArgs) { setCardTable(...v.tableArgs); } // A CARD GAME'S TABLE ASKED FOR WHILE THE ROOM LOADED
 		}
 		requestRender();
 	} catch (error) {
@@ -270,7 +272,7 @@ function onContextRestored() {
  * @param  {[HTMLElement]} container [what the 3D canvas fills, sized by CSS]
  * @param  {[object]} events [{ onContextLost, onContextRestored, monitor }: the WebGL context went away / came back, the board stops drawing
  * when it's lost & the caller puts up a new one (unmount() then mount()). monitor: { handlers (what its buttons call, monitor.js), announce(text)
- * (for the screen reader), onChange({ ready, state }) (the monitor came up, went away or changed state) }. cards: { onPick(type) } (a promotion card was picked, "q", "r", "b" or "n") }]
+ * (for the screen reader), onChange({ ready, state }) (the monitor came up, went away or changed state) }. cards: { onPick(type) (a promotion card was picked, "q", "r", "b" or "n"), onTable(hit) (a Chess Cards game: a hand card { kind: "hand", id } or a square { kind: "square", square } was picked), tableOn() (false: the table's taps go to the page, the menu is open) }]
  */
 export function mount(container, { onContextLost: lost = () => {}, onContextRestored: restored = () => {}, monitor = null, cards = null } = {}) {
 	if (view) { return; }
@@ -311,12 +313,12 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	const marks = {};
 	Object.keys(HIGHLIGHTS).forEach(function (kind, i) {
 		const [color, opacity] = HIGHLIGHTS[kind];
-		marks[kind] = { geometry: kind === "focus" ? ringGeometry : markGeometry, material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
+		marks[kind] = { geometry: kind === "focus" || kind === "cardFocus" ? ringGeometry : markGeometry, material: new MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false }), y: 0.02 + i * 0.002, meshes: new Map() };
 	});
 	view = { taken: new Map(), arriving: new Set(), phone, container, renderer, scene, camera, plane, surroundings, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // taken: PILE KEY -> MESH, arriving: TAKEN OFF THE BOARD, WAITING FOR setTaken, frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
 	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored, held: null, room: null, screenState: null, screenFace: null }); // room: THE LIBRARY ONCE IT'S LOADED (addRoom), screenState & screenFace: WHAT ITS MONITOR WAS LAST TOLD // held: THE PICKED UP PIECE (setHeld) { mesh, dragging, following }
 	Object.assign(view, { monitorOptions: { ...NO_MONITOR, ...(monitor || {}) }, monitor: null, monitorData: null, monitorSeen: "idle", glass: null, zoom: null, home: null, zoomLook: new Vector3(), leaving: [] }); // monitor: ITS STATE MACHINE ONCE THE ROOM HAS LOADED, monitorData: WHAT setMonitor() WAS LAST TOLD, zoom: THE CAMERA'S MOVE TO OR FROM THE GLASS, home: WHERE IT WAS ON THE DESK, zoomLook: WHAT IT LOOKS AT MEANWHILE, leaving: leaveMonitor()'S RESOLVES
-	Object.assign(view, { tweens: createTweens(requestRender), cards: null, cardOptions: { onPick() {}, ...(cards || {}) }, promotion: null, cardCursor: false, dealHome: null, dealEase: null }); // tweens: THE CARDS' SLIDES & THE CAMERA'S DEAL MOVES (STEPPED IN frame), cards: THE PROMOTION CARDS ONCE THE ROOM HAS LOADED (A room WITHOUT THEM LEAVES null), promotion: { color } WHILE ONE IS ASKED FOR, cardCursor: THE HAND CURSOR IS A CARD'S, dealHome: WHERE THE CAMERA WAS BEFORE IT FRAMED A DEAL { position, target, maxDistance, back }, dealEase: THE CAMERA'S DEAL MOVE RUNNING (moveDealCamera)
+	Object.assign(view, { tweens: createTweens(requestRender), cards: null, cardOptions: { onPick() {}, onTable() {}, tableOn: () => true, ...(cards || {}) }, promotion: null, cardCursor: false, dealHome: null, dealEase: null, cardTemplate: null, table: null, tableArgs: null, tableLifted: null }); // tweens: THE CARDS' SLIDES & THE CAMERA'S DEAL MOVES (STEPPED IN frame), cards: THE PROMOTION CARDS ONCE THE ROOM HAS LOADED (A room WITHOUT THEM LEAVES null), table: A CHESS CARDS GAME'S TABLE (setCardTable) ONCE THE ROOM HAS LOADED, tableArgs & tableLifted: WHAT IT WAS LAST TOLD, promotion: { color } WHILE ONE IS ASKED FOR, cardCursor: THE HAND CURSOR IS A CARD'S, dealHome: WHERE THE CAMERA WAS BEFORE IT FRAMED A DEAL { position, target, maxDistance, back }, dealEase: THE CAMERA'S DEAL MOVE RUNNING (moveDealCamera)
 	view.drawn = new Promise((resolve) => { view.markDrawn = resolve; }); // whenDrawn(): THE FIRST FRAME WITH THE SQUARES IN (textureReady)
 	view.textureReady = false;
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0, time: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null, touches: new Set(), multiTouch: false }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER, touches: THE FINGERS DOWN (pointerId), multiTouch: MORE THAN ONE WAS, SINCE ALL WERE UP
@@ -368,6 +370,7 @@ export function unmount() {
 	finishAnims();
 	view.tweens.finish();
 	if (view.cards) { view.cards.dispose(); }
+	if (view.table) { view.table.dispose(); }
 	[...view.taken.values(), ...view.arriving].forEach(removePiece);
 	view.taken.clear();
 	view.arriving.clear();
@@ -607,4 +610,59 @@ export function setTaken(captures, playerColor) {
 	view.arriving.forEach(removePiece); // NOT TAKEN ANY MORE
 	view.arriving.clear();
 	requestRender();
+}
+
+/* ---------------------------------------------------------------- */
+// Chess Cards Table
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description Lays out a Chess Cards game's table (cardTable.js): both hands, the green deck, both Board Effects piles. Kept until the room has loaded; a room without its card template has no table
+ * @param  {[object]} state [cards.view, the player's view (gameplay/cards/store.js)]
+ * @param  {[array]} legal [cards.legal]
+ * @param  {[object]} opts [{ catalog: the card faces, focus: the keyboard's hand card id | null, focusPile: the keyboard's pile | null, dim: the hand card ids drawn dimmer }]
+ */
+export function setCardTable(state, legal, opts = {}) {
+	if (!view) { return; }
+	view.tableArgs = [state, legal, opts];
+	if (!view.table && view.cardTemplate) {
+		view.table = createCardTable({ template: view.cardTemplate, room: view.room, tweens: view.tweens, requestRender, still: () => REDUCE.matches });
+		if (view.table) { view.table.lift(view.tableLifted); }
+	}
+	if (view.table) { view.table.set(state, opts); }
+}
+
+/**
+ * @description Lifts the hand card being played, high above the others
+ * @param  {[string]} id [the card's id, "king" for the King card]
+ */
+export function liftCard(id) {
+	if (!view) { return; }
+	view.tableLifted = id;
+	if (view.table) { view.table.lift(id); }
+}
+
+/**
+ * @description Puts the lifted hand card back down
+ */
+export function dropCard() {
+	liftCard(null);
+}
+
+/**
+ * @description Opens a Board Effects pile to read, or closes it when it's the one open (the keyboard's way to what a click on the pile does)
+ * @param  {[string]} pile ["mine" or "his"]
+ */
+export function toggleCardPile(pile) {
+	if (view && view.table) { view.table.togglePile(pile); }
+}
+
+/**
+ * @description The squares a card play can go to next glow (their own highlight, so the 2D marks never clear them), & the keyboard's one gets a ring
+ * @param  {[string[]]} squares [["e4", ...], [] for none]
+ * @param  {[string|null]} focus [the keyboard's square]
+ */
+export function highlightSquares(squares, focus = null) {
+	highlight(squares, "cards");
+	highlight(focus ? [focus] : [], "cardFocus");
 }

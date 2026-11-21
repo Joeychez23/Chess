@@ -13,7 +13,7 @@
 
 const crypto = require("crypto");
 const { newGame, applyAction, legalActions, playerLegal, playerView, playerEvents, actionKey, toFen, ENGINE_VERSION, IllegalAction } = require("../../cards-engine/index.js");
-const { baseKey } = require("../../cards-engine/cards/index.js");
+const { CARDS, baseKey } = require("../../cards-engine/cards/index.js");
 const { readLevel, bestOf } = require("../utils/ai.js");
 const cardGuy = require("../utils/card-guy/index.js");
 const { gameOpen, isColor } = require("../utils/games.js");
@@ -224,24 +224,45 @@ function saveState(gameData, state) {
  * @param  {[object]} state [its engine state]
  * @param  {[array]} events [the action's events, left out = none]
  * @return {[object]} body [{ status, game_id, mode: "cards", ai_level, you: "w" | "b", view: playerView, legal: the requester's legal actions as playerLegal tells them ([] once it's over), legal_hidden: Card Guy's Fog of War is up, so legal leaves out the moves (any legal action is still taken), events: playerEvents,
- * card_guy_due: Card Guy owes an action (its turn, or a duel pick or a choice), result: { winner, reason } | null (a forfeit: from the game, the state doesn't have it) }]
+ * card_guy_due: Card Guy owes an action (its turn, or a duel pick or a choice), result: { winner, reason } | null (a forfeit: from the game, the state doesn't have it),
+ * catalog: { [card key]: { name, kind, text, skulls, rarity } } for every card key in view & events, what the table's card faces show (a version: its base card's name) }]
  */
 function cardsResponse(gameData, state, events = []) {
 	const cardGuy = cardGuyOf(gameData), you = other(cardGuy);
 	const open = gameOpen(gameData);
+	const result = state.result || (open ? null : { winner: gameData.winner?.S || null, reason: gameData.reason?.S || null });
+	const shown = result && !state.result ? { ...state, result } : state; // A FORFEIT LEAVES THE STATE WITHOUT ONE: A FINISHED GAME'S VIEW & EVENTS HIDE NOTHING
+	const view = playerView(shown, you);
+	const seen = playerEvents(shown, events, you);
 	return {
 		status: 200,
 		game_id: gameData.game_id.S,
 		mode: "cards",
 		ai_level: aiLevel(gameData),
 		you,
-		view: playerView(state, you),
+		view,
 		legal: open ? playerLegal(state, you) : [],
 		legal_hidden: open && state.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === cardGuy), // ANY VERSION OF THE CARD
-		events: playerEvents(state, events, you),
+		events: seen,
 		card_guy_due: open && legalActions(state, cardGuy).length > 0,
-		result: state.result || (open ? null : { winner: gameData.winner?.S || null, reason: gameData.reason?.S || null }),
+		result,
+		catalog: catalogOf([view, seen]),
 	};
+}
+
+/**
+ * @description The face of every card key that appears anywhere in x (any string equal to a registered key: a card's key, a choice's curse option, a pending choice's card), so the
+ * browser loads no engine code. Only keys x already shows, so it tells the player nothing new
+ * @param  {[object]} x [what the response sends]
+ * @return {[object]} catalog [{ [key]: { name, kind, text, skulls, rarity } }]
+ */
+function catalogOf(x) {
+	const out = {};
+	JSON.stringify(x, (k, v) => {
+		if (typeof v === "string" && Object.hasOwn(CARDS, v) && !out[v]) { const c = CARDS[v]; out[v] = { name: CARDS[baseKey(v)].name, kind: c.kind, text: c.text, skulls: c.skulls, rarity: c.rarity }; }
+		return v;
+	});
+	return out;
 }
 
 /**

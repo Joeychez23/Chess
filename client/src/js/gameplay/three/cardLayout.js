@@ -8,11 +8,11 @@ export const CARD_Y = -0.61; // BAIZE TOP + 0.02
 const SPOT_X = -17.7;
 const SPOT_STEP = 6.5;
 
-const GLYPHS = { q: "♛", r: "♜", b: "♝", n: "♞" };
-const CREAM = "#F3E9D2";
-const GOLD = "#C9A227";
-const INK = "#1B1B1B";
-const FONT = "'Georgia', 'Times New Roman', 'Noto Serif', serif";
+export const GLYPHS = { q: "♛", r: "♜", b: "♝", n: "♞", k: "♚", p: "♟" }; // THE KING & PAWN: THE CHESS CARDS' MOVE CARDS (cardFaces.js)
+export const CREAM = "#F3E9D2";
+export const GOLD = "#C9A227";
+export const INK = "#1B1B1B";
+export const FONT = "'Georgia', 'Times New Roman', 'Noto Serif', serif";
 
 /**
  * @description The four card spots in the green strip, queen at the top.
@@ -47,7 +47,7 @@ export function nextCard(index, key) {
  * @param {number} y centre y
  * @param {number} line outline thickness for White
  */
-function paintGlyph(ctx, glyph, color, x, y, line) {
+export function paintGlyph(ctx, glyph, color, x, y, line) {
 	if (color === "b") {
 		ctx.fillStyle = INK;
 		ctx.fillText(glyph, x, y);

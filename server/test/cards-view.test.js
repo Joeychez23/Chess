@@ -87,13 +87,14 @@ function checkView(s, viewer) {
 	for (const k of ["moves", "actives", "passive", "curses", "seen"]) assert.ok(!(k in vo), "opponent " + k + " in view");
 	assert.ok(!("seen" in v.players[viewer]), "own seen in view (it tells the fakes apart)");
 	const shown = vo.hand.shown.map((c) => c.id), seen = s.players[viewer].seen, allowed = allowedKeys(v, viewer);
-	if (seen) for (const f of seen.fake) assert.ok(shown.includes(f.id), "fake card not shown");
-	for (const c of handOf(o)) {
+	if (s.result) assert.deepEqual([...shown].sort(), handOf(o).map((c) => c.id).sort(), "a finished game shows the whole hand, no fakes"); // USER RULING 2026-11-21 03:12
+	else if (seen) for (const f of seen.fake) assert.ok(shown.includes(f.id), "fake card not shown");
+	for (const c of s.result ? [] : handOf(o)) {
 		if (visibleTo(s, viewer, c)) { assert.ok(shown.includes(c.id), "visible card " + c.id + " not in shown"); continue; }
 		assert.ok(!noSquares(json).includes("\"" + c.id + "\""), "hidden card id " + c.id + " in view");
 		if (!allowed.has(c.key)) assert.ok(!json.includes("\"" + c.key + "\""), "hidden key " + c.key + " in view");
 	}
-	for (const e of v.enchant) if (e.key === "trapdoor") assert.equal("square" in e.data, e.owner === viewer, "trapdoor square");
+	for (const e of v.enchant) if (e.key === "trapdoor") assert.equal("square" in e.data, e.owner === viewer || !!s.result, "trapdoor square"); // OVER: SHOWN
 	if (fogBy(s, opp)) {
 		const letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g, rank = opp === "w" ? "3" : "6";
 		const { sq, castling, ep, history, half, hidden, ...rest } = v.board, real = s.board;
@@ -126,6 +127,7 @@ function checkEvents(next, events, viewer) {
 	const ev = playerEvents(next, events, viewer), json = JSON.stringify(ev);
 	assert.equal(JSON.stringify(events), rawEvents, "events mutated");
 	assert.equal(JSON.stringify(next), rawState, "state mutated");
+	if (next.result) { assert.deepEqual(ev, JSON.parse(rawEvents), "the action that ended the game not told in full"); return; } // USER RULING 2026-11-21 03:12; THE CHECKS BELOW HOLD WHILE IT IS ON
 	const given = (e) => e.type === "curse-given" && e.card.key === "mirage" && e.player === opp; // LEFT OUT FOR ITS HOLDER: IT SHOWS WHEN IT ENTERS AT A REFILL
 	events = events.filter((e) => !given(e));
 	assert.equal(ev.length, events.length);
@@ -262,6 +264,41 @@ test("under Fog of War the opponent's view has none of the caster's pieces on th
 	assert.deepEqual(playerEvents(s, [{ type: "capture", player: "b", piece: mine, t: "p", c: "w", by: id, sq: "e7" }], "w"), [{ type: "capture", player: "b", piece: mine, t: "p", c: "w", sq: "e7" }]); // TAKEN BY A HIDDEN PIECE: WHICH ONE ISN'T TOLD
 	assert.deepEqual(playerEvents(s, [{ type: "capture", player: "w", piece: "b99", t: "q", c: "b", sq: "e7" }], "w"), [{ type: "capture", player: "w", t: "?", c: "b", sq: "e7" }]); // TAKEN: NEITHER TYPE NOR ID
 	assert.deepEqual(playerEvents(s, ev, "b"), ev);
+});
+
+test("a finished game hides nothing under Fog of War: with a result the opponent sees every piece, the history and the counter", () => {
+	const s = fresh();
+	s.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 1, data: {} });
+	s.board.half = 3;
+	s.result = { winner: "w", reason: "checkmate" };
+	const v = playerView(s, "w");
+	assert.deepEqual(v.board, s.board);
+	assert.ok(!("hidden" in v.board));
+	assert.equal(toFen(v), board.toFen(s.board));
+});
+
+test("a finished game shows the opponent's whole hand (no fakes), a hidden Trapdoor and the last action's events in full; while it is on, none of them (user ruling 2026-11-21)", () => {
+	const s = fresh(), b = s.players.b, drawn = b.moves[0];
+	s.enchant.push({ id: "e2", key: "trapdoor", owner: "b", pieces: [], left: null, data: { square: "e4" } });
+	s.players.w.seen = { ids: [], fake: [{ id: "c99", key: "t-pocket" }] }; // INTERDICTED FORESIGHT'S FAKE: NOT A CARD SHE HOLDS
+	const events = [{ type: "draw", player: "b", card: { ...drawn } }, { type: "enchant", player: "b", card: { id: "x1", key: "trapdoor" }, target: { square: "e4" }, square: "e4" }];
+	const live = playerView(s, "w");
+	assert.ok(handOf(b).some((c) => !live.players.b.hand.shown.some((x) => x.id === c.id)), "a hidden card while it is on");
+	assert.ok(!("square" in live.enchant.find((e) => e.key === "trapdoor").data));
+	assert.notDeepEqual(playerEvents(s, events, "w"), events);
+	s.result = { winner: "w", reason: "checkmate" };
+	const over = playerView(s, "w");
+	assert.deepEqual(over.players.b.hand.shown.map((c) => c.id), handOf(b).map((c) => c.id).sort((x, y) => Number(x.slice(1)) - Number(y.slice(1))));
+	assert.deepEqual(over.players.b.hand.shown, over.players.b.hand.shown.map((c) => handOf(b).find((x) => x.id === c.id))); // THE REAL CARDS, NOT THE FAKE
+	assert.equal(over.players.b.hand.count, handOf(b).length);
+	assert.equal(over.enchant.find((e) => e.key === "trapdoor").data.square, "e4");
+	assert.deepEqual(playerEvents(s, events, "w"), events);
+	const f = fresh(), pawn = f.board.sq[12]; // e7, ON BLACK'S FOGGED HALF
+	f.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 1, data: {} });
+	const fogged = [{ type: "move", player: "b", card: { id: "c50", key: "move", piece: "p" }, piece: pawn.id, from: "e7", to: "e6" }];
+	assert.deepEqual(playerEvents(f, fogged, "w"), [{ type: "move", player: "b" }]);
+	f.result = { winner: "w", reason: "checkmate" };
+	assert.deepEqual(playerEvents(f, fogged, "w"), fogged);
 });
 
 test("Foresight shows the seen cards and the fakes, and no seen field", () => {

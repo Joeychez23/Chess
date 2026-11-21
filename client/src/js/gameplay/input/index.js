@@ -14,7 +14,7 @@
 const { game, canvas, validateState } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD
 const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
 const { tileToSquare, squareToTile, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION & BACK, ADDS OR REMOVES A MARK OR ARROW
-const { currentView, VIEWS, squareUnder3D, isCameraGesture } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP
+const { currentView, VIEWS, squareUnder3D, isCameraGesture, monitorState3D } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP, THE MONITOR'S STATE
 const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
 const { closeMenu } = require("../menu/index.js"); // A CLICK ON THE BOARD CLOSES THE MENU
 const { CARD_ORDER } = require("../three/cardLayout.js"); // THE PROMOTION CARDS' ORDER & HOW THE ARROWS WALK THEM (NO three.js IN IT: THE 3D CHUNK STAYS LAZY)
@@ -393,4 +393,27 @@ export function handleTouchCancel() { // THE BROWSER (A SYSTEM GESTURE) OR THE 3
 	if (!touchState) { return; }
 	letGo(); // NOT handleMouseUp: IT SITS OUT CAMERA GESTURES, WHICH WOULD LEAVE THE PIECE HELD
 	touchState = null;
+}
+
+/**
+ * @description A Chess Cards game's keys (gameplay/cards/flow.js handKey): the arrows step through the hand, or while a card is being played through the squares that glow,
+ * Enter lifts the card or picks the square, Escape puts the card down. Off the player's turn the arrows still step & Enter does nothing, so the page's nav never gets them (N1).
+ * Run in the capture phase on the window (gameplay/index.js), like handleCardKey, so the page's nav never sees a key it used. A held Enter is stopped whatever has the focus
+ * (a prompt's button, the menu's Restart: N3). Nothing else while the menu is open, a Board Effects pile is open, the monitor is off the desk, a field has the keys or a modifier
+ * is down; a focused button or link keeps Enter, an arrow takes the focus off it first
+ * @param  {[KeyboardEvent]} e [a keydown]
+ * @return {[boolean]} [the key was used or stopped, & its default & other handlers are stopped]
+ */
+export function handleHandKey(e) {
+	if (!game.cardGame || e.altKey || e.ctrlKey || e.metaKey) { return false; }
+	if (e.key === "Enter" && e.repeat) { e.preventDefault(); e.stopPropagation(); return true; } // A HELD ENTER PRESSES NOTHING MORE: NOT A PROMPT'S BUTTON, NOT RESTART'S SECOND, FORFEITING PRESS (N3)
+	if (game.menuToggled || isCameraGesture() || document.querySelector(".cardPile")) { return false; } // AN OPENED BOARD EFFECTS PILE HAS THE KEYS (three/cardTable.js)
+	if (!/^(Arrow(Up|Down|Left|Right)|Enter|Escape)$/.test(e.key) || (monitorState3D() || "idle") !== "idle") { return false; }
+	const target = e.target;
+	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return false; }
+	const { handKey } = require("../cards/flow.js"); // HERE, NOT ABOVE: flow.js REACHES THE MENU, WHICH REQUIRES THIS FILE
+	if (!handKey(e.key, e.repeat, Boolean(target && /^(BUTTON|A)$/.test(target.tagName)))) { return false; }
+	e.preventDefault();
+	e.stopPropagation();
+	return true;
 }
