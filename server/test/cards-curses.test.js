@@ -682,11 +682,12 @@ describe("Mirage", () => {
 
 	test("a free discard of it is a real discard: it pairs as a move card, a move card is drawn back and the curse is gone", () => {
 		const s = fresh(), m = curse(s, "w", "mirage", { piece: "p" });
+		s.players.w.kept = { id: "t0", key: "move", piece: "p" }; // A MOVE CARD REMEMBERED: THE MIRAGE IS ITS PAIR (TASK 20e)
 		const a = legalActions(s, "w").find((x) => x.type === "discard" && x.cards.includes(m.id));
-		assert.equal(a.cards.length, 2);
+		assert.equal(a.cards.length, 1);
 		const r = applyAction(s, "w", a);
 		assert.deepEqual(r.state.players.w.curses, []);
-		assert.deepEqual(ofType(playerEvents(r.state, r.events, "w"), "discard")[a.cards.indexOf(m.id)], { type: "discard", player: "w", card: { id: m.id, key: "move", piece: "p" } });
+		assert.deepEqual(ofType(playerEvents(r.state, r.events, "w"), "discard")[0], { type: "discard", player: "w", card: { id: m.id, key: "move", piece: "p" } });
 		assert.ok(ofType(r.events, "draw").some((e) => e.player === "w" && e.card.key === "move"));
 	});
 
@@ -979,7 +980,8 @@ describe("Hollow Crown", () => {
 		const q = applyAction(e, "b", rook(e));
 		assert.equal(q.state.result, null);
 		const acts = legalActions(q.state, "w");
-		assert.ok(acts.length && acts.every((a) => a.card === null && a.from === "e1"));
+		assert.ok(acts.some((a) => a.type === "drop")); // ITS OWN PLACED ESCAPE ARTIST CAN BE DROPPED, IN CHECK TOO (TASK 20e)
+		assert.ok(acts.filter((a) => a.type !== "drop").every((a) => a.card === null && a.from === "e1"));
 	});
 
 	test("king skulls are untouched while the King card is gone: no skull voids a lost turn in check, none ends a two-move turn", () => {

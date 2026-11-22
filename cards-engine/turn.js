@@ -9,12 +9,13 @@ const { pieceById, sqIndex, sqName } = require("./board.js");
 const { inCheck, legalMoves, boardDraw, rulesInPlay, hooksFor } = require("./rules.js");
 const statuses = require("./statuses.js");
 const hand = require("./hand.js");
-const { CARDS } = require("./cards/index.js");
+const { CARDS, baseKey } = require("./cards/index.js");
 const { makeCtx, capture } = require("./ctx.js");
 const duel = require("./duel.js");
 
 const PASSIVE_CHANCE = 1 / 3;
-const BUILT_IN = ["move", "active", "passive", "discard", "choice", "duel"]; // ACTION TYPES THE ENGINE RESOLVES ITSELF; choice AND duel ARE RESERVED (NEVER CARD-DEFINED)
+const PASSIVES = 3, MOVE_DISCARDS = 2; // WAITING PASSIVES A PLAYER MAY HAVE; MOVE CARDS THE FREE DISCARD TAKES IN ONE TURN
+const BUILT_IN = ["move", "active", "passive", "discard", "drop", "choice", "duel"]; // ACTION TYPES THE ENGINE RESOLVES ITSELF; choice AND duel ARE RESERVED (NEVER CARD-DEFINED)
 const other = (c) => (c === "w" ? "b" : "w");
 
 /**
@@ -77,10 +78,11 @@ function moveActions(state, color) {
 }
 
 /**
- * @description Play an active card: it leaves the hand, card-played is emitted, then the card's play runs, unless a handler of card-played called ctx.cancel(): then the card stays spent and a card-cancelled event replaces the play. Every handler of card-played still runs, and later ones can read ctx.cancelled.
+ * @description Play an active card: it leaves the hand for color's active spot (Player.spot; sweep takes it to the discard pile), card-played is emitted, then the card's play runs, unless a handler of card-played called ctx.cancel(): then the card stays spent and a card-cancelled event replaces the play. Every handler of card-played still runs, and later ones can read ctx.cancelled.
  */
 function playActive(ctx, color, a) {
-	const card = hand.take(ctx.state.players[color], a.card);
+	const p = ctx.state.players[color], card = hand.take(p, a.card);
+	(p.spot = p.spot || []).push(card);
 	ctx.cancelled = false;
 	ctx.emit({ type: "card-played", player: color, card });
 	if (ctx.cancelled) return ctx.emit({ type: "card-cancelled", player: color, card });
@@ -161,7 +163,7 @@ function addedMoveOk(state, player, a) {
 }
 
 /**
- * @description The turn's actions for player, ignoring a pending choice; empty when the game is over or it isn't player's turn. During a two-move turn only moves; in check no discard or passive. Then every card in play with rules.actions(state, player, actions, src) -> actions changes the list (rules.rulesInPlay order: placed passives, held curses, enchantments), and what the cards added is checked (anything not built here): an added active, passive or discard is dropped; an added move action stays only when addedMoveOk, and one routed to a card's act also only when, tried on a copy, it leaves player's king out of check; a card-defined action (a type not in BUILT_IN, with card: <held card id> or enchant: <player's enchantment id>) only when sourceOf finds its source, never in a two-move turn, and only when, tried on a copy, it leaves player's king out of check. Then the barred action is left out.
+ * @description The turn's actions for player, ignoring a pending choice; empty when the game is over or it isn't player's turn. During a two-move turn only moves; in check no discard or passive; the drops of placed cards (drops) outside a two-move turn, in check too. Then every card in play with rules.actions(state, player, actions, src) -> actions changes the list (rules.rulesInPlay order: placed passives, held curses, enchantments), and what the cards added is checked (anything not built here): an added active, passive or discard is dropped; an added move action stays only when addedMoveOk, and one routed to a card's act also only when, tried on a copy, it leaves player's king out of check; a card-defined action (a type not in BUILT_IN, with card: <held card id> or enchant: <player's enchantment id>) only when sourceOf finds its source, never in a two-move turn, and only when, tried on a copy, it leaves player's king out of check. Then the barred action is left out.
  */
 function turnActions(state, player) {
 	if (state.result || player !== state.board.turn) return [];
@@ -174,23 +176,88 @@ function turnActions(state, player) {
 			if (p.passive && !(def && def.canPlace && !def.canPlace(state, player))) out.push({ type: "passive" });
 		}
 	}
-	if (!checked && state.discarded !== player && (!multi || state.multi.mulled)) out.push(...freeDiscards(state, player)); // ONCE A TURN, BEFORE THE PLAY: NONE IN A TWO-MOVE TURN, BUT AFTER MULLIGAN (USER RULINGS 2026-11-21)
+	if (!checked && (!multi || state.multi.mulled)) out.push(...freeDiscards(state, player)); // BEFORE THE PLAY: NONE IN A TWO-MOVE TURN, BUT AFTER MULLIGAN (USER RULINGS 2026-11-21)
+	if (!multi) out.push(...drops(state, player));
 	const built = new Set(out.map(actionKey));
 	for (const [r, src] of rulesInPlay(state)) if (r.actions) out = r.actions(state, player, out, src);
 	const survives = (a) => { const ctx = makeCtx(JSON.parse(JSON.stringify(state))); ctx.trial = true; cardAct(ctx, player, a); return !inCheck(ctx.state, player); };
 	const ok = (a) => !!a && typeof a === "object" && (built.has(actionKey(a))
 		|| (a.type === "move" ? addedMoveOk(state, player, a) && (!routed(state, player, a) || survives(a))
-			: !BUILT_IN.includes(a.type) && !multi && !!sourceOf(state, player, a) && survives(a))); // AN ADDED active, passive OR discard IS DROPPED
+			: !BUILT_IN.includes(a.type) && !multi && !!sourceOf(state, player, a) && survives(a))); // AN ADDED active, passive, discard OR drop IS DROPPED
 	return out.filter((a) => ok(a) && (!state.barred || (actionKey(a) !== state.barred && barKey(a) !== state.barred))); // THE EXACT KEY, OR A MOVE'S SHAPE (barKey)
 }
 
 /**
- * @description The free discard's actions for player (user rulings 2026-11-21, 2026-11-22): each pair of move cards in hand order (by id; an entered Mirage shows as a move card), { type: "discard", cards: [a, b] }, then each active alone, { type: "discard", cards: [id] }, then the reroll of the passive held in the hand, { type: "discard", cards: [passive id] } (told apart by the id being the held passive's), only while another passive is left to draw (hand.drawable): with none it would only lose the card. Never the King card, a curse or a passive placed in Board Effects.
+ * @description The free discard's actions for player, one card each, { type: "discard", cards: [id] } (user rulings 2026-11-21, 2026-11-22): each move card in hand order (by id; an entered Mirage shows as a move card), then each active, then the reroll of the passive held in the hand (told apart by the id being the held passive's), only while another passive is left to draw (hand.drawable): with none it would only lose the card. A turn's free discard is of one kind (state.discarded { player, kind: "move" | "active" | "passive", n }, null until the first): after a move card only move cards, MOVE_DISCARDS a turn; after an active or the reroll nothing. A saved game's old mark (the colour alone) reads as used up. Never the King card, a curse or a passive placed in Board Effects.
  */
 function freeDiscards(state, player) {
-	const p = state.players[player], ms = hand.moveCards(p).map((c) => c.id);
-	const reroll = p.passive && hand.drawable(state, player, "passive").length ? [[p.passive.id]] : []; // THE HELD PASSIVE IS ALREADY LEFT OUT OF drawable
-	return [...ms.flatMap((a, i) => ms.slice(i + 1).map((b) => [a, b])), ...p.actives.map((c) => [c.id]), ...reroll].map((cards) => ({ type: "discard", cards }));
+	const p = state.players[player], d = state.discarded, ms = !d || (d.kind === "move" && d.n < MOVE_DISCARDS) ? hand.moveCards(p).map((c) => c.id) : [];
+	const reroll = p.passive && hand.drawable(state, player, "passive").length ? [p.passive.id] : []; // THE HELD PASSIVE IS ALREADY LEFT OUT OF drawable
+	return [...ms, ...(d ? [] : [...p.actives.map((c) => c.id), ...reroll])].map((id) => ({ type: "discard", cards: [id] }));
+}
+
+/**
+ * @description color's active spot as [card, entry] pairs, oldest card first: entry is the enchantment that keeps the card in effect, color's own with the card's base key (the newest card takes the newest), undefined for a card with none: it only waits for the end of the turn (sweep).
+ */
+function inEffect(state, color) {
+	const live = state.enchant.filter((e) => e.owner === color);
+	return [...(state.players[color].spot || [])].reverse().map((card) => {
+		const i = live.map((e) => baseKey(e.key)).lastIndexOf(baseKey(card.key));
+		return [card, i < 0 ? undefined : live.splice(i, 1)[0]];
+	}).reverse();
+}
+
+/**
+ * @description The drops for player, { type: "drop", card: <card id> }: each of player's own waiting passives (by placedAt), then each of player's actives in effect (inEffect: one with a live enchantment). Free, any number a turn, not the free discard. One that, tried on a copy, would put either king in check is left out (ending a Stronghold whose piece faces the enemy king would let the next move take it). Never the other player's card, a curse or a status: a harmful effect on the player is none of their placed cards.
+ */
+function drops(state, player) {
+	const ids = [...state.effects.filter((e) => e.owner === player).sort((x, y) => x.placedAt - y.placedAt).map((e) => e.id), ...inEffect(state, player).filter((x) => x[1]).map((x) => x[0].id)];
+	const checks = (s) => ["w", "b"].filter((c) => inCheck(s, c)), was = ids.length ? checks(state) : [];
+	return ids.map((card) => ({ type: "drop", card })).filter((a) => {
+		const ctx = makeCtx(JSON.parse(JSON.stringify(state)));
+		ctx.trial = true;
+		drop(ctx, player, a);
+		return checks(ctx.state).every((c) => was.includes(c));
+	});
+}
+
+/**
+ * @description A waiting passive (its effects entry) leaves Board Effects for its owner's discard pile without firing: dropped by its owner, or replaced by a fourth one (replaced). A card-dropped event; it is not used (a once-per-game one can be drawn again), but its owner can't draw it this turn (Player.gone).
+ */
+function leave(ctx, e, replaced) {
+	const s = ctx.state, p = s.players[e.owner];
+	s.effects = s.effects.filter((x) => x.id !== e.id);
+	(p.gone = p.gone || []).push(baseKey(e.card.key));
+	hand.toPile(p, e.card);
+	ctx.emit(replaced ? { type: "card-dropped", player: e.owner, card: e.card, replaced } : { type: "card-dropped", player: e.owner, card: e.card });
+}
+
+/**
+ * @description Resolve a drop: player's waiting passive leaves (leave), or player's active in effect goes from the active spot to the discard pile (a card-dropped event) and its enchantment ends as it always ends (ctx.endEnchant: its card's own ending runs, a debuff that comes at the end too).
+ */
+function drop(ctx, player, a) {
+	const s = ctx.state, p = s.players[player], e = s.effects.find((x) => x.owner === player && x.id === a.card);
+	if (e) return leave(ctx, e);
+	const [card, entry] = inEffect(s, player).find((x) => x[0].id === a.card);
+	p.spot = p.spot.filter((c) => c !== card);
+	hand.toPile(p, card);
+	ctx.emit({ type: "card-dropped", player, card });
+	ctx.endEnchant(entry);
+}
+
+/**
+ * @description The actives whose effect is over leave their active spot for their owner's discard pile, a card-ended event each (either player's; endTurn runs it): one with no enchantment of its own left (inEffect), so an active with no lasting effect goes at the end of the turn it was played in.
+ */
+function sweep(ctx) {
+	for (const c of ["w", "b"]) {
+		const p = ctx.state.players[c];
+		for (const [card, entry] of inEffect(ctx.state, c)) {
+			if (entry) continue;
+			p.spot = p.spot.filter((x) => x !== card);
+			hand.toPile(p, card);
+			ctx.emit({ type: "card-ended", player: c, card });
+		}
+	}
 }
 
 /**
@@ -211,6 +278,7 @@ function move(ctx, player, a) {
 	const match = (m) => m.from === a.from && m.to === a.to && m.promotion === a.promotion && (a.card === "king" ? m.t === "k" : !mc || hand.fits(mc.piece, m.t));
 	const mv = a.card === "king" ? kingMoves(s, player).find(match) : legalMoves(s, player).find(match);
 	const card = a.card === "king" || a.card === null ? a.card : hand.take(p, a.card);
+	if (card && card !== "king") hand.toPile(p, card, s.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === player)); // PLAYED: TO THE DISCARD PILE, FACE DOWN UNDER THE MOVER'S FOG (view.js HIDES THE CARD OF A FOGGED MOVE)
 	const vi = mv.capture ? pieceById(s.board, mv.capture) : -1, victim = vi < 0 ? null : s.board.sq[vi], vsq = sqName(vi); // vsq: WHERE IT STOOD (EN PASSANT: THE PAWN'S SQUARE)
 	s.board = makeMove(s.board, mv);
 	const ev = { type: "move", player, card, piece: mv.piece, from: mv.from, to: mv.to };
@@ -253,28 +321,42 @@ function move(ctx, player, a) {
 }
 
 /**
- * @description Resolve a legal action for player on ctx.state, then end the turn unless the game ended or a two-move turn goes on (after a move, or after an active that set state.multi for player with a move to make). After an active or a card-defined action, a check event when the opponent is in check and the action emitted none (checkAfter). The free discard keeps the turn: its cards go, a pair draws 1 move card back at once (worth at least the lower of the two, hand.drawMove's floor), the held passive draws a different passive at once (the reroll), state.discarded marks it used, and with no card action left the automatic redraw runs now (noAction). After Mulligan (state.multi.mulled) with no move the same. An active that opens a card duel holds the turn until the duel is over; a duel action goes to duelAct. A choice asked during the action holds the end of the turn: pending.end (and resetHalf) record it, and the choice action runs it once after choice.resolve.
+ * @description Resolve a legal action for player on ctx.state, then end the turn unless the game ended or a two-move turn goes on (after a move, or after an active that set state.multi for player with a move to make). After an active or a card-defined action, a check event when the opponent is in check and the action emitted none (checkAfter). The free discard keeps the turn: one card goes; a move card is remembered (Player.kept) until the next one discarded, on this turn or a later one, which draws 1 move card back at once and sends both to the discard pile; the held passive draws a different passive at once (the reroll); state.discarded { player, kind, n } marks the turn's kind and count (freeDiscards), and with no card action left the automatic redraw runs now (noAction). A drop (drops) keeps the turn the same way. A passive placed with PASSIVES already waiting replaces the player's oldest (leave). After Mulligan (state.multi.mulled) with no move the same. An active that opens a card duel holds the turn until the duel is over; a duel action goes to duelAct. A choice asked during the action holds the end of the turn: pending.end (and resetHalf) record it, and the choice action runs it once after choice.resolve.
  */
 function act(ctx, player, a) {
 	const s = ctx.state, p = s.players[player];
 	ctx.stood = ["w", "b"].filter((c) => inCheck(s, c)); // CHECKS STANDING BEFORE THIS ACTION: ALREADY ANNOUNCED, startTurn DOESN'T SAY THEM AGAIN
 	if (a.type === "choice") return choose(ctx, a.option);
 	if (a.type === "duel") return duelAct(ctx, player, a);
+	if (a.type === "drop") {
+		drop(ctx, player, a);
+		return void noAction(ctx, player); // FREE: THE TURN GOES ON, AS AFTER A FREE DISCARD
+	}
 	if (a.type === "discard") {
-		if (p.passive && a.cards[0] === p.passive.id) { // THE REROLL: THE HELD PASSIVE GOES, A DIFFERENT ONE COMES AT ONCE (IT ISN'T used: A LATER DRAW CAN BRING IT BACK)
+		const id = a.cards[0], d = s.discarded;
+		if (p.passive && id === p.passive.id) { // THE REROLL: THE HELD PASSIVE GOES, A DIFFERENT ONE COMES AT ONCE (IT ISN'T used: A LATER TURN'S DRAW CAN BRING IT BACK)
 			const card = p.passive;
 			p.passive = null;
+			hand.toPile(p, card, true);
+			(p.gone = p.gone || []).push(baseKey(card.key));
 			ctx.emit({ type: "discard", player, card });
 			hand.drawCard(ctx, player, "passive", card.key);
-		} else {
-			const floor = a.cards.length === 2 ? Math.min(...hand.moveCards(p).filter((c) => a.cards.includes(c.id)).map((c) => hand.VALUE[c.piece])) : 0; // THE LOWER OF THE TWO, READ BEFORE THEY GO (AN ENTERED MIRAGE: THE TYPE IT SHOWS)
-			for (const id of a.cards) hand.discard(ctx, player, id);
-			if (a.cards.length === 2) hand.drawMove(ctx, player, floor); // 2 MOVE CARDS: 1 BACK AT ONCE, WORTH THE FLOOR OR MORE. AN ACTIVE COMES BACK WITH THIS TURN'S REFILL
+			s.discarded = { player, kind: "passive", n: 1 };
+		} else if (hand.moveCards(p).some((c) => c.id === id)) { // A MOVE CARD: THE FIRST IS REMEMBERED (Player.kept), THE SECOND, THIS TURN OR A LATER ONE, DRAWS 1 BACK AT ONCE, AT RANDOM (THE DROPPED FLOOR: SEE hand.drawMove)
+			const pair = p.kept;
+			if (pair) { hand.toPile(p, pair, true); p.kept = null; }
+			hand.discard(ctx, player, id, !pair);
+			if (pair) hand.drawMove(ctx, player);
+			s.discarded = { player, kind: "move", n: (d ? d.n : 0) + 1 };
+		} else { // AN ACTIVE: A NEW ONE COMES WITH THIS TURN'S REFILL
+			hand.discard(ctx, player, id);
+			s.discarded = { player, kind: "active", n: 1 };
 		}
-		s.discarded = player;
 		return void noAction(ctx, player); // THE TURN GOES ON. NO CARD ACTION LEFT: THE AUTOMATIC REDRAW NOW, STILL NONE IS A STALEMATE (NEVER IN CHECK HERE)
 	} else {
 		if (a.type === "passive") {
+			const mine = s.effects.filter((e) => e.owner === player).sort((x, y) => x.placedAt - y.placedAt);
+			if (mine.length >= PASSIVES) leave(ctx, mine[0], true); // AT MOST 3 WAIT: THE OLDEST GOES, ONE FOR ONE (A GAME WITH MORE KEEPS THE REST)
 			s.effects.push({ id: p.passive.id, owner: player, card: p.passive, placedAt: s.ply });
 			ctx.emit({ type: "passive-placed", player, card: p.passive });
 			p.passive = null;
@@ -342,7 +424,7 @@ function choose(ctx, option) {
 }
 
 /**
- * @description End of color's turn: statuses tick, refill, the turn passes, then the other player's start of turn. A turn with no move (active, passive, clear, switch) still hands it over and clears en passant, and sets half = ctx.resetHalf ? 0 : half + 1, so the fifty-move rule keeps counting; it adds no position to history (repetition counts positions reached by moves only). capture() sets ctx.resetHalf; an active that moves a pawn sets ctx.resetHalf = true itself. The flag also holds on a turn with a move: a capture after the move ends the turn with half 0, and an active that starts a two-move turn zeroes half before the moves.
+ * @description End of color's turn: statuses tick, refill, the actives whose effect is over leave the active spots (sweep), the turn passes, then the other player's start of turn. A turn with no move (active, passive, clear, switch) still hands it over and clears en passant, and sets half = ctx.resetHalf ? 0 : half + 1, so the fifty-move rule keeps counting; it adds no position to history (repetition counts positions reached by moves only). capture() sets ctx.resetHalf; an active that moves a pawn sets ctx.resetHalf = true itself. The flag also holds on a turn with a move: a capture after the move ends the turn with half 0, and an active that starts a two-move turn zeroes half before the moves.
  */
 function endTurn(ctx, color) {
 	const s = ctx.state;
@@ -353,6 +435,8 @@ function endTurn(ctx, color) {
 	tickEnchant(ctx, color, enchants);
 	if (s.players[color].curseWait > 0) s.players[color].curseWait--; // giveCurse'S WAIT COUNTS color'S OWN TURNS
 	hand.refill(ctx, color);
+	sweep(ctx);
+	s.players[color].gone = []; // A PASSIVE THAT LEFT THIS TURN CAN BE DRAWN AGAIN FROM THE NEXT
 	if (s.board.turn === color) {
 		s.board.turn = other(color);
 		s.board.ep = null;
@@ -362,7 +446,7 @@ function endTurn(ctx, color) {
 	s.ply++;
 	s.barred = null;
 	s.multi = null;
-	s.discarded = null; // THE FREE DISCARD IS ONCE A TURN
+	s.discarded = null; // THE FREE DISCARD'S KIND AND COUNT ARE THE TURN'S
 	startTurn(ctx, other(color));
 }
 
@@ -406,11 +490,11 @@ function startTurn(ctx, color) {
 }
 
 /**
- * @description The no-legal-action rule for color (startTurn; after a free discard or Mulligan; Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock; still none → checkmate by the cards in check, else stalemate. Returns true when the game ended.
+ * @description The no-legal-action rule for color (startTurn; after a free discard or Mulligan; Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard, a drop or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock; still none → checkmate by the cards in check, else stalemate. Returns true when the game ended.
  */
 function noAction(ctx, color) {
 	const s = ctx.state, p = s.players[color];
-	const cardActions = () => turnActions(s, color).filter((a) => a.type !== "passive" && a.type !== "discard");
+	const cardActions = () => turnActions(s, color).filter((a) => a.type !== "passive" && a.type !== "discard" && a.type !== "drop");
 	if (cardActions().length) return false;
 	const { out, ms } = hand.throwMoves(p); // AN ENTERED MIRAGE GOES WITH THEM AND COMES BACK HIDDEN AMONG THE DRAWS
 	ctx.emit({ type: "redraw", player: color });

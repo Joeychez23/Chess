@@ -2,6 +2,8 @@
 import { view, setLabels, requestRender, squareUnder, pointer, raycaster, forward, offset } from "./index.js";
 import { setRoomSide, zoomTo, setCameraAt, zoomSpot, landHome, landTurn, landDealEase } from "./camera.js";
 import { liftHeld } from "./motion.js";
+import { hoverTile } from "./tileHover.js";
+import { hoverOn } from "./hoverRules.js";
 import { MIN_DISTANCE, MAX_DISTANCE, MAX_TILT, BOARD_SIZE, DRAG_PX, TOUCH_DRAG_PX, DRAG_HOLD_MS } from "./constants.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { MOUSE, TOUCH } from "three";
@@ -43,7 +45,7 @@ export function createControls(camera, canvas) {
 	controls.addEventListener("end", function () {
 		const v = view;
 		v.controlsActive = false;
-		if (v.cameraGesture) { setTimeout(function () { if (!v.controlsActive) { v.cameraGesture = false; } }, 0); } // AFTER THE CLICK THE RELEASE FIRES
+		if (v.cameraGesture) { setTimeout(function () { if (!v.controlsActive) { v.cameraGesture = false; if (view === v) { rehover(); } } }, 0); } // AFTER THE CLICK THE RELEASE FIRES. THE GESTURE TOOK THE BOARD'S HOVER: IT COMES BACK UNDER A STILL MOUSE
 	});
 	return controls;
 }
@@ -77,6 +79,7 @@ export function onPointerDown(e) {
 export function onPointerMove(e) {
 	view.pointerAt = { x: e.clientX, y: e.clientY };
 	if (e.pointerType === "mouse" && !(view.held && view.held.dragging) && !view.controlsActive) { hoverGlass(e); hoverCards(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S. A PICKED PIECE THAT ONLY FLOATS (NO PRESS DOWN) LEAVES THE MOUSE ITS HOVER
+	if (e.pointerType === "mouse") { view.pointerOver = true; hoverBoard(e); } // ALSO WHILE A PIECE IS DRAGGED: THE BOX LEADS, THE HELD PIECE FLOATS OVER ITS TILE (liftHeld)
 	const held = view.held;
 	if (!held || !held.dragging || view.cameraGesture) { return; }
 	const touch = e.pointerType === "touch";
@@ -146,7 +149,8 @@ function leaveDesk() {
 	controls.enabled = false;
 }
 
-// THE GRID PIXEL UNDER A POINTER EVENT ON THE GLASS, null WHEN SOMETHING ELSE IS IN FRONT OF IT (A PIECE WINS) OR IT ISN'T UNDER IT
+// THE GRID PIXEL UNDER A POINTER EVENT ON THE GLASS, null WHEN THE BOARD'S TILES ARE IN FRONT OF IT OR IT ISN'T UNDER IT. A PIECE'S BODY OFF THE TILES IS IGNORED (USER RULING R3, TASK 20E):
+// THE BOARD IS PICKED BY TILE, SO A BODY STANDING OUT PAST THE BOARD'S EDGE IN FRONT OF THE GLASS WOULD BE A SPOT WHERE NOTHING ANSWERS
 function glassHit(e) {
 	if (!view.glass) { return null; }
 	const rect = view.renderer.domElement.getBoundingClientRect();
@@ -154,7 +158,7 @@ function glassHit(e) {
 	raycaster.setFromCamera(pointer, view.camera);
 	view.camera.getWorldDirection(forward);
 	const depth = (h) => offset.copy(h.point).sub(view.camera.position).dot(forward); // THE NEAR PLANE CLIPS BY DEPTH ALONG THE VIEW, NOT DISTANCE ALONG THE RAY
-	const hit = raycaster.intersectObjects([view.glass, ...view.pieces.values(), view.plane], false).find((h) => depth(h) >= view.camera.near); // WHAT THE NEAR PLANE CLIPS ISN'T DRAWN, SO IT CAN'T BE IN THE WAY
+	const hit = raycaster.intersectObjects([view.glass, view.plane], false).find((h) => depth(h) >= view.camera.near); // WHAT THE NEAR PLANE CLIPS ISN'T DRAWN, SO IT CAN'T BE IN THE WAY
 	return hit && hit.object === view.glass && hit.uv ? uvToGrid(hit.uv.x, hit.uv.y) : null;
 }
 
@@ -168,7 +172,27 @@ function hoverGlass(e) {
 	if (view.container.style.cursor !== cursor) { view.container.style.cursor = cursor; }
 }
 
+/**
+ * @description The board's hover (tileHover.js): the tile under the mouse, or none when a camera gesture has the pointer (past DRAG_PX: a press on an empty tile that moves a pixel keeps it) or the glass, a hand card, a pile or a promotion card is under it, as a click there isn't the board's
+ * @param  {[object|null]} e [an event with clientX & clientY, null when the pointer left the canvas]
+ */
+export function hoverBoard(e) {
+	const free = Boolean(e) && !view.cameraGesture; // ONLY THEN ARE THE RAYS WORTH CASTING
+	const on = hoverOn({ pointer: Boolean(e), gesture: view.cameraGesture, covered: free && (Boolean(glassHit(e)) || Boolean(tableAt(e)) || cardAt(e) !== null) });
+	hoverTile(on ? e : null);
+}
+
+/**
+ * @description The board's hover again for a mouse that hasn't moved: after a camera gesture, & each frame the camera moves by itself (tileHover.js followCamera)
+ */
+export function rehover() {
+	if (!view || view.pointerType !== "mouse") { return; }
+	hoverBoard(view.pointerOver ? { clientX: view.pointerAt.x, clientY: view.pointerAt.y } : null);
+}
+
 export function onPointerLeave() {
+	view.pointerOver = false;
+	hoverBoard(null);
 	if (view.cards) { view.cards.hover(null); }
 	if (view.table) { view.table.hover(null); }
 	view.cardCursor = false;
@@ -223,6 +247,11 @@ function pickCard(e, stop) {
 function pickTable(e, stop) {
 	if (!view.table || !view.cardOptions.tableOn() || view.cameraGesture || tableDrag || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType) || glassHit(e)) { return false; } // THE MENU OPEN: THE PAGE'S CLICK-AWAY CLOSES IT, NOTHING IS PLAYED
 	const at = tableAt(e), square = at ? null : squareUnder(e), hit = at || (square ? { kind: "square", square } : null);
+	if (view.table.open() && !(at && at.kind === "pile")) { // A PILE IS OPEN: A TAP ANYWHERE ELSE CLOSES IT & DOES NOTHING MORE
+		if (stop) { e.stopPropagation(); }
+		view.table.togglePile(null);
+		return true;
+	}
 	if (!hit) { return false; }
 	if (stop) { e.stopPropagation(); }
 	if (hit.kind === "pile") { view.table.togglePile(hit.pile); }

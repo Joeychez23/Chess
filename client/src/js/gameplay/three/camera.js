@@ -2,11 +2,12 @@
 import { view, requestRender, fitCamera, spherical, corner, dealShift, UP, offset, setLabels, glassCentre, glassSize, glassScale, glassNormal } from "./index.js";
 import { monitorIdle } from "./pointer.js";
 import { CARD_Y } from "./cardLayout.js";
-import { PHONE_PIXEL_RATIO, SMALL_SCREEN, SMALL_FOV, FOV, MAX_TILT, MIN_DISTANCE, MAX_DISTANCE, SMALL_TILTS, FIT_NDC, PIECE_TOP, TAP_PX, BOARD_SIZE, CELL_SIZE, COLUMN_X, COLUMN_Z, DEAL_SHIFT, DEAL_NEAR, ZOOM_MS, NEAR, CAMERA_DISTANCE, CAMERA_HEIGHT, ROOM_CAMERA_AIM, ROOM_CAMERA_DISTANCE, ROOM_CAMERA_HEIGHT, FLIP_MS, GLASS_CLEAR, REDUCE } from "./constants.js";
+import { PHONE_PIXEL_RATIO, SMALL_SCREEN, SMALL_FOV, FOV, MAX_TILT, MIN_DISTANCE, MAX_DISTANCE, SMALL_TILTS, FIT_NDC, PIECE_TOP, TAP_PX, BOARD_SIZE, CELL_SIZE, COLUMN_X, COLUMN_Z, DEAL_SHIFT, DEAL_NEAR, ZOOM_MS, NEAR, CAMERA_DISTANCE, CAMERA_HEIGHT, DESK_Y, ROOM_CAMERA_AIM, ROOM_CAMERA_DISTANCE, ROOM_CAMERA_HEIGHT, FLIP_MS, GLASS_CLEAR, REDUCE } from "./constants.js";
 import { MathUtils } from "three";
 import { easeInOut } from "../animate/timing.js";
 import { turnRoom } from "./room.js";
 import { zoomDistance } from "./monitor/monitor.js";
+import { setLeanCamera, leanSpot, retryLean } from "./lean.js";
 
 /* ---------------------------------------------------------------- */
 // Mount
@@ -31,7 +32,7 @@ export function resize() {
 	controls.maxDistance = view.small ? Math.max(view.small.distance, MIN_DISTANCE) : MAX_DISTANCE;
 	if (monitorIdle()) { controls.update(); } // A CAMERA PAST THE NEW LIMITS (THE PHONE WAS TURNED) MOVES INSIDE THEM
 	else { refitZoom(); } // AT THE MONITOR: THE GLASS FILLS THE NEW SHAPE (THE DESK SPOT IS CLAMPED WHEN IT GETS BACK, landHome)
-	if (dealing()) { frameDeal(false); }
+	reframe();
 	requestRender();
 }
 
@@ -142,6 +143,7 @@ function moveDealCamera(to, animate, done) {
 		duration: ZOOM_MS,
 		update(k) {
 			if (view.dealEase !== ease) { return; } // A NEWER MOVE TOOK OVER
+			if (to.lean && k < 1 && view.cameraGesture) { view.dealEase = null; view.leanHome = null; return; } // THE PLAYER TOOK THE CAMERA MID LEAN: IT STAYS WHERE THEY PUT IT
 			if (k === 1) { // EXACTLY THERE, NOT A ROUNDING ERROR OFF IT: THE WAY BACK LANDS WHERE THE PLAYER HAD IT
 				camera.position.copy(to.position);
 				controls.target.copy(to.target);
@@ -167,7 +169,7 @@ export function landDealEase() {
 
 // MOVES THE CAMERA TO FRAME THE DEAL FROM view.dealHome, ITS ZOOM LIMIT RAISED SO IT CAN STAY THERE
 function aimDeal(animate) {
-	const spot = framedSpot(view.dealHome);
+	const spot = view.pileBox ? pileSpot(view.dealHome, view.pileBox) : framedSpot(view.dealHome);
 	view.controls.maxDistance = Math.max(view.dealHome.maxDistance, spot.distance);
 	moveDealCamera(spot, animate, () => {});
 }
@@ -181,13 +183,18 @@ function aimDeal(animate) {
 export function frameDeal(animate) {
 	if (!view.room || !monitorIdle()) { return; }
 	const home = view.dealHome;
-	if (home && !home.back) { return; } // ALREADY FRAMED, OR ON ITS WAY
+	if (home && !home.back && !view.pileBox) { return; } // ALREADY FRAMED, OR ON ITS WAY
+	if (view.pileBox) { view.pileBox = null; view.table.togglePile(null); } // AN OPENED PILE HAD THE FRAME: IT CLOSES, THE DEAL IS FRAMED FROM THE SAME HOME
 	landTurn(); // FLIP BOARD WOULD TAKE THE CAMERA ELSEWHERE: THE FRAME IS WORKED OUT FROM WHERE ITS TURN ENDS
 	if (home) { home.back = false; }
 	else {
-		if (columnOnScreen()) { return; }
+		const lean = takeLean(); // LEANED IN (AUTO LEAN): THE DEAL IS FRAMED FROM WHERE THE PLAYER HAD THE CAMERA, NOT FROM THE LEAN
+		if (lean ? columnFrom(lean) : columnOnScreen()) {
+			if (lean) { moveDealCamera({ position: lean.position, target: lean.target, near: NEAR }, animate, () => {}); } // THE CARDS ARE IN VIEW FROM THERE: JUST BACK
+			return;
+		}
 		const { camera, controls } = view;
-		view.dealHome = { position: camera.position.clone(), target: controls.target.clone(), maxDistance: controls.maxDistance, back: false }; // back: ON ITS WAY THERE (unframeDeal)
+		view.dealHome = { position: lean ? lean.position : camera.position.clone(), target: lean ? lean.target : controls.target.clone(), maxDistance: controls.maxDistance, back: false }; // back: ON ITS WAY THERE (unframeDeal)
 	}
 	aimDeal(animate);
 }
@@ -199,10 +206,11 @@ export function frameDeal(animate) {
  */
 export function unframeDeal(animate) {
 	const home = view.dealHome;
-	if (!home) { return; }
+	if (!home) { retryLean(); return; } // THE PROMOTION CARDS WENT BACK WITHOUT A FRAME: AUTO LEAN MAY LEAN AGAIN
 	const restore = function () {
 		view.controls.maxDistance = home.maxDistance;
 		view.dealHome = null;
+		retryLean(); // THE DEAL'S OR THE OPENED PILE'S FRAME IS OVER
 	};
 	if (!monitorIdle()) { // landHome() PUTS IT THERE
 		if (view.home) { view.home.position.copy(home.position); view.home.target.copy(home.target); }
@@ -213,6 +221,127 @@ export function unframeDeal(animate) {
 	home.back = true;
 	moveDealCamera({ position: home.position, target: home.target, near: NEAR }, animate, restore);
 }
+
+/* ---------------------------------------------------------------- */
+// Pile Framing
+/* ---------------------------------------------------------------- */
+
+/**
+ * @description Where the camera reads an opened pile's column from (Chess Cards): looking at the column's middle from the closest point along home's view direction
+ * where its 4 corners are inside FIT_NDC, never closer than the zoom limit
+ * @param  {[object]} home { position, target } [where the camera was before the pile opened]
+ * @param  {[object]} box { x0, x1, z0, z1 } [the column on the desk, room space (tableLayout.js columnBox)]
+ * @return {[object]} { position, target, near, distance } [as framedSpot]
+ */
+function pileSpot(home, box) {
+	view.room.updateMatrixWorld();
+	const corners = [box.x0, box.x1].flatMap((x) => [box.z0, box.z1].map((z) => corner.clone().set(x, DESK_Y, z).applyMatrix4(view.room.matrixWorld)));
+	const target = corners[0].clone().add(corners[3]).multiplyScalar(0.5);
+	const along = home.position.clone().sub(home.target).normalize();
+	fitCamera.copy(view.camera);
+	let near = view.controls.minDistance, far = 400;
+	for (let i = 0; i < 30; i++) {
+		const mid = (near + far) / 2;
+		fitCamera.position.copy(target).addScaledVector(along, mid);
+		fitCamera.lookAt(target);
+		fitCamera.updateMatrixWorld();
+		const inside = corners.every(function (p) {
+			corner.copy(p).project(fitCamera);
+			return corner.z < 1 && Math.abs(corner.x) <= FIT_NDC && Math.abs(corner.y) <= FIT_NDC;
+		});
+		if (inside) { far = mid; } else { near = mid; }
+	}
+	return { position: target.clone().addScaledVector(along, far), target, near: DEAL_NEAR, distance: far };
+}
+
+/**
+ * @description Frames an opened pile's column as a deal is framed, with the same home (view.dealHome): the camera glides there, & back exactly where the player had it when
+ * the pile closes (unframeDeal). While it's framed Auto Lean stands down (leanIn: view.dealHome). Nothing at the monitor or while the promotion cards are out
+ * @param  {[object|null]} box [the column (tableLayout.js columnBox), again when it changed; null: the pile closed]
+ * @param  {[boolean]} animate [false cuts there (reduce motion)]
+ */
+export function framePile(box, animate) {
+	if (!view || !view.room) { return; }
+	if (!box) {
+		if (view.pileBox) { view.pileBox = null; unframeDeal(animate); }
+		return;
+	}
+	if (!monitorIdle() || dealing()) { return; } // shortcut: A PILE OPENED BY THE KEYS MEANWHILE LIES OPEN UNFRAMED, OPEN IT AGAIN TO FRAME IT
+	view.pileBox = box;
+	landTurn();
+	if (view.dealHome) { view.dealHome.back = false; }
+	else {
+		const lean = takeLean(), { camera, controls } = view; // LEANED IN (AUTO LEAN): HOME IS WHERE THE PLAYER HAD THE CAMERA, AS frameDeal
+		view.dealHome = { position: lean ? lean.position : camera.position.clone(), target: lean ? lean.target : controls.target.clone(), maxDistance: controls.maxDistance, back: false };
+	}
+	aimDeal(animate);
+}
+
+// AFTER unframeDeal(false) FOR A NEW SIZE, SIDE OR DEFAULT SPOT: WHAT WAS FRAMED (A DEAL, OR AN OPENED PILE) IS FRAMED AGAIN FROM THERE
+function reframe() {
+	if (dealing()) { frameDeal(false); }
+	else if (view.pileBox) { framePile(view.pileBox, false); }
+}
+
+/* ---------------------------------------------------------------- */
+// Auto Lean
+/* ---------------------------------------------------------------- */
+
+const LEAN_MOVED = 0.01; // THE CAMERA THIS FAR FROM WHERE THE LEAN PUT IT WAS MOVED BY HAND
+
+// THE POINTER WENT ONTO THE BOARD (lean.js, THE MENU'S OPTION ON): THE CAMERA GLIDES TO leanSpot(), REMEMBERING WHERE THE PLAYER HAD IT (view.leanHome).
+// NOTHING WHILE THE PLAYER MOVES THE CAMERA, AT THE MONITOR, DURING A FLIP BOARD TURN, WHILE THE PROMOTION CARDS ARE OUT OR A DEAL OR AN OPENED PILE IS FRAMED (view.dealHome:
+// THE FRAME WINS). WHERE ONE OF THOSE ENDS retryLean() ASKS AGAIN, FOR A POINTER STILL ON THE BOARD (lean.js)
+function leanIn() {
+	const home = view && view.leanHome;
+	if (!view || view.lost || (home && !home.back)) { return; } // ALREADY LEANED, OR ON ITS WAY
+	if (isCameraGesture() || view.zoom || view.cameraTurn || view.dealHome || dealing()) { return; }
+	const { camera, controls } = view;
+	const from = home || { position: camera.position.clone(), target: controls.target.clone() }; // BACK ON THE BOARD MID WAY BACK: THE SAME HOME
+	from.back = false; // back: ON ITS WAY HOME (leanBack)
+	from.spot = leanSpot({ home: from, fov: camera.fov, aspect: camera.aspect, board: BOARD_SIZE, min: controls.minDistance, max: controls.maxDistance });
+	view.leanHome = from;
+	moveDealCamera({ position: from.spot.position, target: from.spot.target, near: NEAR, lean: true }, !REDUCE.matches, () => {});
+}
+
+// THE POINTER HAS BEEN OFF THE BOARD A WHILE (OR THE OPTION WAS TURNED OFF, OR FLIP BOARD & RESET VIEW NEED THE CAMERA): BACK TO WHERE THE PLAYER HAD IT.
+// A CAMERA THE PLAYER MOVED WHILE LEANED IN STAYS WHERE THEY PUT IT. AT THE MONITOR landHome() PUTS IT BACK (leanToHome)
+function leanBack(animate) {
+	const home = view && view.leanHome;
+	if (!home || !monitorIdle()) { return; }
+	if (home.back) { if (!animate) { landDealEase(); } return; } // ALREADY ON ITS WAY
+	if (!view.dealEase && view.camera.position.distanceTo(home.spot.position) > LEAN_MOVED) { view.leanHome = null; return; }
+	const v = view;
+	home.back = true;
+	moveDealCamera({ position: home.position, target: home.target, near: NEAR, lean: true }, animate, () => { v.leanHome = null; });
+}
+
+// ENDS A LEAN WITHOUT MOVING THE CAMERA (ITS GLIDE TOO): WHERE THE PLAYER HAD IT, FOR WHATEVER TAKES THE CAMERA NEXT. null WHEN NOT LEANED
+function takeLean() {
+	const home = view.leanHome;
+	if (home) { view.leanHome = null; view.dealEase = null; }
+	return home;
+}
+
+// THE CAMERA WENT TO THE MONITOR LEANED IN: THE DESK SPOT IT COMES BACK TO (view.home) IS WHERE THE PLAYER HAD IT, NOT THE LEAN
+function leanToHome() {
+	const lean = takeLean();
+	if (lean && view.home) { view.home.position.copy(lean.position); view.home.target.copy(lean.target); }
+}
+
+// THE CARD COLUMN IS ON SCREEN FROM spot { position, target } (columnOnScreen() FOR A CAMERA THAT ISN'T THERE)
+function columnFrom(spot) {
+	fitCamera.copy(view.camera);
+	fitCamera.position.copy(spot.position);
+	fitCamera.lookAt(spot.target);
+	fitCamera.updateMatrixWorld();
+	return columnInside(fitCamera);
+}
+
+setLeanCamera({ lean: leanIn, back() {
+	if (view && view.held && view.held.following) { return false; } // A PIECE IS DRAGGED OFF THE BOARD: THE CAMERA WAITS FOR THE DROP (lean.js ASKS AGAIN)
+	leanBack(!REDUCE.matches);
+} });
 
 // THE CAMERA'S NEAR PLANE ON THE DESK: A FRAMED DEAL'S IS FARTHER (DEAL_NEAR)
 const deskNear = () => (view.dealHome && !view.dealHome.back ? DEAL_NEAR : NEAR);
@@ -265,6 +394,7 @@ export function stepCamera(now) {
 	if (t >= 0.5) { setLabels(view.side); } // SIDE ON TO THE BOARD: THE LABELS SWAP UNSEEN
 	if (t === 1) {
 		view.cameraTurn = null;
+		retryLean();
 		if (view.dealHome && !view.dealHome.back) { aimDeal(true); } // A DEAL FRAMED FROM AN ORBITED CAMERA: THE ROOM TURNED BY A DIFFERENT ANGLE, FRAME IT AGAIN
 	}
 }
@@ -324,6 +454,7 @@ function setNear(near) {
 
 // STARTS THE CAMERA'S MOVE TO THE GLASS, OR BACK TO THE DESK (FROM WHEREVER IT IS, A ZOOM CAN TURN BACK HALFWAY)
 export function zoomTo(back) {
+	leanToHome();
 	const to = back ? { position: view.home.position, centre: view.home.target, near: deskNear() } : zoomSpot();
 	view.zoom = { from: view.camera.position.clone(), fromLook: view.zoomLook.clone(), fromNear: view.camera.near, to: to.position.clone(), toLook: to.centre.clone(), toNear: to.near, start: null, back };
 }
@@ -358,6 +489,7 @@ function refitZoom() {
 export function landHome() {
 	const { camera, controls } = view;
 	view.zoom = null;
+	leanToHome();
 	if (view.home) {
 		camera.position.copy(view.home.position);
 		controls.target.copy(view.home.target);
@@ -366,6 +498,7 @@ export function landHome() {
 	setNear(deskNear());
 	controls.enabled = true;
 	controls.update(); // LOOKS AT THE TARGET AGAIN, INSIDE ANY NEW LIMITS
+	retryLean();
 	if (dealing() && !view.dealHome) { frameDeal(!REDUCE.matches); } // CARDS DEALT WHILE THE MONITOR WAS UP (frameDeal WAITED FOR THE DESK): FRAME THEM NOW
 	view.leaving.splice(0).forEach((resolve) => resolve());
 }
@@ -392,6 +525,7 @@ export function isCameraGesture() {
 export function setSide(color, animate) {
 	if (!view || view.side === color) { return; }
 	landAtDesk(); // FROM THE DESK'S SPOT, NOT THE MONITOR'S
+	leanBack(false); // NOT AUTO LEAN'S EITHER
 	landDealEase(); // & FROM WHERE A DEAL'S CAMERA MOVE ENDS
 	view.side = color;
 	const angle = color === "b" ? Math.PI : 0;
@@ -401,7 +535,8 @@ export function setSide(color, animate) {
 		placeCamera(angle);
 		setLabels(color);
 		setRoomSide(color);
-		if (dealing()) { frameDeal(false); }
+		reframe();
+		retryLean();
 		return;
 	}
 	const from = cameraAzimuth();
@@ -418,6 +553,7 @@ export function setSide(color, animate) {
 export function resetCamera(color) {
 	if (!view) { return; }
 	landAtDesk();
+	leanBack(false);
 	landDealEase();
 	view.cameraTurn = null;
 	unframeDeal(false); // THE DEFAULT SPOT IS A DEAL'S NEW HOME
@@ -425,6 +561,7 @@ export function resetCamera(color) {
 	placeCamera(color === "b" ? Math.PI : 0);
 	setLabels(color);
 	setRoomSide(color);
-	if (dealing()) { frameDeal(false); }
+	reframe();
+	retryLean();
 	requestRender();
 }

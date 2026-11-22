@@ -156,12 +156,13 @@ function makeCtx(state) {
 			return true;
 		},
 		/**
-		 * @description A placed passive (its effects entry) has fired: it leaves Board Effects, a once-per-game card goes into its owner's used, then a passive-fired event. Nothing when it already fired.
+		 * @description A placed passive (its effects entry) has fired: it leaves Board Effects for its owner's discard pile, a once-per-game card goes into its owner's used, then a passive-fired event. Nothing when it already fired.
 		 */
 		passiveFired(e) {
 			if (!state.effects.some((x) => x.id === e.id)) return; // ALREADY FIRED: ONCE
 			state.effects = state.effects.filter((x) => x.id !== e.id);
 			if (CARDS[e.card.key] && CARDS[e.card.key].oncePerGame) state.players[e.owner].used.push(e.card.key);
+			hand.toPile(state.players[e.owner], e.card);
 			ctx.emit({ type: "passive-fired", player: e.owner, card: e.card });
 		},
 	};

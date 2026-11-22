@@ -155,6 +155,7 @@ export function animateMove(from, to, promotion) {
 		if (view.pieces.get(captured.userData.square) === captured) { view.pieces.delete(captured.userData.square); } // NOT THE PIECE THAT JUST SLID IN THERE
 		captured.userData.flight = { delay: slideDelay(knight), duration: slideDuration(Math.max(Math.abs(fileStep), Math.abs(rowOf(to) - rowOf(from))), knight) };
 		view.arriving.add(captured);
+		if (captured.userData.opacity < 1) { setOpacity(captured, 1); } // SEE-THROUGH FOR THE POINTER (tileHover.js): IT LEAVES THE BOARD SOLID
 	}
 	if (type === "k" && Math.abs(fileStep) === 2) { // CASTLING: THE ROOK JUMPS OVER THE KING
 		const rook = view.pieces.get((fileStep > 0 ? "h" : "a") + from[1]);

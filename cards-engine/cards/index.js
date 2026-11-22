@@ -6,6 +6,8 @@
 
 const CARDS = {}, ACTIVE_KEYS = [], PASSIVE_KEYS = [], CURSE_KEYS = [];
 const RARITY_WEIGHTS = { common: 12, uncommon: 6, rare: 3, epic: 2, legendary: 1 }; // THE ONE PLACE TO TUNE THEM: HOW OFTEN A CARD OF EACH TIER IS DRAWN, AGAINST THE OTHERS
+const CLIMB_SHARES = { common: 26, uncommon: 23, rare: 20, epic: 17, legendary: 14 }; // THE CLIMB (hand.drawCard, USER RULING 2026-11-22): EACH TIER'S SHARE, IN PERCENT, OF AN ACTIVE OR PASSIVE DRAW AT TURN CLIMB_END AND AFTER (WHOLE NUMBERS: rng.int TAKES WHOLE WEIGHTS)
+const CLIMB_END = 30; // THE CLIMB'S LAST TURN (board.full): TURN 1 IS THE BASE WEIGHTS, EACH TURN MOVES EVERY TIER AN EQUAL STEP, THIS TURN AND LATER IS CLIMB_SHARES
 const LISTS = { active: ACTIVE_KEYS, passive: PASSIVE_KEYS, curse: CURSE_KEYS };
 
 /**
@@ -37,4 +39,4 @@ function reset() {
 	for (const list of Object.values(LISTS)) list.length = 0;
 }
 
-module.exports = { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS, RARITY_WEIGHTS, register, reset, baseKey };
+module.exports = { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS, RARITY_WEIGHTS, CLIMB_SHARES, CLIMB_END, register, reset, baseKey };

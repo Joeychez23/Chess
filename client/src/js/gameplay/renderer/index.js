@@ -19,6 +19,7 @@ const { load3D } = require("../three/load.js"); // DOWNLOADS THE 3D BOARD THE FI
 const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const { stepBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS (EITHER WAY), THE SQUARE OF A SCREEN TILE
 const { reportError } = require("../../pages/utils/reportErrors.js"); // THE BROWSER ERROR REPORTS (#194)
+const { pickable } = require("../three/hoverRules.js"); // THE PIECES THE PLAYER CAN PICK UP (THE 3D HOVER'S FADE). NO three.js IN IT
 const { capturesAt } = require("../captures/index.js"); // THE PIECES TAKEN TO REACH A POSITION
 const { Chess } = require("chess.js");
 const scratch = new Chess(); // ONLY stepBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
@@ -38,6 +39,7 @@ let cardPick = null; // WHAT A PICKED PROMOTION CARD CALLS (onCardPick), gamepla
 let shownPromotion = null; // THE COLOUR THE 3D CARDS WERE LAST DEALT FOR, null WHEN THEY'RE ON THE DECK (syncCards3D)
 let shownCardFocus = null; // THE CARD THE 3D BOARD FRAMES (game.cardFocus)
 let tablePick = null; // WHAT A CHESS CARDS GAME'S PICKED HAND CARD OR SQUARE, & ITS MOUSE PRESS & RELEASE, CALL (onTablePick), gameplay/cards/flow.js
+let pickableKey = null, pickableNow = null; // THE NORMAL GAME'S PICKABLE SQUARES LAST WORKED OUT (pickable3D)
 let tableHeld = null; // THE PIECE A CHESS CARDS GAME'S DRAG HOLDS, { square, dragging } (holdTablePiece3D), null FOR NONE
 let table = null; // THE CHESS CARDS TABLE AS setTable3D LAST SAID IT, PUT ON EVERY 3D BOARD MOUNTED LATER
 let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
@@ -81,8 +83,21 @@ export function drawBoard() {
 	}
 	syncTaken3D(fen);
 	syncFacing3D(fen);
+	board3D.setPickable(table ? table.opts.pickable || null : pickable3D(fen)); // A CHESS CARDS GAME'S ARE flow.js'S
 	const held = tableHeld || heldPiece(); // A CHESS CARDS GAME'S HELD PIECE IS flow.js'S (holdTablePiece3D): heldPiece() HAS NONE THERE
 	board3D.setHeld(held && held.square, held && held.dragging); // AFTER THE MOVE: A DROPPED PIECE SLIDES FROM WHERE IT WAS LET GO
+}
+
+// THE SQUARES THE PLAYER CAN PICK A PIECE UP FROM IN A NORMAL GAME, null WHILE THEY CAN'T ACT: THE 3D HOVER ONLY FADES COVERING PIECES FOR THOSE (USER RULING R1, TASK 20E).
+// THE PLAYER'S COLOUR, NOT game.viewColor: FLIP BOARD ONLY TURNS THE CAMERA
+function pickable3D(fen) {
+	const open = !game.gameOver && game.response?.state !== "CLOSED" && !game.readOnly && !game.opposingMove && !game.currPromotion;
+	const key = `${fen}|${game.playerColor}|${open}`;
+	if (key !== pickableKey) {
+		pickableKey = key;
+		pickableNow = pickable({ board: chessInst.board(), player: game.playerColor, turn: chessInst.turn(), open });
+	}
+	return pickableNow;
 }
 
 /**
@@ -344,7 +359,7 @@ export function dropTablePiece3D(square) {
  * @description A Chess Cards game's table on the 3D board (three/index.js setCardTable, liftCard / dropCard & highlightSquares). Kept for a board mounted later
  * @param  {[object]} view [cards.view]
  * @param  {[array]} legal [cards.legal]
- * @param  {[object]} opts [{ catalog, focus: the keyboard's hand card, focusPile: the keyboard's pile, dim: the hand cards drawn dimmer, lifted: the card being played, glow: its next squares, glowFocus: the keyboard's square }]
+ * @param  {[object]} opts [{ pickable: the squares of the pieces the player can pick up, null while they can't act (the 3D hover's fade), catalog, focus: the keyboard's hand card, focusPile: the keyboard's pile, dim: the hand cards drawn dimmer, lifted: the card being played, glow: its next squares, glowFocus: the keyboard's square }]
  */
 export function setTable3D(view, legal, opts) {
 	table = { view, legal, opts };

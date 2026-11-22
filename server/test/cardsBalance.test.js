@@ -10,7 +10,7 @@ const assert = require("node:assert/strict");
 const engine = require("../../cards-engine/index.js");
 const { CARDS } = require("../../cards-engine/cards/index.js");
 const cardGuy = require("../utils/card-guy/index.js");
-const { playGame, summarize, STRONG_WIN_RATE, STRONG_MIN_GAMES, RARE_MIN_SHARE, DUD_MIN_GAMES, DUD_PLAYED_SHARE } = require("../utils/card-guy/balance.js");
+const { playGame, summarize, drawTotals, TURN_BANDS, STRONG_WIN_RATE, STRONG_MIN_GAMES, RARE_MIN_SHARE, DUD_MIN_GAMES, DUD_PLAYED_SHARE } = require("../utils/card-guy/balance.js");
 
 const VALUE = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
 const material = async (fen) => [...fen.split(" ")[0]].reduce((sum, ch) => sum + (/[a-z]/i.test(ch) ? (ch === ch.toUpperCase() ? 1 : -1) * VALUE[ch.toLowerCase()] : 0), 0); // CENTIPAWNS FROM WHITE'S SIDE
@@ -154,4 +154,64 @@ test("a passive reroll is counted apart from the free discards and owes no activ
 	const drawn = Object.keys(g.cards).filter((k) => CARDS[k].kind === "passive").reduce((n, k) => n + g.cards[k].w.drawn, 0);
 	assert.deepEqual([stats.discards, stats.rerolls], [0, 1]);
 	assert.equal(drawn, 2); // THE ONE IT HELD AND THE ONE THE REROLL DREW: A REAL DRAW, COUNTED
+});
+
+test("playGame counts the move-card types drawn and the rarity of each active or passive drawn by turn band (Task 20e)", async () => {
+	const g = await playGame(1, { evaluate: material, bestOf: firstOf, level: 1500 });
+	assert.deepEqual(TURN_BANDS, [1, 10, 20, 30]);
+	assert.ok(Object.keys(g.moveTypes).every((t) => "pmrq".includes(t)), Object.keys(g.moveTypes).join());
+	assert.ok(Object.values(g.moveTypes).reduce((n, x) => n + x, 0) >= 10, "the two opening hands are 10 move cards");
+	assert.deepEqual(Object.keys(g.rarityByBand), ["1-9", "10-19", "20-29", "30+"]);
+	assert.ok(Object.values(g.rarityByBand["1-9"]).reduce((n, x) => n + x, 0) >= 2, "the two opening actives are drawn at turn 1");
+	for (const band of Object.values(g.rarityByBand)) { for (const r of Object.keys(band)) { assert.ok(["common", "uncommon", "rare", "epic", "legendary"].includes(r), r); } }
+});
+
+test("drawTotals sums the games' move-card types and rarities by turn band", () => {
+	const one = { moveTypes: { p: 3, m: 1 }, rarityByBand: { "1-9": { common: 2 }, "30+": { epic: 1 } } }, two = { moveTypes: { p: 1, q: 2 }, rarityByBand: { "1-9": { common: 1, rare: 1 }, "30+": {} } };
+	assert.deepEqual(drawTotals([one, two]), { moveTypes: { p: 4, m: 1, q: 2 }, rarityByBand: { "1-9": { common: 3, rare: 1 }, "30+": { epic: 1 } } });
+});
+
+/**
+ * @description A game from start, where White (asked first) takes action once and Card Guy throws from then on (the fallback moves). Returns { stats, g, events: every event of the game }
+ */
+async function oneAction(t, start, action) {
+	t.mock.method(engine, "newGame", () => start);
+	let asked = 0;
+	t.mock.method(cardGuy, "cardGuyTurn", async () => { if (!asked++) { return action; } throw new Error("no action"); });
+	const apply = engine.applyAction, events = [];
+	t.mock.method(engine, "applyAction", (...args) => { const out = apply(...args); events.push(...out.events); return out; });
+	const stats = {}, g = await playGame(2, { evaluate: material, bestOf: firstOf, level: 1500, stats });
+	return { stats, g, events };
+}
+
+test("a single move-card discard is counted as one, owes no active and is no turn action (Task 20e)", async (t) => {
+	const start = engine.newGame({ cardGuy: "b", level: 1500, seed: 2 });
+	start.players.w.actives = []; // THE REFILL AT THE END OF WHITE'S TURN DRAWS ONE: A REAL DRAW, NOT A FREE DISCARD'S
+	const { stats, g, events } = await oneAction(t, start, { type: "discard", cards: [start.players.w.moves[0].id] });
+	const draws = events.filter((e) => e.type === "draw" && e.player === "w" && !e.lost && e.card && CARDS[e.card.key] && CARDS[e.card.key].kind === "active").length;
+	const drawn = Object.keys(g.cards).filter((k) => CARDS[k].kind === "active").reduce((n, k) => n + g.cards[k].w.drawn, 0);
+	assert.ok(draws > 0);
+	assert.equal(drawn, draws); // EVERY ACTIVE WHITE DREW IS COUNTED
+	assert.deepEqual([stats.discards, stats.singles, stats.singleRedraws, stats.rerolls, stats.turnActions], [1, 1, 0, 0, 0]);
+});
+
+test("an active's free discard is no single discard, and the automatic redraw after a single discard is counted (user ruling 2026-11-22)", async (t) => {
+	const first = engine.newGame({ cardGuy: "b", level: 1500, seed: 2 });
+	const active = await oneAction(t, first, { type: "discard", cards: [first.players.w.actives[0].id] });
+	assert.deepEqual([active.stats.discards, active.stats.singles, active.stats.singleRedraws], [1, 0, 0]);
+	t.mock.restoreAll();
+	const start = engine.newGame({ cardGuy: "b", level: 1500, seed: 2 }), queen = () => ({ id: "q" + start.players.w.moves.length, key: "move", piece: "q" });
+	Object.assign(start.players.w, { moves: [], actives: [], passive: null });
+	start.players.w.moves.push(queen(), queen()); // NO QUEEN MOVE AT THE START: THE DISCARD LEAVES NO CARD ACTION
+	const { stats, events } = await oneAction(t, start, { type: "discard", cards: ["q0"] });
+	assert.equal(events.filter((e) => e.type === "redraw").length >= 1, true);
+	assert.deepEqual([stats.discards, stats.singles, stats.singleRedraws], [1, 1, 1]);
+});
+
+test("a drop is no turn action (Task 20e)", async (t) => {
+	const start = engine.newGame({ cardGuy: "b", level: 1500, seed: 2 }), key = Object.keys(CARDS).find((k) => CARDS[k].kind === "passive" && !CARDS[k].canPlace);
+	start.effects.push({ id: "t1", owner: "w", card: { id: "t1", key }, placedAt: 0 });
+	const { stats, events } = await oneAction(t, start, { type: "drop", card: "t1" });
+	assert.ok(events.some((e) => e.type === "card-dropped"));
+	assert.deepEqual([stats.turnActions, stats.discards, stats.singles], [0, 0, 0]);
 });
