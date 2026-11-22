@@ -13,6 +13,7 @@ const { VALUE } = require("./score.js");
 
 const TOP_PLAIN = 5; // PLAIN MOVES KEPT BESIDE bestPlain
 const CHECK = 50; // A CHECK'S STATIC SCORE (cp)
+const PASSIVES = 3; // WAITING PASSIVES A PLAYER MAY HAVE (THE ENGINE'S turn.js PASSIVES, NOT EXPORTED)
 const KING = 20000; // TAKING THE KING WINS
 
 const other = (c) => (c === "w" ? "b" : "w");
@@ -80,7 +81,7 @@ function plainMoves(sim, me, refused = [], told = null) {
 
 /**
  * @description The actions Card Guy scores, in the order the engine budget is spent: bestPlain, the top 5 other plain moves, then every card action (moves a card makes first, by static score).
- * Never the free discard, cardGuyTurn decides that before the search, unless nothing else is legal on the guess (then it is all there is to try; once one is refused, allowed drops them all)
+ * Never the drop of a placed card, nor a passive placed over 3 waiting ones (it would replace the oldest: cardGuyTurn's passiveSwap decides both before the search), nor the free discard, cardGuyTurn decides that before the search too, unless nothing else is legal on the guess (then it is all there is to try; once one is refused, allowed drops them all)
  * @param  {[object]} sim [engine state Card Guy simulates on]
  * @param  {[string]} me ["w" or "b"]
  * @param  {[object]} options [{ bestPlain: the engine's pick among the plain moves ({ from, to, promotion }), refused: action keys the real game refused, told: as allowed }]
@@ -89,10 +90,11 @@ function plainMoves(sim, me, refused = [], told = null) {
 function candidates(sim, me, { bestPlain, refused = [], told = null } = {}) {
 	const all = allowed(sim, me, refused, told);
 	const plain = plainMoves(sim, me, refused, told), best = bestPlain && plain.find((a) => shape(a) === shape(bestPlain));
-	const cards = all.filter((a) => !isPlain(sim, me, a) && a.type !== "discard");
+	const full = sim.effects.filter((e) => e.owner === me).length >= PASSIVES;
+	const cards = all.filter((a) => !isPlain(sim, me, a) && a.type !== "discard" && a.type !== "drop" && !(full && a.type === "passive"));
 	const rank = (a) => (a.type === "move" ? staticScore(sim, a) : 0);
 	const out = [...(best ? [best] : []), ...plain.filter((a) => a !== best).slice(0, TOP_PLAIN), ...cards.map((a) => [rank(a), a]).sort((x, y) => y[0] - x[0]).map((x) => x[1])];
 	return out.length ? out : all;
 }
 
-module.exports = { candidates, plainMoves, allowed, staticScore, isPlain, shape };
+module.exports = { candidates, plainMoves, allowed, staticScore, isPlain, shape, PASSIVES };

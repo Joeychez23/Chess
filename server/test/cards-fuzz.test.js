@@ -50,12 +50,13 @@ function visibleTo(s, viewer, card) {
 }
 
 /**
- * @description Card keys viewer may legitimately see in this view: own hand, shown, Board Effects, used, enchantments, the played card of an open duel, the kind of an open choice (the choice event told both) and the strings of viewer's own open choice. "move" always (a move card's secret is its id and piece).
+ * @description Card keys viewer may legitimately see in this view: own hand, shown, Board Effects, used, enchantments, the played card of an open duel, the kind of an open choice (the choice event told both) and the strings of viewer's own open choice. "move" always (a move card's secret is its id and piece). Also the cards on the active spots, and what the view shows of the piles (a played or dropped card is public; checkView's secret ids catch a hidden one shown there).
  */
 function allowedKeys(v, viewer) {
 	const vo = v.players[other(viewer)], p = v.pending && v.pending.player === viewer ? v.pending : null;
 	return new Set(["move", ...handOf(v.players[viewer]).map((c) => c.key), ...vo.hand.shown.map((c) => c.key), ...v.effects.map((e) => e.card.key),
-		...v.players.w.used, ...v.players.b.used, ...v.enchant.map((e) => e.key), ...(v.duel ? [v.duel.card] : []), ...(v.pending ? [v.pending.kind] : []), ...(p ? [p.card, ...p.options] : [])]);
+		...v.players.w.used, ...v.players.b.used, ...v.enchant.map((e) => e.key), ...(v.duel ? [v.duel.card] : []), ...(v.pending ? [v.pending.kind] : []), ...(p ? [p.card, ...p.options] : []),
+		...["w", "b"].flatMap((c) => [...(v.players[c].spot || []), v.players[c].pile && v.players[c].pile.top, v.players[c].kept]).filter(Boolean).map((c) => c.key), ...(v.players[viewer].gone || [])]);
 }
 
 /**
@@ -68,15 +69,26 @@ function keyLike(x, found = []) {
 }
 
 /**
- * @description Every hiding rule of playerView for viewer on state s (Task 5's checkView, on the real cards). Returns the view.
+ * @description Every hiding rule of playerView for viewer on state s (Task 5's checkView, on the real cards). Returns the view. secret: the ids of the opponent's cards that left its hand unseen by viewer (the oracle's own list, kept by play from the raw events: a hidden discard, a move card played under a Fog of War): none may show on the opponent's discard pile, remembered card or active spot.
  */
-function checkView(s, viewer) {
+function checkView(s, viewer, secret = []) {
 	const v = playerView(s, viewer), json = JSON.stringify(v), flat = noSquares(json), opp = other(viewer), o = s.players[opp], vo = v.players[opp];
 	assert.ok(!json.includes("\"rng\""), "seed in view");
 	assert.deepEqual(keyLike(v), [], "generator key in view");
 	assert.equal(v.you, viewer);
 	assert.equal(vo.hand.count, handOf(o).length);
-	for (const k of ["moves", "actives", "passive", "curses", "seen"]) assert.ok(!(k in vo), "opponent " + k + " in view");
+	for (const k of ["moves", "actives", "passive", "curses", "seen", "gone"]) assert.ok(!(k in vo), "opponent " + k + " in view");
+	const places = JSON.stringify([vo.pile, vo.kept, vo.spot]), top = o.pile && o.pile.top, back = { down: true };
+	assert.equal(vo.pile.n, (o.pile && o.pile.n) || 0, "the opponent's pile count");
+	assert.deepEqual(vo.spot, o.spot || [], "the opponent's active spot is public");
+	assert.ok(!JSON.stringify(v.players[viewer]).includes("\"down\""), "a face-down mark on viewer's own cards");
+	if (s.result) assert.deepEqual([vo.kept, vo.pile.top], [o.kept || null, top ? (({ down, ...c }) => c)(top) : null], "a finished game shows the pile's top and the remembered card");
+	else {
+		for (const id of secret) assert.ok(!places.includes(quoted(id)), "hidden card id " + id + " on the opponent's pile, remembered card or active spot");
+		if (o.kept && !o.kept.faceUp) assert.deepEqual(vo.kept, back, "the remembered card isn't face down");
+		if (top && secret.includes(top.id)) assert.deepEqual(vo.pile.top, back, "a hidden top card isn't face down");
+	}
+	assert.ok(["w", "b"].every((c) => s.effects.filter((e) => e.owner === c).length <= 3), "more than 3 passives wait");
 	assert.ok(!("seen" in v.players[viewer]), "own seen in view (it tells the fakes apart)");
 	const kept = v.effects.filter((e) => "denied" in e.card || "stopping" in e.card); // PHALANX'S AND PEASANT IMMUNITY'S BOOKKEEPING: ONLY ON viewer'S OWN, NEVER UNDER THE OPPONENT'S FOG
 	assert.ok(kept.every((e) => e.owner === viewer) && !(kept.length && !s.result && boardFog(s, opp)), "passive bookkeeping in view");
@@ -177,40 +189,66 @@ function checkMirageActions(s, color, acts) {
 	}
 }
 
-const WORTH = { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 }; // THE ORACLE'S OWN COPY OF THE VALUES: A PIECE TYPE'S AND A MOVE CARD TYPE'S (m: THE KNIGHT / BISHOP CARD)
-
 /**
- * @description The free discard (user rulings 2026-11-21, 2026-11-22): never listed in check or twice a turn; it keeps the turn and the board; a pair of move cards gives 1 back at once, worth at least the lower of the two or else the best type the player still has (hit "d:floor" when the floor is above a pawn's); an active nothing; the held passive a different passive at once with nothing else in the hand moving (hit "d:reroll") (the counts unless the automatic redraw ran, or the game ended on it).
+ * @description The free discard, one card at a time (user rulings 2026-11-21, 2026-11-22): never listed in check; one kind a turn, at most 2 move cards; it keeps the turn and the board; a move card is remembered (hit "d:single") and the next one, this turn or later, draws 1 move card back at once and puts both on the pile (hit "d:pair"); an active nothing; the held passive a different passive at once with nothing else in the hand moving (hit "d:reroll") (the counts unless the automatic redraw ran, or the game ended on it).
  */
 function checkDiscard(s, color, acts, a, state, events, hit) {
-	const listed = acts.some((x) => x.type === "discard");
-	if (listed) assert.ok(!inCheck(s, color) && s.discarded !== color, "a free discard listed in check or a second time this turn");
+	const listed = acts.filter((x) => x.type === "discard"), d = s.discarded, before = s.players[color], after = state.players[color];
+	const isMove = (p, x) => hand.moveCards(p).some((c) => c.id === x.cards[0]);
+	assert.ok(listed.every((x) => x.cards.length === 1), "a free discard of more than one card");
+	if (listed.length) assert.ok(!inCheck(s, color) && (!d || (d.kind === "move" && d.n < 2)), "a free discard listed in check or past the turn's limit");
+	if (d) assert.ok(listed.every((x) => isMove(before, x)), "a second kind of free discard this turn");
 	if (a.type !== "discard") return;
 	assert.equal(state.ply, s.ply, "the free discard ended the turn");
-	const before = s.players[color], after = state.players[color], reroll = !!before.passive && a.cards[0] === before.passive.id;
+	const reroll = !!before.passive && a.cards[0] === before.passive.id, move = isMove(before, a), pair = move && !!before.kept;
 	const drawn = (events.find((e) => e.type === "draw" && e.player === color) || {}).card; // THE DRAW-BACK COMES BEFORE ANY REDRAW'S
+	const own = state.board.sq.some((q) => q && q.c === color && q.t !== "k"); // A LONE KING HAS NO TYPE TO DRAW (CORE RULES): NOTHING BACK
 	if (reroll) {
 		hit("d:reroll");
-		assert.equal(a.cards.length, 1, "a reroll with more than the passive");
 		assert.deepEqual(events.slice(0, 2).map((e) => [e.type, e.card.id]), [["discard", before.passive.id], ["draw", drawn.id]], "a reroll is the passive's discard, then a draw");
 		assert.ok(CARDS[drawn.key].kind === "passive" && baseKey(drawn.key) !== baseKey(before.passive.key), "the reroll drew " + drawn.key + " for " + before.passive.key);
 		assert.ok(!after.used.includes(before.passive.key) && after.used.length === before.used.length, "the rerolled passive counts as used");
-	} else if (a.cards.length === 2) {
-		const own = state.board.sq.filter((q) => q && q.c === color && q.t !== "k").map((q) => WORTH[q.t]);
-		const floor = Math.min(...hand.moveCards(before).filter((c) => a.cards.includes(c.id)).map((c) => WORTH[c.piece]));
-		if (own.length) assert.ok(drawn && drawn.key === "move" && "pmrq".includes(drawn.piece) && WORTH[drawn.piece] >= Math.min(floor, Math.max(...own)), "a pair with floor " + floor + " drew back " + (drawn && drawn.piece));
-		if (own.length && floor > 1) hit("d:floor");
+	} else if (move) {
+		hit(pair ? "d:pair" : "d:single");
+		assert.equal(!!events[0].kept, !pair, "only the first move card of a pair is remembered");
+		if (pair && own) assert.ok(drawn && drawn.key === "move" && "pmrq".includes(drawn.piece), "the pair drew back " + JSON.stringify(drawn));
+		if (!pair) assert.ok(!drawn || events.some((e) => e.type === "redraw"), "a single move card drew a card back");
+		assert.equal(after.pile.n, ((before.pile && before.pile.n) || 0) + (pair ? 2 : 0) + (events.some((e) => e.type === "redraw") ? hand.moveCards(before).length - 1 + (pair && own ? 1 : 0) : 0), "the pile's count after a move card's discard");
+		assert.deepEqual(after.kept ? after.kept.id : null, pair ? null : a.cards[0], "the remembered card");
 	}
 	if (state.result) return;
-	assert.deepEqual([state.board.turn, state.discarded], [color, color], "the turn didn't stay, or the discard isn't marked");
+	assert.deepEqual([state.board.turn, state.discarded], [color, { player: color, kind: reroll ? "passive" : move ? "move" : "active", n: move && d ? d.n + 1 : 1 }], "the turn didn't stay, or the discard isn't marked");
 	assert.equal(JSON.stringify(state.board.sq), JSON.stringify(s.board.sq), "the free discard changed the board");
-	assert.ok(!legalActions(state, color).some((x) => x.type === "discard"), "a second free discard this turn");
+	const left = legalActions(state, color).filter((x) => x.type === "discard");
+	assert.ok(move && state.discarded.n < 2 ? left.every((x) => isMove(after, x)) : !left.length, "a free discard past the turn's kind or count");
 	if (events.some((e) => e.type === "redraw")) return;
-	const hasType = state.board.sq.some((q) => q && q.c === color && q.t !== "k"); // A LONE KING HAS NO TYPE TO DRAW (CORE RULES): NOTHING BACK
 	if (reroll) assert.deepEqual([after.passive, after.moves, after.actives, after.curses], [drawn, before.moves, before.actives, before.curses], "a reroll moved something else in the hand");
-	else if (a.cards.length === 2) assert.equal(hand.moveCards(after).length, hand.moveCards(before).length - (hasType ? 1 : 2), "2 move cards discarded, not 1 back");
+	else if (move) assert.equal(hand.moveCards(after).length, hand.moveCards(before).length - (pair && own ? 0 : 1), "a move card discarded: 1 back for the second of a pair only");
 	else assert.equal(after.actives.length, before.actives.length - 1, "an active discarded, something back");
 	if (!reroll) assert.deepEqual(after.passive, before.passive, "a free discard of move or active cards changed the passive");
+}
+
+/**
+ * @description The drop of a placed card: listed only for color's own waiting passives and the cards on its active spot, never in a two-move turn; it keeps the turn, the board's pieces and the turn's free discard, draws nothing (unless the automatic redraw ran), the card is on top of color's pile and no longer placed, a passive not used and not drawable this turn; and it never puts a king in check.
+ */
+function checkDrop(s, color, acts, a, state, events) {
+	const mine = [...s.effects.filter((e) => e.owner === color).map((e) => e.id), ...(s.players[color].spot || []).map((c) => c.id)];
+	const listed = acts.filter((x) => x.type === "drop");
+	assert.ok(listed.every((x) => mine.includes(x.card)) && !(listed.length && s.multi), "a drop of a card that isn't the player's own placed one, or in a two-move turn");
+	if (a.type !== "drop") return;
+	const before = s.players[color], after = state.players[color], passive = s.effects.find((e) => e.id === a.card);
+	assert.deepEqual(events[0], { type: "card-dropped", player: color, card: passive ? passive.card : before.spot.find((c) => c.id === a.card) }, "a drop's first event");
+	assert.ok(!state.effects.some((e) => e.id === a.card) && !after.spot.some((c) => c.id === a.card), "the dropped card is still placed");
+	assert.deepEqual(after.used, before.used, "a dropped card counts as used");
+	for (const c of ["w", "b"]) assert.ok(inCheck(s, c) || !inCheck(state, c), "a drop put " + c + " in check");
+	if (state.result) return;
+	assert.deepEqual([state.ply, state.board.turn, state.discarded], [s.ply, color, s.discarded], "a drop ended the turn or used the free discard");
+	assert.equal(JSON.stringify(state.board.sq), JSON.stringify(s.board.sq), "a drop changed the board");
+	if (passive) assert.ok(after.gone.includes(baseKey(passive.card.key)) && !hand.drawable(state, color, "passive").includes(passive.card.key), "a dropped passive can be drawn this turn");
+	if (events.some((e) => e.type === "redraw")) return;
+	assert.ok(!events.some((e) => e.type === "draw"), "a drop drew a card");
+	assert.equal(after.pile.top.id, a.card, "the dropped card isn't on top of the pile");
+	assert.equal(after.pile.n, ((before.pile && before.pile.n) || 0) + 1, "the pile's count after a drop");
 }
 
 /**
@@ -219,6 +257,7 @@ function checkDiscard(s, color, acts, a, state, events, hit) {
 function play(seed, stats, { setup, plies = PLIES, note } = {}) {
 	let s = newGame({ cardGuy: "b", level: 1300, seed }), ply = 0;
 	const roll = picker(seed), hit = (k) => { stats[k] = (stats[k] || 0) + 1; };
+	const secret = { w: [], b: [] }; // PER VIEWER: THE OPPONENT'S CARDS THAT LEFT ITS HAND UNSEEN (THE ORACLE'S OWN LIST, FROM THE RAW EVENTS)
 	try {
 		if (setup) s = setup(s, seed) || s;
 		for (const c of ["w", "b"]) checkView(s, c);
@@ -237,8 +276,14 @@ function play(seed, stats, { setup, plies = PLIES, note } = {}) {
 				s = copy;
 			}
 			const { state, events } = applyAction(s, color, a);
-			for (const c of ["w", "b"]) checkEvents(state, events, c, checkView(state, c));
-			if (!s.pending && !s.duel) checkDiscard(s, color, acts, a, state, events, hit);
+			for (const c of ["w", "b"]) {
+				for (const e of events) {
+					const hid = e.player === other(c) && e.card && typeof e.card === "object" && (e.type === "discard" ? !isMirage(e.card) && !visibleTo(state, c, e.card) : e.type === "move" && boardFog(state, other(c)));
+					if (hid) { secret[c].push(e.card.id); hit("x:secret-" + e.type); }
+				}
+				checkEvents(state, events, c, checkView(state, c, secret[c]));
+			}
+			if (!s.pending && !s.duel) { checkDiscard(s, color, acts, a, state, events, hit); checkDrop(s, color, acts, a, state, events); }
 			if (note) note(state, events, hit);
 			hit("a:" + a.type);
 			for (const e of events) { hit("e:" + e.type); if (e.type === "card-played" || e.type === "passive-placed" || e.type === "curse-given") hit("k:" + baseKey(e.card.key)); }
@@ -285,7 +330,7 @@ else test("500 seeded random games with every card: no throw, never stuck, nothi
 	assert.equal(failed.length, 0, failed.length + " of " + seeds.length + " games failed; first: " + failed[0]);
 	if (only) return;
 	for (const k of new Set(Object.keys(CARDS).map(baseKey))) assert.ok(stats["k:" + k], "card " + k + " never played, placed or given"); // EVERY CARD THE LOADER REGISTERS
-	for (const k of ["a:move", "a:active", "a:passive", "a:discard", "a:choice", "a:duel", "e:capture", "e:curse-given", "e:enchant", "e:turn-skipped", "e:king-skull", "d:floor", "d:reroll"]) assert.ok(stats[k] > 20, k + " met only " + (stats[k] || 0) + " times"); // THE SOAK REACHED THE CARD PATHS
+	for (const k of ["a:move", "a:active", "a:passive", "a:discard", "a:choice", "a:duel", "e:capture", "e:curse-given", "e:enchant", "e:turn-skipped", "e:king-skull", "d:single", "d:pair", "d:reroll", "a:drop", "e:card-dropped", "e:card-ended", "x:secret-discard", "x:secret-move"]) assert.ok(stats[k] > 20, k + " met only " + (stats[k] || 0) + " times"); // THE SOAK REACHED THE CARD PATHS
 });
 
 /*

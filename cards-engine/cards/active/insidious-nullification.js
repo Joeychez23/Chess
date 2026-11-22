@@ -11,12 +11,12 @@ const KEY = "insidious-nullification";
 const other = (c) => (c === "w" ? "b" : "w");
 
 /**
- * @description The opponent's placed passives leave Board Effects in placedAt order (a passive-cancelled event each; not fired, so not used).
+ * @description The opponent's placed passives leave Board Effects for the opponent's discard pile in placedAt order (a passive-cancelled event each; not fired, so not used).
  */
 function cancel(ctx, player) {
 	const s = ctx.state, opp = other(player), gone = s.effects.filter((e) => e.owner === opp).sort((a, b) => a.placedAt - b.placedAt);
 	s.effects = s.effects.filter((e) => e.owner !== opp);
-	for (const e of gone) ctx.emit({ type: "passive-cancelled", player: opp, card: e.card });
+	for (const e of gone) { require("../../hand.js").toPile(s.players[opp], e.card); ctx.emit({ type: "passive-cancelled", player: opp, card: e.card }); } // LAZY hand.js: SEE shackles.js
 }
 
 /**

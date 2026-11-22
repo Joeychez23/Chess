@@ -10,15 +10,17 @@ const { Chess } = require("chess.js");
 const engine = require("../../../cards-engine/index.js");
 const { inCheck } = require("../../../cards-engine/rules.js");
 const hand = require("../../../cards-engine/hand.js");
-const { CARDS, baseKey } = require("../../../cards-engine/cards/index.js");
+const { CARDS, RARITY_WEIGHTS, baseKey } = require("../../../cards-engine/cards/index.js");
 const ai = require("../ai.js");
-const { candidates, plainMoves, allowed, staticScore, isPlain, shape } = require("./candidates.js");
+const { candidates, plainMoves, allowed, staticScore, isPlain, shape, PASSIVES } = require("./candidates.js");
 const { cardScore, duelValue } = require("./score.js");
 const { pick } = require("./pick.js");
 
 const MAX_EVALS = 24; // BOARDS THE ENGINE IS ASKED ABOUT IN ONE TURN (THE SAME BOARD IS ASKED ONCE)
 const SAMPLES = 8; // GUESSED STATES A CHANCE OUTCOME IS AVERAGED OVER
 const GUESSES = 3; // FRESH GUESSES TRIED WHEN THE REAL GAME REFUSED EVERY ACTION OF ONE
+const FITS = 24; // GUESSES TRIED FOR ONE THAT AGREES WITH THE REFUSALS OF THIS TURN
+const FIT_FROM = 3; // REFUSALS IN ONE TURN BEFORE THAT GUESS IS LOOKED FOR. MEASURED OVER 70 FOGGED GAMES (2026-11-22): 257 REFUSALS WITHOUT, 261 FROM THE 1ST, 247 FROM THE 2ND, 235 FROM THE 3RD OR 4TH
 const WON = 100000; // A GAME WON (LOST: -WON), ABOVE ANY EVALUATION (cp)
 const MATE = 10000; // evaluate's SCORE FOR A FORCED MATE (cp)
 const FAVOURITES = ["all-or-nothing", "double-time"]; // THE DEALER'S GAMBLES (pick.js PLAYS THEM WHEN THEY'RE CLOSE TO THE BEST)
@@ -68,17 +70,25 @@ function decided(state, me) {
 
 /**
  * @description The state Card Guy simulates on, one with an action the real game hasn't refused. Under the visitor's Fog of War the state is a guess (the fogged pieces are put
- * somewhere), so when every action of a guess was refused another is made, and after the last one the board as Card Guy sees it, the fogged pieces left off: nothing guessed stands in a move's way there
+ * somewhere), so from the turn's third refusal (FIT_FROM) a guess is looked for (FITS tries) in which every refused action is illegal too, the closest when none is; when every action of a guess was refused another is made, and after the last one the board as Card Guy sees it, the fogged pieces left off: nothing guessed stands in a move's way there
  * @return {[object]} { sim, base: the seed sim was made from, bare: true for the board with the fogged pieces left off (no chess position: the engine isn't asked) }
  */
 function simulate(view, seed, refused, told) {
 	if (!Number.isFinite(seed)) { throw new TypeError("Card Guy's seed must be a finite number"); } // undefined OR THE GAME'S HEX SEED WOULD BECOME 0: ONE GUESS & ONE SET OF DICE EVERY TURN
 	const left = (sim) => allowed(sim, view.you, refused, told).length > 0;
-	for (let n = 0; n < GUESSES; n++) {
+	const fit = !!view.board.hidden && refused.length >= FIT_FROM; // SO MANY REFUSALS PROVE THE GUESS WRONG (A CHECK IT MISSED OR MADE UP), NOT ONE PIECE IN THE WAY: LOOK FOR A GUESS THEY AGREE WITH, NOT THE SAME ONE LESS A MOVE
+	const misses = (sim) => { const keys = new Set(engine.legalActions(sim, view.you).map(engine.actionKey)); return refused.filter((key) => keys.has(key)).length; }; // REFUSED ACTIONS THE GUESS STILL CALLS LEGAL
+	let best = null;
+	for (let n = 0; n < (fit ? FITS : GUESSES); n++) {
 		const base = seedAt(seed, n * (SAMPLES + 1)), sim = engine.fromView(view, base);
-		if (left(sim)) { return { sim, base }; }
+		if (left(sim)) {
+			const miss = fit ? 2 * misses(sim) + (inCheck(sim, view.you) ? 1 : 0) : 0; // A GUESS OFTEN CHECKS CARD GUY, THE GAME SELDOM: OF TWO THAT AGREE, THE ONE WITH NO CHECK
+			if (!miss) { return { sim, base }; }
+			if ((n < GUESSES || miss < 2) && (!best || miss < best.miss)) { best = { sim, base, miss }; } // NONE AGREES WITHOUT A CHECK: ONE THAT AGREES WITH A CHECK, ELSE THE CLOSEST OF THE FIRST GUESSES (PAST THEM ONLY ONE THAT AGREES)
+		}
 		if (!view.board.hidden) { break; } // NOTHING IS GUESSED ON THE BOARD: ANOTHER GUESS HAS THE SAME ACTIONS
 	}
+	if (best) { return { sim: best.sim, base: best.base }; }
 	const sim = view.board.hidden ? engine.fromView({ ...view, board: { ...view.board, hidden: 0 } }, seed) : null;
 	if (sim && left(sim)) { return { sim, base: seed, bare: true }; }
 	throw new Error("Card Guy has no action to take");
@@ -164,7 +174,7 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [], legal }, 
 
 /**
  * @description Card Guy's free discard, at every level (user ruling 2026-11-21), decided before the search: scored, a 2-for-1 always loses to a move. The active when it has no play this turn (not even paying a curse's clear) and is common or uncommon and not Cleanse (user ruling R1),
- * else the 2 move cards with no move this turn whose draw-back floor is lowest (the lower card's value: the widest draw; ties in hand order; user ruling 2026-11-22), else none. Never the passive's reroll
+ * else a move card with no move this turn, the first in hand order (Task 20e: one card at a time; the engine remembers it until the next one, which draws 1 back at random), else none. Never the passive's reroll
  * @param  {[array]} actions [the legal actions on Card Guy's guess]
  * @param  {[object]} p [Card Guy's player in that guess: its actives and move cards]
  * @return {[object]} a discard action, or null
@@ -175,12 +185,30 @@ function freeDiscard(actions, p) {
 	const pays = (id) => actions.some((a) => a.type !== "discard" && a.discard === id); // IT CAN PAY A CURSE'S CLEAR (LEECH, SHACKLES): NOT DEAD
 	const active = discards.find((a) => a.cards.length === 1 && dead(a.cards[0]) && cheap(a.cards[0]) && !pays(a.cards[0]));
 	if (active) { return active; }
-	const moves = hand.moveCards(p), floor = (a) => Math.min(...a.cards.map((id) => hand.VALUE[moves.find((c) => c.id === id).piece]));
-	return discards.filter((a) => a.cards.length === 2 && a.cards.every(dead)).reduce((best, a) => (!best || floor(a) < floor(best) ? a : best), null); // PAIRS COME IN HAND ORDER: THE FIRST OF THE LOWEST
+	// THE PAIR WITH THE LOWEST DRAW-BACK FLOOR, DROPPED BY THE USER 2026-11-22 AFTER A TRIAL: THE DRAW-BACK IS RANDOM AGAIN. KEPT FOR REFERENCE:
+	// const moves = hand.moveCards(p), floor = (a) => Math.min(...a.cards.map((id) => hand.VALUE[moves.find((c) => c.id === id).piece]));
+	// return discards.filter((a) => a.cards.length === 2 && a.cards.every(dead)).reduce((best, a) => (!best || floor(a) < floor(best) ? a : best), null); // PAIRS COME IN HAND ORDER: THE FIRST OF THE LOWEST
+	return discards.find((a) => p.moves.some((c) => c.id === a.cards[0]) && dead(a.cards[0])) || null; // MOVE CARDS COME IN HAND ORDER: THE FIRST DEAD ONE (AN ENTERED MIRAGE IS A MOVE CARD IN CARD GUY'S VIEW)
 }
 
 /**
- * @description One action for whatever Card Guy owes now: the free discard (freeDiscard), a turn action, the next move of a two-move turn, a choice, a card duel pick (random: every card is face down) or
+ * @description Card Guy's rule for his waiting passives (Task 20e), decided before the search, from his view alone: with 3 waiting and one in hand of a higher rarity than the weakest waiting one (ties: the oldest), the drop of that one;
+ * then, the drop made (view: a passive of his left this turn, fewer than 3 wait), placing the one in hand. Only when the placing is legal (not in check). Otherwise null: he keeps what he has (candidates never places a fourth over the oldest) and drops nothing else
+ * @param  {[array]} actions [the legal actions on Card Guy's guess]
+ * @param  {[object]} view [playerView(state, cardGuy)]
+ * @return {[object]} a drop or the passive's placing, or null
+ */
+function passiveSwap(actions, view) {
+	const p = view.players[view.you], place = actions.find((a) => a.type === "passive");
+	if (!p.passive || !place) { return null; }
+	const mine = view.effects.filter((e) => e.owner === view.you).sort((x, y) => x.placedAt - y.placedAt), rank = (card) => Object.keys(RARITY_WEIGHTS).indexOf(CARDS[card.key].rarity); // RARITY_WEIGHTS LISTS THE TIERS FROM COMMON UP
+	if (mine.length < PASSIVES) { return (p.gone || []).length ? place : null; } // HE NEVER REROLLS: A PASSIVE THAT LEFT THIS TURN IS THE ONE HE DROPPED FOR THIS ONE
+	const weakest = mine.reduce((w, e) => (rank(e.card) < rank(w.card) ? e : w)); // BY AGE: THE OLDEST OF A TIE STAYS THE PICK
+	return (rank(p.passive) > rank(weakest.card) && actions.find((a) => a.type === "drop" && a.card === weakest.id)) || null;
+}
+
+/**
+ * @description One action for whatever Card Guy owes now: the waiting passives' swap (passiveSwap), the free discard (freeDiscard), a turn action, the next move of a two-move turn, a choice, a card duel pick (random: every card is face down) or
  * a duel's stop or go on. Callers call it again while Card Guy still owes something. The action is legal on Card Guy's guess of the game; under the visitor's Fog of War
  * the real game can still refuse it: call again with its key added to refused. With legal (no fog up) only an action on that list is returned: the view shows an entered Mirage
  * in Card Guy's own hand as a move card, as to any holder, and only the list says it has no move in check
@@ -200,6 +228,8 @@ async function cardGuyTurn(view, level, { evaluate, bestOf, seed, refused = [], 
 		const stop = !(duelValue(sim, me, sim.duel.card, sim.duel.piece) > 0); // GO ON ONLY WHEN THE NEXT HAND IS WORTH ITS RISK
 		return actions.find((a) => a.stop === stop) || actions[0];
 	}
+	const swap = passiveSwap(actions, view);
+	if (swap) { return swap; }
 	const discard = freeDiscard(actions, sim.players[me]); // NONE ONCE ONE WAS REFUSED (allowed)
 	if (discard) { return discard; }
 	return pick(await scoreTurn(view, { evaluate, bestOf, seed, refused, legal }, world), level, rng);

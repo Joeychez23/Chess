@@ -25,6 +25,7 @@ const { setUnavailable, setFill, stopFill } = require("../../pages/utils/menuIte
 const { setView, currentView, resetCamera, onViewChange, can3D, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA, THE 3D ROOM'S MONITOR (NOT gameplay/monitor: IT REQUIRES THIS FILE)
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 import { showGameOver, handleDrawEvent, handleTakebackEvent } from "./offers.js";
+import { setAutoLean } from "../three/lean.js"; // NO three.js IN IT: STAYS IN THIS BUNDLE, THE 3D CHUNK USES THE SAME MODULE
 import { loadRematch, showOpponentLeft } from "./endGame.js";
 export { handleTakeback, handleDeclineTakeback, loadTakeback, syncDrawOffer, handleOfferDraw, handleDeclineDraw, showGameOver } from "./offers.js";
 export { handleRestart, setRestartLoading, handleCancelRematch, showReadOnlyMenu, handleLeave, handleExit } from "./endGame.js";
@@ -35,6 +36,7 @@ const optPgnBtn = document.getElementById("optPgn"); // MENU: DOWNLOAD PGN
 const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optViewBtn = document.getElementById("optView"); // MENU: VIEW 3D / 2D
 const optResetViewBtn = document.getElementById("optResetView"); // MENU: RESET VIEW, ONLY ON 3D
+const optAutoLeanBtn = document.getElementById("optAutoLean"); // MENU: AUTO LEAN ON / OFF, ONLY ON 3D
 export const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
 export const optHomepageBtn = document.getElementById("optHome"); // MENU: HOMEPAGE
 export const optExitBtn = document.getElementById("optExit"); // MENU: LOGOUT (SIGNED IN) / LOGIN/SIGNUP (GUESTS)
@@ -44,6 +46,7 @@ export const optTypeMoveBtn = document.getElementById("optTypeMove"); // MENU: T
 
 const VIEW_KEY = "VIEW"; // localStorage: "2d" OR "3d", THE LAST ONE THE PLAYER PICKED. 3D IS THE DEFAULT, 2D ON A PHONE OR TABLET (can3D)
 const SOUND_KEY = "SOUND"; // localStorage: "off" WHEN THE PLAYER TURNED SOUND OFF, GUESTS TOO
+const AUTO_LEAN_KEY = "AUTO_LEAN"; // localStorage: "on" WHEN THE PLAYER TURNED AUTO LEAN ON, OFF OTHERWISE
 const DEADLINE_TICK = 30 * 1000; // HOW OFTEN THE TIME LEFT IS REDRAWN (ms)
 const moveDeadlineText = document.getElementById("moveDeadline");
 let deadlineTimer = null; // REDRAWS THE TIME LEFT WHILE A GAME WITH A TIME LIMIT IS GOING
@@ -174,6 +177,7 @@ function setViewWords(on) {
 	optViewBtn.innerText = no3D ? notYet : on === VIEWS.THREE_D ? "View: 2D" : "View: 3D";
 	setUnavailable(optViewBtn, no3D);
 	optResetViewBtn.parentElement.hidden = on !== VIEWS.THREE_D;
+	optAutoLeanBtn.parentElement.hidden = on !== VIEWS.THREE_D;
 }
 
 /**
@@ -187,6 +191,27 @@ export function handleView(e) {
 		try { localStorage.setItem(VIEW_KEY, on); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
 	});
 }
+
+// AUTO LEAN ON OR OFF (three/lean.js), THE WORDS SAY WHAT A PRESS WILL DO
+function showAutoLean(on) {
+	setAutoLean(on);
+	optAutoLeanBtn.innerText = on ? "Turn Auto Lean: Off" : "Turn Auto Lean: On";
+}
+
+/**
+ * @description Turns Auto Lean on or off & saves it, the menu stays open
+ */
+function handleAutoLean(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	const on = optAutoLeanBtn.innerText !== "Turn Auto Lean: Off";
+	showAutoLean(on);
+	try { localStorage.setItem(AUTO_LEAN_KEY, on ? "on" : "off"); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
+}
+
+// THE PLAYER'S SAVED AUTO LEAN, OFF BY DEFAULT. HERE, NOT IN gameplay/index.js WITH THE OTHER OPTIONS: THAT FILE WASN'T TASK 20E C2'S TO EDIT
+try { showAutoLean(localStorage.getItem(AUTO_LEAN_KEY) === "on"); } catch { showAutoLean(false); } // STORAGE BLOCKED (PRIVATE MODE)
+optAutoLeanBtn.addEventListener("click", handleAutoLean);
 
 /**
  * @description Puts the 3D camera back at its default for the player's side, the menu stays open

@@ -30,12 +30,15 @@ import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"
 export { perfLoaded } from "./perf.js"; // load.js GIVES IT THE CHUNK'S DOWNLOAD TIME
 import "../../../css/board3D.css"; // #board3D, THE CONTROLS HINT & THE PERF READOUT: IN THIS CHUNK, NOT THE PLAY BUNDLE
 
-import { resize, frameDeal, unframeDeal, placeCamera, stepCamera, landTurn, sideAngle, stepZoom } from "./camera.js";
+import { resize, frameDeal, unframeDeal, framePile, placeCamera, stepCamera, landTurn, sideAngle, stepZoom } from "./camera.js";
 import { createControls, onPointerDown, onPointerMove, onPointerUp, monitorIdle, monitorInput, onMonitorShow, onPointerLeave, onClick, onTouchTap, onKeyDown } from "./pointer.js";
 import { putDownHeld, stepAnim, finishAnims, animate } from "./motion.js";
+import { followCamera } from "./tileHover.js";
+import { tileAt } from "./hoverRules.js"; // THE TILE UNDER A POINT ON THE BOARD (squareUnder)
 
 export { isCameraGesture, setSide, resetCamera } from "./camera.js";
 export { setMonitor, enterMonitor, leaveMonitor, monitorState, focusMonitor } from "./pointer.js";
+export { setPickable } from "./tileHover.js";
 export { setHeld, dropHeld, animateMove, animateUndo, glideHome } from "./motion.js";
 import { BOARD_SIZE, CELL_SIZE, PIECE_SIZE, FILES, DESK_Y, ROOM_BACKGROUND, BOARD_IMAGE, HIGHLIGHTS, FOCUS_RING, NEAR, REDUCE, NO_MONITOR, LABEL, FOV } from "./constants.js";
 
@@ -227,6 +230,7 @@ function frame(now) {
 	if (view.cameraTurn) { stepCamera(now); }
 	if (view.zoom) { stepZoom(now); }
 	if (view.controls.enableDamping && !view.zoom && monitorIdle()) { view.controls.update(); } // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME. NOT AT THE MONITOR: IT WOULD AIM THE CAMERA BACK AT THE BOARD
+	followCamera(); // THE HOVER BOX STAYS UNDER A STILL POINTER WHILE THE CAMERA MOVES BY ITSELF
 	stepFire(now, view.renderer.domElement.height); // ITS OWN TIMER ASKS FOR ITS FRAMES (fire.js)
 	stepClock(); // SO DOES THE CLOCK'S (clock.js)
 	view.renderer.render(view.scene, view.camera);
@@ -321,7 +325,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	Object.assign(view, { tweens: createTweens(requestRender), cards: null, cardOptions: { onPick() {}, onTable() {}, tableOn: () => true, ...(cards || {}) }, promotion: null, cardCursor: false, dealHome: null, dealEase: null, cardTemplate: null, table: null, tableArgs: null, tableLifted: null }); // tweens: THE CARDS' SLIDES & THE CAMERA'S DEAL MOVES (STEPPED IN frame), cards: THE PROMOTION CARDS ONCE THE ROOM HAS LOADED (A room WITHOUT THEM LEAVES null), table: A CHESS CARDS GAME'S TABLE (setCardTable) ONCE THE ROOM HAS LOADED, tableArgs & tableLifted: WHAT IT WAS LAST TOLD, promotion: { color } WHILE ONE IS ASKED FOR, cardCursor: THE HAND CURSOR IS A CARD'S, dealHome: WHERE THE CAMERA WAS BEFORE IT FRAMED A DEAL { position, target, maxDistance, back }, dealEase: THE CAMERA'S DEAL MOVE RUNNING (moveDealCamera)
 	view.drawn = new Promise((resolve) => { view.markDrawn = resolve; }); // whenDrawn(): THE FIRST FRAME WITH THE SQUARES IN (textureReady)
 	view.textureReady = false;
-	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0, time: 0 }, pointerAt: { x: 0, y: 0 }, pointerType: null, touches: new Set(), multiTouch: false }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER, touches: THE FINGERS DOWN (pointerId), multiTouch: MORE THAN ONE WAS, SINCE ALL WERE UP
+	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0, time: 0 }, pointerAt: { x: 0, y: 0 }, pointerOver: false, pickable: null, pointerType: null, touches: new Set(), multiTouch: false }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER, touches: THE FINGERS DOWN (pointerId), multiTouch: MORE THAN ONE WAS, SINCE ALL WERE UP
 	container.style.backgroundColor = scene.background.getStyle(); // THE SAFE AREA PADDING (UNDER A NOTCH) IS THE SCENE'S BACKGROUND
 	view.observer = new ResizeObserver(resize);
 	view.observer.observe(container);
@@ -467,27 +471,17 @@ export function setFacing(facings) {
 }
 
 /**
- * @description Which square a pointer event is over (the piece's square when it's over a piece, so tall pieces are easy to hit)
+ * @description Which tile a pointer event is over. The board is picked by tile, never through a piece's body (Task 20e): a tall piece in front doesn't take the tile behind it
  * @param  {[PointerEvent|MouseEvent]} e [any event with clientX & clientY]
  * @return {[string|null]} ["e4", or null when it's off the board or nothing is mounted]
  */
 export function squareUnder(e) {
 	if (!view || !monitorIdle()) { return null; } // AT THE MONITOR THE BOARD TAKES NO INPUT
-	const hit = hitUnder(e, true);
-	if (!hit) { return null; }
-	if (hit.object !== view.plane) { return hit.object.userData.square; }
-	return FILES[toCell(hit.point.x)] + (8 - toCell(hit.point.z));
-}
-
-// THE NEAREST PIECE (OR THE BOARD, withBoard) UNDER A POINTER EVENT, undefined WHEN NOTHING IS
-function hitUnder(e, withBoard) {
 	const rect = view.renderer.domElement.getBoundingClientRect();
 	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
 	raycaster.setFromCamera(pointer, view.camera);
-	const dragged = view.held && view.held.following ? view.held.mesh : null; // THE DRAGGED PIECE IS UNDER THE POINTER, THE SQUARE IS UNDER IT
-	const targets = [...view.pieces.values()].filter((mesh) => mesh !== dragged);
-	if (withBoard) { targets.push(view.plane); }
-	return raycaster.intersectObjects(targets, false)[0];
+	const hit = raycaster.intersectObject(view.plane, false)[0];
+	return hit ? tileAt(hit.point.x, hit.point.z, BOARD_SIZE) : null;
 }
 
 /**
@@ -626,7 +620,7 @@ export function setCardTable(state, legal, opts = {}) {
 	if (!view) { return; }
 	view.tableArgs = [state, legal, opts];
 	if (!view.table && view.cardTemplate) {
-		view.table = createCardTable({ template: view.cardTemplate, room: view.room, tweens: view.tweens, requestRender, still: () => REDUCE.matches });
+		view.table = createCardTable({ template: view.cardTemplate, room: view.room, tweens: view.tweens, requestRender, still: () => REDUCE.matches, frame: (box) => framePile(box, !REDUCE.matches) });
 		if (view.table) { view.table.lift(view.tableLifted); }
 	}
 	if (view.table) { view.table.set(state, opts); }
@@ -650,8 +644,8 @@ export function dropCard() {
 }
 
 /**
- * @description Opens a Board Effects pile to read, or closes it when it's the one open (the keyboard's way to what a click on the pile does)
- * @param  {[string]} pile ["mine" or "his"]
+ * @description Opens a passive pile or an active spot into its column, or closes it when it's the one open (the keyboard's way to what a click on the pile does)
+ * @param  {[string]} pile [a key of tableLayout.js PILES]
  */
 export function toggleCardPile(pile) {
 	if (view && view.table) { view.table.togglePile(pile); }

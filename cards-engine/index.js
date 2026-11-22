@@ -29,7 +29,7 @@ class IllegalAction extends Error {
  * @description A new game from the start position (seed: a 64-character hex string, or an integer in tests; see rng.seed): each colour's piece ids shuffled with the game rng (so an id never tells the piece type), each player dealt 5 move cards (hand.MOVES) and 1 active and given KING_SKULLS King skulls (kingSkulls), White to move.
  */
 function newGame({ cardGuy, level, seed }) {
-	const player = () => ({ king: true, moves: [], actives: [], passive: null, curses: [], used: [], refillLock: 0, curseWait: 0, lostTurns: 0, kingSkulls: KING_SKULLS, captured: [], seen: null });
+	const player = () => ({ king: true, moves: [], actives: [], passive: null, curses: [], used: [], refillLock: 0, curseWait: 0, lostTurns: 0, kingSkulls: KING_SKULLS, captured: [], seen: null, kept: null, pile: { n: 0, top: null }, spot: [], gone: [] });
 	const state = {
 		v: ENGINE_VERSION, rng: rng.seed(seed), board: board.fromFen(START), cardGuy, level, ply: 0, nextId: 1,
 		players: { w: player(), b: player() }, statuses: {}, effects: [], enchant: [], duel: null, pending: null, multi: null, barred: null, discarded: null, result: null,
@@ -46,7 +46,7 @@ function newGame({ cardGuy, level, seed }) {
 }
 
 /**
- * @description Resolve one action for player on a deep copy of state; throws IllegalAction for anything not in legalActions (compared by actionKey). Returns { state, events }. Event types: move, capture (with sq, the captured piece's square), promote, check (also at the start of a turn for a side a trigger or an ended status put in check; it says what holds when emitted, and a later effect in the same action can lift it, so the client reads the standing check from the state at turn-start), card-played, card-cancelled, passive-placed, passive-fired, passive-cancelled, status, status-ended, enchant, enchant-ended, curse-given, curse-fired, curse-cleared, draw, discard, redraw, turn-start, turn-skipped, king-skull, card-taken, handover, choice, duel-deal, duel-flip, duel-result, move-undone, game-over.
+ * @description Resolve one action for player on a deep copy of state; throws IllegalAction for anything not in legalActions (compared by actionKey). Returns { state, events }. Event types: move, capture (with sq, the captured piece's square), promote, check (also at the start of a turn for a side a trigger or an ended status put in check; it says what holds when emitted, and a later effect in the same action can lift it, so the client reads the standing check from the state at turn-start), card-played, card-cancelled, passive-placed, passive-fired, passive-cancelled, status, status-ended, enchant, enchant-ended, curse-given, curse-fired, curse-cleared, draw, discard (kept: true for the free discard's remembered move card), card-dropped (a placed card dropped by its owner, or with replaced: true the oldest waiting passive a fourth one replaced), card-ended (an active leaves the active spot for the discard pile), redraw, turn-start, turn-skipped, king-skull, card-taken, handover, choice, duel-deal, duel-flip, duel-result, move-undone, game-over.
  */
 function applyAction(state, player, action) {
 	const key = turn.actionKey(action);

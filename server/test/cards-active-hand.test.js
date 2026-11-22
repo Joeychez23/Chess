@@ -288,10 +288,12 @@ describe("Mulligan", () => {
 		assert.deepEqual(kinds(s), ["active", "discard", "move", "passive"]);
 		let r = play(s, "w", id).state;
 		assert.deepEqual(kinds(r), ["discard", "move"]);
-		assert.ok(legalActions(r, "w").filter((a) => a.type === "discard").every((a) => a.cards.length === 2)); // THE ACTIVE SLOT IS EMPTY
-		r = applyAction(r, "w", legalActions(r, "w").find((a) => a.type === "discard")).state;
-		assert.equal(r.board.turn, "w");
-		assert.deepEqual(kinds(r), ["move"]);
+		assert.ok(legalActions(r, "w").filter((a) => a.type === "discard").every((a) => r.players.w.moves.some((c) => c.id === a.cards[0]))); // THE ACTIVE SLOT IS EMPTY: MOVE CARDS ONLY
+		for (const left of [["discard", "move"], ["move"]]) { // 2 MOVE CARDS A TURN, ONE AT A TIME (TASK 20e)
+			r = applyAction(r, "w", legalActions(r, "w").find((a) => a.type === "discard")).state;
+			assert.equal(r.board.turn, "w");
+			assert.deepEqual(kinds(r), left);
+		}
 		r = step(r, "w");
 		assert.equal(r.board.turn, "b");
 		assert.deepEqual([r.multi, r.discarded], [null, null]);
@@ -299,7 +301,9 @@ describe("Mulligan", () => {
 
 	test("the free discard first, then Mulligan, then a move", () => {
 		const { s, id } = holding("mulligan");
-		let r = applyAction(s, "w", legalActions(s, "w").find((a) => a.type === "discard" && a.cards.length === 2)).state;
+		const moveCard = (st) => legalActions(st, "w").find((a) => a.type === "discard" && st.players.w.moves.some((c) => c.id === a.cards[0]));
+		let r = applyAction(s, "w", moveCard(s)).state;
+		r = applyAction(r, "w", moveCard(r)).state; // THE TURN'S 2 MOVE CARDS (TASK 20e)
 		assert.ok(legalActions(r, "w").some((a) => a.type === "active" && a.card === id));
 		r = play(r, "w", id).state;
 		assert.equal(r.board.turn, "w");

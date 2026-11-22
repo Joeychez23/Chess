@@ -63,7 +63,8 @@ function visibleTo(s, viewer, card) {
 function allowedKeys(v, viewer) {
 	const vo = v.players[other(viewer)];
 	return new Set([...handOf(v.players[viewer]).map((c) => c.key), ...vo.hand.shown.map((c) => c.key), ...v.effects.map((e) => e.card.key),
-		...v.players.w.used, ...v.players.b.used, ...v.enchant.map((e) => e.key)]);
+		...v.players.w.used, ...v.players.b.used, ...v.enchant.map((e) => e.key),
+		...["w", "b"].flatMap((c) => [...v.players[c].spot, v.players[c].pile.top, v.players[c].kept]).filter(Boolean).map((c) => c.key), ...v.players[viewer].gone]); // TASK 20e: THE ACTIVE SPOTS, THE PILES AS THE VIEW SHOWS THEM, viewer'S OWN PASSIVES THAT LEFT
 }
 
 /**
@@ -363,7 +364,7 @@ test("the opponent's player shows only the fields the view is meant to show", ()
 	s.players.w.secret = "y";
 	const w = playerView(s, "w");
 	assert.ok(!("secret" in w.players.b));
-	assert.deepEqual(Object.keys(w.players.b).sort(), ["captured", "curseWait", "hand", "king", "kingSkulls", "lostTurns", "refillLock", "used"]);
+	assert.deepEqual(Object.keys(w.players.b).sort(), ["captured", "curseWait", "hand", "kept", "king", "kingSkulls", "lostTurns", "pile", "refillLock", "spot", "used"]); // TASK 20e: THE PLACES (kept, pile, spot), NEVER gone
 	assert.equal(w.players.w.secret, "y"); // THE VIEWER'S OWN PLAYER KEEPS EVERY FIELD BUT seen
 	assert.equal(playerView(s, "b").players.b.secret, "x");
 });

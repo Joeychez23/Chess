@@ -15,7 +15,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN
-const { toFen, sqIndex } = require("../../../../../cards-engine/board.js"); // THE VIEW'S BOARD AS A FEN, THE ENGINE'S OWN (NO OTHER PART OF THE ENGINE IS LOADED)
+const { toFen, sqIndex, sqName } = require("../../../../../cards-engine/board.js"); // THE VIEW'S BOARD AS A FEN, THE ENGINE'S OWN (NO OTHER PART OF THE ENGINE IS LOADED)
 const { cards, takeResponse } = require("./store.js"); // THE CARD ROUTES' LAST ANSWER
 const { sendAction, cardGuyTurn, getCardGuy } = require("./api.js"); // REQUESTS TO THE CARD ROUTES (/api/chess/cards)
 const { showBot } = require("../bots/say.js"); // CARD GUY'S NAME BESIDE THE BOARD
@@ -182,7 +182,9 @@ function refreshTable() {
 	if (keyFocus !== null) { keyFocus = stops.length ? Math.min(keyFocus, stops.length - 1) : null; }
 	if (squareFocus !== null && squareFocus >= glow.length) { squareFocus = null; }
 	const stop = keyFocus === null ? null : stops[keyFocus];
+	const picking = !promoting && !choosing(); // AS pressSquare: ONLY THEN IS A PIECE PICKED UP
 	setTable3D(cards.view, cards.legal, {
+		pickable: yourMove() ? cards.view.board.sq.map((p, i) => (picking && p && p.c === cards.you && S.pickPiece(cards.legal, cards.view, sqName(i), cards.hidden) ? sqName(i) : null)).filter(Boolean) : null, // THE 3D HOVER FADES WHAT COVERS THESE & THE GLOWING SQUARES, NOTHING (null) OFF THE PLAYER'S TURN (USER RULING R1, TASK 20E)
 		catalog: cards.catalog, focus: stop?.kind === "hand" ? stop.id : null, focusPile: stop?.kind === "pile" ? stop.pile : null, dim: S.dimmed(cards.legal, cards.view, cards.hidden),
 		lifted: sel ? sel.card : null, glow, glowFocus: squareFocus !== null ? glow[squareFocus] : !glow.length && stop?.kind === "square" ? stop.square : null,
 	});

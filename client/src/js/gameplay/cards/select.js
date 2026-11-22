@@ -97,22 +97,14 @@ function actionsFor(legal, view, cardId) {
 }
 
 /**
- * @description The free discards a hand card is in (user rulings 2026-11-21, 2026-11-22: 2 move cards, an active alone, or the held passive alone, its reroll): one per partner type, as two cards of a type are
- * the same discard (the same floor too, so the same label)
+ * @description The free discard of a hand card (Task 20e: one card at a time, a move card, an active, or the held passive, its reroll): its own, when legal lists it. Segment D replaces the button with a drag
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} view [cards.view]
  * @param  {[string]} cardId
  * @return {[array]} actions
  */
 function discardsFor(legal, view, cardId) {
-	const hand = handCards(view), seen = new Set();
-	return legal.filter((a) => {
-		if (a.type !== "discard" || !a.cards.includes(cardId)) { return false; }
-		const partner = a.cards.find((id) => id !== cardId), type = partner ? (hand.find((c) => c.id === partner) || {}).piece : null;
-		if (seen.has(type)) { return false; }
-		seen.add(type);
-		return true;
-	});
+	return legal.filter((a) => a.type === "discard" && a.cards.includes(cardId));
 }
 
 /**
@@ -352,7 +344,7 @@ function promotionPick(ready) {
 
 /**
  * @description The keyboard's stops, in order: the hand, then the player's pieces with a move that needs no card (cardless in legal; under fog those cardlessUnderFog covers),
- * then each Board Effects pile that holds a card ("mine" first)
+ * then each Board Effects pile that holds a card ("mine" first), then each active spot that holds one ("mineSpot", "hisSpot")
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} view [cards.view]
  * @param  {[boolean]} hidden [cards.hidden]
@@ -363,6 +355,8 @@ function focusList(legal, view, hidden) {
 	const squares = hidden ? view.board.sq.map((p, i) => (p && p.c === me && cardlessUnderFog(view, p) ? sqName(i) : null)).filter(Boolean)
 		: [...new Set(legal.filter((a) => a.type === "move" && a.card === null).map((a) => a.from))];
 	const piles = [["mine", me], ["his", opp]].filter(([, owner]) => (view.effects || []).some((e) => e && e.owner === owner && e.card)).map(([pile]) => pile);
+	const spots = [["mineSpot", me], ["hisSpot", opp]].filter(([, owner]) => ((view.players[owner] || {}).spot || []).length).map(([pile]) => pile); // THE ACTIVE SPOTS OPEN AS THE PILES DO (TASK 20e)
+	piles.push(...spots);
 	return [...handCards(view).map((c) => ({ kind: "hand", id: c.id })), ...squares.sort().map((square) => ({ kind: "square", square })), ...piles.map((pile) => ({ kind: "pile", pile }))];
 }
 
@@ -370,7 +364,7 @@ function focusList(legal, view, hidden) {
 // Words
 /* ---------------------------------------------------------------- */
 /**
- * @description What a free discard of 2 move cards draws back (user ruling 2026-11-22: a card worth at least the lower of the two): "draw 1" with a pawn in the pair (anything),
+ * @description What the second move card of a free discard's pair draws back (Task 20e: the first is remembered, view.players[you].kept). Before the floor was dropped (user ruling 2026-11-22: a card worth at least the lower of the two): "draw 1" with a pawn in the pair (anything),
  * else the lower card's own type, "draw a Rook or better" (two queens: "draw a Queen"; a floor of 3 "draw a Knight / Bishop or better"). A bare king: "no card back". When the player has no piece worth more than that floor
  * (nothing better to draw, or nothing worth it: it drops) it names the most valuable card type they can still draw: "draw a Knight / Bishop" with a knight or a bishop left (review 2 M6).
  * The player's own pieces are in view.board under fog too
@@ -379,12 +373,15 @@ function focusList(legal, view, hidden) {
  * @return {[string]} words
  */
 function drawBack(pair, view) {
-	const low = pair.reduce((a, b) => (VALUE[b.piece] < VALUE[a.piece] ? b : a)).piece, floor = VALUE[low];
-	const own = Object.keys(CARD_MOVES).filter((t) => view.board.sq.some((p) => p && p.c === view.you && CARD_MOVES[t].includes(p.t))), best = Math.max(0, ...own.map((t) => VALUE[t])); // THE CARD TYPES THE PLAYER CAN DRAW
-	if (!best) { return "no card back"; } // A BARE KING DRAWS NONE
-	if (!(floor > 1)) { return "draw 1"; } // A PAWN (OR A CARD THE VIEW DOESN'T NAME): ANYTHING
-	if (floor >= best) { return `draw a ${own.filter((t) => VALUE[t] === best).map((t) => PIECE_NAMES[t]).join(" or ")}`; }
-	return `draw a ${PIECE_NAMES[low]} or better`; // TWO QUEENS ARE floor >= best: "draw a Queen"
+	const best = view.board.sq.some((p) => p && p.c === view.you && p.t !== "k");
+	return best ? "draw 1" : "no card back"; // A BARE KING DRAWS NONE. THE DRAW-BACK IS RANDOM (USER RULING 2026-11-22, AFTER A TRIAL OF A FLOOR)
+	// THE DRAW-BACK FLOOR'S LABEL, DROPPED BY THE USER 2026-11-22 AFTER A TRIAL: THE DRAW-BACK IS RANDOM AGAIN. KEPT FOR REFERENCE:
+	// const low = pair.reduce((a, b) => (VALUE[b.piece] < VALUE[a.piece] ? b : a)).piece, floor = VALUE[low];
+	// const own = Object.keys(CARD_MOVES).filter((t) => view.board.sq.some((p) => p && p.c === view.you && CARD_MOVES[t].includes(p.t))), best = Math.max(0, ...own.map((t) => VALUE[t])); // THE CARD TYPES THE PLAYER CAN DRAW
+	// if (!best) { return "no card back"; } // A BARE KING DRAWS NONE
+	// if (!(floor > 1)) { return "draw 1"; } // A PAWN (OR A CARD THE VIEW DOESN'T NAME): ANYTHING
+	// if (floor >= best) { return `draw a ${own.filter((t) => VALUE[t] === best).map((t) => PIECE_NAMES[t]).join(" or ")}`; }
+	// return `draw a ${PIECE_NAMES[low]} or better`; // TWO QUEENS ARE floor >= best: "draw a Queen"
 }
 
 /**
@@ -413,7 +410,8 @@ function label(action, view, catalog, taken = null) {
 		case "discard": {
 			const held = action.cards.map((id) => handCards(view).find((c) => c.id === id) || {});
 			if (held[0].kind === "passive") { return `Reroll your ${cardName(action.cards[0]) || "passive"} (new passive now)`; }
-			return `Discard your ${action.cards.map((id) => cardName(id) || "card").join(" & ")} (${action.cards.length === 2 ? drawBack(held, view) : "new one at turn end"})`;
+			const back = held[0].kind !== "move" ? "new one at turn end" : view.players[view.you].kept ? drawBack(held, view) : "the next one discarded draws 1"; // A MOVE CARD: THE FIRST IS REMEMBERED, ITS PAIR DRAWS (TASK 20e)
+			return `Discard your ${action.cards.map((id) => cardName(id) || "card").join(" & ")} (${back})`;
 		}
 		case "clear": {
 			if (action.discard === undefined) { return "Pay: skip this move"; }

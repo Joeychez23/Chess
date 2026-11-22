@@ -95,7 +95,7 @@ test("Card Guy only ever returns an action in legalActions", async () => {
 	}
 });
 
-test("Card Guy's free discard, at every level: the active when it has no play, else 2 move cards with no move, else none; never a scored candidate", async () => {
+test("Card Guy's free discard, at every level: the active when it has no play, else a move card with no move, one at a time, else none; never a scored candidate", async () => {
 	for (const level of [600, 1300, 2400]) {
 		const s = newGame({ cardGuy: "w", level, seed: 3 }); // WHITE TO MOVE AT THE START: ROOK & QUEEN CARDS HAVE NO MOVE, PAWN & KNIGHT / BISHOP CARDS DO
 		const card = (piece) => hand.newCard(s, "move", { piece });
@@ -103,10 +103,12 @@ test("Card Guy's free discard, at every level: the active when it has no play, e
 		s.players.w.moves = [card("p"), card("r"), card("q"), card("m")];
 		const dead = s.players.w.actives[0].id, turn = (st) => cardGuyTurn(playerView(st, "w"), level, opts());
 		assert.deepEqual(await turn(s), { type: "discard", cards: [dead] }, level + ": the dead active");
-		s.players.w.actives = [hand.newCard(s, "swap")]; // A LIVE ACTIVE: THE 2 DEAD MOVE CARDS GO
-		assert.deepEqual(await turn(s), { type: "discard", cards: [s.players.w.moves[1].id, s.players.w.moves[2].id] }, level + ": the 2 dead move cards");
-		s.players.w.moves.splice(2, 1); // ONE DEAD MOVE CARD: KEPT
-		assert.notEqual((await turn(s)).type, "discard", level + ": one dead card");
+		s.players.w.actives = [hand.newCard(s, "swap")]; // A LIVE ACTIVE: THE DEAD MOVE CARDS GO, ONE AT A TIME (TASK 20e)
+		assert.deepEqual(await turn(s), { type: "discard", cards: [s.players.w.moves[1].id] }, level + ": the first dead move card");
+		const next = applyAction(s, "w", { type: "discard", cards: [s.players.w.moves[1].id] }).state;
+		assert.deepEqual(await turn(next), { type: "discard", cards: [s.players.w.moves[2].id] }, level + ": then the second, which draws 1 back");
+		s.players.w.moves.splice(2, 1); // ONE DEAD MOVE CARD: IT GOES TOO, REMEMBERED UNTIL ITS PAIR
+		assert.deepEqual(await turn(s), { type: "discard", cards: [s.players.w.moves[1].id] }, level + ": one dead card");
 		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")];
 		s.discarded = "w"; // USED THIS TURN
 		assert.notEqual((await turn(s)).type, "discard", level + ": used");
@@ -119,18 +121,18 @@ test("Card Guy's free discard, at every level: the active when it has no play, e
 	for (const seed of [1, 2, 3, 4]) assert.notEqual((await cardGuyTurn(playerView(s, "w"), 600, opts({ evaluate: lazy, seed }))).type, "discard");
 });
 
-test("Card Guy's dead pair is the one with the lowest draw-back floor, ties in hand order (user ruling 2026-11-22)", async () => {
+test("Card Guy's dead move card is the first in hand order (the draw-back is random, user ruling 2026-11-22)", async () => {
 	const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
 	for (const sq of ["b1", "g1"]) s.statuses[s.board.sq[engine.board.sqIndex(sq)].id] = [{ s: "hexed", left: 9, by: "b" }]; // WHITE TO MOVE AT THE START, BOTH KNIGHTS HEXED (NO CARD MOVES THEM): QUEEN, ROOK & KNIGHT / BISHOP CARDS HAVE NO MOVE
 	const deal = (types) => { s.players.w.moves = types.map((piece) => hand.newCard(s, "move", { piece })); return s.players.w.moves.map((c) => c.id); };
 	const turn = () => cardGuyTurn(playerView(s, "w"), 1300, opts());
 	s.players.w.actives = [hand.newCard(s, "swap")]; // A LIVE ACTIVE: THE MOVE CARDS ARE WHAT GOES
 	let ids = deal(["q", "r", "m", "p"]);
-	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[2]] }); // QUEEN & KNIGHT / BISHOP (FLOOR 3), NOT THE FIRST PAIR, QUEEN & ROOK (FLOOR 5)
-	ids = deal(["q", "r", "r"]);
-	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[1]] }); // EVERY PAIR HAS FLOOR 5: THE FIRST
+	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0]] }); // THE QUEEN CARD: THE FIRST DEAD ONE
+	ids = deal(["p", "r", "q"]);
+	assert.deepEqual(await turn(), { type: "discard", cards: [ids[1]] }); // THE PAWN CARD HAS A MOVE: THE ROOK CARD
 	ids = deal(["r", "q", "m", "m"]);
-	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[2]] }); // FLOOR 3 FIVE WAYS: THE FIRST IN HAND ORDER
+	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0]] });
 });
 
 test("Card Guy never rerolls its passive (user ruling 2026-11-22)", async () => {
@@ -399,7 +401,7 @@ test("Card Guy plays on from a view with a Hollow Crown (King card held or lost)
 		if (kind === 1) s.players.b.king = false;
 		if (kind >= 2) assert.ok(ctx.giveCurse(kind === 2 ? "w" : "b", "mirage", kind === 2 ? "b" : "w"));
 		const r = await play(s, 24, { seed: kind });
-		assert.equal(r.refused, 0);
+		assert.ok(r.refused <= 2 * r.foggy, r.refused + " refusals over " + r.foggy + " turns under a fog"); // ask FAILS ON ONE WITH NO FOG UP. WAS refused === 0 UNTIL THE RANDOM DRAW-BACK (2026-11-22) CHANGED THESE GAMES: ONE NOW PLAYS A FOG OF WAR
 		assert.ok(r.actions === 24 || r.state.result);
 	}
 });
@@ -416,9 +418,12 @@ test("in check Card Guy never plays the entered Mirage he holds: the block goes 
 	}
 });
 
-test("under the player's Fog of War Card Guy still reaches a legal action, also with a hidden Tremor Frozen on a fogged pawn", async () => {
+/**
+ * @description Card Guy (Black, 1300) plays games under White's Fog of War with a hidden Tremor Frozen on a fogged pawn: 6 actions, the fog goes up, 30 more. Returns his { turns, refused, worst: the most refusals in one turn }.
+ */
+async function underFog(seeds) {
 	let turns = 0, refused = 0, worst = 0;
-	for (const seed of [1, 2, 3]) {
+	for (const seed of seeds) {
 		let s = newGame({ cardGuy: "b", level: 1300, seed: 30 + seed });
 		s = (await play(s, 6, { seed })).state; // A FEW MOVES FIRST, SO LINES ARE OPEN
 		fogUp(s, "w");
@@ -432,9 +437,21 @@ test("under the player's Fog of War Card Guy still reaches a legal action, also 
 			s = applyAction(s, c, r.action).state;
 		}
 	}
+	return { turns, refused, worst };
+}
+
+test("under the player's Fog of War Card Guy still reaches a legal action, also with a hidden Tremor Frozen on a fogged pawn", async () => {
+	const { turns, refused, worst } = await underFog([1, 2, 3]);
 	assert.ok(turns >= 30);
-	assert.ok(refused <= turns && worst <= 6, refused + " refusals in " + turns + " turns, " + worst + " in one"); // MEASURED: 20 IN 44 TURNS, 3 IN ONE (A REFUSAL IS A WHOLE TURN THOUGHT AGAIN)
+	assert.ok(refused <= turns && worst <= 6, refused + " refusals in " + turns + " turns, " + worst + " in one"); // A REFUSAL IS A WHOLE TURN THOUGHT AGAIN, AND THE REAL GAME PLAYS A FALLBACK AFTER 8 (cardsController MAX_REFUSALS)
 	console.log("    under the player's fog: " + turns + " Card Guy actions, " + refused + " refused first, at most " + worst + " in one turn");
+});
+
+test("refusals under the player's Fog of War correct Card Guy's guess of the fogged pieces: checked by a fogged piece, he answers the check inside the real game's limit", async () => {
+	for (const seed of [1, 67]) { // 18 REFUSALS IN ONE TURN (A FOGGED BISHOP'S CHECK, EVERY OTHER MOVE TRIED FIRST) AND, BEFORE THE DRAWS OF TASK 20e, 12
+		const { worst } = await underFog([seed]);
+		assert.ok(worst <= 8, "game " + seed + ": " + worst + " refusals in one turn"); // cardsController MAX_REFUSALS
+	}
 });
 
 test("All or Nothing is scored by its expected value, not played out", async () => {
@@ -724,4 +741,61 @@ test("a refused free discard with nothing else to do on Card Guy's guess: no oth
 	}
 	assert.equal(discards, 1, discards + " free discards offered after the first was refused");
 	assert.match(error.message, /no action/);
+});
+
+/* ---------------------------------------------------------------- */
+// The waiting passives (Task 20e, segment B2)
+/* ---------------------------------------------------------------- */
+/**
+ * @description A new game, White (Card Guy) to move, with White's waiting passives [key, placedAt] pushed in the order given and held in its hand. Returns { s, ids: the waiting cards' ids in that order }
+ */
+function waiting(list, held, { level = 2400, fen } = {}) {
+	const s = fen ? position(fen, { cardGuy: "w", level, seed: 3 }) : newGame({ cardGuy: "w", level, seed: 3 });
+	const ids = list.map(([key, placedAt]) => { const card = hand.newCard(s, key); s.effects.push({ id: card.id, owner: "w", card, placedAt }); return card.id; });
+	s.players.w.passive = held ? hand.newCard(s, held) : null;
+	return { s, ids };
+}
+
+test("Card Guy with 3 passives waiting and a rarer one in hand drops the weakest, the oldest of a tie, then places the new one (Task 20e)", async () => {
+	for (const level of [600, 1300, 2400]) {
+		const { s, ids } = waiting([["witness", 2], ["hex", 0], ["patience", 1]], "underdog", { level }); // COMMON, UNCOMMON, COMMON; A RARE IN HAND. THE OLDER COMMON IS PATIENCE
+		const held = s.players.w.passive.id, turn = (st) => cardGuyTurn(playerView(st, "w"), level, opts({ legal: engine.playerLegal(st, "w") }));
+		const drop = await turn(s);
+		assert.deepEqual(drop, { type: "drop", card: ids[2] }, level + ": the older common");
+		const dropped = applyAction(s, "w", drop).state;
+		assert.equal(dropped.board.turn, "w"); // FREE
+		const placed = await turn(dropped);
+		assert.deepEqual(placed, { type: "passive" }, level + ": then the new one");
+		const after = applyAction(dropped, "w", placed);
+		assert.deepEqual(after.state.effects.filter((e) => e.owner === "w").map((e) => e.id).sort(), [ids[0], ids[1], held].sort());
+		assert.ok(!after.events.some((e) => e.type === "card-dropped")); // NOTHING REPLACED
+	}
+	const { s, ids } = waiting([["underdog", 0], ["patience", 1], ["veto", 2]], "hex"); // RARE, COMMON, RARE; AN UNCOMMON IN HAND: RARER THAN THE WEAKEST IS ENOUGH
+	assert.deepEqual(await cardGuyTurn(playerView(s, "w"), 2400, opts()), { type: "drop", card: ids[1] });
+});
+
+test("Card Guy keeps his waiting passives otherwise: no rarer one in hand, fewer than 3 waiting, in check; and never places a fourth over the oldest (Task 20e)", async () => {
+	const never = async (s, why) => {
+		for (const level of [600, 2400]) for (const seed of [1, 2, 3, 4]) {
+			let st = s;
+			for (let n = 0; n < 4 && st.board.turn === "w" && !st.result; n++) { // THE WHOLE TURN, ITS FREE DISCARDS TOO
+				const a = await cardGuyTurn(playerView(st, "w"), level, opts({ seed }));
+				assert.notEqual(a.type, "drop", why);
+				if (st.effects.filter((e) => e.owner === "w").length >= 3) assert.notEqual(a.type, "passive", why);
+				st = applyAction(st, "w", a).state;
+			}
+		}
+	};
+	const same = waiting([["witness", 0], ["hex", 1], ["patience", 2]], "spite"); // A COMMON IN HAND, THE WEAKEST WAITING IS COMMON
+	assert.ok(legalActions(same.s, "w").some((a) => a.type === "passive") && legalActions(same.s, "w").some((a) => a.type === "drop"));
+	assert.ok(!candidates(engine.fromView(playerView(same.s, "w"), 1), "w").some((a) => a.type === "passive" || a.type === "drop"));
+	await never(same.s, "no rarer one in hand");
+	await never(waiting([["hex", 0], ["underdog", 1], ["veto", 2]], "patience").s, "a weaker one in hand");
+	await never(waiting([["witness", 0], ["patience", 1], ["spite", 2]], null).s, "none in hand");
+	const two = waiting([["witness", 0], ["patience", 1]], "underdog");
+	await never(two.s, "2 waiting");
+	assert.ok(candidates(engine.fromView(playerView(two.s, "w"), 1), "w").some((a) => a.type === "passive")); // WITH ROOM IT IS STILL SCORED
+	const checked = waiting([["witness", 0], ["hex", 1], ["patience", 2]], "underdog", { fen: "4k3/8/8/8/8/8/4r3/4K3 w - - 0 1" }); // IN CHECK NO PASSIVE IS PLACED: NO DROP FOR ONE
+	assert.ok(legalActions(checked.s, "w").some((a) => a.type === "drop") && !legalActions(checked.s, "w").some((a) => a.type === "passive"));
+	await never(checked.s, "in check");
 });
