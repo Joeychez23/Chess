@@ -146,7 +146,7 @@ async function playCardGuyTurn(gameData, state) {
 	while (!next && refused.length <= MAX_REFUSALS) {
 		let action;
 		try {
-			action = await cardGuy.cardGuyTurn(view, state.level, { evaluate: cardGuy.evaluate, bestOf, seed, refused });
+			action = await cardGuy.cardGuyTurn(view, state.level, { evaluate: cardGuy.evaluate, bestOf, seed, refused, legal: playerLegal(state, me) }); // THE LIST A PLAYER IS TOLD: NO MOVE FOR A MIRAGE IT HOLDS IN CHECK
 			next = applyAction(state, me, action);
 		} catch (err) {
 			if (!action || !(err instanceof IllegalAction)) { console.log(`CARD GUY FOUND NO ACTION IN GAME ${gameId}: ${err.message}`); break; } // NO action: CARD GUY ITSELF THREW, THERE'S NOTHING TO REFUSE & ASKING AGAIN GIVES THE SAME

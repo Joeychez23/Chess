@@ -1,6 +1,6 @@
 /*
  *  all-or-nothing.js  --  chess cards engine
- *	Active: play the card duel (duel.js) to upgrade one of your pieces; a loss forfeits 6 random cards and the piece (epic version: the piece only; legendary version: the cards only).
+ *	Active: play the card duel (duel.js) to upgrade one of your pieces; a loss forfeits the whole hand and the piece (epic version: the piece only; legendary version: the cards only).
  *
  */
 
@@ -18,7 +18,7 @@ const DUEL = "Play the card duel (core rules) to promote a non-queen, non-king p
 
 module.exports = {
 	key: "all-or-nothing", kind: "active", name: "All or Nothing", skulls: 3, rarity: "rare",
-	text: DUEL + "losing a hand forfeits 6 random cards and the piece being promoted.",
+	text: DUEL + "losing a hand forfeits every card you hold and the piece being promoted.",
 	/**
 	 * @description { piece } for each of player's pieces but queens and kings whose loss wouldn't expose the own king; none in check (a random outcome).
 	 */
@@ -53,7 +53,7 @@ module.exports = {
 		},
 		{
 			rarity: "legendary", skulls: 2,
-			text: DUEL + "losing a hand forfeits 6 random cards but not the piece; the duel just ends.",
+			text: DUEL + "losing a hand forfeits every card you hold but not the piece; the duel just ends.",
 			/**
 			 * @description Start the duel with the legendary stakes (duel.result reads them from state.duel.card).
 			 */

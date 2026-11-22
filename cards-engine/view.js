@@ -157,7 +157,7 @@ function fillPieces(ctx, color) {
 }
 
 /**
- * @description Rebuild color's hand from { count, shown }: shown cards to their slots by kind, then the unknown rest drawn from ctx.rng (move cards up to 6, an active if none is shown, then move cards).
+ * @description Rebuild color's hand from { count, shown }: shown cards to their slots by kind, then the unknown rest drawn from ctx.rng (move cards up to hand.MOVES, 5, an active if none is shown, then move cards).
  */
 function fillHand(ctx, color) {
 	const p = ctx.state.players[color], { count, shown } = p.hand;

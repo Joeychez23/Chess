@@ -13,7 +13,7 @@ const { inCheck } = require("./rules.js");
 const view = require("./view.js");
 const { baseKey } = require("./cards/index.js");
 
-const ENGINE_VERSION = 1;
+const ENGINE_VERSION = 2; // 2: THE KNIGHT / BISHOP CARD (A VERSION 1 GAME HOLDS KNIGHT AND BISHOP CARDS NOTHING MOVES NOW)
 const KING_SKULLS = 3; // THE KING CARD'S SKULLS AT THE START: THE ONE PLACE TO TUNE THEM
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -26,7 +26,7 @@ class IllegalAction extends Error {
 }
 
 /**
- * @description A new game from the start position (seed: a 64-character hex string, or an integer in tests; see rng.seed): each colour's piece ids shuffled with the game rng (so an id never tells the piece type), each player dealt 6 move cards and 1 active and given KING_SKULLS King skulls (kingSkulls), White to move.
+ * @description A new game from the start position (seed: a 64-character hex string, or an integer in tests; see rng.seed): each colour's piece ids shuffled with the game rng (so an id never tells the piece type), each player dealt 5 move cards (hand.MOVES) and 1 active and given KING_SKULLS King skulls (kingSkulls), White to move.
  */
 function newGame({ cardGuy, level, seed }) {
 	const player = () => ({ king: true, moves: [], actives: [], passive: null, curses: [], used: [], refillLock: 0, curseWait: 0, lostTurns: 0, kingSkulls: KING_SKULLS, captured: [], seen: null });

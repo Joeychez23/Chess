@@ -5,6 +5,7 @@
  *
  */
 
+const { kingCard } = require("../../../cards-engine/hand.js");
 const VALUE = { p: 100, n: 320, b: 330, r: 500, q: 900 }; // PIECE VALUES (cp)
 const WEIGHTS = { // STARTING VALUES (cp), TUNED WITH THE BALANCE REPORT
 	warded: 120, frozenEnemy: 90, shakenEnemy: 60, markedOwn: -40, curseGiven: 150, curseHeld: -150,
@@ -12,10 +13,9 @@ const WEIGHTS = { // STARTING VALUES (cp), TUNED WITH THE BALANCE REPORT
 };
 const COUNTED = ["warded", "frozenEnemy", "shakenEnemy", "markedOwn", "curseGiven", "curseHeld", "passiveWaiting"]; // WEIGHED BY HOW MANY MORE (OR FEWER) THERE ARE AFTER
 const DUEL_NEXT = { p: 325, n: VALUE.r, b: VALUE.r, r: VALUE.q }; // WHAT THE PIECE IS WORTH AFTER ITS NEXT WIN (A PAWN: KNIGHT OR BISHOP)
-const DUEL_CARDS = 6;
 
 const other = (c) => (c === "w" ? "b" : "w");
-const held = (p) => p.moves.length + p.actives.length + (p.passive ? 1 : 0);
+const held = (p) => p.moves.length + p.actives.length + (p.passive ? 1 : 0) + kingCard(p).length; // WHAT A LOST DUEL TAKES (hand.discardRandom), THE KING CARD UNDER A HOLLOW CROWN TOO
 
 /**
  * @description What the card score counts in a state, from me's side
@@ -55,7 +55,7 @@ function cardScore(before, after, me, events = []) {
 
 /**
  * @description All or Nothing's expected value for the next hand of the card duel (a 50/50): half the upgrade's worth minus half of what a loss forfeits
- * (6 cards and the piece; the epic version no cards, the legendary one no piece). Card Guy plays the card, and goes on after a win, by this number
+ * (the whole hand and the piece; the epic version no cards, the legendary one no piece). Card Guy plays the card, and goes on after a win, by this number
  * @param  {[object]} state [engine state]
  * @param  {[string]} me ["w" or "b"]
  * @param  {[string]} key [the card's key (a version's own)]
@@ -65,7 +65,7 @@ function cardScore(before, after, me, events = []) {
 function duelValue(state, me, key, pieceId) {
 	const q = state.board.sq.find((x) => x && x.id === pieceId);
 	if (!q || !DUEL_NEXT[q.t]) { return 0; }
-	const cards = key === "all-or-nothing-epic" ? 0 : Math.min(DUEL_CARDS, held(state.players[me])); // THE VERSIONS' STAKES, READ BY KEY AS cards-engine/duel.js DOES
+	const cards = key === "all-or-nothing-epic" ? 0 : held(state.players[me]); // THE VERSIONS' STAKES, READ BY KEY AS cards-engine/duel.js DOES
 	const piece = key === "all-or-nothing-legendary" ? 0 : VALUE[q.t];
 	return 0.5 * (DUEL_NEXT[q.t] - VALUE[q.t]) - 0.5 * (cards * -WEIGHTS.cardLost + piece);
 }

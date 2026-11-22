@@ -25,6 +25,7 @@ const FAVOURITES = ["all-or-nothing", "double-time"]; // THE DEALER'S GAMBLES (p
 
 const other = (c) => (c === "w" ? "b" : "w");
 const seedAt = (seed, n) => (seed + n) >>> 0;
+const toldOf = (view, legal) => (legal && view.board.hidden === undefined ? legal.map(engine.actionKey) : null); // THE LEGAL LIST A PLAYER IS TOLD (engine.playerLegal), BY KEY. UNDER A FOG OF WAR IT LEAVES THE MOVES OUT: NOT USED
 
 /**
  * @description A board's evaluation for Card Guy, from the cached full-strength analysis. Throws when the engine can't answer
@@ -70,9 +71,9 @@ function decided(state, me) {
  * somewhere), so when every action of a guess was refused another is made, and after the last one the board as Card Guy sees it, the fogged pieces left off: nothing guessed stands in a move's way there
  * @return {[object]} { sim, base: the seed sim was made from, bare: true for the board with the fogged pieces left off (no chess position: the engine isn't asked) }
  */
-function simulate(view, seed, refused) {
+function simulate(view, seed, refused, told) {
 	if (!Number.isFinite(seed)) { throw new TypeError("Card Guy's seed must be a finite number"); } // undefined OR THE GAME'S HEX SEED WOULD BECOME 0: ONE GUESS & ONE SET OF DICE EVERY TURN
-	const left = (sim) => allowed(sim, view.you, refused).length > 0;
+	const left = (sim) => allowed(sim, view.you, refused, told).length > 0;
 	for (let n = 0; n < GUESSES; n++) {
 		const base = seedAt(seed, n * (SAMPLES + 1)), sim = engine.fromView(view, base);
 		if (left(sim)) { return { sim, base }; }
@@ -88,11 +89,12 @@ function simulate(view, seed, refused) {
  * an action that leaves none scores as the board now. When an evaluation fails, or the board now is no chess position (nothing is asked then, and no alarm is logged), every board
  * scores 0 for the turn and the card scores decide: answered boards beside unanswered ones would decide the pick. Decided games keep their score
  * @param  {[object]} view [playerView(state, cardGuy): all Card Guy knows]
- * @param  {[object]} options [{ evaluate, bestOf, seed, refused } as cardGuyTurn]
+ * @param  {[object]} options [{ evaluate, bestOf, seed, refused, legal } as cardGuyTurn]
  * @param  {[object]} world [simulate's answer, when the caller has it]
  * @return {[array]} scored [{ action, total, plain, standsOut, favourite, samples: how many guessed states the total is the mean of }, totals in centipawns from Card Guy's side]
  */
-async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world = simulate(view, seed, refused)) {
+async function scoreTurn(view, { evaluate, bestOf, seed, refused = [], legal }, world = simulate(view, seed, refused, toldOf(view, legal))) {
+	const told = toldOf(view, legal);
 	const me = view.you, sign = me === "w" ? 1 : -1, { sim, base, bare } = world, raw = engine.toFen(sim), now = bare ? null : chessFen(raw); // now: THE BOARD AS IT STANDS, null WHEN THE ENGINE ISN'T ASKED ABOUT IT
 	let alarmed = false;
 	const engineDown = (err) => {
@@ -100,7 +102,7 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world =
 		alarmed = true;
 	};
 
-	const plain = plainMoves(sim, me, refused);
+	const plain = plainMoves(sim, me, refused, told);
 	let bestPlain = plain[0]; // THE TOP STATIC SCORE, UNLESS THE ENGINE NAMES ANOTHER
 	if (plain.length > 1 && now) {
 		try {
@@ -140,7 +142,7 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world =
 	// THE ENGINE BUDGET, IN ORDER: THE BOARD NOW, bestPlain, THE OTHER PLAIN MOVES, THE CARD CANDIDATES. A BOARD PAST IT SCORES AS THE BOARD NOW
 	const asked = new Set(now ? [now] : []), scored = [];
 	let guessed = 0; // SAMPLES TAKEN ON OTHER GUESSES OF A FOGGED BOARD
-	for (const action of candidates(sim, me, { bestPlain, refused })) {
+	for (const action of candidates(sim, me, { bestPlain, refused, told })) {
 		await new Promise(setImmediate); // THE SERVER ANSWERS ITS OTHER REQUESTS BETWEEN CANDIDATES
 		const isMove = isPlain(sim, me, action), key = action.type === "active" ? cardKey(action) : null, outs = outcomes(action, isMove, key);
 		for (const o of outs) { if (o.fixed === null && o.fen && asked.size < MAX_EVALS) { asked.add(o.fen); } }
@@ -180,17 +182,19 @@ function freeDiscard(actions, p) {
 /**
  * @description One action for whatever Card Guy owes now: the free discard (freeDiscard), a turn action, the next move of a two-move turn, a choice, a card duel pick (random: every card is face down) or
  * a duel's stop or go on. Callers call it again while Card Guy still owes something. The action is legal on Card Guy's guess of the game; under the visitor's Fog of War
- * the real game can still refuse it: call again with its key added to refused
+ * the real game can still refuse it: call again with its key added to refused. With legal (no fog up) only an action on that list is returned: the view shows an entered Mirage
+ * in Card Guy's own hand as a move card, as to any holder, and only the list says it has no move in check
  * @param  {[object]} view [playerView(state, cardGuy): all Card Guy knows]
  * @param  {[number]} level [the game's level, 600 - 3200]
  * @param  {[object]} options [{ evaluate(fen) -> centipawns from White's side, bestOf(fen, lans) -> { from, to, promotion }, seed: integer 0 - 4294967295, never the game's own
- * (anything but a finite number throws), refused: keys (engine.actionKey) of the actions the real game refused this turn }]
+ * (anything but a finite number throws), refused: keys (engine.actionKey) of the actions the real game refused this turn,
+ * legal: engine.playerLegal(state, Card Guy), the legal actions a player is told (optional) }]
  * @return {[object]} action
  */
-async function cardGuyTurn(view, level, { evaluate, bestOf, seed, refused = [] }) {
-	const me = view.you, world = simulate(view, seed, refused), { sim, base } = world;
+async function cardGuyTurn(view, level, { evaluate, bestOf, seed, refused = [], legal }) {
+	const me = view.you, told = toldOf(view, legal), world = simulate(view, seed, refused, told), { sim, base } = world;
 	const random = { rng: engine.rng.seed(seedAt(base, SAMPLES)) }, rng = () => engine.rng.next(random); // CARD GUY'S OWN DICE, NEVER THE GAME'S
-	const actions = allowed(sim, me, refused);
+	const actions = allowed(sim, me, refused, told);
 	if (actions[0].type === "duel") {
 		if (actions[0].pick !== undefined) { return engine.rng.pick(random, actions); }
 		const stop = !(duelValue(sim, me, sim.duel.card, sim.duel.piece) > 0); // GO ON ONLY WHEN THE NEXT HAND IS WORTH ITS RISK
@@ -198,7 +202,7 @@ async function cardGuyTurn(view, level, { evaluate, bestOf, seed, refused = [] }
 	}
 	const discard = freeDiscard(actions, sim.players[me]); // NONE ONCE ONE WAS REFUSED (allowed)
 	if (discard) { return discard; }
-	return pick(await scoreTurn(view, { evaluate, bestOf, seed, refused }, world), level, rng);
+	return pick(await scoreTurn(view, { evaluate, bestOf, seed, refused, legal }, world), level, rng);
 }
 
 module.exports = { cardGuyTurn, scoreTurn, evaluate, MAX_EVALS };

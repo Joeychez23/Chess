@@ -32,7 +32,7 @@ const owes = (s) => [s.board.turn, other(s.board.turn)].find((c) => legalActions
 const fogUp = (s, owner, key = "fog-of-war-rare", left = 40) => { const ctx = makeCtx(s); ctx.trigger = () => {}; ctx.enchant(owner, key, [], left); };
 const hasFog = (s, c) => s.enchant.some((e) => e.owner === c && e.key.startsWith("fog-of-war"));
 const place = (s, key, owner, more = {}) => { const card = { ...hand.newCard(s, key), ...more }; s.effects.push({ id: card.id, owner, card, placedAt: s.ply }); }; // A PASSIVE ALREADY WAITING
-const FOGGED_SWAP = JSON.parse('{"v":1,"rng":{"key":[1003,0,0,0,0,0,0,0],"n":276},"board":{"sq":[{"id":"b10","c":"b","t":"r"},{"id":"b8","c":"b","t":"n"},null,null,null,{"id":"w3","c":"w","t":"n"},null,null,{"id":"b3","c":"b","t":"p"},null,null,{"id":"b9","c":"b","t":"q"},{"id":"b13","c":"b","t":"n"},null,null,null,null,null,null,null,null,{"id":"b7","c":"b","t":"p"},null,{"id":"b2","c":"b","t":"r"},null,{"id":"w11","c":"w","t":"p"},{"id":"b12","c":"b","t":"k"},null,{"id":"w8","c":"w","t":"k"},{"id":"w12","c":"w","t":"p"},null,null,null,null,null,null,null,null,null,{"id":"b11","c":"b","t":"p"},null,null,null,{"id":"w1","c":"w","t":"p"},{"id":"b15","c":"b","t":"p"},{"id":"w16","c":"w","t":"p"},null,null,{"id":"w14","c":"w","t":"r"},null,null,null,null,null,{"id":"w15","c":"w","t":"p"},{"id":"w13","c":"w","t":"p"},null,{"id":"w2","c":"w","t":"n"},{"id":"w4","c":"w","t":"b"},{"id":"w10","c":"w","t":"q"},{"id":"b16","c":"b","t":"b"},{"id":"w6","c":"w","t":"b"},null,{"id":"w7","c":"w","t":"r"}],"turn":"w","castling":"-","ep":null,"half":0,"full":28,"history":[]},"cardGuy":"w","level":1300,"ply":54,"nextId":98,"players":{"w":{"king":true,"moves":[{"id":"c68","key":"move","piece":"p"},{"id":"c69","key":"move","piece":"p"},{"id":"c77","key":"move","piece":"n"},{"id":"c80","key":"move","piece":"p"},{"id":"c83","key":"move","piece":"n"},{"id":"c85","key":"move","piece":"n"}],"actives":[{"id":"c97","key":"swap-epic"}],"passive":null,"curses":[],"used":[],"skips":0,"refillLock":0,"curseWait":0,"lostTurns":0,"kingSkulls":3,"captured":["p","p"],"seen":null},"b":{"king":true,"moves":[{"id":"c12","key":"move","piece":"p"},{"id":"c46","key":"move","piece":"p"},{"id":"c88","key":"move","piece":"p"},{"id":"c92","key":"move","piece":"p"},{"id":"c94","key":"move","piece":"p"},{"id":"c96","key":"move","piece":"p"}],"actives":[{"id":"c61","key":"pickpocket-epic"}],"passive":{"id":"c39","key":"reinforcements"},"curses":[],"used":[],"skips":0,"refillLock":0,"curseWait":0,"lostTurns":0,"kingSkulls":3,"captured":["p","p","p","b","b"],"seen":null}},"statuses":{"w7":[{"s":"warded","left":null,"by":"w"}],"b3":[{"s":"frozen","left":1,"by":"b","veiled":true}]},"effects":[{"id":"c43","owner":"w","card":{"id":"c43","key":"phalanx","denied":false},"placedAt":52}],"enchant":[{"id":"e30","key":"fog-of-war-rare","owner":"b","pieces":[],"left":36,"data":{}},{"id":"e52","key":"stronghold-common","owner":"w","pieces":["w7"],"left":null,"data":{}}],"duel":null,"pending":null,"multi":null,"barred":null,"result":null}'); // A REVIEW FUZZ STATE (tremor, GAME 3, ACTION 66; ITS HISTORY CUT): CARD GUY WHITE, LEVEL 1300, AN EPIC SWAP IN HAND UNDER BLACK'S FOG: 115 CANDIDATES
+const FOGGED_SWAP = JSON.parse('{"v":2,"rng":{"key":[1003,0,0,0,0,0,0,0],"n":276},"board":{"sq":[{"id":"b10","c":"b","t":"r"},{"id":"b8","c":"b","t":"n"},null,null,null,{"id":"w3","c":"w","t":"n"},null,null,{"id":"b3","c":"b","t":"p"},null,null,{"id":"b9","c":"b","t":"q"},{"id":"b13","c":"b","t":"n"},null,null,null,null,null,null,null,null,{"id":"b7","c":"b","t":"p"},null,{"id":"b2","c":"b","t":"r"},null,{"id":"w11","c":"w","t":"p"},{"id":"b12","c":"b","t":"k"},null,{"id":"w8","c":"w","t":"k"},{"id":"w12","c":"w","t":"p"},null,null,null,null,null,null,null,null,null,{"id":"b11","c":"b","t":"p"},null,null,null,{"id":"w1","c":"w","t":"p"},{"id":"b15","c":"b","t":"p"},{"id":"w16","c":"w","t":"p"},null,null,{"id":"w14","c":"w","t":"r"},null,null,null,null,null,{"id":"w15","c":"w","t":"p"},{"id":"w13","c":"w","t":"p"},null,{"id":"w2","c":"w","t":"n"},{"id":"w4","c":"w","t":"b"},{"id":"w10","c":"w","t":"q"},{"id":"b16","c":"b","t":"b"},{"id":"w6","c":"w","t":"b"},null,{"id":"w7","c":"w","t":"r"}],"turn":"w","castling":"-","ep":null,"half":0,"full":28,"history":[]},"cardGuy":"w","level":1300,"ply":54,"nextId":98,"players":{"w":{"king":true,"moves":[{"id":"c68","key":"move","piece":"p"},{"id":"c69","key":"move","piece":"p"},{"id":"c77","key":"move","piece":"m"},{"id":"c80","key":"move","piece":"p"},{"id":"c83","key":"move","piece":"m"},{"id":"c85","key":"move","piece":"m"}],"actives":[{"id":"c97","key":"swap-epic"}],"passive":null,"curses":[],"used":[],"skips":0,"refillLock":0,"curseWait":0,"lostTurns":0,"kingSkulls":3,"captured":["p","p"],"seen":null},"b":{"king":true,"moves":[{"id":"c12","key":"move","piece":"p"},{"id":"c46","key":"move","piece":"p"},{"id":"c88","key":"move","piece":"p"},{"id":"c92","key":"move","piece":"p"},{"id":"c94","key":"move","piece":"p"},{"id":"c96","key":"move","piece":"p"}],"actives":[{"id":"c61","key":"pickpocket-epic"}],"passive":{"id":"c39","key":"reinforcements"},"curses":[],"used":[],"skips":0,"refillLock":0,"curseWait":0,"lostTurns":0,"kingSkulls":3,"captured":["p","p","p","b","b"],"seen":null}},"statuses":{"w7":[{"s":"warded","left":null,"by":"w"}],"b3":[{"s":"frozen","left":1,"by":"b","veiled":true}]},"effects":[{"id":"c43","owner":"w","card":{"id":"c43","key":"phalanx","denied":false},"placedAt":52}],"enchant":[{"id":"e30","key":"fog-of-war-rare","owner":"b","pieces":[],"left":36,"data":{}},{"id":"e52","key":"stronghold-common","owner":"w","pieces":["w7"],"left":null,"data":{}}],"duel":null,"pending":null,"multi":null,"barred":null,"result":null}'); // A REVIEW FUZZ STATE (tremor, GAME 3, ACTION 66; ITS HISTORY CUT): CARD GUY WHITE, LEVEL 1300, AN EPIC SWAP IN HAND UNDER BLACK'S FOG: 115 CANDIDATES
 
 /**
  * @description Why a chess engine can't be asked about this board (chess.js refuses it, or the side not to move is in check), null when it can.
@@ -58,8 +58,12 @@ function position(fen, { cardGuy: v = fen.split(" ")[1], level = 2400, seed = 1 
  */
 async function ask(s, c, o) {
 	const refused = [];
+	if (!hasFog(s, other(c)) && !s.players[c].curses.some((k) => k.key.startsWith("mirage"))) { // CARD GUY'S REBUILT STATE LISTS ONLY WHAT THE REAL GAME ALLOWS (THE legal FILTER BELOW WOULD HIDE A WRONG ONE)
+		const wrong = legalActions(engine.fromView(playerView(s, c), 7), c).find((a) => !isLegal(s, c, a));
+		assert.ok(!wrong, "the rebuilt state lists an illegal action with no fog up: " + JSON.stringify(wrong));
+	}
 	for (;;) {
-		const action = await cardGuyTurn(playerView(s, c), s.level, opts({ ...o, refused }));
+		const action = await cardGuyTurn(playerView(s, c), s.level, opts({ ...o, refused, legal: engine.playerLegal(s, c) })); // THE LIST A PLAYER IS TOLD, AS cardsController PASSES IT
 		if (isLegal(s, c, action)) return { action, refused: refused.length };
 		assert.ok(hasFog(s, other(c)), "an illegal action with no fog up: " + JSON.stringify(action));
 		assert.ok(!refused.includes(actionKey(action)), "a refused action came back: " + JSON.stringify(action));
@@ -93,10 +97,10 @@ test("Card Guy only ever returns an action in legalActions", async () => {
 
 test("Card Guy's free discard, at every level: the active when it has no play, else 2 move cards with no move, else none; never a scored candidate", async () => {
 	for (const level of [600, 1300, 2400]) {
-		const s = newGame({ cardGuy: "w", level, seed: 3 }); // WHITE TO MOVE AT THE START: BISHOP & QUEEN CARDS HAVE NO MOVE, PAWN & KNIGHT CARDS DO
+		const s = newGame({ cardGuy: "w", level, seed: 3 }); // WHITE TO MOVE AT THE START: ROOK & QUEEN CARDS HAVE NO MOVE, PAWN & KNIGHT / BISHOP CARDS DO
 		const card = (piece) => hand.newCard(s, "move", { piece });
 		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")]; // NO KNIGHT IT CAN SEND YET: NO PLAY (UNCOMMON: CLEANSE AND RARE+ ARE KEPT, RULING R1)
-		s.players.w.moves = [card("p"), card("b"), card("q"), card("n")];
+		s.players.w.moves = [card("p"), card("r"), card("q"), card("m")];
 		const dead = s.players.w.actives[0].id, turn = (st) => cardGuyTurn(playerView(st, "w"), level, opts());
 		assert.deepEqual(await turn(s), { type: "discard", cards: [dead] }, level + ": the dead active");
 		s.players.w.actives = [hand.newCard(s, "swap")]; // A LIVE ACTIVE: THE 2 DEAD MOVE CARDS GO
@@ -108,7 +112,7 @@ test("Card Guy's free discard, at every level: the active when it has no play, e
 		assert.notEqual((await turn(s)).type, "discard", level + ": used");
 	}
 	const s = newGame({ cardGuy: "w", level: 2400, seed: 3 }), still = toFen(s).split(" ")[0];
-	Object.assign(s.players.w, { moves: ["p", "p", "n"].map((piece) => hand.newCard(s, "move", { piece })), actives: [] }); // NO DEAD CARD: THE STEP DOESN'T DISCARD
+	Object.assign(s.players.w, { moves: ["p", "p", "m"].map((piece) => hand.newCard(s, "move", { piece })), actives: [] }); // NO DEAD CARD: THE STEP DOESN'T DISCARD
 	const lazy = async (fen) => (fen.split(" ")[0] === still ? 5000 : 0); // AN ENGINE THAT LOVES A BOARD NOBODY MOVED ON: A DISCARD, WERE IT SCORED
 	assert.ok(legalActions(s, "w").some((a) => a.type === "discard"));
 	assert.ok(!candidates(engine.fromView(playerView(s, "w"), 1), "w").some((a) => a.type === "discard"));
@@ -116,22 +120,23 @@ test("Card Guy's free discard, at every level: the active when it has no play, e
 });
 
 test("Card Guy's dead pair is the one with the lowest draw-back floor, ties in hand order (user ruling 2026-11-22)", async () => {
-	const s = newGame({ cardGuy: "w", level: 1300, seed: 3 }); // WHITE TO MOVE AT THE START: QUEEN, ROOK & BISHOP CARDS HAVE NO MOVE
+	const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
+	for (const sq of ["b1", "g1"]) s.statuses[s.board.sq[engine.board.sqIndex(sq)].id] = [{ s: "hexed", left: 9, by: "b" }]; // WHITE TO MOVE AT THE START, BOTH KNIGHTS HEXED (NO CARD MOVES THEM): QUEEN, ROOK & KNIGHT / BISHOP CARDS HAVE NO MOVE
 	const deal = (types) => { s.players.w.moves = types.map((piece) => hand.newCard(s, "move", { piece })); return s.players.w.moves.map((c) => c.id); };
 	const turn = () => cardGuyTurn(playerView(s, "w"), 1300, opts());
 	s.players.w.actives = [hand.newCard(s, "swap")]; // A LIVE ACTIVE: THE MOVE CARDS ARE WHAT GOES
-	let ids = deal(["q", "r", "b", "p"]);
-	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[2]] }); // QUEEN & BISHOP (FLOOR 3), NOT THE FIRST PAIR, QUEEN & ROOK (FLOOR 5)
+	let ids = deal(["q", "r", "m", "p"]);
+	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[2]] }); // QUEEN & KNIGHT / BISHOP (FLOOR 3), NOT THE FIRST PAIR, QUEEN & ROOK (FLOOR 5)
 	ids = deal(["q", "r", "r"]);
 	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[1]] }); // EVERY PAIR HAS FLOOR 5: THE FIRST
-	ids = deal(["r", "q", "b", "b"]);
+	ids = deal(["r", "q", "m", "m"]);
 	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[2]] }); // FLOOR 3 FIVE WAYS: THE FIRST IN HAND ORDER
 });
 
 test("Card Guy never rerolls its passive (user ruling 2026-11-22)", async () => {
 	for (const key of PASSIVE_KEYS.filter((k) => ["common", "uncommon"].includes(CARDS[k].rarity))) { // THE RARITIES IT THROWS A DEAD ACTIVE OUT AT
 		const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
-		s.players.w.moves = ["p", "n"].map((piece) => hand.newCard(s, "move", { piece })); // BOTH HAVE A MOVE: NO PAIR TO DISCARD
+		s.players.w.moves = ["p", "m"].map((piece) => hand.newCard(s, "move", { piece })); // BOTH HAVE A MOVE: NO PAIR TO DISCARD
 		Object.assign(s.players.w, { actives: [], passive: hand.newCard(s, key) });
 		const reroll = { type: "discard", cards: [s.players.w.passive.id] };
 		assert.ok(isLegal(s, "w", reroll), key + ": the reroll is legal");
@@ -201,8 +206,8 @@ test("the noise shrinks with the level: none from 2400 up, and a lower level som
 
 test("a refused free discard isn't tried again that turn: the game refuses them all alike (a check the fog guess missed, or one already used)", async () => {
 	const s = newGame({ cardGuy: "w", level: 2400, seed: 3 });
-	s.players.w.actives = [hand.newCard(s, "cleanse")]; // A DEAD ACTIVE, AND 3 DEAD MOVE CARDS: EVERY KIND OF FREE DISCARD ON OFFER
-	s.players.w.moves = ["p", "b", "q", "n", "r"].map((piece) => hand.newCard(s, "move", { piece }));
+	s.players.w.actives = [hand.newCard(s, "cleanse")]; // A DEAD ACTIVE, AND 2 DEAD MOVE CARDS (QUEEN, ROOK): EVERY KIND OF FREE DISCARD ON OFFER
+	s.players.w.moves = ["p", "m", "q", "m", "r"].map((piece) => hand.newCard(s, "move", { piece }));
 	const view = playerView(s, "w"), first = await cardGuyTurn(view, 2400, opts());
 	assert.equal(first.type, "discard");
 	assert.notEqual((await cardGuyTurn(view, 2400, opts({ refused: [actionKey(first)] }))).type, "discard");
@@ -223,7 +228,7 @@ test("Card Guy's input contains no hidden visitor cards", async (t) => {
 	const s = newGame({ cardGuy: "b", level: 1300, seed: 4 });
 	s.board.turn = "b";
 	const view = playerView(s, "b"), hidden = [...s.players.w.moves, ...s.players.w.actives].map((c) => "\"" + c.id + "\"");
-	assert.ok(hidden.length >= 7);
+	assert.ok(hidden.length >= 6); // 5 MOVE CARDS & THE ACTIVE
 	const spy = t.mock.method(engine, "fromView");
 	await cardGuyTurn(view, 1300, opts());
 	assert.ok(spy.mock.callCount() >= 1);
@@ -292,7 +297,7 @@ test("Card Guy answers a pending choice, a duel pick, a duel stop and the second
 			const a = c === "w" ? (await ask(s, "w", { seed: seed * 100 + i })).action : legalActions(s, "b")[0];
 			if (c === "w") seen.add(a.type === "choice" ? "choice" : a.pick !== undefined ? "pick" : "decide");
 			if (c === "w" && i === 0) picks.add(a.pick);
-			if (c === "w" && a.stop !== undefined) assert.equal(a.stop, true); // ONE WIN IN HAND: THE NEXT STEP ISN'T WORTH THE PIECE AND SIX CARDS
+			if (c === "w" && a.stop !== undefined) assert.equal(a.stop, true); // ONE WIN IN HAND: THE NEXT STEP ISN'T WORTH THE PIECE AND THE WHOLE HAND
 			s = applyAction(s, c, a).state;
 		}
 		assert.equal(s.duel, null);
@@ -399,6 +404,18 @@ test("Card Guy plays on from a view with a Hollow Crown (King card held or lost)
 	}
 });
 
+test("in check Card Guy never plays the entered Mirage he holds: the block goes under the real card (the game lists no Mirage move in check)", async () => {
+	for (const seed of [1, 2, 3, 4, 5]) {
+		const s = position("4R2k/6pp/8/8/8/8/5r2/6K1 b - - 0 1", { seed }); // BLACK'S ONLY ANSWER: Rf8
+		const real = hand.newCard(s, "move", { piece: "r" });
+		Object.assign(s.players.b, { moves: [real], actives: [], passive: null, curses: [{ id: "c0", key: "mirage", piece: "r" }] }); // ENTERED (NOT waiting), FIRST BY ID: A ROOK CARD TO ITS HOLDER
+		assert.deepEqual(playerView(s, "b").players.b.moves.map((c) => c.key), ["move", "move"]);
+		const r = await ask(s, "b", { seed });
+		assert.equal(r.refused, 0);
+		assert.deepEqual(r.action, { type: "move", card: real.id, from: "f2", to: "f8" });
+	}
+});
+
 test("under the player's Fog of War Card Guy still reaches a legal action, also with a hidden Tremor Frozen on a fogged pawn", async () => {
 	let turns = 0, refused = 0, worst = 0;
 	for (const seed of [1, 2, 3]) {
@@ -435,7 +452,7 @@ test("All or Nothing is scored by its expected value, not played out", async () 
 
 test("a first move of a two-move turn that leaves the king for another piece to take is worth the game", async () => {
 	let s = position("4k3/5N2/8/7Q/8/8/8/4K3 w - - 0 1"); // THE KNIGHT STEPS OFF THE QUEEN'S LINE TO e8
-	Object.assign(s.players.w, { moves: [hand.newCard(s, "move", { piece: "n" }), hand.newCard(s, "move", { piece: "q" })], actives: [hand.newCard(s, "double-time-legendary")], passive: null });
+	Object.assign(s.players.w, { moves: [hand.newCard(s, "move", { piece: "m" }), hand.newCard(s, "move", { piece: "q" })], actives: [hand.newCard(s, "double-time-legendary")], passive: null });
 	s.players.b.kingSkulls = 0; // NO SKULL ENDS THE TWO-MOVE TURN ON THE CHECK: THE SECOND MOVE TAKES THE KING
 	s = applyAction(s, "w", { type: "active", card: s.players.w.actives[0].id }).state;
 	const quiet = async () => ({ from: "h5", to: "h4" }), o = opts({ evaluate: async () => 0, bestOf: quiet });
@@ -484,7 +501,7 @@ test("with no fog up Card Guy's own Peasant Immunity or Phalanx never leads it t
 		assert.equal((await play(g, 16, { seed: 41 })).refused, 0);
 	}
 	let g = position("4k3/8/8/2p5/1PPP4/8/8/4K2N w - - 0 1"), denied = 0; // c5 COULD TAKE b4 OR d4 BUT FOR WHITE'S PHALANX. WHITE HOLDS NO PAWN CARD, SO c5 STAYS
-	Object.assign(g.players.w, { moves: [hand.newCard(g, "move", { piece: "n" })], actives: [], passive: null });
+	Object.assign(g.players.w, { moves: [hand.newCard(g, "move", { piece: "m" })], actives: [], passive: null });
 	place(g, "phalanx", "w");
 	for (let n = 0; n < 6 && !g.result; n++) {
 		const c = owes(g), r = await ask(g, c, { seed: 50 + n });
@@ -500,7 +517,7 @@ test("the engine is only asked about chess positions: no en passant square for t
 	const logged = t.mock.method(console, "log", () => {}), sent = [];
 	const o = opts({ evaluate: async (fen) => { sent.push(fen); return material(fen); }, bestOf: async (fen, lans) => { sent.push(fen); return firstOf(fen, lans); } });
 	let s = position("rnbqkbnr/ppp1pppp/8/8/3p4/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // d4 COULD TAKE e3 IN PASSING
-	Object.assign(s.players.w, { moves: [hand.newCard(s, "move", { piece: "p" }), hand.newCard(s, "move", { piece: "n" })], actives: [hand.newCard(s, "double-time-legendary")] });
+	Object.assign(s.players.w, { moves: [hand.newCard(s, "move", { piece: "p" }), hand.newCard(s, "move", { piece: "m" })], actives: [hand.newCard(s, "double-time-legendary")] });
 	s = applyAction(s, "w", { type: "active", card: s.players.w.actives[0].id }).state;
 	s = applyAction(s, "w", legalActions(s, "w").find((a) => a.from === "e2" && a.to === "e4")).state; // WHITE MOVES AGAIN, THE STATE'S EN PASSANT SQUARE IS e3
 	assert.match(toFen(s), / w KQkq e3 /);
@@ -595,6 +612,14 @@ test("a seed that isn't a finite number is refused, and a turn makes each guess 
 	assert.deepEqual(spy.mock.calls.map((c) => c.arguments[1]), [7, 8]);
 });
 
+test("the card duel's stake is the whole hand: every card held counts against the next hand, with no cap", () => {
+	const s = newGame({ cardGuy: "w", level: 2400, seed: 1 }), knight = s.board.sq.find((q) => q && q.c === "w" && q.t === "n").id, card = () => hand.newCard(s, "move", { piece: "p" });
+	const value = (n, key = "all-or-nothing") => { Object.assign(s.players.w, { moves: Array.from({ length: n }, card), actives: [], passive: null }); return duelValue(s, "w", key, knight); };
+	assert.equal(value(5), 0.5 * (500 - 320) - 0.5 * (5 * -WEIGHTS.cardLost + 320));
+	assert.equal(value(6) - value(9), 1.5 * -WEIGHTS.cardLost); // 9 HELD (UNDERDOG, A PASSIVE): 3 MORE AT STAKE THAN 6
+	assert.equal(value(9, "all-or-nothing-epic"), value(0, "all-or-nothing-epic")); // THE EPIC VERSION STAKES NO CARD
+});
+
 test("Card Guy goes on with a card duel while the next hand is worth its risk", async () => {
 	let went = 0;
 	for (let seed = 1; seed <= 12; seed++) {
@@ -660,7 +685,7 @@ test("under the player's Fog of War a sampled card is scored on the same guessed
 
 test("Card Guy keeps a dead rare, epic or legendary active, and Cleanse; a dead common or uncommon one goes (user ruling R1)", async () => {
 	const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
-	s.players.w.moves = ["p", "n"].map((piece) => hand.newCard(s, "move", { piece })); // BOTH HAVE A MOVE: NO PAIR TO DISCARD
+	s.players.w.moves = ["p", "m"].map((piece) => hand.newCard(s, "move", { piece })); // BOTH HAVE A MOVE: NO PAIR TO DISCARD
 	const turn = async (key) => {
 		s.players.w.actives = [hand.newCard(s, key)];
 		assert.ok(!legalActions(s, "w").some((a) => a.type === "active"), key + " has a play at the start");
@@ -673,7 +698,7 @@ test("Card Guy keeps a dead rare, epic or legendary active, and Cleanse; a dead 
 test("an active that can pay Leech or Shackles isn't dead: Card Guy doesn't throw it out for nothing", async () => {
 	for (const key of ["shackles", "leech"]) {
 		const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
-		s.players.w.moves = ["p", "n"].map((piece) => hand.newCard(s, "move", { piece }));
+		s.players.w.moves = ["p", "m"].map((piece) => hand.newCard(s, "move", { piece }));
 		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")]; // NO PLAY AT THE START
 		s.players.w.curses = [hand.newCard(s, key)];
 		const active = s.players.w.actives[0].id;
@@ -685,7 +710,7 @@ test("an active that can pay Leech or Shackles isn't dead: Card Guy doesn't thro
 test("a refused free discard with nothing else to do on Card Guy's guess: no other discard is offered, it says it has no action", async () => {
 	const s = position("k7/8/8/8/8/8/PP6/KB6 w - - 0 1"); // WHITE'S KING BOXED IN BY ITS OWN HEXED PIECES: 5 DEAD MOVE CARDS, 10 PAIRS
 	for (const sq of ["a2", "b2", "b1"]) s.statuses[s.board.sq[engine.board.sqIndex(sq)].id] = [{ s: "hexed", left: 2, by: "b" }];
-	Object.assign(s.players.w, { moves: ["p", "b", "p", "b", "p"].map((piece) => hand.newCard(s, "move", { piece })), actives: [], passive: null });
+	Object.assign(s.players.w, { moves: ["p", "m", "p", "m", "p"].map((piece) => hand.newCard(s, "move", { piece })), actives: [], passive: null });
 	fogUp(s, "b");
 	const view = playerView(s, "w"), refused = [];
 	let discards = 0, error = null;

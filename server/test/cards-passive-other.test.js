@@ -59,6 +59,17 @@ function give(s, key, color = "w") {
 }
 
 describe("Interdicted Foresight", () => {
+	test("a move-card fake is a card type a hand could hold: a knight or a bishop on the board gives the Knight / Bishop card, never a Knight or a Bishop card", () => {
+		const types = new Set();
+		for (let seed = 1; seed <= 12; seed++) {
+			const s = fresh(seed);
+			s.board = fromFen("1nb1k3/8/8/8/8/8/PPPP4/4K3 w - - 0 1"); // BLACK: A KNIGHT AND A BISHOP ONLY
+			place(s, IF, "b");
+			for (const f of play(s, "w", give(s, "foresight")).state.players.w.seen.fake) if (f.key === "move") types.add(f.piece);
+		}
+		assert.deepEqual([...types], ["m"]);
+	});
+
 	test("the opponent's Foresight is cancelled; they see as many fake cards as it would have shown, each wearing the id of one of the owner's hidden cards", () => {
 		let differs = false;
 		for (const seed of [1, 2, 3, 4]) {
@@ -556,7 +567,7 @@ describe("Phalanx", () => {
 		const two = game("4k3/8/8/3p4/2PP4/8/8/4K3 b - - 0 1", { b: ["p"] });
 		place(two, "phalanx", "w");
 		assert.ok(moveOf(two, "b", "d5", "c4"));
-		const knight = game("4k3/8/1n6/3p4/2PPP3/8/8/4K3 b - - 0 1", { b: ["n"] });
+		const knight = game("4k3/8/1n6/3p4/2PPP3/8/8/4K3 b - - 0 1", { b: ["m"] });
 		place(knight, "phalanx", "w");
 		assert.ok(moveOf(knight, "b", "b6", "c4"));
 	});
@@ -911,42 +922,42 @@ function rounds(st, n, hook = () => {}) {
 }
 
 describe("Underdog", () => {
-	test("5+ points of material down at the refill: the owner tops up to 7 move cards and 2 actives; it keeps waiting and never fires", () => {
+	test("5+ points of material down at the refill: the owner tops up to 6 move cards and 2 actives; it keeps waiting and never fires", () => {
 		const s = fresh();
 		place(s, "underdog", "w");
 		s.board.sq[sqIndex("a1")] = null; // WHITE A ROOK DOWN: 5
 		const { state, events } = applyAction(s, "w", quiet(s, "w"));
-		assert.deepEqual(sizes(state.players.w), [7, 2]);
+		assert.deepEqual(sizes(state.players.w), [6, 2]);
 		assert.ok(waits(state, "underdog") && !fired(events, "underdog") && !state.players.w.used.includes("underdog"));
 		const b = applyAction(state, "b", quiet(state, "b")).state, next = applyAction(b, "w", quiet(b, "w")).state;
-		assert.deepEqual(sizes(next.players.w), [7, 2]);
+		assert.deepEqual(sizes(next.players.w), [6, 2]);
 		assert.ok(waits(next, "underdog"));
 	});
 
-	test("4 points down, or only the opponent's Underdog: the usual 6 and 1", () => {
+	test("4 points down, or only the opponent's Underdog: the usual 5 and 1", () => {
 		const s = fresh();
 		place(s, "underdog", "w");
 		s.board.sq[sqIndex("b1")] = null; // KNIGHT 3 + PAWN 1 = 4
 		s.board.sq[sqIndex("h2")] = null;
-		assert.deepEqual(sizes(applyAction(s, "w", quiet(s, "w")).state.players.w), [6, 1]);
+		assert.deepEqual(sizes(applyAction(s, "w", quiet(s, "w")).state.players.w), [5, 1]);
 		assert.equal(CARDS.underdog.rules.bigHand(s, "w", { owner: "w" }), false);
 		s.board.sq[sqIndex("g2")] = null; // ONE MORE PAWN: 5
 		assert.equal(CARDS.underdog.rules.bigHand(s, "w", { owner: "w" }), true);
 		const t = fresh();
 		place(t, "underdog", "b");
 		t.board.sq[sqIndex("a1")] = null; // WHITE 5 DOWN, BUT THE UNDERDOG IS BLACK'S
-		assert.deepEqual(sizes(applyAction(t, "w", quiet(t, "w")).state.players.w), [6, 1]);
+		assert.deepEqual(sizes(applyAction(t, "w", quiet(t, "w")).state.players.w), [5, 1]);
 	});
 
 	test("material counts pieces on the board by type: a queen down (9) counts, the opponent being down doesn't", () => {
 		const s = fresh();
 		place(s, "underdog", "w");
 		s.board.sq[sqIndex("d1")] = null;
-		assert.deepEqual(sizes(applyAction(s, "w", quiet(s, "w")).state.players.w), [7, 2]);
+		assert.deepEqual(sizes(applyAction(s, "w", quiet(s, "w")).state.players.w), [6, 2]);
 		const t = fresh();
 		place(t, "underdog", "w");
 		t.board.sq[sqIndex("d8")] = null; // BLACK DOWN, NOT THE OWNER
-		assert.deepEqual(sizes(applyAction(t, "w", quiet(t, "w")).state.players.w), [6, 1]);
+		assert.deepEqual(sizes(applyAction(t, "w", quiet(t, "w")).state.players.w), [5, 1]);
 	});
 
 	test("no longer behind: the extra move card and active already held stay, but aren't refilled", () => {
@@ -954,24 +965,24 @@ describe("Underdog", () => {
 		place(s, "underdog", "w");
 		s.board.sq[sqIndex("a1")] = null;
 		let st = applyAction(s, "w", quiet(s, "w")).state;
-		assert.deepEqual(sizes(st.players.w), [7, 2]);
+		assert.deepEqual(sizes(st.players.w), [6, 2]);
 		st.board.sq[sqIndex("a8")] = null; // BLACK A ROOK DOWN TOO: EVEN
 		st = applyAction(st, "b", quiet(st, "b")).state;
 		const { state, events } = applyAction(st, "w", quiet(st, "w"));
-		assert.deepEqual(sizes(state.players.w), [6, 2]);
+		assert.deepEqual(sizes(state.players.w), [5, 2]);
 		assert.equal(events.filter((e) => e.type === "draw" && e.player === "w").length, 0);
 		assert.ok(waits(state, "underdog"));
 	});
 
-	test("a held (entered) Mirage counts as a move card toward the 7", () => {
+	test("a held (entered) Mirage counts as a move card toward the 6", () => {
 		const s = fresh();
 		place(s, "underdog", "w");
 		s.board.sq[sqIndex("a1")] = null;
 		const w = s.players.w;
-		w.moves = w.moves.slice(0, 5);
-		w.curses.push({ id: "c900", key: "mirage", piece: "q" }); // ENTERED: 5 REAL + MIRAGE = 6 SEEN (A QUEEN CARD HAS NO MOVE AT THE START)
+		w.moves = w.moves.slice(0, 4);
+		w.curses.push({ id: "c900", key: "mirage", piece: "q" }); // ENTERED: 4 REAL + MIRAGE = 5 SEEN (A QUEEN CARD HAS NO MOVE AT THE START)
 		const { state, events } = applyAction(s, "w", quiet(s, "w"));
-		assert.deepEqual([hand.moveCards(state.players.w).length, state.players.w.moves.length], [7, 6]);
+		assert.deepEqual([hand.moveCards(state.players.w).length, state.players.w.moves.length], [6, 5]);
 		assert.equal(events.filter((e) => e.type === "draw" && e.player === "w" && e.card.key === "move").length, 2);
 	});
 
@@ -982,11 +993,11 @@ describe("Underdog", () => {
 		sameRoundTrip(s, "w", quiet(s, "w"));
 		const { state, events } = applyAction(s, "w", quiet(s, "w"));
 		const v = playerView(state, "b");
-		assert.deepEqual([v.players.w.hand.count, v.players.w.hand.shown], [9, []]);
+		assert.deepEqual([v.players.w.hand.count, v.players.w.hand.shown], [8, []]);
 		assert.ok(playerEvents(state, events, "b").filter((e) => e.type === "draw").every((e) => !("card" in e)));
 		assert.ok(!hidden(state.players.w).some((c) => c.faceUp));
 	});
-	test("behind with no card to play: the automatic redraw draws 7 move cards, 6 without Underdog", () => {
+	test("behind with no card to play: the automatic redraw draws 6 move cards, 5 without Underdog", () => {
 		const after = (card) => {
 			const s = fresh(), n = { w: 1, b: 1 };
 			s.board = fromFen("3qk3/8/8/7p/7P/1pp5/p7/K5N1 b - - 0 1"); // WHITE 9 DOWN: Ka1 AND h4 CAN'T MOVE, ONLY Ng1 CAN
@@ -998,7 +1009,7 @@ describe("Underdog", () => {
 		};
 		const on = after(true), off = after(false);
 		for (const r of [on, off]) assert.ok(ofType(r.events, "redraw").some((e) => e.player === "w") && !r.state.result);
-		assert.deepEqual([sizes(on.state.players.w), sizes(off.state.players.w)], [[7, 0], [6, 0]]);
+		assert.deepEqual([sizes(on.state.players.w), sizes(off.state.players.w)], [[6, 0], [5, 0]]);
 		assert.ok(waits(on.state, "underdog"));
 	});
 });
@@ -1006,8 +1017,16 @@ describe("Underdog", () => {
 describe("Four of a Kind", () => {
 	const FK = "four-of-a-kind";
 
+	test("4 Knight / Bishop cards are four of a kind (Task 20c call 3): the two moves may be a knight's and a bishop's", () => {
+		const { state, events } = atStart(["m", "m", "m", "m", "p"], (st) => { st.board.sq[sqIndex("d2")] = null; }); // d2 EMPTY: THE c1 BISHOP CAN MOVE
+		assert.ok(fired(events, FK));
+		const one = applyAction(state, "w", real(state, "w", "g1", "f3")).state;
+		assert.equal(applyAction(one, "w", real(one, "w", "c1", "e3")).state.board.turn, "b");
+		assert.ok(!fired(atStart(["m", "m", "m", "r", "p"]).events, FK), "3 Knight / Bishop cards fired it");
+	});
+
 	test("4 move cards of one type at the start of the owner's turn: it fires and starts a two-move turn (same piece allowed); only moves are offered", () => {
-		const { state, events } = atStart(["n", "n", "n", "n", "p", "p"]);
+		const { state, events } = atStart(["m", "m", "m", "m", "p", "p"]);
 		assert.ok(fired(events, FK) && !waits(state, FK) && !state.players.w.used.includes(FK));
 		assert.deepEqual(state.multi, { player: "w", left: 2, moved: [], differ: false, draw: 4 });
 		assert.ok(legalActions(state, "w").every((a) => a.type === "move"));
@@ -1015,18 +1034,18 @@ describe("Four of a Kind", () => {
 	});
 
 	test("3 of a type: it doesn't fire and keeps waiting; it isn't checked at the opponent's turn start", () => {
-		const { state, events } = atStart(["n", "n", "n", "p", "p", "b"]);
+		const { state, events } = atStart(["m", "m", "m", "p", "p", "r"]);
 		assert.ok(!fired(events, FK) && waits(state, FK) && state.multi === null);
-		assert.ok(fired(atStart(["n", "n", "n", "p", "p", "p", "p"]).events, FK), "4 pawns fire it");
+		assert.ok(fired(atStart(["m", "m", "m", "p", "p", "p", "p"]).events, FK), "4 pawns fire it");
 		const s = fresh();
 		place(s, FK, "w");
-		s.players.w.moves = cardsOf(s, ["p", "n", "n", "n", "n", "n"]);
+		s.players.w.moves = cardsOf(s, ["p", "m", "m", "m", "m", "m"]);
 		const r = applyAction(s, "w", real(s, "w", "a2", "a3")); // BLACK'S TURN STARTS WITH WHITE HOLDING 5 KNIGHTS
 		assert.ok(!fired(r.events, FK) && waits(r.state, FK) && r.state.multi === null);
 	});
 
 	test("the same knight moves twice; afterwards the owner's move cards are discarded and only 4 drawn (actives refilled as usual)", () => {
-		const { state } = atStart(["n", "n", "n", "n", "p", "p"]);
+		const { state } = atStart(["m", "m", "m", "m", "p", "p"]);
 		const one = applyAction(state, "w", real(state, "w", "g1", "f3"));
 		assert.equal(one.state.board.turn, "w");
 		sameRoundTrip(one.state, "w", real(one.state, "w", "f3", "g5"));
@@ -1043,21 +1062,21 @@ describe("Four of a Kind", () => {
 	});
 
 	test("with Underdog also behind, the refill after it is still only 4 move cards", () => {
-		const { state } = atStart(["n", "n", "n", "n", "p", "p"], (st) => { place(st, "underdog", "w"); st.board.sq[sqIndex("a1")] = null; });
+		const { state } = atStart(["m", "m", "m", "m", "p", "p"], (st) => { place(st, "underdog", "w"); st.board.sq[sqIndex("a1")] = null; });
 		const one = applyAction(state, "w", real(state, "w", "g1", "f3")).state;
 		const st = applyAction(one, "w", real(one, "w", "f3", "g5")).state;
 		assert.deepEqual(sizes(st.players.w), [4, 2]);
 	});
 
 	test("on a lost turn it doesn't fire (the turn isn't played) and waits for the next one", () => {
-		const { state, events } = atStart(["n", "n", "n", "n", "p", "p"], (st) => { st.players.w.lostTurns = 1; });
+		const { state, events } = atStart(["m", "m", "m", "m", "p", "p"], (st) => { st.players.w.lostTurns = 1; });
 		assert.ok(ofType(events, "turn-skipped").length && !fired(events, FK) && waits(state, FK));
 		const r = applyAction(state, "b", quiet(state, "b"));
 		assert.ok(fired(r.events, FK) && r.state.multi.player === "w");
 	});
 
 	test("an entered Mirage of the type counts (its holder sees 4); afterwards it goes out with the move cards and comes back hidden among the 4", () => {
-		const { state, events } = atStart(["n", "n", "n", "p", "p"], (st) => { st.players.w.curses.push({ id: "c900", key: "mirage", piece: "n" }); });
+		const { state, events } = atStart(["m", "m", "m", "p", "p"], (st) => { st.players.w.curses.push({ id: "c900", key: "mirage", piece: "m" }); });
 		assert.ok(fired(events, FK));
 		const one = applyAction(state, "w", real(state, "w", "g1", "f3")).state;
 		const { state: st, events: evs } = applyAction(one, "w", real(one, "w", "b1", "c3"));
@@ -1089,7 +1108,7 @@ describe("Patience", () => {
 		let st = rounds(placed(), 1).state;
 		shift(st, "b7", "b3"); // A BLACK PAWN WHITE CAN TAKE
 		st = applyAction(st, "b", quiet(st, "b")).state;
-		st.players.w.moves = cardsOf(st, ["p", "p", "p", "n", "n", "n"]);
+		st.players.w.moves = cardsOf(st, ["p", "p", "p", "m", "m", "m"]);
 		const cap = applyAction(st, "w", taking(st, "w"));
 		assert.ok(ofType(cap.events, "capture").length && !fired(cap.events, "patience"));
 		const two = rounds(cap.state, 2);
@@ -1098,7 +1117,7 @@ describe("Patience", () => {
 		let o = rounds(placed(), 1).state; // THE COUNT RUNS (1), SO A RESTART ON THE OPPONENT'S CAPTURE WOULD SHOW
 		const wp = o.board.sq.findIndex((q) => q && q.c === "w" && q.t === "p");
 		shift(o, "abcdefgh"[wp & 7] + (8 - (wp >> 3)), "b6"); // A WHITE PAWN BLACK CAN TAKE
-		o.players.b.moves = cardsOf(o, ["p", "p", "n", "n", "n", "n"]);
+		o.players.b.moves = cardsOf(o, ["p", "p", "m", "m", "m", "m"]);
 		o = applyAction(o, "b", taking(o, "b")).state;
 		assert.equal(o.players.w.captured.length, 1);
 		const w1 = applyAction(o, "w", quiet(o, "w")).state;
@@ -1125,7 +1144,7 @@ describe("Task 11 segment 3 fix round 1", () => {
 			s.board.sq.forEach((q) => { if (q) q.id = q.c + n[q.c]++; });
 			s.ply = 20;
 			s.board.history = [];
-			s.players.w.moves = ["q", "q", "q", "q", "n"].map((piece) => hand.newCard(s, "move", { piece }));
+			s.players.w.moves = ["q", "q", "q", "q", "m"].map((piece) => hand.newCard(s, "move", { piece }));
 			s.players.w.actives = [hand.newCard(s, "swap")];
 			s.players.w.curses.push(hand.newCard(s, "debt", { left: 0 })); // DUE AT WHITE'S NEXT TURN START
 			if (card) place(s, "four-of-a-kind", "w", 2);
@@ -1148,7 +1167,7 @@ describe("Task 11 segment 3 fix round 1", () => {
 		s.board.sq.forEach((p) => { if (p) p.id = p.c + n[p.c]++; });
 		s.ply = 20;
 		s.board.history = [];
-		s.players.w.moves = cardsOf(s, ["n", "n", "n", "n", "n", "n"]);
+		s.players.w.moves = cardsOf(s, ["m", "m", "m", "m", "m", "m"]);
 		s.players.w.actives = [hand.newCard(s, "swap")];
 		place(s, "four-of-a-kind", "w", 2);
 		s.players.b.moves = cardsOf(s, ["r", "r", "r", "r", "r", "r"]);
@@ -1170,7 +1189,7 @@ describe("Task 11 segment 3 fix round 1", () => {
 	});
 
 	test("M2 Four of a Kind under refillLock: the move cards are still thrown out (a discard each); the lock only stops the draw", () => {
-		const { state } = atStart(["n", "n", "n", "n", "p", "p"]);
+		const { state } = atStart(["m", "m", "m", "m", "p", "p"]);
 		const one = applyAction(state, "w", real(state, "w", "g1", "f3")).state;
 		one.players.w.refillLock = 1;
 		const a = real(one, "w", "f3", "g5"), left = ids(hand.moveCards(one.players.w)).filter((id) => id !== a.card);
@@ -1180,15 +1199,15 @@ describe("Task 11 segment 3 fix round 1", () => {
 		assert.deepEqual([st.players.w.moves.length, st.players.w.refillLock], [0, 0]);
 	});
 
-	test("M3 Underdog behind: the automatic redraw (no card action) draws up to 7", () => {
+	test("M3 Underdog behind: the automatic redraw (no card action) draws up to 6", () => {
 		const s = fresh();
 		place(s, "underdog", "w");
 		s.board.sq[sqIndex("a1")] = null;
 		const st = applyAction(s, "w", quiet(s, "w")).state;
-		Object.assign(st.players.w, { moves: cardsOf(st, ["q", "q", "q", "q", "q", "q"]), actives: [] }); // NO QUEEN MOVE, NO ACTIVE, NO KING MOVE AT THE START
+		Object.assign(st.players.w, { moves: cardsOf(st, ["q", "q", "q", "q", "q"]), actives: [] }); // 5 HELD, SO THE 6TH IS UNDERDOG'S. NO QUEEN MOVE, NO ACTIVE, NO KING MOVE AT THE START
 		const { state, events } = applyAction(st, "b", quiet(st, "b"));
 		assert.ok(events.some((e) => e.type === "redraw" && e.player === "w"));
-		assert.equal(hand.moveCards(state.players.w).length, 7);
+		assert.equal(hand.moveCards(state.players.w).length, 6);
 	});
 });
 
@@ -1211,7 +1230,7 @@ describe("Task 11 closing review", () => {
 	test("M1 Four of a Kind fired on a lost turn a king skull would void, then a Debt (Hollow Crown held) discards the King card and the turn is skipped: its debuff is dropped, the usual refill runs", () => {
 		let hits = 0;
 		for (let seed = 1; seed <= 60; seed++) {
-			const s = setup(seed, "r3k3/8/8/8/8/8/3N2PP/7K b - - 0 20", ["q", "q", "q", "q", "n"], ["r", "r", "r", "r", "r", "r"]);
+			const s = setup(seed, "r3k3/8/8/8/8/8/3N2PP/7K b - - 0 20", ["q", "q", "q", "q", "m"], ["r", "r", "r", "r", "r", "r"]);
 			s.players.w.actives = [];
 			s.players.w.curses.push(hand.newCard(s, "hollow-crown"), hand.newCard(s, "debt", { left: 0 }));
 			s.players.w.lostTurns = 1;
@@ -1245,7 +1264,7 @@ describe("a choice asked at the start of a turn (no card does yet: a test card)"
 	};
 
 	for (const first of [false, true]) test("with a Four of a Kind firing at the same turn start (the choice asked " + (first ? "before" : "after") + " it): the choice is answered, then the two moves are played, then its throw-out and draw of 4", () => withAsk(() => {
-		const { state, events } = atStart(["p", "p", "p", "p", "n"], (b) => {
+		const { state, events } = atStart(["p", "p", "p", "p", "m"], (b) => {
 			const card = hand.newCard(b, ASK);
 			if (first) b.effects.push({ id: card.id, owner: "w", card, placedAt: -1 }); // PLACED BEFORE FOUR OF A KIND: HEARD FIRST
 			else b.players.w.curses.push(card); // A CURSE IS HEARD AFTER THE PLACED PASSIVES

@@ -65,7 +65,7 @@ const LEGAL = [
 const view = (fields = {}) => ({
 	you: "w", board: START(),
 	players: {
-		w: { king: true, moves: [{ id: "c1", key: "move", piece: "p" }, { id: "c2", key: "move", piece: "p" }, { id: "c3", key: "move", piece: "n" }], actives: [{ id: "c9", key: "stronghold" }, { id: "c10", key: "foresight" }], passive: { id: "c11", key: "veto" }, curses: [{ id: "c12", key: "shackles" }] },
+		w: { king: true, moves: [{ id: "c1", key: "move", piece: "p" }, { id: "c2", key: "move", piece: "p" }, { id: "c3", key: "move", piece: "m" }], actives: [{ id: "c9", key: "stronghold" }, { id: "c10", key: "foresight" }], passive: { id: "c11", key: "veto" }, curses: [{ id: "c12", key: "shackles" }] },
 		b: { hand: { count: 9, shown: [] } },
 	},
 	...fields,
@@ -119,7 +119,7 @@ test("actionsFor: a lifted card's plays (moves, active targets, the passive's pl
 
 test("actionsFor: one free discard per partner type (two Pawn cards are the same discard), and an active's own", () => {
 	const v = view(), pairs = [["c1", "c2"], ["c1", "c3"], ["c2", "c3"], ["c10"]].map((cards) => ({ type: "discard", cards }));
-	assert.deepEqual(S.actionsFor(pairs, v, "c1"), [pairs[0], pairs[1]]); // WITH THE OTHER PAWN, WITH THE KNIGHT
+	assert.deepEqual(S.actionsFor(pairs, v, "c1"), [pairs[0], pairs[1]]); // WITH THE OTHER PAWN, WITH THE KNIGHT / BISHOP
 	assert.deepEqual(S.actionsFor(pairs, v, "c3"), [pairs[1]]); // c1 & c2 ARE BOTH PAWN CARDS: ONE BUTTON
 	assert.deepEqual(S.actionsFor(pairs, v, "c10"), [pairs[3]]);
 });
@@ -199,7 +199,7 @@ test("under Card Guy's Fog of War a pawn's two forward diagonals always glow, so
 	assert.deepEqual(tos(seventh, "e7"), ["d8", "d8", "d8", "d8", "e8", "e8", "e8", "e8", "f8", "f8", "f8", "f8"]);
 	const black = view({ you: "b", board: fromFen("4k3/4p3/8/8/8/8/8/4K3 b - - 0 1") }); // BLACK'S FORWARD IS DOWN THE BOARD
 	assert.deepEqual(tos(black, "e7"), ["d6", "e5", "e6", "f6"]);
-	assert.deepEqual(S.blindMoves(v, { id: "c3", piece: "n" }, "g1").map((a) => a.to).sort(), ["f3", "h3"]); // OTHER PIECES: THE ENGINE'S PLAIN MOVES, AS BEFORE
+	assert.deepEqual(S.blindMoves(v, { id: "c3", piece: "m" }, "g1").map((a) => a.to).sort(), ["f3", "h3"]); // OTHER PIECES: THE ENGINE'S PLAIN MOVES, AS BEFORE
 	assert.deepEqual(S.options(S.pickPiece(LEGAL, v, "e2"), v.board).glow, ["e4"]); // OUTSIDE FOG: ONLY WHAT legal LISTS
 });
 
@@ -213,13 +213,13 @@ test("label: what a prompt's button says for each kind of play", () => {
 	assert.equal(S.label({ type: "active", card: "c9", target: { pieces: ["w13", "w15"], mark: "w15" } }, v, catalog), "Mark the Knight on g1");
 	assert.equal(S.label({ type: "choice", option: "w15" }, v, catalog), "Knight on g1");
 	assert.equal(S.label({ type: "choice", option: "rust" }, v, catalog), "Rust");
-	assert.equal(S.label({ type: "choice", option: "c3" }, v, catalog), "Knight card");
+	assert.equal(S.label({ type: "choice", option: "c3" }, v, catalog), "Knight / Bishop card");
 	assert.equal(S.label({ type: "choice", option: "?2" }, v, catalog), "A hidden card");
 	assert.equal(S.label({ type: "clear", card: "c12" }, v, catalog), "Pay: skip this move");
-	assert.equal(S.label({ type: "clear", card: "c12", discard: "c3" }, v, catalog), "Pay with your Knight card");
-	assert.equal(S.label({ type: "clear", card: "c12", discard: ["c1", "c3"] }, v, catalog), "Pay with your Pawn card & Knight card");
+	assert.equal(S.label({ type: "clear", card: "c12", discard: "c3" }, v, catalog), "Pay with your Knight / Bishop card");
+	assert.equal(S.label({ type: "clear", card: "c12", discard: ["c1", "c3"] }, v, catalog), "Pay with your Pawn card & Knight / Bishop card");
 	assert.equal(S.label({ type: "active", card: "c10" }, v, catalog), "Play it");
-	assert.equal(S.label({ type: "discard", cards: ["c1", "c3"] }, v, catalog), "Discard your Pawn card & Knight card (draw 1)");
+	assert.equal(S.label({ type: "discard", cards: ["c1", "c3"] }, v, catalog), "Discard your Pawn card & Knight / Bishop card (draw 1)");
 	assert.equal(S.label({ type: "discard", cards: ["c10"] }, v, { foresight: { name: "Foresight" } }), "Discard your Foresight (new one at turn end)"); // AN ACTIVE BY ITS NAME, AS cardName NAMES IT FOR A CLEAR
 	assert.equal(S.label({ type: "move", card: null, from: "c1", to: "g5" }, v, catalog), "c1 to g5 without a card");
 	assert.equal(S.label({ type: "move", card: null, from: "e7", to: "e8", promotion: "q" }, v, catalog), "Queen without a card");
@@ -227,7 +227,7 @@ test("label: what a prompt's button says for each kind of play", () => {
 
 test("label: Pickpocket's take-back names the card taken from the player (the card-taken event's), or says what it is when that event isn't at hand (I2)", () => {
 	const v = view({ pending: { player: "w", kind: "pickpocket", card: "pickpocket", stolen: "c84", options: ["c84", "?1", "?2"] } }), catalog = { foresight: { name: "Foresight" } };
-	assert.equal(S.label({ type: "choice", option: "c84" }, v, catalog, { id: "c84", key: "move", piece: "n" }), "Your Knight card");
+	assert.equal(S.label({ type: "choice", option: "c84" }, v, catalog, { id: "c84", key: "move", piece: "m" }), "Your Knight / Bishop card");
 	assert.equal(S.label({ type: "choice", option: "c84" }, v, catalog, { id: "c84", key: "foresight" }), "Your Foresight card");
 	assert.equal(S.label({ type: "choice", option: "c84" }, v, catalog), "The card taken from you"); // A RELOAD: NO EVENT
 	assert.equal(S.label({ type: "choice", option: "c84" }, v, catalog, { id: "c70", key: "move", piece: "q" }), "The card taken from you"); // AN OLDER TAKE
@@ -273,7 +273,8 @@ test("under Card Guy's Fog of War: Last Stand is tried blind (the king's queen l
 	assert.deepEqual(S.options(king, ls.board).glow, ["e2", "e3", "e4", "e5", "e6", "e7"]); // UP TO THE FIRST PIECE (BLACK'S PAWN, TAKEN), OWN PIECES BLOCK THE REST
 	assert.deepEqual(S.options(S.pick(king, ls.board, "e4"), ls.board).ready, [{ type: "active", card: "c30", target: { move: { from: "e1", to: "e4" } } }]);
 	assert.deepEqual(S.options(S.lift([{ type: "discard", cards: ["c1", "c3"] }], v, "c3", true), v.board).ready, [{ type: "discard", cards: ["c1", "c3"] }]); // ITS BLIND MOVES & ITS DISCARD
-	const hs = hidden({ board: fromFen("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1") }); // THE c1 BISHOP, NO BISHOP CARD HELD
+	const hs = hidden({ board: fromFen("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1") }); // THE c1 BISHOP, NO KNIGHT / BISHOP CARD HELD
+	hs.players.w.moves = hs.players.w.moves.slice(0, 2);
 	hs.enchant = [{ id: "e1", key: "heretical-subjection", owner: "w", pieces: [hs.board.sq[58].id] }];
 	assert.deepEqual(S.options(S.pick(S.pickPiece([], hs, "c1", true), hs.board, "g5"), hs.board).ready, [{ type: "move", card: null, from: "c1", to: "g5" }]);
 	assert.deepEqual(S.options(S.pick(S.pickPiece([], hs, "c1", true), hs.board, "c2"), hs.board).ready, [{ type: "move", card: null, from: "c1", to: "c2" }]); // LIKE A KING TOO (THE CARD'S OWN MOVE: THE ENGINE'S PLAIN ONES DON'T HAVE IT)
@@ -358,36 +359,66 @@ test("promptFocus: the prompt's button the keys focus: Cancel when the first is 
 
 /* ---- Task 20b: the draw-back floor's label, the passive reroll, a piece picked with its card spent for the player ---- */
 
-test("select.js keeps the engine's piece values for the floor's label: the same numbers", () => {
+test("select.js keeps the engine's values for the floor's label and its table of what each move card moves: the same", () => {
 	assert.deepEqual(S.VALUE, require("../../cards-engine/hand.js").VALUE);
+	assert.deepEqual(S.CARD_MOVES, require("../../cards-engine/hand.js").CARD_MOVES);
+});
+
+/* ---- Task 20c: the Knight / Bishop card ---- */
+
+test("the Knight / Bishop card's name, on a card, a discard button and a choice", () => {
+	const v = view();
+	assert.equal(S.PIECE_NAMES.m, "Knight / Bishop");
+	assert.equal(S.label({ type: "discard", cards: ["c1", "c3"] }, v, {}), "Discard your Pawn card & Knight / Bishop card (draw 1)");
+	assert.equal(S.label({ type: "choice", option: "c3" }, v, {}), "Knight / Bishop card");
+});
+
+test("under fog one Knight / Bishop card moves a knight and a bishop: pickPiece finds it for either, blindMoves lists each piece's own moves", () => {
+	const v = view({ board: fromFen("4k3/8/8/8/8/8/8/RNB1K3 w - - 0 1") });
+	assert.deepEqual(S.blindMoves(v, { id: "c3", piece: "m" }).map((a) => a.from).filter((x, i, all) => all.indexOf(x) === i).sort(), ["b1", "c1"]);
+	assert.deepEqual(S.blindMoves(v, { id: "c3", piece: "m" }, "b1").map((a) => a.to).sort(), ["a3", "c3", "d2"]);
+	for (const [from, to] of [["b1", "c3"], ["c1", "g5"]]) {
+		assert.deepEqual(S.options(S.pick(S.pickPiece([], v, from, true), v.board, to), v.board).ready, [{ type: "move", card: "c3", from, to }]);
+	}
+	assert.equal(S.pickPiece([], v, "a1", true), null); // IT MOVES NO ROOK
+	const old = view({ board: v.board });
+	old.players.w.moves = [{ id: "c3", key: "move", piece: "n" }]; // AN OLD KNIGHT CARD MOVES NOTHING
+	assert.equal(S.pickPiece([], old, "b1", true), null);
+});
+
+test("discardsFor: one button per partner type: two Knight / Bishop partners are the same discard", () => {
+	const v = view();
+	v.players.w.moves = [{ id: "c1", key: "move", piece: "p" }, { id: "c2", key: "move", piece: "m" }, { id: "c3", key: "move", piece: "m" }, { id: "c4", key: "move", piece: "r" }];
+	const pairs = [["c1", "c2"], ["c1", "c3"], ["c1", "c4"], ["c2", "c3"], ["c2", "c4"], ["c3", "c4"]].map((cards) => ({ type: "discard", cards }));
+	assert.deepEqual(S.actionsFor(pairs, v, "c1"), [pairs[0], pairs[2]]);
+	assert.deepEqual(S.actionsFor(pairs, v, "c2"), [pairs[0], pairs[3], pairs[4]]);
 });
 
 test("label: a free discard of 2 move cards names its draw-back floor, by the lower card's own type", () => {
-	const types = { p: "c1", n: "c3", b: "c4", r: "c5", q: "c6", q2: "c7", r2: "c8" };
+	const types = { p: "c1", m: "c3", m2: "c4", r: "c5", q: "c6", q2: "c7", r2: "c8" };
 	const v = view();
 	v.players.w.moves = Object.entries(types).map(([t, id]) => ({ id, key: "move", piece: t[0] }));
 	const says = (a, b, w = v) => S.label({ type: "discard", cards: [types[a], types[b]] }, w, {});
 	assert.equal(says("p", "q"), "Discard your Pawn card & Queen card (draw 1)"); // A PAWN IN THE PAIR: ANYTHING, AS BEFORE
-	assert.equal(says("n", "r"), "Discard your Knight card & Rook card (draw a Knight or Bishop, or better)");
-	assert.equal(says("b", "q"), "Discard your Bishop card & Queen card (draw a Knight or Bishop, or better)");
-	assert.equal(says("n", "b"), "Discard your Knight card & Bishop card (draw a Knight or Bishop, or better)"); // A FLOOR OF 3 READS THE SAME WHICHEVER CARD IS FIRST (USER RULING 2026-11-22)
+	assert.equal(says("m", "r"), "Discard your Knight / Bishop card & Rook card (draw a Knight / Bishop or better)");
+	assert.equal(says("m", "q"), "Discard your Knight / Bishop card & Queen card (draw a Knight / Bishop or better)");
+	assert.equal(says("m", "m2"), "Discard your Knight / Bishop card & Knight / Bishop card (draw a Knight / Bishop or better)"); // A FLOOR OF 3 IS THE CARD'S OWN NAME (TASK 20c)
 	assert.equal(says("r", "q"), "Discard your Rook card & Queen card (draw a Rook or better)");
 	assert.equal(says("r", "r2"), "Discard your Rook card & Rook card (draw a Rook or better)");
 	assert.equal(says("q", "q2"), "Discard your Queen card & Queen card (draw a Queen)");
 });
 
-test("label: a floor the player has no piece for names what they can draw, the most valuable type(s) they still have", () => {
-	const only = (fen) => { const v = view({ board: fromFen(fen) }); v.players.w.moves = ["r", "r", "q", "q", "n"].map((piece, i) => ({ id: "m" + i, key: "move", piece })); return v; };
+test("label: a floor the player has no piece for names what they can draw, the most valuable card type they still have", () => {
+	const only = (fen) => { const v = view({ board: fromFen(fen) }); v.players.w.moves = ["r", "r", "q", "q", "m"].map((piece, i) => ({ id: "m" + i, key: "move", piece })); return v; };
 	const says = (v, a, b) => S.label({ type: "discard", cards: [a, b] }, v, {});
-	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1NB1K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (draw a Knight or Bishop)");
-	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1N2K3 w - - 0 1"), "m2", "m3"), "Discard your Queen card & Queen card (draw a Knight)");
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1NB1K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (draw a Knight / Bishop)");
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1N2K3 w - - 0 1"), "m2", "m3"), "Discard your Queen card & Queen card (draw a Knight / Bishop)"); // A KNIGHT ALONE: STILL THE CARD'S NAME
 	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/4K3 w - - 0 1"), "m0", "m2"), "Discard your Rook card & Queen card (draw a Pawn)");
 	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/R3K3 w - - 0 1"), "m2", "m3"), "Discard your Queen card & Queen card (draw a Rook)");
 	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/Q3K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (draw a Rook or better)"); // A QUEEN IS WORTH THE FLOOR: NOT DROPPED
-	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1B2K3 w - - 0 1"), "m4", "m0"), "Discard your Knight card & Rook card (draw a Bishop)"); // THE BISHOP IS WORTH A KNIGHT'S FLOOR, & NOTHING BETTER IS LEFT TO DRAW: NO "or better", ONLY THE TYPES ON THE BOARD (REVIEW 2 M6)
-	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1NB1K3 w - - 0 1"), "m4", "m0"), "Discard your Knight card & Rook card (draw a Knight or Bishop)");
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1B2K3 w - - 0 1"), "m4", "m0"), "Discard your Knight / Bishop card & Rook card (draw a Knight / Bishop)"); // NOTHING BETTER IS LEFT TO DRAW: NO "or better" (REVIEW 2 M6)
 	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/RN2K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (draw a Rook)"); // THE SAME FOR A ROOK'S FLOOR WITH NO QUEEN
-	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/RN2K3 w - - 0 1"), "m4", "m0"), "Discard your Knight card & Rook card (draw a Knight or Bishop, or better)"); // A ROOK IS BETTER: AS RULED
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/RN2K3 w - - 0 1"), "m4", "m0"), "Discard your Knight / Bishop card & Rook card (draw a Knight / Bishop or better)"); // A ROOK IS BETTER: AS RULED
 	assert.equal(says(only("qqqqkqqq/8/8/8/8/8/PPPP4/4K3 w - - 0 1"), "m2", "m3"), "Discard your Queen card & Queen card (draw a Pawn)"); // CARD GUY'S QUEENS AREN'T THE PLAYER'S
 	assert.equal(says(only("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (no card back)"); // A BARE KING DRAWS NOTHING, & THE BUTTON SAYS SO (USER RULING 2026-11-22)
 });

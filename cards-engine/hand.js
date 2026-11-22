@@ -7,8 +7,19 @@
 const { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, RARITY_WEIGHTS, baseKey } = require("./cards/index.js");
 const { resight, isSight } = require("./cards/sight.js");
 
-const MOVES = 6, ACTIVES = 1, MOVE_CAP = 9, ACTIVE_CAP = 3;
-const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 }; // THE PIECE VALUES, THE ONE PLACE IN THE ENGINE: THE FREE DISCARD'S FLOOR (drawMove) AND UNDERDOG'S MATERIAL
+const MOVES = 5, ACTIVES = 1, MOVE_CAP = 9, ACTIVE_CAP = 3;
+const VALUE = { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 }; // THE VALUES, THE ONE PLACE IN THE ENGINE: A PIECE TYPE'S (UNDERDOG'S MATERIAL) AND A MOVE CARD TYPE'S (THE FREE DISCARD'S FLOOR, drawMove; m: THE KNIGHT / BISHOP CARD)
+const CARD_MOVES = { p: "p", m: "nb", r: "r", q: "q" }; // THE PIECE TYPES EACH MOVE CARD TYPE MOVES, THE ONE TABLE (USER RULING 2026-11-22: ONE KNIGHT / BISHOP CARD, "m", IN PLACE OF THE KNIGHT CARD AND THE BISHOP CARD)
+
+/**
+ * @description The move card type that moves a piece of type t: "m" for a knight or a bishop, else t itself (CARD_MOVES); undefined for a king.
+ */
+const cardOf = (t) => Object.keys(CARD_MOVES).find((k) => CARD_MOVES[k].includes(t));
+
+/**
+ * @description True when a move card of type `piece` moves a piece of type t (CARD_MOVES). An unknown card type (an old Knight or Bishop card) moves nothing.
+ */
+const fits = (piece, t) => (CARD_MOVES[piece] || "").includes(t);
 const byId = (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1));
 
 /**
@@ -50,15 +61,19 @@ function put(ctx, color, slot, fields) {
 	return card;
 }
 
+const PAWN_WEIGHT = 6; // THE MOST PAWNS THE MOVE-CARD DRAW COUNTS: 8 ON THE BOARD DRAW AS 6
+
 /**
- * @description Draw one move card: a piece type color still has (king aside), weighted by how many of that type are on the board, a queen counting as 2. null when color has only its king.
- * With a floor (the free discard's draw-back, user ruling 2026-11-22) only the types worth floor or more (VALUE); when color has none of those, the most valuable type it still has (a knight and a bishop are both 3, so both stay in). No floor draws from every type, with one rng pick.
+ * @description Draw one move card: one of color's pieces (king aside) picked at random, a queen counting as 2 & the pawns as 6 at most (PAWN_WEIGHT), gives the card type that moves it (cardOf: a knight or a bishop the Knight / Bishop card, at the two pieces' combined odds). null when color has only its king.
+ * With a floor (the free discard's draw-back, user ruling 2026-11-22) only the pieces worth floor or more (VALUE); when color has none of those, the most valuable type it still has (a knight and a bishop are both 3, so both stay in). No floor draws from every piece, with one rng pick.
  */
 function drawMove(ctx, color, floor = 0) {
-	const all = ctx.state.board.sq.filter((q) => q && q.c === color && q.t !== "k").flatMap((q) => (q.t === "q" ? ["q", "q"] : [q.t])); // A QUEEN COUNTS DOUBLE (USER RULING 2026-11-22: THE QUEEN CARD WAS TOO RARE)
+	const each = ctx.state.board.sq.filter((q) => q && q.c === color && q.t !== "k").flatMap((q) => (q.t === "q" ? ["q", "q"] : [q.t])); // A QUEEN COUNTS DOUBLE (USER RULING 2026-11-22: THE QUEEN CARD WAS TOO RARE)
+	let pawns = 0;
+	const all = each.filter((t) => t !== "p" || ++pawns <= PAWN_WEIGHT); // PAWNS COUNT AS PAWN_WEIGHT AT MOST (USER RULING 2026-11-22: FEWER PAWN CARDS)
 	if (!all.length) return null;
 	const worth = (t) => VALUE[t] || 0, dropped = Math.min(floor, Math.max(...all.map(worth))); // THE FLOOR DROPS TO THE BEST TYPE LEFT
-	return put(ctx, color, "moves", { key: "move", piece: ctx.rng.pick(all.filter((t) => worth(t) >= dropped)) });
+	return put(ctx, color, "moves", { key: "move", piece: cardOf(ctx.rng.pick(all.filter((t) => worth(t) >= dropped))) });
 }
 
 /**
@@ -119,12 +134,12 @@ function drawCard(ctx, color, kind, not) {
 }
 
 /**
- * @description 1 while a placed passive of color's rules.bigHand(state, color, src) says so (Underdog: a 7th move card and a second active slot), else 0.
+ * @description 1 while a placed passive of color's rules.bigHand(state, color, src) says so (Underdog: a 6th move card and a second active slot), else 0.
  */
 const big = (s, color) => (s.effects.some((e) => { const r = e.owner === color && CARDS[e.card.key] && CARDS[e.card.key].rules; return !!(r && r.bigHand && r.bigHand(s, color, e)); }) ? 1 : 0);
 
 /**
- * @description End-of-turn refill: top up to 6 move cards (entered Mirages count) and 1 active, never trimming extras; 7 and 2 while big (Underdog). At the end of color's two-move turn with multi.draw (Four of a Kind), color's move cards are thrown out first (a discard event each; an entered Mirage among them comes back hidden among the draws) and the top-up is to multi.draw. Then each waiting Mirage takes over a random move card in the hand (drawMoves). While refillLock is set (cards lost to a debuff) the draws are skipped (Four of a Kind's throw-out still happens) and the lock counts down. Last, at every refill, each entered Mirage trades places with one random held move card, itself included (state.rng): the two swap id and piece type, with no event, so the holder's view is unchanged and a card's age says nothing about which one is the Mirage (cards drawn after it entered could not be it otherwise).
+ * @description End-of-turn refill: top up to 5 move cards (MOVES, user ruling 2026-11-22: was 6; entered Mirages count) and 1 active, never trimming extras; 6 and 2 while big (Underdog). At the end of color's two-move turn with multi.draw (Four of a Kind), color's move cards are thrown out first (a discard event each; an entered Mirage among them comes back hidden among the draws) and the top-up is to multi.draw. Then each waiting Mirage takes over a random move card in the hand (drawMoves). While refillLock is set (cards lost to a debuff) the draws are skipped (Four of a Kind's throw-out still happens) and the lock counts down. Last, at every refill, each entered Mirage trades places with one random held move card, itself included (state.rng): the two swap id and piece type, with no event, so the holder's view is unchanged and a card's age says nothing about which one is the Mirage (cards drawn after it entered could not be it otherwise).
  */
 function refill(ctx, color) {
 	const s = ctx.state, p = s.players[color], only = s.multi && s.multi.player === color && s.multi.draw, plus = big(s, color);
@@ -161,12 +176,13 @@ function take(p, id) {
 }
 
 /**
- * @description Discard n random cards (move, active or passive; never a curse or the King card, unless a Hollow Crown makes it losable (kingCard); an entered Mirage, a move card to its holder, can go: through discard, which clears it) from color's hand, with a discard event each.
+ * @description Discard n random cards, the whole hand when n is left out (move, active or passive; never a curse or the King card, unless a Hollow Crown makes it losable (kingCard); an entered Mirage, a move card to its holder, can go: through discard, which clears it) from color's hand, with a discard event each.
  */
 function discardRandom(ctx, color, n) {
-	const p = ctx.state.players[color];
+	const p = ctx.state.players[color], pool = () => [...moveCards(p), ...p.actives, ...(p.passive ? [p.passive] : []), ...kingCard(p)];
+	if (n === undefined) n = 40; // THE WHOLE HAND: UNTIL THE POOL IS EMPTY (A CARD A TRIGGER DRAWS MEANWHILE GOES TOO), CAPPED SO A CARD THAT WON'T LEAVE CAN'T LOOP
 	for (let k = 0; k < n; k++) {
-		const card = ctx.rng.pick([...moveCards(p), ...p.actives, ...(p.passive ? [p.passive] : []), ...kingCard(p)]);
+		const card = ctx.rng.pick(pool());
 		if (!card) return;
 		if (card !== p.passive) discard(ctx, color, card.id);
 		else {
@@ -176,4 +192,4 @@ function discardRandom(ctx, color, n) {
 	}
 }
 
-module.exports = { MOVES, MOVE_CAP, ACTIVE_CAP, VALUE, newCard, drawMove, drawCard, drawable, refill, take, discardRandom, mirages, moveCards, drawMoves, throwMoves, discard, kingCard, kingFree, big };
+module.exports = { MOVES, MOVE_CAP, ACTIVE_CAP, VALUE, CARD_MOVES, cardOf, fits, newCard, drawMove, drawCard, drawable, refill, take, discardRandom, mirages, moveCards, drawMoves, throwMoves, discard, kingCard, kingFree, big };

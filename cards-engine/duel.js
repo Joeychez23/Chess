@@ -87,7 +87,7 @@ function act(ctx, player, a) {
 }
 
 /**
- * @description A decided round: duel-result { winner }. A win counts and gives the next upgrade (Knight or Bishop by the player's choice, asked with ctx.ask; Rook; Queen, which ends the duel), then step "decide". A loss ends the duel: 6 random cards forfeit, then the piece leaves the board (the epic version forfeits the piece only, the legendary version the cards only: the piece stays as it is, upgrades already won included). refillLock holds back this turn's whole refill, the played card's active slot too: all of it comes back at the end of the player's next turn. Losing the piece is a removal, not a capture by the winner: Marked is cleared first so it pays no one, and the capture event names the piece's own player (player === c, by null), so no "the opponent captured" trigger fires. Returns true when the duel is over.
+ * @description A decided round: duel-result { winner }. A win counts and gives the next upgrade (Knight or Bishop by the player's choice, asked with ctx.ask; Rook; Queen, which ends the duel), then step "decide". A loss ends the duel: the whole hand is forfeit (user ruling 2026-11-22: every move card, active and passive in hand, as random discards; never a curse, nor the King card unless a Hollow Crown makes it losable), then the piece leaves the board (the epic version forfeits the piece only, the legendary version the cards only: the piece stays as it is, upgrades already won included). refillLock holds back this turn's whole refill, the played card's active slot too: all of it comes back at the end of the player's next turn. Losing the piece is a removal, not a capture by the winner: Marked is cleared first so it pays no one, and the capture event names the piece's own player (player === c, by null), so no "the opponent captured" trigger fires. Returns true when the duel is over.
  */
 function result(ctx, winner) {
 	const s = ctx.state, d = s.duel;
@@ -95,7 +95,7 @@ function result(ctx, winner) {
 	if (winner !== d.player) {
 		s.duel = null;
 		if (d.card !== "all-or-nothing-epic") { // THE EPIC VERSION LOSES NO CARDS, SO NOTHING HOLDS ITS REFILL BACK EITHER
-			ctx.discardRandom(d.player, 6);
+			ctx.discardRandom(d.player); // THE WHOLE HAND
 			s.players[d.player].refillLock = Math.max(s.players[d.player].refillLock, 1);
 		}
 		if (d.card !== "all-or-nothing-legendary" && pieceById(s.board, d.piece) >= 0) { statuses.clear(ctx, d.piece, "marked"); ctx.capture(d.player, d.piece); } // A TARGET IS NEVER A KING; A TRIGGER MAY HAVE TAKEN IT ALREADY

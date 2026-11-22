@@ -25,7 +25,7 @@ export function rarityColor(rarity) {
  */
 export function faceOf(card, catalog = {}) {
 	if (card.id === "king" || card.key === "king") { return { name: "King", type: "Move", text: "", skulls: null, rarity: null, glyph: "k" }; }
-	if (card.key === "move") { return { name: PIECE_NAMES[card.piece] || "Move", type: "Move", text: "", skulls: null, rarity: null, glyph: GLYPHS[card.piece] ? card.piece : null }; }
+	if (card.key === "move") { return { name: PIECE_NAMES[card.piece] || "Move", type: "Move", text: "", skulls: null, rarity: null, glyph: GLYPHS[card.piece] || card.piece === "m" ? card.piece : null }; } // "m": THE KNIGHT / BISHOP CARD, BOTH SYMBOLS (drawPlayFace)
 	const info = catalog[card.key];
 	if (!info) { return { name: String(card.key || "Card"), type: "Effect", text: "", skulls: null, rarity: null, glyph: null }; }
 	const skulls = info.kind === "active" || info.kind === "passive" ? Number(info.skulls) || 0 : null;
@@ -95,7 +95,18 @@ export function drawPlayFace(ctx, face, color, w, h, barBottom = false) {
 	ctx.fillText(face.rarity ? `${face.type} · ${face.rarity[0].toUpperCase()}${face.rarity.slice(1)}` : face.type, w / 2, typeY);
 
 	const skullH = face.skulls === null ? 0 : h * 0.09;
-	if (face.glyph) {
+	if (face.glyph === "m") { // THE KNIGHT / BISHOP CARD: THE KNIGHT UPPER LEFT, THE BISHOP LOWER RIGHT, ONE DIAGONAL LINE BETWEEN THEM
+		const cx = w / 2, cy = (typeY + bottom) / 2 + h * 0.02, dx = w * 0.19, dy = h * 0.13;
+		ctx.font = `bold ${Math.round(h * 0.26)}px ${FONT}`;
+		paintGlyph(ctx, GLYPHS.n, color, cx - dx, cy - dy, w * 0.02);
+		paintGlyph(ctx, GLYPHS.b, color, cx + dx, cy + dy, w * 0.02);
+		ctx.strokeStyle = INK;
+		ctx.lineWidth = w * 0.02;
+		ctx.beginPath();
+		ctx.moveTo(cx - dx, cy + dy * 1.7);
+		ctx.lineTo(cx + dx, cy - dy * 1.7);
+		ctx.stroke();
+	} else if (face.glyph) {
 		ctx.font = `bold ${Math.round(h * 0.4)}px ${FONT}`;
 		paintGlyph(ctx, GLYPHS[face.glyph], color, w / 2, (typeY + bottom) / 2 + h * 0.02, w * 0.02);
 	} else if (face.text) {

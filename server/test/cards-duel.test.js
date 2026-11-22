@@ -25,6 +25,7 @@ const C = (x) => ({ r: RANKS.indexOf(x[0]) + 2, s: x[1] }); // "As" -> { r: 14, 
 const PICK = (pick) => ({ type: "duel", pick });
 const STOP = { type: "duel", stop: true }, GO = { type: "duel", stop: false };
 const roundTrip = (s) => JSON.parse(JSON.stringify(s));
+const held = (p) => hand.moveCards(p).length + p.actives.length + (p.passive ? 1 : 0); // THE DUEL'S STAKE: THE WHOLE HAND (USER RULING 2026-11-22)
 
 /**
  * @description A fresh game on fen where White holds All or Nothing (or the version key) as its only active; returns { s, id }.
@@ -123,17 +124,17 @@ describe("All or Nothing: the card duel", () => {
 		assert.deepEqual(at(s, "e4"), { id: piece, c: "w", t: "q" });
 	});
 
-	test("a loss: the piece is taken, 6 random cards are forfeit and not refilled this turn; half 0", () => {
+	test("a loss: the piece is taken, the whole hand is forfeit and not refilled this turn; half 0", () => {
 		let { s, events, piece } = start(KNIGHT, "a4");
-		const p = s.players.w, before = p.moves.length + p.actives.length + (p.passive ? 1 : 0);
+		const before = held(s.players.w);
+		assert.ok(s.players.w.moves.length === hand.MOVES && before >= hand.MOVES);
 		rig(s, ["2c", "3c", "4c"], ["Ac", "Kc", "Qc"]);
 		({ s, events } = both(s, 1, 0));
 		assert.deepEqual(ofType(events, "duel-result"), [{ type: "duel-result", winner: "b" }]);
-		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, 6);
+		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, before);
 		assert.deepEqual(ofType(events, "capture"), [{ type: "capture", player: "w", piece, t: "n", c: "w", by: null, sq: "a4" }]); // A REMOVAL: THE PIECE'S OWN PLAYER, NOT A CAPTURE BY THE WINNER
 		assert.equal(at(s, "a4"), null);
-		const q = s.players.w;
-		assert.equal(q.moves.length + q.actives.length + (q.passive ? 1 : 0), before - 6);
+		assert.equal(held(s.players.w), 0);
 		assert.deepEqual(ofType(events, "draw").filter((e) => e.player === "w"), []); // NOT REFILLED THIS TURN
 		assert.equal(s.duel, null);
 		assert.equal(s.board.turn, "b");
@@ -323,15 +324,34 @@ describe("All or Nothing: the card duel", () => {
 		assert.ok(outcomes.has("lost"));
 		assert.ok([...outcomes].some((t) => t !== "lost" && t !== "p"));
 	});
+	test("a loss takes every card, with no number: an Underdog's 6th move card, a second active, the passive in hand and an entered Mirage all go; a curse and the King card stay", () => {
+		let { s, events } = start(KNIGHT, "a4");
+		const p = s.players.w;
+		p.moves.push({ id: "t6", key: "move", piece: "p" }); // THE 6TH (UNDERDOG)
+		p.actives.push({ id: "t7", key: "opposing-finality" }); // ITS SECOND ACTIVE SLOT
+		p.passive = { id: "t8", key: "grace" };
+		p.curses = [{ id: "t9", key: "mirage", piece: "r" }, { id: "t10", key: "debt", left: 3 }]; // AN ENTERED MIRAGE IS A MOVE CARD TO ITS HOLDER; DEBT IS A CURSE
+		assert.equal(held(p), 9);
+		rig(s, ["2c", "3c", "4c"], ["Ac", "Kc", "Qc"]);
+		({ s, events } = both(s, 1, 0));
+		const gone = ofType(events, "discard").filter((e) => e.player === "w").map((e) => e.card.id);
+		assert.equal(gone.length, 9);
+		assert.equal(new Set(gone).size, 9);
+		for (const id of ["t6", "t7", "t8", "t9"]) assert.ok(gone.includes(id), id);
+		const q = s.players.w;
+		assert.deepEqual([q.moves, q.actives, q.passive, q.king], [[], [], null, true]);
+		assert.deepEqual(q.curses.map((c) => c.key), ["debt"]);
+		assert.equal(q.refillLock, 0); // HELD BACK THIS TURN'S REFILL, WHICH COUNTED IT DOWN
+		assert.deepEqual(ofType(events, "draw").filter((e) => e.player === "w"), []);
+	});
 	test("a lost Marked piece pays no one: losing the duel is a removal, not a capture by the winner", () => {
 		let { s, events, piece } = start(KNIGHT, "a4");
 		s.statuses[piece] = [{ s: "marked", left: 3 }];
-		s.players.w.moves.push({ id: "x1", key: "move", piece: "p" }, { id: "x2", key: "move", piece: "p" }, { id: "x3", key: "move", piece: "p" }); // CARDS LEFT AFTER THE FORFEIT, FOR MARKED TO TAKE IF IT FIRED
-		const blackMoves = s.players.b.moves.length;
+		const blackMoves = s.players.b.moves.length, before = held(s.players.w);
 		rig(s, ["2c", "3c", "4c"], ["Ac", "Kc", "Qc"]);
 		({ s, events } = both(s, 1, 0));
 		assert.equal(at(s, "a4"), null);
-		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, 6); // THE FORFEIT ONLY, NOT 2 MORE FOR MARKED
+		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, before); // THE FORFEIT ONLY (IT LEAVES MARKED NO CARD TO TAKE: ITS DRAW FOR BLACK, BELOW, WOULD SHOW IT FIRED)
 		assert.deepEqual(ofType(events, "draw").filter((e) => e.player === "b"), []);
 		assert.equal(s.players.b.moves.length, blackMoves);
 	});
@@ -414,13 +434,14 @@ describe("All or Nothing: the card duel", () => {
 		s0.statuses[piece] = [{ s: "marked", left: 2, by: "b" }];
 		statuses.claimMark(ctx, ctx.enchant("w", "opposing-finality", [piece]), piece); // AS ITS PLAY DOES
 		let { s, events } = go(ctx.state, "w", { type: "active", card: aon, target: { piece } });
-		s.players.w.moves.push({ id: "x1", key: "move", piece: "p" }, { id: "x2", key: "move", piece: "p" }, { id: "x3", key: "move", piece: "p" }); // CARDS LEFT AFTER THE FORFEIT, FOR MARKED TO TAKE IF IT FIRED
+		const before = held(s.players.w);
 		rig(s, ["2c", "3c", "4c"], ["Ac", "Kc", "Qc"]);
 		({ s, events } = both(s, 1, 0));
 		assert.equal(at(s, "a4"), null);
 		assert.deepEqual(s.enchant, []);
 		assert.deepEqual(ofType(events, "status"), []);
-		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, 6); // THE FORFEIT ONLY
+		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, before); // THE FORFEIT ONLY
+		assert.deepEqual(ofType(events, "draw").filter((e) => e.player === "b"), []); // MARKED'S DRAW FOR THE OTHER SIDE: NOT PAID
 	});
 });
 
@@ -477,15 +498,16 @@ describe("All or Nothing versions: the stakes of a lost hand", () => {
 		assert.deepEqual(offered(EPIC), [at(s, "h1").id]);
 	});
 
-	test("legendary: a lost hand forfeits 6 cards but not the piece, which keeps the upgrade won earlier", () => {
+	test("legendary: a lost hand forfeits the whole hand but not the piece, which keeps the upgrade won earlier", () => {
 		let { s, piece } = oneWin(LEGENDARY, 1), events;
 		const before = count(s.players.w);
 		({ s, events } = lose(s));
 		assert.deepEqual(ofType(events, "duel-result"), [{ type: "duel-result", winner: "b" }]);
 		assert.deepEqual(ofType(events, "capture"), []);
 		assert.deepEqual(at(s, "e4"), { id: piece, c: "w", t: "b" }); // THE BASE CARD NEVER UNDOES A WON UPGRADE; ONLY THE FORFEIT IS LIFTED
-		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, 6);
-		assert.equal(count(s.players.w), before - 6);
+		assert.ok(before >= hand.MOVES);
+		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, before);
+		assert.equal(count(s.players.w), 0);
 		assert.deepEqual(ofType(events, "draw").filter((e) => e.player === "w"), []); // NOT REFILLED THIS TURN
 		assert.equal(s.duel, null);
 		assert.equal(s.board.turn, "b");
@@ -512,14 +534,15 @@ describe("All or Nothing versions: the stakes of a lost hand", () => {
 			const { s: s0, piece } = oneWin(key, 5);
 			for (const s1 of [roundTrip(s0), fromView(playerView(s0, "w"), 7)]) {
 				assert.equal(s1.duel.card, key);
-				const { s, events } = lose(s1);
+				const before = count(s1.players.w), { s, events } = lose(s1);
 				const discards = ofType(events, "discard").filter((e) => e.player === "w").length;
 				if (key === EPIC) {
 					assert.equal(at(s, "e4"), null);
 					assert.equal(discards, 0);
 				} else {
 					assert.deepEqual(at(s, "e4"), { id: piece, c: "w", t: "b" });
-					assert.equal(discards, 6);
+					assert.ok(before >= hand.MOVES);
+					assert.equal(discards, before);
 				}
 			}
 		}

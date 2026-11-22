@@ -264,7 +264,7 @@ describe("Tremor", () => {
 			assert.deepEqual([q.c, q.t], ["w", "p"]);
 			assert.equal(s.statuses[ids[0]][0].left, 3);
 			assert.deepEqual(s.players.w.curses, []);
-			assert.equal(s.players.w.moves.length, 7); // THE DRAWN CARD STAYS
+			assert.equal(s.players.w.moves.length, 6); // THE DRAWN CARD STAYS
 			assert.deepEqual(ofType(ctx.events, "curse-cleared").map((e) => e.card.id), [t.id]);
 			frozen.add(ids[0]);
 			ctx.draw("w", 1);
@@ -353,7 +353,7 @@ describe("Cleanse (base)", () => {
 	test("a held Mirage is never offered or cleared as a curse (its holder sees a move card)", () => {
 		const s = fresh(), cl = hand.newCard(s, "cleanse");
 		s.players.w.actives = [cl];
-		const m = curse(s, "w", "mirage", { piece: "n" });
+		const m = curse(s, "w", "mirage", { piece: "m" });
 		assert.ok(!legalActions(s, "w").some((a) => a.type === "active"), "Cleanse shows a Mirage");
 		const c = curse(s, "w", "shackles");
 		const r = applyAction(s, "w", { type: "active", card: cl.id, target: { curses: "all" } });
@@ -525,7 +525,7 @@ describe("Mirage", () => {
 		const s = fresh(), before = JSON.parse(JSON.stringify(s)), ctx = makeCtx(s);
 		const m = ctx.giveCurse("b", "mirage", "w");
 		assert.ok(m.waiting && m.key === "mirage" && !m.id.startsWith("c"));
-		assert.ok(s.board.sq.some((q) => q && q.c === "b" && q.t === m.piece) && m.piece !== "k");
+		assert.ok(s.board.sq.some((q) => q && q.c === "b" && hand.fits(m.piece, q.t)));
 		assert.equal(s.nextId, before.nextId);
 		const strip = (v) => { delete v.players.w.curseWait; return v; }; // THE GIVER'S WAIT IS PUBLIC (A CURSE WAS GIVEN), NOT WHICH ONE
 		assert.deepEqual(strip(playerView(s, "b")), strip(playerView(before, "b")));
@@ -539,23 +539,27 @@ describe("Mirage", () => {
 		blind(s, ctx.events, "b");
 	});
 
+	test("a Mirage given to a holder with a knight and a bishop only is a Knight / Bishop card, never a Knight or a Bishop card", () => {
+		for (let seed = 1; seed <= 8; seed++) assert.equal(makeCtx(game("1nb1k3/8/8/8/8/8/PPPP4/4K3 w - - 0 1", seed)).giveCurse("b", "mirage", "w").piece, "m");
+	});
+
 	test("Hexcraft and Bad Omen give a Mirage with a valid piece type: one the holder has, picked by state.rng", () => {
 		const s = game("1n2k1r1/8/8/8/8/8/PPPP4/4K3 w - - 0 1"), ctx = makeCtx(s); // BLACK HAS NO PAWN
 		ctx.randomCurses = () => ["mirage", "tremor"];
 		CARDS.hexcraft.play(ctx, "w");
 		CARDS.hexcraft.choice.resolve(ctx, s.pending, "mirage");
 		const [m] = s.players.b.curses;
-		assert.ok(m.key === "mirage" && m.waiting && ["n", "r"].includes(m.piece), m.piece);
+		assert.ok(m.key === "mirage" && m.waiting && ["m", "r"].includes(m.piece), m.piece);
 		const types = new Set();
 		for (let seed = 1; seed <= 12; seed++) {
 			const o = game("1n2k1r1/8/8/8/8/8/PPPP4/4K3 w - - 0 1", seed), twin = makeCtx(JSON.parse(JSON.stringify(o))), octx = makeCtx(o);
 			octx.randomCurses = () => ["mirage"];
 			CARDS["bad-omen"].on.capture(octx, "w", { type: "capture", player: "b", c: "w" });
 			const [n] = o.players.b.curses;
-			assert.equal(n.piece, twin.rng.pick(["n", "r"])); // THE RULE: state.rng PICKS ONE OF THE HOLDER'S NON-KING PIECES (BOARD ORDER)
+			assert.equal(n.piece, hand.cardOf(twin.rng.pick(["n", "r"]))); // THE RULE: state.rng PICKS ONE OF THE HOLDER'S NON-KING PIECES (BOARD ORDER); ITS CARD TYPE
 			types.add(n.piece);
 		}
-		assert.deepEqual([...types].sort(), ["n", "r"]);
+		assert.deepEqual([...types].sort(), ["m", "r"]);
 	});
 
 	test("it enters at its holder's next refill by taking over a random held move card (old or new): its id and type, no event; count, ids and events as with no Mirage", () => {
@@ -637,10 +641,10 @@ describe("Mirage", () => {
 	});
 
 	test("its actions are a real move card's of that type; playing one moves nothing, uses the turn and spends it", () => {
-		const s = fresh(), m = curse(s, "w", "mirage", { piece: "n" });
+		const s = fresh(), m = curse(s, "w", "mirage", { piece: "m" });
 		const twin = JSON.parse(JSON.stringify(s));
 		twin.players.w.curses = [];
-		twin.players.w.moves.push({ id: m.id, key: "move", piece: "n" });
+		twin.players.w.moves.push({ id: m.id, key: "move", piece: "m" });
 		assert.deepEqual(legalActions(s, "w").map(actionKey), legalActions(twin, "w").map(actionKey));
 		blind(s, [], "w");
 		const a = legalActions(s, "w").find((x) => x.card === m.id && x.type === "move");
@@ -653,15 +657,15 @@ describe("Mirage", () => {
 	});
 
 	test("not playable while its holder is in check", () => {
-		const s = game("4r1k1/8/8/8/8/8/8/2N1K3 w - - 0 1"), m = curse(s, "w", "mirage", { piece: "n" });
+		const s = game("4r1k1/8/8/8/8/8/8/2N1K3 w - - 0 1"), m = curse(s, "w", "mirage", { piece: "m" });
 		const twin = JSON.parse(JSON.stringify(s));
 		twin.players.w.curses = [];
-		twin.players.w.moves.push({ id: m.id, key: "move", piece: "n" });
+		twin.players.w.moves.push({ id: m.id, key: "move", piece: "m" });
 		assert.ok(legalActions(twin, "w").some((a) => a.card === m.id && a.to === "e2"));
 		assert.ok(!legalActions(s, "w").some((a) => a.card === m.id));
 	});
 
-	test("counts as a move card: toward the 9 cap and the refill's 6", () => {
+	test("counts as a move card: toward the 9 cap and the refill's 5", () => {
 		const s = fresh();
 		s.players.w.moves = Array.from({ length: 8 }, () => moveCard(s, "p"));
 		curse(s, "w", "mirage", { piece: "p" });
@@ -670,10 +674,10 @@ describe("Mirage", () => {
 		assert.deepEqual(ofType(ctx.events, "draw").map((e) => !!e.lost), [true]);
 		assert.equal(blind(s, ctx.events, "w").players.w.moves.length, 9);
 		const t = fresh();
-		curse(t, "w", "mirage", { piece: "p" }); // 6 REAL + IT: 7 SHOWN
+		curse(t, "w", "mirage", { piece: "p" }); // 5 REAL + IT: 6 SHOWN
 		const r = applyAction(t, "w", t.players.w.moves.length && legalActions(t, "w").find((a) => a.type === "move" && t.players.w.moves.some((c) => c.id === a.card)));
-		assert.ok(!ofType(r.events, "draw").some((e) => e.player === "w" && e.card && e.card.key === "move")); // 5 REAL + IT: NO DRAW
-		assert.equal(playerView(r.state, "w").players.w.moves.length, 6);
+		assert.ok(!ofType(r.events, "draw").some((e) => e.player === "w" && e.card && e.card.key === "move")); // 4 REAL + IT: NO DRAW
+		assert.equal(playerView(r.state, "w").players.w.moves.length, 5);
 	});
 
 	test("a free discard of it is a real discard: it pairs as a move card, a move card is drawn back and the curse is gone", () => {
@@ -747,7 +751,7 @@ describe("Mirage", () => {
 		makeCtx(s).giveCurse("w", "mirage", "b");
 		assert.ok(!legalActions(s, "w").some((a) => a.type === "active"));
 		s.players.w.curses = [];
-		curse(s, "w", "mirage", { piece: "n" });
+		curse(s, "w", "mirage", { piece: "m" });
 		assert.ok(legalActions(s, "w").some((a) => a.type === "active"));
 	});
 
@@ -773,7 +777,7 @@ describe("Hunger", () => {
 
 	test("is rare; no capture within 2 of its holder's turns: a random pawn of theirs is removed (a removal: player === c, by null); it stays and comes due again 2 turns later", () => {
 		assert.equal(CARDS.hunger.rarity, "rare");
-		const s = fresh(), h = makeCtx(s).giveCurse("b", "hunger", "w");
+		const s = fresh(2), h = makeCtx(s).giveCurse("b", "hunger", "w"); // SEED 2: SEED 1'S HANDS REACH A TURN WITH NO MOVE CARD TO PLAY (THE DRAW'S WEIGHTS OF 2026-11-22)
 		let r = untilTurn(s, "b", 2);
 		assert.equal(pawns(r.state, "b"), 8);
 		assert.ok(!ofType(r.events, "curse-fired").length);
@@ -788,7 +792,7 @@ describe("Hunger", () => {
 		r = untilTurn(r.state, "b", 1);
 		assert.equal(pawns(r.state, "b"), 6);
 		const picked = new Set();
-		for (const seed of [1, 2, 4, 7, 8, 9, 10, 11, 12, 13, 14, 15]) { // THE PAWN IS PICKED BY state.rng. SEEDS WHOSE HANDS ALWAYS HOLD A MOVE (untilTurn PLAYS MOVES ONLY; 3, 5 & 6 DON'T SINCE A QUEEN COUNTS DOUBLE)
+		for (const seed of [2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 15, 16]) { // THE PAWN IS PICKED BY state.rng. SEEDS WHOSE HANDS ALWAYS HOLD A MOVE (untilTurn PLAYS MOVES ONLY; 1, 5, 6 & 14 DON'T WITH THE DRAW'S WEIGHTS OF 2026-11-22)
 			const t = fresh(seed);
 			makeCtx(t).giveCurse("b", "hunger", "w");
 			picked.add(ofType(untilTurn(t, "b", 3).events, "capture").find((e) => e.c === "b").piece);
@@ -832,7 +836,7 @@ describe("Leech", () => {
 		const after = r.events.slice(start);
 		assert.deepEqual(ofType(after, "draw").filter((e) => e.player === "w").map((e) => e.card.key), ["move"]);
 		assert.deepEqual(ofType(after, "curse-fired").map((e) => [e.player, e.card.key]), [["b", "leech"]]);
-		assert.equal(r.state.players.w.moves.length, 7);
+		assert.equal(r.state.players.w.moves.length, 6);
 		assert.ok(ofType(playerEvents(r.state, r.events, "b").slice(start), "draw").filter((e) => e.player === "w").every((e) => !e.card)); // THE HOLDER DOESN'T SEE WHAT THE OPPONENT DREW
 		const q = applyAction(r.state, "b", firstMove(r.state, "b")); // WHITE'S OWN TURN: NOTHING EXTRA
 		assert.ok(!ofType(q.events.slice(q.events.findIndex((e) => e.type === "turn-start")), "draw").some((e) => e.player === "w" && e.card.key === "move"));
@@ -1162,7 +1166,7 @@ describe("Hollow Crown: no card moves the king without the King card", () => {
 	test("Bounty counts an entered Mirage toward the 9 cap: a stolen move card is lost at 8 real move cards plus the Mirage", () => {
 		const s = fresh(), ctx = makeCtx(s);
 		s.players.w.moves = Array.from({ length: 8 }, () => moveCard(s, "p"));
-		curse(s, "w", "mirage", { piece: "n" }); // ENTERED (NOT WAITING): A MOVE CARD TO ITS HOLDER
+		curse(s, "w", "mirage", { piece: "m" }); // ENTERED (NOT WAITING): A MOVE CARD TO ITS HOLDER
 		Object.assign(s.players.b, { moves: [moveCard(s, "r")], actives: [] });
 		assert.ok(CARDS.bounty.on.capture(ctx, "w", { type: "capture", player: "w", c: "b", t: "q" }));
 		assert.deepEqual(ofType(ctx.events, "card-taken").map((e) => e.lost), [true]);
@@ -1271,7 +1275,7 @@ describe("Mirage: no tell from a card's age", () => {
 		for (let seed = 1; seed <= 30; seed++) {
 			const a = fresh(seed);
 			const m = curse(a, "w", "mirage", { piece: "q" });
-			a.players.w.moves.pop(); // 5 REAL CARDS AND THE MIRAGE
+			a.players.w.moves.pop(); // 4 REAL CARDS AND THE MIRAGE
 			const b = JSON.parse(JSON.stringify(a));
 			b.players.w.curses = [];
 			b.players.w.moves.push({ id: m.id, key: "move", piece: "q" });
@@ -1283,7 +1287,7 @@ describe("Mirage: no tell from a card's age", () => {
 			assert.deepEqual(playerView(ra.state, "w").players.w, playerView(rb.state, "w").players.w);
 			const now = ra.state.players.w.curses[0], twin = rb.state.players.w.moves.find((c) => c.id === now.id);
 			assert.ok(now.key === "mirage" && !now.waiting && twin && twin.piece === now.piece);
-			assert.equal(new Set(hand.moveCards(ra.state.players.w).map((c) => c.id)).size, 6);
+			assert.equal(new Set(hand.moveCards(ra.state.players.w).map((c) => c.id)).size, 5);
 			assert.deepEqual(playerView(ra.state, "b").players.w.hand.shown.map((c) => [c.id, c.key]), [[now.id, "mirage"]]); // THE GIVER SEES WHERE IT IS NOW
 			assert.deepEqual(JSON.parse(JSON.stringify(ra.state)), ra.state);
 			blind(ra.state, ra.events, "w");

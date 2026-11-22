@@ -1,6 +1,6 @@
 /*
  *  four-of-a-kind.js  --  chess cards engine
- *	Passive: 4 or more of your move cards name the same piece type; move twice this turn. Debuff: afterwards discard your move cards and draw only 4.
+ *	Passive: 4 or more of your move cards are of the same type (4 Knight / Bishop cards count); move twice this turn. Debuff: afterwards discard your move cards and draw only 4.
  *
  */
 
@@ -9,7 +9,7 @@ const { inCheck } = require("../../rules.js");
 
 module.exports = {
 	key: "four-of-a-kind", kind: "passive", name: "Four of a Kind", skulls: 2, rarity: "uncommon",
-	text: "4 or more of your move cards name the same piece type → move twice this turn. Debuff: afterwards discard your move cards and draw only 4.",
+	text: "4 or more of your move cards are of the same type (4 Knight / Bishop cards count) → move twice this turn. Debuff: afterwards discard your move cards and draw only 4.",
 	on: {
 		/**
 		 * @description Start of owner's turn (not a lost one): 4+ of owner's move cards as owner sees them (hand.moveCards: an entered Mirage counts as its fake type, so firing or not never tells its holder which card it is) name one piece type and that two-move turn has a move to make (else it keeps waiting: with multi set only moves are offered): a two-move turn (turn.js; the same piece may move twice), whose end-of-turn refill throws out owner's move cards and draws only 4 (multi.draw, hand.refill). Fires.

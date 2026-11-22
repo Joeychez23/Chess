@@ -52,13 +52,13 @@ async function playGame(seed, { evaluate, bestOf, level, stats = {} }) {
 	while (!state.result && state.ply < MAX_PLIES && actions < MAX_ACTIONS) {
 		const me = [state.board.turn, other(state.board.turn)].find((c) => engine.legalActions(state, c).length); // A DUEL PICK OR A CHOICE MAY BE THE OTHER SIDE'S
 		if (!me) { stats.stuck = true; break; } // NO ONE CAN ACT AND THERE IS NO RESULT: SHOULDN'T HAPPEN, A DRAW
-		const view = engine.playerView(state, me), refused = [];
+		const view = engine.playerView(state, me), refused = [], legal = engine.playerLegal(state, me);
 		let next = null;
 		while (!next && refused.length <= MAX_REFUSALS) {
 			let action;
 			try {
 				const dice = (Math.imul(seed, 0x9E3779B1) + Math.imul(actions + 1, 0x85EBCA6B) + refused.length * 0x1000) >>> 0; // OUR OWN COUNTER: NEVER state.rng
-				action = await cardGuy.cardGuyTurn(view, level, { evaluate, bestOf, seed: dice, refused });
+				action = await cardGuy.cardGuyTurn(view, level, { evaluate, bestOf, seed: dice, refused, legal });
 				next = engine.applyAction(state, me, action);
 			} catch (err) {
 				if (!action || err.code !== "ILLEGAL") { break; } // CARD GUY ITSELF THREW: ASKING AGAIN GIVES THE SAME
