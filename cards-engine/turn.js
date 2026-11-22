@@ -71,7 +71,7 @@ function moveActions(state, color) {
 	const out = [], add = (card, mv) => out.push(mv.promotion
 		? { type: "move", card, from: mv.from, to: mv.to, promotion: mv.promotion } : { type: "move", card, from: mv.from, to: mv.to });
 	const checked = inCheck(state, color), cards = hand.moveCards(p).filter((c) => c.key === "move" || !checked); // BY ID, THE ORDER ITS HOLDER SEES, SO A MIRAGE'S PLACE GIVES NOTHING AWAY
-	for (const c of cards) for (const mv of moves) if (mv.t === c.piece) add(c.id, mv);
+	for (const c of cards) for (const mv of moves) if (hand.fits(c.piece, mv.t)) add(c.id, mv);
 	for (const mv of kingMoves(state, color, moves)) add("king", mv);
 	return out;
 }
@@ -155,7 +155,7 @@ function addedMoveOk(state, player, a) {
 	const same = (mv) => mv.from === a.from && mv.to === a.to && mv.promotion === a.promotion;
 	if (a.card === "king") return q.t === "k" && kingMoves(state, player).some(same); // SKULL RULES INCLUDED
 	const mc = p.moves.find((c) => c.id === a.card), byCard = !!mc;
-	if (mc ? mc.piece !== q.t : a.card !== null && !sourceOf(state, player, a)) return false;
+	if (mc ? !hand.fits(mc.piece, q.t) : a.card !== null && !sourceOf(state, player, a)) return false;
 	return legalMoves(state, player, (mv) => mv.piece === q.id && !(byCard && statuses.has(state, mv.piece, "hexed")) && !(m && m.differ && m.moved.includes(mv.piece)))
 		.some(same);
 }
@@ -207,8 +207,8 @@ function end(ctx, winner, reason) {
  */
 function move(ctx, player, a) {
 	const s = ctx.state, p = s.players[player];
-	const t = a.card === "king" ? "k" : a.card === null ? s.board.sq[sqIndex(a.from)].t : p.moves.find((c) => c.id === a.card).piece;
-	const match = (m) => m.from === a.from && m.to === a.to && m.promotion === a.promotion && m.t === t;
+	const mc = a.card === "king" || a.card === null ? null : p.moves.find((c) => c.id === a.card); // THE KING CARD'S MOVES ARE kingMoves', A CARDLESS MOVE IS ITS PIECE'S OWN
+	const match = (m) => m.from === a.from && m.to === a.to && m.promotion === a.promotion && (a.card === "king" ? m.t === "k" : !mc || hand.fits(mc.piece, m.t));
 	const mv = a.card === "king" ? kingMoves(s, player).find(match) : legalMoves(s, player).find(match);
 	const card = a.card === "king" || a.card === null ? a.card : hand.take(p, a.card);
 	const vi = mv.capture ? pieceById(s.board, mv.capture) : -1, victim = vi < 0 ? null : s.board.sq[vi], vsq = sqName(vi); // vsq: WHERE IT STOOD (EN PASSANT: THE PAWN'S SQUARE)

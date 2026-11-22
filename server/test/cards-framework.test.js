@@ -789,13 +789,14 @@ test("move-shaped actions a card adds are checked whatever their card, and one u
 	active("t-double", (ctx, p) => { ctx.state.multi = { player: p, left: 2, moved: [], differ: true }; });
 	const s = game("4r1k1/8/8/8/8/8/4B3/R3K3 w - - 0 1");
 	s.players.w.curses = [{ id: "c90", key: "t-mirage" }];
-	s.players.w.moves = [card("b", "t1"), card("r", "t2")];
+	s.players.w.moves = [card("m", "t1"), card("r", "t2")];
 	const listed = (st, a) => legalActions(st, "w").some((x) => actionKey(x) === actionKey(a));
 	const bad = [
 		{ type: "move", card: "king", from: "e2", to: "d3" }, // NOT A KING
 		{ type: "move", card: "t1", from: "e2", to: "d3" }, // PINNED
 		{ type: "move", card: "t2", from: "e1", to: "d1" }, // A ROOK CARD FOR THE KING
 		{ type: "move", card: "t1", from: "e8", to: "e7" }, // BLACK'S ROOK
+		{ type: "move", card: "t1", from: "a1", to: "a2" }, // A KNIGHT / BISHOP CARD FOR A ROOK
 		{ type: "move", card: "zz", from: "a1", to: "a2" }, // NO SUCH CARD
 		{ type: "move" },
 		{ type: "active", card: "c90" }, { type: "discard", cards: ["king"] }, { type: "passive" }, // BUILT-IN TYPES A CARD MAY NOT ADD
@@ -810,6 +811,13 @@ test("move-shaped actions a card adds are checked whatever their card, and one u
 	assert.deepEqual(acted.at(-1), ["w", "c90", "a1", "a3"]); // (EARLIER ENTRIES: THE legalActions TRIALS)
 	assert.equal(at(r.state, "a1").t, "r"); // NOTHING MOVED
 	assert.deepEqual([r.state.board.turn, r.state.ply], ["b", s.ply + 1]);
+	// AN OLD KNIGHT CARD (BEFORE TASK 20c) FITS NO PIECE: A CARD CAN'T ADD ITS MOVE
+	const old = game("4k3/8/8/8/8/8/8/1N2K3 w - - 0 1");
+	old.players.w.curses = [{ id: "c90", key: "t-mirage" }];
+	old.players.w.moves = [card("n", "t1")];
+	add = [{ card: "t1", from: "b1", to: "c3" }];
+	assert.ok(!listed(old, { type: "move", card: "t1", from: "b1", to: "c3" }));
+	assert.throws(() => applyAction(old, "w", { type: "move", card: "t1", from: "b1", to: "c3" }), IllegalAction);
 	// A DIFFER TWO-MOVE TURN: THE ROOK THAT MOVED CAN'T BE LISTED AGAIN THIS WAY
 	add = [];
 	const d = game("4k3/8/8/8/8/8/8/R3K2R w - - 0 1");
@@ -981,7 +989,7 @@ test("king skulls: only a king move past its own statuses spends one (status cle
 	assert.deepEqual(kingActs(s), []); // NO SKULL: THE FROZEN KING STAYS
 	assert.throws(() => applyAction(s, "w", { type: "move", card: "king", from: "e1", to: "d1" }), IllegalAction);
 	// IN CHECK (BLACK'S ROOK ON a1), NO STATUS: FREE, WITH SKULLS OR WITH NONE
-	const checked = (skulls) => { const st = game("4k3/8/8/8/8/5B2/8/r3K3 w - - 0 1"); st.players.w.moves = [card("b", "t1")]; st.players.w.kingSkulls = skulls; return st; };
+	const checked = (skulls) => { const st = game("4k3/8/8/8/8/5B2/8/r3K3 w - - 0 1"); st.players.w.moves = [card("m", "t1")]; st.players.w.kingSkulls = skulls; return st; };
 	for (const n of [KING_SKULLS, 0]) {
 		s = checked(n);
 		assert.deepEqual(kingActs(s), ["d2", "e2", "f2"]);
@@ -1031,7 +1039,7 @@ test("a move that takes the enemy king is legal even if the mover's own king sta
 		return true;
 	} } });
 	const s = game("4r2k/8/8/7B/8/8/8/4K2R w - - 0 1"); // WHITE IN CHECK FROM e8; Bh5-e2 BLOCKS AND DISCOVERS Rh1 ON h8; BLACK'S TRAP TAKES THE BISHOP
-	s.players.w.moves = [card("b", "t1")];
+	s.players.w.moves = [card("m", "t1")];
 	s.enchant = [{ id: "e1", key: "t-trap", owner: "b", pieces: [], left: null, data: { square: "e2" } }];
 	s.statuses = { [at(s, "h8").id]: [{ s: "frozen", left: 3, by: "w" }] };
 	Object.assign(s.players.b, { kingSkulls: 0, moves: [card("r", "t9")], actives: [] });

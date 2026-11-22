@@ -26,14 +26,16 @@ function isPlain(sim, me, action) {
 }
 
 /**
- * @description me's legal actions less the ones the real game refused: an action by its key, a plain move under any card of its type too (the same move, the board refused it), and every free discard once one was refused
+ * @description me's legal actions less the ones the real game refused: an action by its key, a plain move under any card of its type too (the same move, the board refused it), and every free discard once one was refused.
+ * With told, only the actions the real game lists: an entered Mirage is a move card in Card Guy's view, and in check the game lists no move for it
  * @param  {[object]} sim [engine state]
  * @param  {[string]} me ["w" or "b"]
  * @param  {[array]} refused [action keys (engine.actionKey) the real game refused]
+ * @param  {[array]} told [the keys of the legal actions the real game tells Card Guy, null when it tells them only in part (a Fog of War) or not at all]
  * @return {[array]} actions
  */
-function allowed(sim, me, refused = []) {
-	const all = engine.legalActions(sim, me);
+function allowed(sim, me, refused = [], told = null) {
+	const all = engine.legalActions(sim, me).filter((a) => !told || told.includes(engine.actionKey(a)));
 	if (!refused.length) { return all; }
 	const moves = new Set(all.filter((a) => isPlain(sim, me, a) && refused.includes(engine.actionKey(a))).map(shape));
 	const noDiscard = refused.some((key) => JSON.parse(key).type === "discard"); // ONE REFUSED, ALL REFUSED: OF CARDS IT HOLDS, ONLY A CHECK ITS FOG GUESS MISSED (OR A USED ONE) REFUSES IT
@@ -63,11 +65,12 @@ function staticScore(sim, move) {
  * @param  {[object]} sim [engine state]
  * @param  {[string]} me ["w" or "b"]
  * @param  {[array]} refused [action keys the real game refused]
+ * @param  {[array]} told [as allowed]
  * @return {[array]} move actions
  */
-function plainMoves(sim, me, refused = []) {
+function plainMoves(sim, me, refused = [], told = null) {
 	const seen = new Set(), moves = [];
-	for (const a of allowed(sim, me, refused)) {
+	for (const a of allowed(sim, me, refused, told)) {
 		if (!isPlain(sim, me, a) || seen.has(shape(a))) { continue; }
 		seen.add(shape(a));
 		moves.push(a);
@@ -80,12 +83,12 @@ function plainMoves(sim, me, refused = []) {
  * Never the free discard, cardGuyTurn decides that before the search, unless nothing else is legal on the guess (then it is all there is to try; once one is refused, allowed drops them all)
  * @param  {[object]} sim [engine state Card Guy simulates on]
  * @param  {[string]} me ["w" or "b"]
- * @param  {[object]} options [{ bestPlain: the engine's pick among the plain moves ({ from, to, promotion }), refused: action keys the real game refused }]
+ * @param  {[object]} options [{ bestPlain: the engine's pick among the plain moves ({ from, to, promotion }), refused: action keys the real game refused, told: as allowed }]
  * @return {[array]} actions
  */
-function candidates(sim, me, { bestPlain, refused = [] } = {}) {
-	const all = allowed(sim, me, refused);
-	const plain = plainMoves(sim, me, refused), best = bestPlain && plain.find((a) => shape(a) === shape(bestPlain));
+function candidates(sim, me, { bestPlain, refused = [], told = null } = {}) {
+	const all = allowed(sim, me, refused, told);
+	const plain = plainMoves(sim, me, refused, told), best = bestPlain && plain.find((a) => shape(a) === shape(bestPlain));
 	const cards = all.filter((a) => !isPlain(sim, me, a) && a.type !== "discard");
 	const rank = (a) => (a.type === "move" ? staticScore(sim, a) : 0);
 	const out = [...(best ? [best] : []), ...plain.filter((a) => a !== best).slice(0, TOP_PLAIN), ...cards.map((a) => [rank(a), a]).sort((x, y) => y[0] - x[0]).map((x) => x[1])];

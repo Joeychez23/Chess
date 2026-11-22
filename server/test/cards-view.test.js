@@ -215,17 +215,22 @@ test("Trapdoor's square shows only to its owner", () => {
 	assert.equal(ev[0].target.square, "e3");
 });
 
+test("the engine version is 2 (the Knight / Bishop card, Task 20c): a new game carries it, so the server answers 409 for a version 1 game (cardsRoutes.test.js)", () => {
+	assert.equal(require("../../cards-engine/index.js").ENGINE_VERSION, 2);
+	assert.equal(newGame({ cardGuy: "b", level: 1300, seed: 1 }).v, 2);
+});
+
 test("Mirage shows as a move card to its holder, and the key mirage is nowhere in their view", () => {
-	const s = fresh(), m = { id: "c99", key: "mirage", piece: "n" };
+	const s = fresh(), m = { id: "c99", key: "mirage", piece: "m" };
 	s.players.b.curses.push(m);
 	const v = playerView(s, "b");
 	assert.ok(!JSON.stringify(v).includes("mirage"));
-	assert.deepEqual(v.players.b.moves.at(-1), { id: "c99", key: "move", piece: "n" });
-	assert.equal(v.players.b.moves.length, 7);
+	assert.deepEqual(v.players.b.moves.at(-1), { id: "c99", key: "move", piece: "m" });
+	assert.equal(v.players.b.moves.length, 6);
 	assert.deepEqual(v.players.b.curses, []);
 	const g = playerView(s, "w");
 	assert.ok(g.players.b.hand.shown.some((c) => c.id === "c99" && c.key === "mirage"));
-	assert.equal(g.players.b.hand.count, 8);
+	assert.equal(g.players.b.hand.count, 7);
 	const given = [{ type: "curse-given", player: "w", card: m }];
 	assert.deepEqual(playerEvents(s, given, "b"), []); // NOTHING UNTIL IT ENTERS AT A REFILL
 	assert.deepEqual(playerEvents(s, given, "w"), given);

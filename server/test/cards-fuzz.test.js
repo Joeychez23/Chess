@@ -177,7 +177,7 @@ function checkMirageActions(s, color, acts) {
 	}
 }
 
-const WORTH = { p: 1, n: 3, b: 3, r: 5, q: 9 }; // THE ORACLE'S OWN COPY OF THE FLOOR'S VALUES
+const WORTH = { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 }; // THE ORACLE'S OWN COPY OF THE VALUES: A PIECE TYPE'S AND A MOVE CARD TYPE'S (m: THE KNIGHT / BISHOP CARD)
 
 /**
  * @description The free discard (user rulings 2026-11-21, 2026-11-22): never listed in check or twice a turn; it keeps the turn and the board; a pair of move cards gives 1 back at once, worth at least the lower of the two or else the best type the player still has (hit "d:floor" when the floor is above a pawn's); an active nothing; the held passive a different passive at once with nothing else in the hand moving (hit "d:reroll") (the counts unless the automatic redraw ran, or the game ended on it).
@@ -198,7 +198,7 @@ function checkDiscard(s, color, acts, a, state, events, hit) {
 	} else if (a.cards.length === 2) {
 		const own = state.board.sq.filter((q) => q && q.c === color && q.t !== "k").map((q) => WORTH[q.t]);
 		const floor = Math.min(...hand.moveCards(before).filter((c) => a.cards.includes(c.id)).map((c) => WORTH[c.piece]));
-		if (own.length) assert.ok(drawn && drawn.key === "move" && WORTH[drawn.piece] >= Math.min(floor, Math.max(...own)), "a pair with floor " + floor + " drew back " + (drawn && drawn.piece));
+		if (own.length) assert.ok(drawn && drawn.key === "move" && "pmrq".includes(drawn.piece) && WORTH[drawn.piece] >= Math.min(floor, Math.max(...own)), "a pair with floor " + floor + " drew back " + (drawn && drawn.piece));
 		if (own.length && floor > 1) hit("d:floor");
 	}
 	if (state.result) return;
@@ -307,7 +307,7 @@ if (isMainThread) {
 	});
 
 	test("Unbroken Line from a start where both sides can castle at once: a castle through check fires it, once a side, and never leaves the king in check", (t) => {
-		const r = soak(SEEDS, {
+		const r = soak([...SEEDS, ...SEEDS.map((n) => n + SEEDS.length)], { // TWICE THE SEEDS: THE DRAW'S WEIGHTS OF 2026-11-22 LEFT THE FIRST 24 WITH 3 CASTLES THROUGH CHECK
 			plies: 60,
 			setup(s) {
 				for (const sq of ["b1", "c1", "d1", "f1", "g1", "b8", "c8", "d8", "f8", "g8", "d2", "e2", "f2", "d7", "e7", "f7"]) s.board.sq[sqIndex(sq)] = null;

@@ -76,7 +76,6 @@ describe("Foresight", () => {
 			const { s, id } = holding("foresight", "w", seed);
 			s.players.b.passive = hand.newCard(s, "t-none");
 			s.players.b.curses = [hand.newCard(s, "t-curse")]; // SHOWN ANYWAY: NOT PART OF THE HALF
-			s.players.b.moves.pop();
 			const hidden = ids([...s.players.b.moves, ...s.players.b.actives, s.players.b.passive]); // 5 + 1 + 1 = 7: ROUNDED UP TO 4
 			const r = play(s, "w", id), seen = r.state.players.w.seen;
 			assert.equal(seen.ids.length, 4);
@@ -528,14 +527,14 @@ describe("Insidious Nullification", () => {
 		assert.equal(activeIds(s, "w", id).length, 1, "not playable with no opponent passive waiting");
 		const pass = (owner, placedAt) => ({ id: "x" + placedAt, owner, card: hand.newCard(s, "t-pass"), placedAt });
 		s.effects = [pass("b", 3), pass("w", 1), pass("b", 2)];
-		s.players.w.moves = [moveCard(s, "n"), moveCard(s, "n")];
+		s.players.w.moves = [moveCard(s, "m"), moveCard(s, "m")];
 		s.board.half = 7;
 		const r = play(s, "w", id), st = r.state;
 		assert.deepEqual(ofType(r.events, "passive-cancelled"), [s.effects[2], s.effects[0]].map((e) => ({ type: "passive-cancelled", player: "b", card: e.card })));
 		assert.deepEqual(st.effects, [s.effects[1]]); // THE PLAYER'S OWN STAYS
 		assert.ok(!ofType(r.events, "passive-fired").length);
 		const knights = [at(s, "b1").id, at(s, "g1").id];
-		assert.deepEqual({ player: st.pending.player, kind: st.pending.kind, options: st.pending.options }, { player: "w", kind: "insidious-nullification", options: knights });
+		assert.deepEqual({ player: st.pending.player, kind: st.pending.kind, options: st.pending.options }, { player: "w", kind: "insidious-nullification", options: ["b1", "c1", "f1", "g1"].map((sq) => at(s, sq).id) }); // THE KNIGHT / BISHOP CARD: A KNIGHT OR A BISHOP
 		assert.equal(st.board.turn, "w"); // THE TURN WAITS FOR THE CHOICE
 		const saved = JSON.parse(JSON.stringify(st));
 		assert.throws(() => applyAction(saved, "b", { type: "choice", option: knights[1] }), /isn't available/);
@@ -551,11 +550,12 @@ describe("Insidious Nullification", () => {
 	test("offers only pieces whose loss leaves the king safe, never the king; not playable when no piece can be forfeited", () => {
 		const fen = "4r1k1/8/8/8/8/8/4B3/N3K3 w - - 0 1"; // THE BISHOP ON e2 IS PINNED
 		const { s, id } = holding("insidious-nullification", "w", 1, fen);
-		s.players.w.moves = [moveCard(s, "b"), moveCard(s, "n"), moveCard(s, "k")];
+		s.players.w.moves = [moveCard(s, "m"), moveCard(s, "k")];
 		assert.equal(activeIds(s, "w", id).length, 1);
 		assert.deepEqual(play(s, "w", id).state.pending.options, [at(s, "a1").id]);
-		s.players.w.moves = [moveCard(s, "b"), moveCard(s, "k")];
-		assert.equal(activeIds(s, "w", id).length, 0, "playable with only the pinned bishop to forfeit");
+		const lone = holding("insidious-nullification", "w", 1, "4r1k1/8/8/8/8/8/4B3/4K3 w - - 0 1"); // NO KNIGHT: THE KNIGHT / BISHOP CARD HAS ONLY THE PINNED BISHOP
+		lone.s.players.w.moves = [moveCard(lone.s, "m"), moveCard(lone.s, "k")];
+		assert.equal(activeIds(lone.s, "w", lone.id).length, 0, "playable with only the pinned bishop to forfeit");
 		s.players.w.moves = [];
 		assert.equal(activeIds(s, "w", id).length, 0, "playable with no move card");
 	});
@@ -563,14 +563,22 @@ describe("Insidious Nullification", () => {
 	test("a held Mirage counts as a card of its fake type (its holder can't tell it from a real one)", () => {
 		const { s, id } = holding("insidious-nullification");
 		s.players.w.moves = [];
-		s.players.w.curses = [hand.newCard(s, "mirage", { piece: "n" })];
+		s.players.w.curses = [hand.newCard(s, "mirage", { piece: "m" })];
 		assert.equal(activeIds(s, "w", id).length, 1);
-		assert.deepEqual(play(s, "w", id).state.pending.options, [at(s, "b1").id, at(s, "g1").id]);
+		assert.deepEqual(play(s, "w", id).state.pending.options, ["b1", "c1", "f1", "g1"].map((sq) => at(s, sq).id)); // THE KNIGHT / BISHOP CARD: BOTH KNIGHTS, BOTH BISHOPS
+	});
+
+	test("a Knight / Bishop card lets a knight or a bishop be forfeited, and no other piece; an old Knight card lets none", () => {
+		const { s, id } = holding("insidious-nullification");
+		s.players.w.moves = [moveCard(s, "m")];
+		assert.deepEqual(play(s, "w", id).state.pending.options, ["b1", "c1", "f1", "g1"].map((sq) => at(s, sq).id));
+		s.players.w.moves = [moveCard(s, "n")]; // AN OLD KNIGHT CARD
+		assert.equal(activeIds(s, "w", id).length, 0);
 	});
 
 	test("a forfeit is a removal, not a capture by anyone: a forfeited Marked piece makes no one draw or discard", () => {
 		const { s, id } = holding("insidious-nullification");
-		s.players.w.moves = [moveCard(s, "n")];
+		s.players.w.moves = [moveCard(s, "m")];
 		s.players.w.refillLock = 1; // NO END-OF-TURN REFILL DRAWS
 		const n = at(s, "b1").id;
 		s.statuses[n] = [{ s: "marked", left: 2, by: "b" }];
@@ -604,7 +612,7 @@ describe("Insidious Nullification, rare version", () => {
 describe("Double Time", () => {
 	test("two moves with two different pieces, each spending its own card; then the player's next turn is skipped", () => {
 		const { s, id } = holding("double-time");
-		s.players.w.moves = [moveCard(s, "p"), moveCard(s, "n"), moveCard(s, "p")];
+		s.players.w.moves = [moveCard(s, "p"), moveCard(s, "m"), moveCard(s, "p")];
 		const r = play(s, "w", id);
 		assert.deepEqual(r.state.multi, { player: "w", left: 2, moved: [], differ: true });
 		assert.equal(r.state.board.turn, "w");
@@ -631,7 +639,7 @@ describe("Double Time", () => {
 
 	test("the second move must also leave the king safe", () => {
 		const { s, id } = holding("double-time", "w", 1, "4r1k1/8/8/8/8/4B3/4R3/4K3 w - - 0 1"); // TWO BLOCKERS: NEITHER PINNED
-		s.players.w.moves = [moveCard(s, "b"), moveCard(s, "r")];
+		s.players.w.moves = [moveCard(s, "m"), moveCard(s, "r")];
 		const r = play(s, "w", id);
 		assert.ok(legalActions(r.state, "w").some((a) => a.from === "e2" && a.to[0] !== "e"), "the rook can't leave the file before");
 		const one = applyAction(r.state, "w", moveFrom(r.state, "w", "e3", "d4")).state; // NOW THE ROOK IS PINNED
@@ -696,7 +704,7 @@ describe("Double Time", () => {
 
 	test("legendary version: two moves with two different pieces and no skipped turn", () => {
 		const { s, id } = holding("double-time-legendary");
-		s.players.w.moves = [moveCard(s, "p"), moveCard(s, "n")];
+		s.players.w.moves = [moveCard(s, "p"), moveCard(s, "m")];
 		const r = play(s, "w", id);
 		assert.deepEqual(r.state.multi, { player: "w", left: 2, moved: [], differ: true });
 		const one = applyAction(r.state, "w", moveFrom(r.state, "w", "e2", "e4")).state;
@@ -784,7 +792,7 @@ describe("Cleanse", () => {
 	test("never names a Mirage (its holder sees it as a move card); not playable with nothing to cleanse", () => {
 		const { s, id } = holding("cleanse");
 		assert.equal(activeIds(s, "w", id).length, 0);
-		const mirage = hand.newCard(s, "mirage", { piece: "n" });
+		const mirage = hand.newCard(s, "mirage", { piece: "m" });
 		s.players.w.curses = [mirage];
 		assert.equal(activeIds(s, "w", id).length, 0, "Cleanse shows a Mirage");
 		const c = hand.newCard(s, "t-hex-a");

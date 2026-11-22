@@ -426,12 +426,12 @@ describe("Grace", () => {
 	});
 
 	test("the barred move was the only answer: the move cards are redrawn and the game goes on with another answer", () => {
-		const s = game("3rkr2/3p1p2/8/8/8/3n4/4P3/1BK1R3 w - - 0 1"); // Bb1xd3 ANSWERS TOO, BUT WHITE HOLDS NO BISHOP CARD
+		const s = game("3rkr2/3p1p2/8/8/8/3n4/4P3/1BK1R3 w - - 0 1"); // Bb1xd3 ANSWERS TOO, BUT WHITE HOLDS NO KNIGHT / BISHOP CARD
 		Object.assign(s.players.w, { king: false, moves: [mv("p", "c63")] });
 		place(s, "grace", "b");
 		const { state, events } = applyAction(s, "w", { type: "move", card: "c63", from: "e2", to: "d3" });
 		assert.ok(ofType(events, "redraw").some((e) => e.player === "w"));
-		assert.ok(state.players.w.moves.some((c) => c.piece === "b"), "this test needs seed 1's redraw to hold a bishop card: pick another seed if the rng use before it changed");
+		assert.ok(state.players.w.moves.some((c) => c.piece === "m"), "this test needs seed 1's redraw to hold a Knight / Bishop card: pick another seed if the rng use before it changed");
 		assert.equal(state.result, null);
 		assert.ok(!state.players.w.moves.some((c) => c.id === "c63"));
 		assert.ok(legalActions(state, "w").some((a) => a.from === "b1" && a.to === "d3"));
@@ -455,7 +455,7 @@ describe("Grace", () => {
 	test("a check that stood before the undone move is not announced again by the undo (graceUndo's ctx.stood)", () => {
 		// DOUBLE TIME'S FIRST MOVE Bd4-e5 CHECKS h8; THE ONLY SECOND MOVE Ra1-a2 LEAVES BLACK (NO SKULL) MATED
 		const s = game("6bk/7p/8/8/3B4/P7/8/RN2K3 w - - 0 1");
-		Object.assign(s.players.w, { king: false, moves: [mv("b", "c71"), mv("r", "c72")] });
+		Object.assign(s.players.w, { king: false, moves: [mv("m", "c71"), mv("r", "c72")] });
 		s.players.b.kingSkulls = 0;
 		place(s, "grace", "b");
 		s.multi = { player: "w", left: 2, moved: [], differ: true };
@@ -477,7 +477,7 @@ describe("Grace", () => {
 
 	test("the barred move was the only second move of a two-move turn: the turn ends", () => {
 		const s = game("kr6/1p6/8/8/1P6/2P5/N7/R6K w - - 0 1"); // Na2-c1 DISCOVERS MATE
-		Object.assign(s.players.w, { king: false, moves: [mv("n", "c64")] });
+		Object.assign(s.players.w, { king: false, moves: [mv("m", "c64")] });
 		s.multi = { player: "w", left: 1, moved: [], differ: false };
 		place(s, "grace", "b");
 		const { state } = applyAction(s, "w", { type: "move", card: "c64", from: "a2", to: "c1" });

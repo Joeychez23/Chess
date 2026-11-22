@@ -12,6 +12,7 @@ const { legalMoves, inCheck } = require("../../cards-engine/rules.js");
 const { makeCtx } = require("../../cards-engine/ctx.js");
 const { startTurn } = require("../../cards-engine/turn.js");
 const statuses = require("../../cards-engine/statuses.js");
+const hand = require("../../cards-engine/hand.js");
 const { register, reset } = require("../../cards-engine/cards/index.js");
 
 reset(); // THE ENGINE ENTRY REGISTERS EVERY CARD: THESE TESTS DRAW FROM ONLY THE CARDS THEY REGISTER
@@ -218,7 +219,7 @@ describe("Heavy Cavalry", () => {
 	test("ends for good when the knights separate", () => {
 		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
 		const t = pass(play(s, { piece: n }).state, "b");
-		t.players.w.moves = [{ id: "c95", key: "move", piece: "n" }];
+		t.players.w.moves = [{ id: "c95", key: "move", piece: "m" }];
 		const { state, events } = applyAction(t, "w", { type: "move", card: "c95", from: "c3", to: "b5" });
 		assert.deepEqual(state.enchant, []);
 		assert.deepEqual(ofType(events, "enchant-ended").map((e) => e.key), ["heavy-cavalry"]);
@@ -462,7 +463,7 @@ describe("Heretical Subjection", () => {
 		const t = pass(play(s).state, "b");
 		t.statuses[b1] = [{ s: "hexed", left: 2, by: "b" }];
 		assert.deepEqual(cardless(t), ["c1b1", "c1c2", "c1d1", "f1g1"]);
-		t.players.w.moves = [{ id: "c95", key: "move", piece: "b" }];
+		t.players.w.moves = [{ id: "c95", key: "move", piece: "m" }];
 		const carded = legalActions(t, "w").filter((a) => a.card === "c95").map((a) => a.from);
 		assert.ok(!carded.includes("c1") && carded.includes("f1"));
 	});
@@ -574,9 +575,9 @@ function cardPlay(s, color, key, target) {
 }
 
 function chess(s, color, from, to) {
-	const card = { id: "m" + ++passes, key: "move", piece: s.board.sq[sqIndex(from)].t };
+	const card = { id: "m" + ++passes, key: "move", piece: hand.cardOf(s.board.sq[sqIndex(from)].t) }; // THE CARD TYPE THAT MOVES THE PIECE ON from
 	s.players[color].moves = [card];
-	return applyAction(s, color, { type: "move", card: card.id, from, to });
+	return applyAction(s, color, { type: "move", card: card.piece ? card.id : "king", from, to }); // A KING MOVES BY THE KING CARD
 }
 
 describe("Opposing Finality", () => {
@@ -589,7 +590,7 @@ describe("Opposing Finality", () => {
 		const c3 = id(s, "c3");
 		s.statuses[c3] = [{ s: "marked", left: 2, by: "b" }];
 		s = pass(cardPlay(s, "w", "opposing-finality", { piece: c3 }).state, "b");
-		s.players.w.moves = [{ id: "m91", key: "move", piece: "n" }, { id: "m92", key: "move", piece: "p" }, { id: "m93", key: "move", piece: "p" }]; // CARDS LEFT FOR MARKED TO TAKE IF IT FIRED
+		s.players.w.moves = [{ id: "m91", key: "move", piece: "m" }, { id: "m92", key: "move", piece: "p" }, { id: "m93", key: "move", piece: "p" }]; // CARDS LEFT FOR MARKED TO TAKE IF IT FIRED
 		const r = applyAction(cardPlay(s, "w", "insidious-nullification").state, "w", { type: "choice", option: c3 });
 		assert.equal(sqOf(r.state, c3), null);
 		assert.deepEqual(r.state.enchant, []);

@@ -13,12 +13,12 @@ const hidden = (p) => [...p.moves, ...p.actives, ...(p.passive ? [p.passive] : [
 const kindOf = (card) => (card.key === "move" ? "move" : CARDS[card.key] && CARDS[card.key].kind);
 
 /**
- * @description A fake of card's kind wearing card's id, so in the view it sorts among the real cards: a move card of a random piece type color has on the board (king aside, as a draw), or a random active or passive key a hand could hold (state.rng): never Interdicted Foresight itself (it was just used), and no active whose baseKey one of taken (the other fakes shown with it) already has. Known tells, accepted (the firing is public): a later play or move of the card under a fake shows the real card; a passive placed from under a fake shows its real key; Echo's copy gets a fake though its key is the Foresight player's own card; Pickpocket's take-back offers a fake's card as a token, not by id; with only a king left a move-card fake is the real card.
+ * @description A fake of card's kind wearing card's id, so in the view it sorts among the real cards: a move card of the type that moves a random piece color has on the board (king aside, as a draw: hand.cardOf, a knight or a bishop the Knight / Bishop card), or a random active or passive key a hand could hold (state.rng): never Interdicted Foresight itself (it was just used), and no active whose baseKey one of taken (the other fakes shown with it) already has. Known tells, accepted (the firing is public): a later play or move of the card under a fake shows the real card; a passive placed from under a fake shows its real key; Echo's copy gets a fake though its key is the Foresight player's own card; Pickpocket's take-back offers a fake's card as a token, not by id; with only a king left a move-card fake is the real card.
  */
 function fake(ctx, color, card, taken) {
 	if (card.key === "move") {
 		const types = ctx.state.board.sq.filter((q) => q && q.c === color && q.t !== "k").map((q) => q.t);
-		return { id: card.id, key: "move", piece: types.length ? ctx.rng.pick(types) : card.piece };
+		return { id: card.id, key: "move", piece: types.length ? require("../../hand.js").cardOf(ctx.rng.pick(types)) : card.piece }; // LAZY hand.js: AS insidious-nullification.js
 	}
 	const all = kindOf(card) === "passive" ? PASSIVE_KEYS : ACTIVE_KEYS, used = taken.filter((f) => f.key !== "move").map((f) => baseKey(f.key));
 	const keys = all.filter((k) => baseKey(k) !== KEY && !used.includes(baseKey(k)));

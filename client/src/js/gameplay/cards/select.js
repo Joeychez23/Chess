@@ -11,8 +11,9 @@
 const { sqName, sqIndex } = require("../../../../../cards-engine/board.js"); // SQUARE INDEX <-> "e4" (0 = a8), THE ENGINE'S OWN
 const { pseudoMoves } = require("../../../../../cards-engine/movegen.js"); // THE ENGINE'S PLAIN MOVES, FOR THE FOG'S PREVIEWS (blindMoves)
 
-const PIECE_NAMES = { p: "Pawn", n: "Knight", b: "Bishop", r: "Rook", q: "Queen", k: "King" };
-const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 }; // THE FREE DISCARD'S FLOOR: A COPY OF THE ENGINE'S (cards-engine/hand.js VALUE, WHICH WOULD BRING THE CARD REGISTRY INTO THE BUNDLE); cardsClient.test.js KEEPS THE TWO THE SAME
+const PIECE_NAMES = { p: "Pawn", n: "Knight", b: "Bishop", m: "Knight / Bishop", r: "Rook", q: "Queen", k: "King" }; // A PIECE TYPE'S NAME, & A MOVE CARD TYPE'S (m: THE KNIGHT / BISHOP CARD)
+const VALUE = { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 }; // THE FREE DISCARD'S FLOOR: A COPY OF THE ENGINE'S (cards-engine/hand.js VALUE, WHICH WOULD BRING THE CARD REGISTRY INTO THE BUNDLE); cardsClient.test.js KEEPS THE TWO THE SAME
+const CARD_MOVES = { p: "p", m: "nb", r: "r", q: "q" }; // THE PIECE TYPES EACH MOVE CARD TYPE MOVES: A COPY OF THE ENGINE'S TOO (hand.js CARD_MOVES), KEPT THE SAME BY THE SAME TEST
 const capital = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 const isCard = (key, base) => key === base || String(key).startsWith(base + "-"); // THE CARD OR ONE OF ITS VERSIONS (THE ENGINE KEYS THEM base-rarity)
 
@@ -157,7 +158,8 @@ function costsSkull(action, view) {
  */
 function blindMoves(view, card, from) {
 	const type = card.id === "king" ? "k" : card.piece, sq = view.board.sq, me = view.you;
-	const moves = pseudoMoves({ board: view.board }, me).filter((m) => m.t === type && (!from || m.from === from));
+	const moved = CARD_MOVES[type] || type; // A MOVE CARD'S PIECE TYPES (THE KNIGHT / BISHOP CARD: BOTH); THE KING CARD & A NO-CARD MOVE NAME THE PIECE'S OWN
+	const moves = pseudoMoves({ board: view.board }, me).filter((m) => moved.includes(m.t) && (!from || m.from === from));
 	if (type === "p") { // THE DIAGONALS THE ENGINE LEFT OUT: THE ONES THAT LOOK EMPTY (A PIECE IN SIGHT IS ITS CAPTURE OR THE PLAYER'S OWN, EN PASSANT IS ITS TOO)
 		const dr = me === "w" ? -1 : 1, last = me === "w" ? 0 : 7;
 		sq.forEach(function (p, i) {
@@ -247,7 +249,7 @@ function pickPiece(legal, view, square, hidden = false) {
 	}
 	const p = view.board.sq.find((q, i) => q && sqName(i) === square);
 	if (!p || p.c !== view.you) { return null; }
-	const card = handCards(view).find((c) => (p.t === "k" ? c.kind === "king" : c.kind === "move" && c.piece === p.t)), free = cardlessUnderFog(view, p);
+	const card = handCards(view).find((c) => (p.t === "k" ? c.kind === "king" : c.kind === "move" && (CARD_MOVES[c.piece] || "").includes(p.t))), free = cardlessUnderFog(view, p);
 	const plain = free ? blindMoves(view, { id: null, piece: p.t }, square) : [];
 	const heretic = (view.enchant || []).some((e) => e && e.owner === view.you && isCard(e.key, "heretical-subjection") && (e.pieces || []).includes(p.id));
 	const steps = heretic ? blindMoves({ ...view, board: { ...view.board, castling: "", sq: view.board.sq.map((q) => (q === p ? { ...q, t: "k" } : q)) } }, { id: null, piece: "k" }, square) : []; // HERETICAL SUBJECTION: LIKE A KING TOO, THE ONE MOVE A CARD ADDS THAT THE ENGINE'S PLAIN ONES LACK
@@ -369,8 +371,8 @@ function focusList(legal, view, hidden) {
 /* ---------------------------------------------------------------- */
 /**
  * @description What a free discard of 2 move cards draws back (user ruling 2026-11-22: a card worth at least the lower of the two): "draw 1" with a pawn in the pair (anything),
- * else the lower card's own type, "draw a Rook or better" (two queens: "draw a Queen"; a floor of 3 "draw a Knight or Bishop, or better"). A bare king: "no card back". When the player has no piece worth more than that floor
- * (nothing better to draw, or nothing worth it: it drops) it names the most valuable type(s) they still have, as they are: "draw a Knight or Bishop", "draw a Bishop" (review 2 M6).
+ * else the lower card's own type, "draw a Rook or better" (two queens: "draw a Queen"; a floor of 3 "draw a Knight / Bishop or better"). A bare king: "no card back". When the player has no piece worth more than that floor
+ * (nothing better to draw, or nothing worth it: it drops) it names the most valuable card type they can still draw: "draw a Knight / Bishop" with a knight or a bishop left (review 2 M6).
  * The player's own pieces are in view.board under fog too
  * @param  {[array]} pair [the 2 move cards, as handCards has them]
  * @param  {[object]} view [cards.view]
@@ -378,11 +380,11 @@ function focusList(legal, view, hidden) {
  */
 function drawBack(pair, view) {
 	const low = pair.reduce((a, b) => (VALUE[b.piece] < VALUE[a.piece] ? b : a)).piece, floor = VALUE[low];
-	const own = ["p", "n", "b", "r", "q"].filter((t) => view.board.sq.some((p) => p && p.c === view.you && p.t === t)), best = Math.max(0, ...own.map((t) => VALUE[t]));
+	const own = Object.keys(CARD_MOVES).filter((t) => view.board.sq.some((p) => p && p.c === view.you && CARD_MOVES[t].includes(p.t))), best = Math.max(0, ...own.map((t) => VALUE[t])); // THE CARD TYPES THE PLAYER CAN DRAW
 	if (!best) { return "no card back"; } // A BARE KING DRAWS NONE
 	if (!(floor > 1)) { return "draw 1"; } // A PAWN (OR A CARD THE VIEW DOESN'T NAME): ANYTHING
 	if (floor >= best) { return `draw a ${own.filter((t) => VALUE[t] === best).map((t) => PIECE_NAMES[t]).join(" or ")}`; }
-	return floor === 3 ? "draw a Knight or Bishop, or better" : `draw a ${PIECE_NAMES[low]} or better`; // TWO QUEENS ARE floor >= best: "draw a Queen"
+	return `draw a ${PIECE_NAMES[low]} or better`; // TWO QUEENS ARE floor >= best: "draw a Queen"
 }
 
 /**
@@ -485,4 +487,4 @@ function promptFocus(actions) {
 	return actions.length && actions[0].type === "discard" ? actions.length : 0;
 }
 
-module.exports = { movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES, VALUE };
+module.exports = { movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES, VALUE, CARD_MOVES };

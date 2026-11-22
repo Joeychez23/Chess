@@ -135,10 +135,10 @@ test("a game that stops without a result says why: stuck or the action cap, not 
 });
 
 test("the refill after a free discard of an active isn't counted as drawn", async (t) => {
-	const id = engine.newGame({ cardGuy: "b", level: 1500, seed: 3 }).players.w.actives[0].id;
+	const id = engine.newGame({ cardGuy: "b", level: 1500, seed: 2 }).players.w.actives[0].id; // SEED 2 (TASK 20c): IN SEED 3'S GAME THE FALLBACK NOW REACHES A TURN WITH NO MOVE AND PLAYS AN ACTIVE
 	let asked = 0;
 	t.mock.method(cardGuy, "cardGuyTurn", async () => { if (!asked++) { return { type: "discard", cards: [id] }; } throw new Error("no action"); }); // WHITE THROWS ITS OPENING ACTIVE OUT, THEN THE FALLBACK MOVES
-	const stats = {}, g = await playGame(3, { evaluate: material, bestOf: firstOf, level: 1500, stats });
+	const stats = {}, g = await playGame(2, { evaluate: material, bestOf: firstOf, level: 1500, stats });
 	const drawn = (c) => Object.keys(g.cards).filter((k) => CARDS[k].kind === "active").reduce((n, k) => n + g.cards[k][c].drawn, 0);
 	assert.equal(stats.discards, 1);
 	assert.deepEqual([drawn("w"), drawn("b")], [1, 1]); // THE OPENING ACTIVES ONLY: NO ACTIVE IS PLAYED, SO THE ONLY OTHER ACTIVE DRAWN IS WHITE'S REFILL
