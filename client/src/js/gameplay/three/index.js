@@ -36,7 +36,7 @@ import { putDownHeld, stepAnim, finishAnims, animate } from "./motion.js";
 
 export { isCameraGesture, setSide, resetCamera } from "./camera.js";
 export { setMonitor, enterMonitor, leaveMonitor, monitorState, focusMonitor } from "./pointer.js";
-export { setHeld, animateMove, animateUndo, glideHome } from "./motion.js";
+export { setHeld, dropHeld, animateMove, animateUndo, glideHome } from "./motion.js";
 import { BOARD_SIZE, CELL_SIZE, PIECE_SIZE, FILES, DESK_Y, ROOM_BACKGROUND, BOARD_IMAGE, HIGHLIGHTS, FOCUS_RING, NEAR, REDUCE, NO_MONITOR, LABEL, FOV } from "./constants.js";
 
 export let view = null; // EVERYTHING ONE mount() MADE, null WHEN UNMOUNTED

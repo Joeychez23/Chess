@@ -51,7 +51,7 @@ async function bestOf(fen, lans) {
 // Report
 /* ---------------------------------------------------------------- */
 async function main() {
-	const results = [], failed = [], stats = { capped: 0, actionCapped: 0, stuck: 0, fallbacks: 0, turnActions: 0, discards: 0, plies: 0 };
+	const results = [], failed = [], stats = { capped: 0, actionCapped: 0, stuck: 0, fallbacks: 0, turnActions: 0, discards: 0, rerolls: 0, plies: 0 };
 	for (let n = 0; n < games; n++) {
 		const one = {};
 		try {
@@ -71,7 +71,7 @@ async function main() {
 	console.log(["card".padEnd(30), "rarity".padEnd(10), "drawn".padStart(6), "played".padStart(7), "win".padStart(7), "drawn-unplayed".padStart(15), "flags"].join(" "));
 	for (const r of rows) { console.log([r.key.padEnd(30), r.rarity.padEnd(10), String(r.drawnGames).padStart(6), String(r.playedGames).padStart(7), pct(r.winRateWhenPlayed).padStart(7), String(r.drawnNotPlayedGames).padStart(15), r.flags.join(",")].join(" ")); }
 	console.log("share of games each rarity turned up in: " + Object.entries(rarityShares(results)).map(([rarity, share]) => `${rarity} ${pct(share)}`).join(", "));
-	console.log(`games decided ${played - stats.capped - stats.actionCapped - stats.stuck}, draws at the ${MAX_PLIES}-ply cap ${stats.capped}, stopped at the action cap ${stats.actionCapped}, stuck ${stats.stuck}, fallback actions ${stats.fallbacks}, average plies ${played ? (stats.plies / played).toFixed(1) : "-"}, free discards ${pct(stats.discards / stats.turnActions)} of turn actions`);
+	console.log(`games decided ${played - stats.capped - stats.actionCapped - stats.stuck}, draws at the ${MAX_PLIES}-ply cap ${stats.capped}, stopped at the action cap ${stats.actionCapped}, stuck ${stats.stuck}, fallback actions ${stats.fallbacks}, average plies ${played ? (stats.plies / played).toFixed(1) : "-"}, free discards ${pct(stats.discards / stats.turnActions)} of turn actions, passive rerolls ${stats.rerolls}`);
 }
 
 main().catch((err) => { console.error(err); }); // A REPORT, NOT A GATE: EXIT CODE 0

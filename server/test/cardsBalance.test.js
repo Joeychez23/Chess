@@ -143,3 +143,15 @@ test("the refill after a free discard of an active isn't counted as drawn", asyn
 	assert.equal(stats.discards, 1);
 	assert.deepEqual([drawn("w"), drawn("b")], [1, 1]); // THE OPENING ACTIVES ONLY: NO ACTIVE IS PLAYED, SO THE ONLY OTHER ACTIVE DRAWN IS WHITE'S REFILL
 });
+
+test("a passive reroll is counted apart from the free discards and owes no active", async (t) => {
+	const start = engine.newGame({ cardGuy: "b", level: 1500, seed: 3 }), key = Object.keys(CARDS).find((k) => CARDS[k].kind === "passive" && !CARDS[k].canPlace);
+	start.players.w.passive = { id: "t1", key };
+	t.mock.method(engine, "newGame", () => start);
+	let asked = 0;
+	t.mock.method(cardGuy, "cardGuyTurn", async () => { if (!asked++) { return { type: "discard", cards: ["t1"] }; } throw new Error("no action"); }); // WHITE REROLLS (CARD GUY NEVER DOES), THEN THE FALLBACK MOVES
+	const stats = {}, g = await playGame(3, { evaluate: material, bestOf: firstOf, level: 1500, stats });
+	const drawn = Object.keys(g.cards).filter((k) => CARDS[k].kind === "passive").reduce((n, k) => n + g.cards[k].w.drawn, 0);
+	assert.deepEqual([stats.discards, stats.rerolls], [0, 1]);
+	assert.equal(drawn, 2); // THE ONE IT HELD AND THE ONE THE REROLL DREW: A REAL DRAW, COUNTED
+});

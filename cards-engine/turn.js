@@ -174,7 +174,7 @@ function turnActions(state, player) {
 			if (p.passive && !(def && def.canPlace && !def.canPlace(state, player))) out.push({ type: "passive" });
 		}
 	}
-	if (!checked && state.discarded !== player && (!multi || state.multi.mulled)) out.push(...freeDiscards(p)); // ONCE A TURN, BEFORE THE PLAY: NONE IN A TWO-MOVE TURN, BUT AFTER MULLIGAN (USER RULINGS 2026-11-21)
+	if (!checked && state.discarded !== player && (!multi || state.multi.mulled)) out.push(...freeDiscards(state, player)); // ONCE A TURN, BEFORE THE PLAY: NONE IN A TWO-MOVE TURN, BUT AFTER MULLIGAN (USER RULINGS 2026-11-21)
 	const built = new Set(out.map(actionKey));
 	for (const [r, src] of rulesInPlay(state)) if (r.actions) out = r.actions(state, player, out, src);
 	const survives = (a) => { const ctx = makeCtx(JSON.parse(JSON.stringify(state))); ctx.trial = true; cardAct(ctx, player, a); return !inCheck(ctx.state, player); };
@@ -185,11 +185,12 @@ function turnActions(state, player) {
 }
 
 /**
- * @description The free discard's actions for p (user ruling 2026-11-21): each pair of move cards in hand order (by id; an entered Mirage shows as a move card), { type: "discard", cards: [a, b] }, then each active alone, { type: "discard", cards: [id] }. Never the King card or a curse.
+ * @description The free discard's actions for player (user rulings 2026-11-21, 2026-11-22): each pair of move cards in hand order (by id; an entered Mirage shows as a move card), { type: "discard", cards: [a, b] }, then each active alone, { type: "discard", cards: [id] }, then the reroll of the passive held in the hand, { type: "discard", cards: [passive id] } (told apart by the id being the held passive's), only while another passive is left to draw (hand.drawable): with none it would only lose the card. Never the King card, a curse or a passive placed in Board Effects.
  */
-function freeDiscards(p) {
-	const ms = hand.moveCards(p).map((c) => c.id);
-	return [...ms.flatMap((a, i) => ms.slice(i + 1).map((b) => [a, b])), ...p.actives.map((c) => [c.id])].map((cards) => ({ type: "discard", cards }));
+function freeDiscards(state, player) {
+	const p = state.players[player], ms = hand.moveCards(p).map((c) => c.id);
+	const reroll = p.passive && hand.drawable(state, player, "passive").length ? [[p.passive.id]] : []; // THE HELD PASSIVE IS ALREADY LEFT OUT OF drawable
+	return [...ms.flatMap((a, i) => ms.slice(i + 1).map((b) => [a, b])), ...p.actives.map((c) => [c.id]), ...reroll].map((cards) => ({ type: "discard", cards }));
 }
 
 /**
@@ -252,7 +253,7 @@ function move(ctx, player, a) {
 }
 
 /**
- * @description Resolve a legal action for player on ctx.state, then end the turn unless the game ended or a two-move turn goes on (after a move, or after an active that set state.multi for player with a move to make). After an active or a card-defined action, a check event when the opponent is in check and the action emitted none (checkAfter). The free discard keeps the turn: its cards go, a pair draws 1 move card back at once, state.discarded marks it used, and with no card action left the automatic redraw runs now (noAction). After Mulligan (state.multi.mulled) with no move the same. An active that opens a card duel holds the turn until the duel is over; a duel action goes to duelAct. A choice asked during the action holds the end of the turn: pending.end (and resetHalf) record it, and the choice action runs it once after choice.resolve.
+ * @description Resolve a legal action for player on ctx.state, then end the turn unless the game ended or a two-move turn goes on (after a move, or after an active that set state.multi for player with a move to make). After an active or a card-defined action, a check event when the opponent is in check and the action emitted none (checkAfter). The free discard keeps the turn: its cards go, a pair draws 1 move card back at once (worth at least the lower of the two, hand.drawMove's floor), the held passive draws a different passive at once (the reroll), state.discarded marks it used, and with no card action left the automatic redraw runs now (noAction). After Mulligan (state.multi.mulled) with no move the same. An active that opens a card duel holds the turn until the duel is over; a duel action goes to duelAct. A choice asked during the action holds the end of the turn: pending.end (and resetHalf) record it, and the choice action runs it once after choice.resolve.
  */
 function act(ctx, player, a) {
 	const s = ctx.state, p = s.players[player];
@@ -260,8 +261,16 @@ function act(ctx, player, a) {
 	if (a.type === "choice") return choose(ctx, a.option);
 	if (a.type === "duel") return duelAct(ctx, player, a);
 	if (a.type === "discard") {
-		for (const id of a.cards) hand.discard(ctx, player, id);
-		if (a.cards.length === 2) hand.drawMove(ctx, player); // 2 MOVE CARDS: 1 BACK AT ONCE. AN ACTIVE COMES BACK WITH THIS TURN'S REFILL
+		if (p.passive && a.cards[0] === p.passive.id) { // THE REROLL: THE HELD PASSIVE GOES, A DIFFERENT ONE COMES AT ONCE (IT ISN'T used: A LATER DRAW CAN BRING IT BACK)
+			const card = p.passive;
+			p.passive = null;
+			ctx.emit({ type: "discard", player, card });
+			hand.drawCard(ctx, player, "passive", card.key);
+		} else {
+			const floor = a.cards.length === 2 ? Math.min(...hand.moveCards(p).filter((c) => a.cards.includes(c.id)).map((c) => hand.VALUE[c.piece])) : 0; // THE LOWER OF THE TWO, READ BEFORE THEY GO (AN ENTERED MIRAGE: THE TYPE IT SHOWS)
+			for (const id of a.cards) hand.discard(ctx, player, id);
+			if (a.cards.length === 2) hand.drawMove(ctx, player, floor); // 2 MOVE CARDS: 1 BACK AT ONCE, WORTH THE FLOOR OR MORE. AN ACTIVE COMES BACK WITH THIS TURN'S REFILL
+		}
 		s.discarded = player;
 		return void noAction(ctx, player); // THE TURN GOES ON. NO CARD ACTION LEFT: THE AUTOMATIC REDRAW NOW, STILL NONE IS A STALEMATE (NEVER IN CHECK HERE)
 	} else {

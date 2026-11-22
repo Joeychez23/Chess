@@ -140,3 +140,17 @@ body.replay #board3D { /* THE REPLAY BAR'S STRIP AT THE BOTTOM (css/style.css --
 	border-radius: 8px;
 	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }
+
+/* CHESS CARDS: THE LIFTED HAND CARD, BIG ENOUGH TO READ, BESIDE THE BOARD (three/cardTable.js showPreview). CLICKS GO THROUGH IT TO THE BOARD */
+.cardPreview {
+	position: fixed;
+	left: 16px;
+	top: 50%;
+	z-index: 20;
+	width: min(200px, 30vw);
+	height: auto;
+	transform: translateY(-50%);
+	border-radius: 8px;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+	pointer-events: none;
+}

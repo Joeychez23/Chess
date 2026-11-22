@@ -23,6 +23,17 @@ export function setHeld(square, dragging) {
 	if (view.held) { liftHeld(); }
 }
 
+// LETS GO OF THE HELD PIECE & STANDS IT ON square AT ONCE, AS A NORMAL GAME'S DROP LANDS (A CHESS CARDS DRAG DROPPED ON ITS TARGET, USER RULINGS 2026-11-22). IT IS STILL ITS OWN SQUARE'S PIECE
+// UNTIL THE SERVER ANSWERS: THE MOVE'S SLIDE THEN STARTS & ENDS THERE, setHeld() THEN putDownHeld() SENDS IT HOME
+export function dropHeld(square) {
+	if (!view || !view.held) { return; }
+	const { mesh } = view.held;
+	view.held = null;
+	mesh.position.set(center(fileOf(square)), 0, center(rowOf(square)));
+	updateShadow(mesh);
+	requestRender();
+}
+
 // PUTS THE HELD PIECE BACK ON ITS SQUARE, UNLESS IT'S ALREADY SLIDING AWAY (A DROPPED MOVE) OR GONE (TAKEN, SYNCED AWAY)
 export function putDownHeld() {
 	const held = view.held;
@@ -132,8 +143,9 @@ export function animateMove(from, to, promotion) {
 	let captured = view.pieces.get(to);
 	if (type === "p" && fileStep !== 0 && !captured) { captured = view.pieces.get(to[0] + from[1]); } // EN PASSANT: THE PAWN BESIDE IT
 	const knight = type === "n";
+	const landed = mesh.position.y === 0 && mesh.position.x === center(fileOf(to)) && mesh.position.z === center(rowOf(to)); // A CHESS CARDS DROP ALREADY STANDS ON to (dropHeld): NO HOP IN PLACE, NO WAIT FOR ONE
 	faceTravel(mesh, from, to); // TURNS AS IT STARTS SLIDING, LIKE 2D
-	const moves = [slide(mesh, to, { hop: knight, delay: slideDelay(knight), onEnd: function () {
+	const moves = [slide(mesh, to, { hop: knight && !landed, delay: landed ? 0 : slideDelay(knight), onEnd: function () {
 		if (promotion && type === "p") {
 			removePiece(mesh);
 			place(addPiece(promotion, color), to);

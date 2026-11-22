@@ -12,7 +12,7 @@ const { newGame, legalActions, applyAction, playerView, actionKey, toFen } = eng
 const { fromFen } = engine.board;
 const hand = require("../../cards-engine/hand.js");
 const { makeCtx } = require("../../cards-engine/ctx.js");
-const { PASSIVE_KEYS } = require("../../cards-engine/cards/index.js");
+const { PASSIVE_KEYS, CARDS } = require("../../cards-engine/cards/index.js");
 const cardGuy = require("../utils/card-guy/index.js");
 const { cardGuyTurn, scoreTurn, MAX_EVALS } = cardGuy;
 const { candidates, staticScore } = require("../utils/card-guy/candidates.js");
@@ -113,6 +113,30 @@ test("Card Guy's free discard, at every level: the active when it has no play, e
 	assert.ok(legalActions(s, "w").some((a) => a.type === "discard"));
 	assert.ok(!candidates(engine.fromView(playerView(s, "w"), 1), "w").some((a) => a.type === "discard"));
 	for (const seed of [1, 2, 3, 4]) assert.notEqual((await cardGuyTurn(playerView(s, "w"), 600, opts({ evaluate: lazy, seed }))).type, "discard");
+});
+
+test("Card Guy's dead pair is the one with the lowest draw-back floor, ties in hand order (user ruling 2026-11-22)", async () => {
+	const s = newGame({ cardGuy: "w", level: 1300, seed: 3 }); // WHITE TO MOVE AT THE START: QUEEN, ROOK & BISHOP CARDS HAVE NO MOVE
+	const deal = (types) => { s.players.w.moves = types.map((piece) => hand.newCard(s, "move", { piece })); return s.players.w.moves.map((c) => c.id); };
+	const turn = () => cardGuyTurn(playerView(s, "w"), 1300, opts());
+	s.players.w.actives = [hand.newCard(s, "swap")]; // A LIVE ACTIVE: THE MOVE CARDS ARE WHAT GOES
+	let ids = deal(["q", "r", "b", "p"]);
+	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[2]] }); // QUEEN & BISHOP (FLOOR 3), NOT THE FIRST PAIR, QUEEN & ROOK (FLOOR 5)
+	ids = deal(["q", "r", "r"]);
+	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[1]] }); // EVERY PAIR HAS FLOOR 5: THE FIRST
+	ids = deal(["r", "q", "b", "b"]);
+	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0], ids[2]] }); // FLOOR 3 FIVE WAYS: THE FIRST IN HAND ORDER
+});
+
+test("Card Guy never rerolls its passive (user ruling 2026-11-22)", async () => {
+	for (const key of PASSIVE_KEYS.filter((k) => ["common", "uncommon"].includes(CARDS[k].rarity))) { // THE RARITIES IT THROWS A DEAD ACTIVE OUT AT
+		const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
+		s.players.w.moves = ["p", "n"].map((piece) => hand.newCard(s, "move", { piece })); // BOTH HAVE A MOVE: NO PAIR TO DISCARD
+		Object.assign(s.players.w, { actives: [], passive: hand.newCard(s, key) });
+		const reroll = { type: "discard", cards: [s.players.w.passive.id] };
+		assert.ok(isLegal(s, "w", reroll), key + ": the reroll is legal");
+		for (const seed of [1, 2, 3]) assert.notEqual((await cardGuyTurn(playerView(s, "w"), 1300, opts({ seed }))).type, "discard", key);
+	}
 });
 
 test("Card Guy takes a free queen over a card with a small card score", async () => {

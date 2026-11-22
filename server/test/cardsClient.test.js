@@ -160,21 +160,47 @@ test("pickPiece: a piece picked with nothing lifted uses shortcutFor; a choice's
 	assert.deepEqual(S.options(S.pick(S.lift(choice, v, null), v.board, "g1"), v.board).ready, [choice[0]]);
 });
 
-test("under Card Guy's Fog of War (no moves listed) a move card offers every move of its piece type, sent blind; the King card the king's", () => {
+test("under Card Guy's Fog of War (no moves listed) a move card offers the engine's plain moves of its piece type on the board in sight, sent blind; the King card the king's", () => {
 	const v = view();
 	const blind = S.lift([], v, "c3", true);
 	assert.deepEqual(S.options(blind, v.board).glow, ["b1", "g1"]); // BOTH KNIGHTS
 	const g1 = S.pick(blind, v.board, "g1");
-	assert.ok(S.options(g1, v.board).glow.includes("g8"), "any square but its own pieces': the server decides");
-	assert.ok(!S.options(g1, v.board).glow.includes("e2"));
+	assert.deepEqual(S.options(g1, v.board).glow.sort(), ["f3", "h3"]); // THE ENGINE'S OWN MOVES ON THE BOARD IN SIGHT (USER RULING 2026-11-22), NOT ONTO ITS OWN PIECE (e2)
 	assert.deepEqual(S.options(S.pick(g1, v.board, "f3"), v.board).ready, [{ type: "move", card: "c3", from: "g1", to: "f3" }]);
-	assert.deepEqual(S.options(S.lift([], v, "king", true), v.board).glow, ["e1"]);
-	const pawn = S.pick(S.pickPiece([], v, "e2", true), v.board, "e8");
+	assert.deepEqual(S.options(S.lift([], v, "king", true), v.board).glow, []); // THE KING HAS NO MOVE AT THE START: NOTHING GLOWS
+	assert.deepEqual(S.options(S.pickPiece([], v, "e2", true), v.board).glow.sort(), ["d3", "e3", "e4", "f3"]); // A PAWN: 1 OR 2 FORWARD, NEVER THE LAST RANK FROM HERE, & BOTH DIAGONALS (A HIDDEN PIECE MAY STAND THERE)
+	const seventh = view({ board: fromFen("7k/4P3/8/8/8/8/8/R2QKB1R w KQ - 0 1") });
+	assert.deepEqual(S.options(S.pickPiece([], seventh, "e1", true), seventh.board).glow.sort(), ["d2", "e2", "f2"]); // THE KING: A STEP, NOT ONTO ITS OWN (d1, f1), NO CASTLE PAST THEM
+	const open = view({ board: fromFen("7k/8/8/8/8/8/8/R3K2R w KQ - 0 1") });
+	assert.ok(["c1", "g1"].every((to) => S.options(S.pickPiece([], open, "e1", true), open.board).glow.includes(to))); // BOTH CASTLES
+	const pawn = S.pick(S.pickPiece([], seventh, "e7", true), seventh.board, "e8");
 	assert.deepEqual(S.options(pawn, v.board).ready.map((a) => [a.card, a.promotion]), [["c1", "q"], ["c1", "r"], ["c1", "b"], ["c1", "n"]]); // THE FIRST PAWN CARD, EACH PROMOTION
 	assert.equal(S.pickPiece([], v, "e7", true), null); // NOT THE PLAYER'S PIECE
 	const fogged = view();
 	fogged.board.sq = fogged.board.sq.map((p) => (p && p.c === "b" ? null : p)); // HIDDEN SQUARES ARE EMPTY IN THE VIEW
 	assert.doesNotThrow(() => S.options(S.lift([], fogged, "c1", true), fogged.board));
+});
+
+test("under Card Guy's Fog of War a pawn's two forward diagonals always glow, so a hidden piece can be taken blind (user ruling A, 2026-11-22); nothing else is added", () => {
+	const tos = (v, from) => S.blindMoves(v, { id: "c1", piece: "p" }, from).map((a) => a.to).sort();
+	const v = view();
+	assert.deepEqual(tos(v, "e2"), ["d3", "e3", "e4", "f3"]);
+	assert.deepEqual(tos(v, "a2"), ["a3", "a4", "b3"]); // THE EDGE FILE: ONE DIAGONAL, NO WRAP TO THE h FILE
+	assert.deepEqual(tos(v, "h2"), ["g3", "h3", "h4"]);
+	assert.deepEqual(S.blindMoves(v, { id: "c1", piece: "p" }, "e2").find((a) => a.to === "d3"), { type: "move", card: "c1", from: "e2", to: "d3" }); // THE SERVER'S SHAPE FOR A CAPTURE
+	const seen = view({ board: fromFen("4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1") }); // A PIECE IN SIGHT ON d5: THE ENGINE'S OWN CAPTURE, NOT TWICE
+	assert.deepEqual(tos(seen, "e4"), ["d5", "e5", "f5"]);
+	const own = view({ board: fromFen("4k3/8/8/8/8/3N4/4P3/4K3 w - - 0 1") }); // THE PLAYER'S KNIGHT ON d3: NOT ONTO IT
+	assert.deepEqual(tos(own, "e2"), ["e3", "e4", "f3"]);
+	const ep = view({ board: fromFen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1") }); // EN PASSANT IS THE ENGINE'S: ONE d6
+	assert.deepEqual(tos(ep, "e5"), ["d6", "e6", "f6"]);
+	const seventh = view({ board: fromFen("7k/4P3/8/8/8/8/8/4K3 w - - 0 1") }); // ONTO THE LAST RANK: EACH PROMOTION, AS THE ENGINE ORDERS THEM
+	assert.deepEqual(S.blindMoves(seventh, { id: "c1", piece: "p" }, "e7").filter((a) => a.to === "d8"), ["q", "r", "b", "n"].map((promotion) => ({ type: "move", card: "c1", from: "e7", to: "d8", promotion })));
+	assert.deepEqual(tos(seventh, "e7"), ["d8", "d8", "d8", "d8", "e8", "e8", "e8", "e8", "f8", "f8", "f8", "f8"]);
+	const black = view({ you: "b", board: fromFen("4k3/4p3/8/8/8/8/8/4K3 b - - 0 1") }); // BLACK'S FORWARD IS DOWN THE BOARD
+	assert.deepEqual(tos(black, "e7"), ["d6", "e5", "e6", "f6"]);
+	assert.deepEqual(S.blindMoves(v, { id: "c3", piece: "n" }, "g1").map((a) => a.to).sort(), ["f3", "h3"]); // OTHER PIECES: THE ENGINE'S PLAIN MOVES, AS BEFORE
+	assert.deepEqual(S.options(S.pickPiece(LEGAL, v, "e2"), v.board).glow, ["e4"]); // OUTSIDE FOG: ONLY WHAT legal LISTS
 });
 
 test("label: what a prompt's button says for each kind of play", () => {
@@ -247,17 +273,20 @@ test("under Card Guy's Fog of War: Last Stand is tried blind (the king's queen l
 	assert.deepEqual(S.options(king, ls.board).glow, ["e2", "e3", "e4", "e5", "e6", "e7"]); // UP TO THE FIRST PIECE (BLACK'S PAWN, TAKEN), OWN PIECES BLOCK THE REST
 	assert.deepEqual(S.options(S.pick(king, ls.board, "e4"), ls.board).ready, [{ type: "active", card: "c30", target: { move: { from: "e1", to: "e4" } } }]);
 	assert.deepEqual(S.options(S.lift([{ type: "discard", cards: ["c1", "c3"] }], v, "c3", true), v.board).ready, [{ type: "discard", cards: ["c1", "c3"] }]); // ITS BLIND MOVES & ITS DISCARD
-	const hs = hidden({ enchant: [{ id: "e1", key: "heretical-subjection", owner: "w", pieces: ["w11"] }] }); // THE c1 BISHOP, NO BISHOP CARD HELD
+	const hs = hidden({ board: fromFen("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1") }); // THE c1 BISHOP, NO BISHOP CARD HELD
+	hs.enchant = [{ id: "e1", key: "heretical-subjection", owner: "w", pieces: [hs.board.sq[58].id] }];
 	assert.deepEqual(S.options(S.pick(S.pickPiece([], hs, "c1", true), hs.board, "g5"), hs.board).ready, [{ type: "move", card: null, from: "c1", to: "g5" }]);
-	assert.equal(S.pickPiece([], hs, "f1", true), null); // NOT ENCHANTED, NO CARD
+	assert.deepEqual(S.options(S.pick(S.pickPiece([], hs, "c1", true), hs.board, "c2"), hs.board).ready, [{ type: "move", card: null, from: "c1", to: "c2" }]); // LIKE A KING TOO (THE CARD'S OWN MOVE: THE ENGINE'S PLAIN ONES DON'T HAVE IT)
+	assert.equal(S.pickPiece([], { ...hs, enchant: [] }, "c1", true), null); // NOT ENCHANTED, NO CARD
 	const ea = hidden({ effects: [{ id: "c20", owner: "w", card: { id: "c20", key: "escape-artist" } }] }); // MAYBE IN CHECK: BOTH, A PROMPT CHOOSES
 	assert.deepEqual(S.options(S.pick(S.pickPiece([], ea, "e2", true), ea.board, "e4"), ea.board).ready, [{ type: "move", card: null, from: "e2", to: "e4" }, { type: "move", card: "c1", from: "e2", to: "e4" }]);
-	const rt = hidden({ effects: [{ id: "c21", owner: "w", card: { id: "c21", key: "retaliation", open: true, target: "b13" } }] }); // b13: BLACK'S e7 PAWN (a8..h8 = b1..b8, a7..h7 = b9..b16), IN SIGHT
-	const e2 = S.pickPiece([], rt, "e2", true);
-	assert.deepEqual(S.options(S.pick(e2, rt.board, "e7"), rt.board).ready, [{ type: "move", card: null, from: "e2", to: "e7" }, { type: "move", card: "c1", from: "e2", to: "e7" }]); // ONLY THE TARGET'S SQUARE GOES CARDLESS
-	assert.deepEqual(S.options(S.pick(e2, rt.board, "e4"), rt.board).ready, [{ type: "move", card: "c1", from: "e2", to: "e4" }]);
+	const rt = hidden({ board: fromFen("4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1") }); // BLACK'S d5 PAWN IS THE TARGET, IN SIGHT
+	rt.effects = [{ id: "c21", owner: "w", card: { id: "c21", key: "retaliation", open: true, target: rt.board.sq[27].id } }];
+	const e4 = S.pickPiece([], rt, "e4", true);
+	assert.deepEqual(S.options(S.pick(e4, rt.board, "d5"), rt.board).ready, [{ type: "move", card: null, from: "e4", to: "d5" }, { type: "move", card: "c1", from: "e4", to: "d5" }]); // ONLY THE TARGET'S SQUARE GOES CARDLESS
+	assert.deepEqual(S.options(S.pick(e4, rt.board, "e5"), rt.board).ready, [{ type: "move", card: "c1", from: "e4", to: "e5" }]);
 	const off = { ...rt, effects: [{ id: "c21", owner: "w", card: { id: "c21", key: "retaliation", open: false } }] };
-	assert.deepEqual(S.options(S.pick(S.pickPiece([], off, "e2", true), off.board, "e4"), off.board).ready, [{ type: "move", card: "c1", from: "e2", to: "e4" }]); // CLOSED: THE CARD ONLY
+	assert.deepEqual(S.options(S.pick(S.pickPiece([], off, "e4", true), off.board, "e5"), off.board).ready, [{ type: "move", card: "c1", from: "e4", to: "e5" }]); // CLOSED: THE CARD ONLY
 });
 
 test("promotionPick: the ready plays are one move's promotions (the 3D promotion cards deal); anything else is not", () => {
@@ -326,3 +355,116 @@ test("promptFocus: the prompt's button the keys focus: Cancel when the first is 
 	assert.equal(S.promptFocus([]), 0); // THE SKULL'S [Play, Cancel]
 	assert.equal(S.promptFocus([{ type: "choice", option: "a" }, { type: "choice", option: "b" }]), 0);
 });
+
+/* ---- Task 20b: the draw-back floor's label, the passive reroll, a piece picked with its card spent for the player ---- */
+
+test("select.js keeps the engine's piece values for the floor's label: the same numbers", () => {
+	assert.deepEqual(S.VALUE, require("../../cards-engine/hand.js").VALUE);
+});
+
+test("label: a free discard of 2 move cards names its draw-back floor, by the lower card's own type", () => {
+	const types = { p: "c1", n: "c3", b: "c4", r: "c5", q: "c6", q2: "c7", r2: "c8" };
+	const v = view();
+	v.players.w.moves = Object.entries(types).map(([t, id]) => ({ id, key: "move", piece: t[0] }));
+	const says = (a, b, w = v) => S.label({ type: "discard", cards: [types[a], types[b]] }, w, {});
+	assert.equal(says("p", "q"), "Discard your Pawn card & Queen card (draw 1)"); // A PAWN IN THE PAIR: ANYTHING, AS BEFORE
+	assert.equal(says("n", "r"), "Discard your Knight card & Rook card (draw a Knight or Bishop, or better)");
+	assert.equal(says("b", "q"), "Discard your Bishop card & Queen card (draw a Knight or Bishop, or better)");
+	assert.equal(says("n", "b"), "Discard your Knight card & Bishop card (draw a Knight or Bishop, or better)"); // A FLOOR OF 3 READS THE SAME WHICHEVER CARD IS FIRST (USER RULING 2026-11-22)
+	assert.equal(says("r", "q"), "Discard your Rook card & Queen card (draw a Rook or better)");
+	assert.equal(says("r", "r2"), "Discard your Rook card & Rook card (draw a Rook or better)");
+	assert.equal(says("q", "q2"), "Discard your Queen card & Queen card (draw a Queen)");
+});
+
+test("label: a floor the player has no piece for names what they can draw, the most valuable type(s) they still have", () => {
+	const only = (fen) => { const v = view({ board: fromFen(fen) }); v.players.w.moves = ["r", "r", "q", "q", "n"].map((piece, i) => ({ id: "m" + i, key: "move", piece })); return v; };
+	const says = (v, a, b) => S.label({ type: "discard", cards: [a, b] }, v, {});
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1NB1K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (draw a Knight or Bishop)");
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1N2K3 w - - 0 1"), "m2", "m3"), "Discard your Queen card & Queen card (draw a Knight)");
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/4K3 w - - 0 1"), "m0", "m2"), "Discard your Rook card & Queen card (draw a Pawn)");
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/R3K3 w - - 0 1"), "m2", "m3"), "Discard your Queen card & Queen card (draw a Rook)");
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/Q3K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (draw a Rook or better)"); // A QUEEN IS WORTH THE FLOOR: NOT DROPPED
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1B2K3 w - - 0 1"), "m4", "m0"), "Discard your Knight card & Rook card (draw a Bishop)"); // THE BISHOP IS WORTH A KNIGHT'S FLOOR, & NOTHING BETTER IS LEFT TO DRAW: NO "or better", ONLY THE TYPES ON THE BOARD (REVIEW 2 M6)
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/1NB1K3 w - - 0 1"), "m4", "m0"), "Discard your Knight card & Rook card (draw a Knight or Bishop)");
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/RN2K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (draw a Rook)"); // THE SAME FOR A ROOK'S FLOOR WITH NO QUEEN
+	assert.equal(says(only("4k3/8/8/8/8/8/PPPP4/RN2K3 w - - 0 1"), "m4", "m0"), "Discard your Knight card & Rook card (draw a Knight or Bishop, or better)"); // A ROOK IS BETTER: AS RULED
+	assert.equal(says(only("qqqqkqqq/8/8/8/8/8/PPPP4/4K3 w - - 0 1"), "m2", "m3"), "Discard your Queen card & Queen card (draw a Pawn)"); // CARD GUY'S QUEENS AREN'T THE PLAYER'S
+	assert.equal(says(only("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), "m0", "m1"), "Discard your Rook card & Rook card (no card back)"); // A BARE KING DRAWS NOTHING, & THE BUTTON SAYS SO (USER RULING 2026-11-22)
+});
+
+test("the passive reroll: a lifted passive's prompt has it after the place button, labelled by the card's name; Enter alone never rerolls", () => {
+	const v = view(), reroll = { type: "discard", cards: ["c11"] }, legal = [...LEGAL, { type: "discard", cards: ["c10"] }, reroll];
+	assert.deepEqual(S.actionsFor(legal, v, "c11"), [{ type: "passive" }, reroll]);
+	assert.deepEqual(S.options(S.lift(legal, v, "c11"), v.board).ready, [{ type: "passive" }, reroll]);
+	assert.equal(S.label(reroll, v, { veto: { name: "Veto" } }), "Reroll your Veto (new passive now)");
+	assert.equal(S.label({ type: "discard", cards: ["c10"] }, v, { foresight: { name: "Foresight" } }), "Discard your Foresight (new one at turn end)"); // AN ACTIVE'S IS STILL ITS OWN
+	assert.deepEqual(S.actionsFor(legal, v, "c10"), [{ type: "active", card: "c10" }, { type: "discard", cards: ["c10"] }]); // THE REROLL IS ONLY THE PASSIVE'S BUTTON
+	assert.deepEqual(S.actionsFor(legal, v, "c1"), [...LEGAL.slice(0, 2), { type: "discard", cards: ["c1", "c3"] }]);
+	assert.equal(S.promptFocus(S.actionsFor(legal, v, "c11")), 0); // [Place, Reroll, Cancel]: PLACE
+	const unplaceable = legal.filter((a) => a.type !== "passive");
+	assert.deepEqual(S.actionsFor(unplaceable, v, "c11"), [reroll]);
+	assert.equal(S.promptFocus(S.actionsFor(unplaceable, v, "c11")), 1); // [Reroll, Cancel]: CANCEL (N2)
+	assert.ok(S.dimmed(unplaceable, v, false).includes("c11") && !S.dimmed(legal, v, false).includes("c11")); // NO PLAY BUT A DISCARD: DIMMED, AS ANY CARD
+	assert.deepEqual(S.actionsFor(LEGAL, v, "c11"), [{ type: "passive" }]); // NO REROLL LISTED: NONE
+});
+
+test("pickPiece: the card is spent for the player: a move card's piece, the King card's king, a no-card move first; a piece with nothing to play can't be picked", () => {
+	const v = view(), free = { type: "move", card: null, from: "g1", to: "h3" }, legal = [...LEGAL, free];
+	assert.deepEqual(S.options(S.pick(S.pickPiece(legal, v, "e2"), v.board, "e4"), v.board).ready, [LEGAL[0]]); // THE FIRST PAWN CARD
+	assert.deepEqual(S.options(S.pick(S.pickPiece(legal, v, "e1"), v.board, "d1"), v.board).ready, [LEGAL[5]]); // THE KING CARD
+	assert.deepEqual(S.options(S.pickPiece(legal, v, "g1"), v.board).glow.sort(), ["f3", "h3"]);
+	assert.deepEqual(S.options(S.pick(S.pickPiece(legal, v, "g1"), v.board, "h3"), v.board).ready, [free]); // NO CARD SPENT
+	for (const sq of ["a1", "a2", "e7", "e4"]) assert.equal(S.pickPiece(legal, v, sq), null, sq); // NO ROOK CARD, A PAWN WITH NO MOVE LISTED, CARD GUY'S PAWN, AN EMPTY SQUARE
+	const open = view();
+	open.board.sq[52] = null; // e2 EMPTY
+	assert.deepEqual(S.options(S.pick(S.pickPiece([], open, "e1", true), open.board, "e2"), open.board).ready, [{ type: "move", card: "king", from: "e1", to: "e2" }]); // UNDER FOG: THE KING CARD, BLIND
+	assert.equal(S.pickPiece([], v, "a1", true), null); // UNDER FOG: NO ROOK CARD HELD
+	const lost = view();
+	lost.players.w.king = false;
+	assert.equal(S.pickPiece([], lost, "e1", true), null); // THE KING CARD GONE (HOLLOW CROWN)
+});
+
+test("pressPick: a mouse press on one of the player's pieces picks it as a click would, when it has squares to be dragged to", () => {
+	const v = view(), free = { type: "move", card: null, from: "g1", to: "h3" }, legal = [...LEGAL, free];
+	assert.deepEqual(S.pressPick(null, legal, v, "e2"), S.pickPiece(legal, v, "e2")); // NOTHING LIFTED: THE PIECE, A CARD OF ITS TYPE SPENT
+	assert.deepEqual(S.pressPick(null, legal, v, "e1").actions, [LEGAL[5]]); // THE KING CARD
+	assert.deepEqual(S.options(S.pressPick(null, legal, v, "g1"), v.board).glow.sort(), ["f3", "h3"]); // ITS NO-CARD MOVE TOO
+	for (const sq of ["a1", "a2", "e7", "e4"]) assert.equal(S.pressPick(null, legal, v, sq), null, sq); // NOTHING TO PLAY, CARD GUY'S PIECE, AN EMPTY SQUARE: NOTHING IS HELD
+	assert.deepEqual(S.pressPick(null, [], v, "e2", true), S.pickPiece([], v, "e2", true)); // UNDER FOG: THE BLIND MOVES
+	assert.equal(S.pressPick(null, [], v, "a1", true), null);
+});
+
+test("pressPick: with a card lifted a press on one of its glowing pieces plays through that card; another piece is picked directly; a play's next square is the click's", () => {
+	const v = view(), second = S.lift(LEGAL, v, "c2");
+	const held = S.pressPick(second, LEGAL, v, "e2");
+	assert.deepEqual([held.card, held.picks, held.actions], ["c2", ["e2"], LEGAL.slice(2, 4)]); // THE LIFTED SECOND PAWN CARD, NOT THE FIRST
+	assert.deepEqual(S.options(S.pick(held, v.board, "e4"), v.board).ready, [LEGAL[2]]);
+	assert.deepEqual(S.pressPick(held, LEGAL, v, "d2").picks, ["d2"]); // ANOTHER OF ITS PIECES
+	assert.equal(S.pressPick(held, LEGAL, v, "d2").card, "c2");
+	assert.deepEqual(S.pressPick(second, LEGAL, v, "g1"), S.pickPiece(LEGAL, v, "g1")); // NOT ONE OF ITS PIECES: THE KNIGHT, ITS OWN CARD
+	const stronghold = S.lift(LEGAL, v, "c9");
+	assert.equal(S.pressPick(stronghold, LEGAL, v, "g1"), null); // AN ACTIVE'S TARGET PIECE: A CLICK PLAYS IT, NOTHING TO DRAG TO
+	const swap = [{ type: "active", card: "c9", target: { pieces: ["w13", "w15"] } }, { type: "active", card: "c9", target: { pieces: ["w13", "w10"] } }];
+	const one = S.pick(S.lift(swap, v, "c9"), v.board, "e1");
+	assert.equal(S.pressPick(one, swap, v, "g1"), null); // THE SWAP'S SECOND PIECE: THE CLICK FINISHES IT, THE PRESS DOESN'T START AGAIN
+	const last = [{ type: "active", card: "c9", target: { move: { from: "e1", to: "d1" } } }];
+	assert.equal(S.pressPick(null, last, v, "e1"), null); // LAST STAND IS NEVER OFFERED BY THE KING'S PRESS
+	assert.deepEqual(S.pressPick(S.lift(last, v, "c9"), last, v, "e1").picks, ["e1"]); // LIFTED FIRST: THE KING DRAGS THROUGH IT
+});
+
+test("a press, then its release: on a target the one play is ready (or a move's promotions, or both forms of a square); elsewhere the pick stays; a tap's click picks the same again", () => {
+	const v = view(), held = S.pressPick(null, LEGAL, v, "e2");
+	assert.deepEqual(S.options(S.pick(held, v.board, "e4"), v.board).ready, [LEGAL[0]]); // DROPPED ON A TARGET
+	for (const sq of ["e5", "e2", "d2", "a8"]) assert.equal(S.pick(held, v.board, sq), null, sq); // NOT A TARGET (ITS OWN SQUARE TOO): flow.js LEAVES THE PICK AS IT IS
+	assert.equal(S.pick(held, v.board, "e2"), null);
+	assert.deepEqual(S.pickPiece(LEGAL, v, "e2"), held); // THE CLICK AFTER A PRESS THAT DIDN'T DRAG (flow.js clickSquare): THE SAME PICK, NOT A PUT-DOWN
+	const lifted = S.pressPick(S.lift(LEGAL, v, "c2"), LEGAL, v, "e2");
+	assert.deepEqual(S.pick({ ...lifted, picks: [] }, v.board, "e2"), lifted); // WITH A CARD LIFTED: THE SAME PICK THROUGH THE SAME CARD
+	const promos = ["q", "r", "b", "n"].map((promotion) => ({ type: "move", card: "c1", from: "e2", to: "e4", promotion }));
+	assert.ok(S.promotionPick(S.options(S.pick(S.pressPick(null, promos, v, "e2"), v.board, "e4"), v.board).ready)); // THE PROMOTION CARDS DEAL
+	const both = [{ type: "move", card: null, from: "e2", to: "e4" }, { type: "move", card: "c1", from: "e2", to: "e4" }, { type: "move", card: "c1", from: "e2", to: "e3" }];
+	const ea = { ...view(), effects: [{ id: "c20", owner: "w", card: { id: "c20", key: "escape-artist" } }] };
+	assert.equal(S.options(S.pick(S.pressPick(null, [], ea, "e2", true), ea.board, "e4"), ea.board).ready.length, 2); // UNDER FOG, WITH & WITHOUT A CARD: THE PROMPT CHOOSES
+	assert.deepEqual(S.options(S.pick(S.pressPick(null, both, v, "e2"), v.board, "e4"), v.board).ready, [both[0]]); // NOT UNDER FOG shortcutFor TAKES THE NO-CARD MOVE
+});
+

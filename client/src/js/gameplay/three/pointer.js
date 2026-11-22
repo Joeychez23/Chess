@@ -10,6 +10,8 @@ import { redrawScreen } from "./screen.js";
 import { uvToGrid, isTap } from "./monitor/monitor.js";
 import { CARD_ORDER } from "./cardLayout.js";
 
+let tableDrag = false; // THIS PRESS DRAGGED A CHESS CARDS GAME'S PIECE (releaseTable): ITS CLICK ISN'T A TAP
+
 /* ---------------------------------------------------------------- */
 // Camera Controls
 /* ---------------------------------------------------------------- */
@@ -66,12 +68,15 @@ export function onPointerDown(e) {
 	}
 	const square = e.pointerType === "mouse" && e.button === 0 && squareUnder(e); // THE SAME SQUARE gameplay/input PICKS A PIECE UP FROM, NOT ONLY A HIT ON THE MESH: A PRESS BESIDE A PIECE ON ITS SQUARE PICKS IT UP TOO
 	view.controls.enabled = monitorIdle() && !(square && view.pieces.has(square)); // ZOOMED ON THE MONITOR THE CAMERA STAYS PUT
+	tableDrag = false;
+	if (view.table && view.held) { view.cardOptions.onTable({ kind: "release", square: null, dragged: view.held.following }); } // A PIECE STILL HELD: ITS RELEASE NEVER CAME (LET GO OUTSIDE THE WINDOW), IT GOES BACK FIRST. dragged: AS releaseTable, A DRAG GIVES THE PICK UP
+	if (square && view.table && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && !tableAt(e) && cardAt(e) === null) { view.cardOptions.onTable({ kind: "press", square }); } // A CHESS CARDS GAME: flow.js DECIDES WHETHER THE PIECE IS HELD (setHeld). WHERE A TAP WOULD GO TO A SQUARE (pickTable)
 }
 
 // A HELD PIECE PAST THE DRAG THRESHOLD FOLLOWS THE POINTER (dragHeld). BEFORE gameplay/input'S mousemove / touchmove, SO ITS SQUARE LOOKUP SKIPS THE PIECE TOO
 export function onPointerMove(e) {
 	view.pointerAt = { x: e.clientX, y: e.clientY };
-	if (e.pointerType === "mouse" && !view.held && !view.controlsActive) { hoverGlass(e); hoverCards(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S
+	if (e.pointerType === "mouse" && !(view.held && view.held.dragging) && !view.controlsActive) { hoverGlass(e); hoverCards(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S. A PICKED PIECE THAT ONLY FLOATS (NO PRESS DOWN) LEAVES THE MOUSE ITS HOVER
 	const held = view.held;
 	if (!held || !held.dragging || view.cameraGesture) { return; }
 	const touch = e.pointerType === "touch";
@@ -84,9 +89,19 @@ export function onPointerMove(e) {
 export function onPointerUp(e) {
 	if (!view) { return; }
 	view.controls.enabled = monitorIdle();
-	if (e.pointerType === "mouse") { return; }
+	if (e.pointerType === "mouse") { releaseTable(e); return; }
 	view.touches.delete(e.pointerId);
 	if (!view.touches.size) { view.multiTouch = false; }
+}
+
+// A CHESS CARDS GAME'S MOUSE LET GO OF THE PIECE IT HELD (THE ONLY PIECE HELD THERE: gameplay/input'S MOUSE LISTENERS ARE OFF, input/modes.js): flow.js PUTS IT BACK & PLAYS A DRAG
+// LET GO ON A SQUARE (NOT ON THE GLASS OR A CARD, NOT A CANCELLED POINTER). A DRAG ISN'T A TAP: THE CLICK THAT FOLLOWS IS NOT THE TABLE'S (pickTable), EVEN LET GO WHERE IT WAS PRESSED
+function releaseTable(e) {
+	const held = view.held;
+	if (!view.table || !held || !held.dragging) { return; }
+	tableDrag = held.following;
+	const onBoard = held.following && e.type === "pointerup" && monitorIdle() && !glassHit(e) && !tableAt(e);
+	view.cardOptions.onTable({ kind: "release", square: (onBoard && squareUnder(e)) || null, dragged: held.following }); // dragged: IT FOLLOWED THE POINTER, SO LETTING GO OFF A TARGET GIVES THE PICK UP
 }
 
 /* ---------------------------------------------------------------- */
@@ -206,7 +221,7 @@ function pickCard(e, stop) {
 
 // A CHESS CARDS GAME'S TAP: A PILE OPENS OR CLOSES, A HAND CARD OR A SQUARE GOES TO cardOptions.onTable (gameplay/cards/flow.js). NOT ON THE GLASS: THAT'S THE MONITOR'S, NOR WHILE cardOptions.tableOn() IS FALSE
 function pickTable(e, stop) {
-	if (!view.table || !view.cardOptions.tableOn() || view.cameraGesture || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType) || glassHit(e)) { return false; } // THE MENU OPEN: THE PAGE'S CLICK-AWAY CLOSES IT, NOTHING IS PLAYED
+	if (!view.table || !view.cardOptions.tableOn() || view.cameraGesture || tableDrag || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType) || glassHit(e)) { return false; } // THE MENU OPEN: THE PAGE'S CLICK-AWAY CLOSES IT, NOTHING IS PLAYED
 	const at = tableAt(e), square = at ? null : squareUnder(e), hit = at || (square ? { kind: "square", square } : null);
 	if (!hit) { return false; }
 	if (stop) { e.stopPropagation(); }
