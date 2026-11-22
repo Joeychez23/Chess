@@ -3,15 +3,16 @@
  *	Chess Cards Select
  *	What the table lets the player pick, from the server's legal list (store.js cards.legal): the moves a lifted card allows, an active's targets, the move a piece
  *	picked directly spends a card on, the squares that glow while a play is picked & what a prompt's buttons say. It never decides what's legal: every play it
- *	offers is one of legal's, except under Card Guy's Fog of War (legal_hidden: no moves listed), when a move card offers every move of its piece type & the
- *	server refuses the ones that aren't legal. No DOM, the server tests require it (server/test/cardsClient.test.js)
+ *	offers is one of legal's, except under Card Guy's Fog of War (legal_hidden: no moves listed), when a move card offers the engine's plain moves of its piece type on the
+ *	board in sight (blindMoves) & the server refuses the ones that aren't legal. No DOM, the server tests require it (server/test/cardsClient.test.js)
  *
  */
 
 const { sqName, sqIndex } = require("../../../../../cards-engine/board.js"); // SQUARE INDEX <-> "e4" (0 = a8), THE ENGINE'S OWN
+const { pseudoMoves } = require("../../../../../cards-engine/movegen.js"); // THE ENGINE'S PLAIN MOVES, FOR THE FOG'S PREVIEWS (blindMoves)
 
 const PIECE_NAMES = { p: "Pawn", n: "Knight", b: "Bishop", r: "Rook", q: "Queen", k: "King" };
-const PROMOTIONS = ["q", "r", "b", "n"];
+const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 }; // THE FREE DISCARD'S FLOOR: A COPY OF THE ENGINE'S (cards-engine/hand.js VALUE, WHICH WOULD BRING THE CARD REGISTRY INTO THE BUNDLE); cardsClient.test.js KEEPS THE TWO THE SAME
 const capital = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 const isCard = (key, base) => key === base || String(key).startsWith(base + "-"); // THE CARD OR ONE OF ITS VERSIONS (THE ENGINE KEYS THEM base-rarity)
 
@@ -81,7 +82,7 @@ function handCards(view) {
 }
 
 /**
- * @description What a lifted card can do: its moves, its targets, placing the passive, paying a curse off (a clear action), & the free discards it's in when legal lists them (buttons on its prompt)
+ * @description What a lifted card can do: its moves, its targets, placing the passive (then its reroll), paying a curse off (a clear action), & the free discards it's in when legal lists them (buttons on its prompt)
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} view [cards.view]
  * @param  {[string]} cardId
@@ -90,12 +91,13 @@ function handCards(view) {
 function actionsFor(legal, view, cardId) {
 	const card = handCards(view).find((c) => c.id === cardId);
 	if (!card) { return []; }
-	if (card.kind === "passive") { return legal.filter((a) => a.type === "passive"); }
+	if (card.kind === "passive") { return [...legal.filter((a) => a.type === "passive"), ...discardsFor(legal, view, cardId)]; } // PLACE, THEN THE REROLL
 	return [...legal.filter((a) => a.card === cardId), ...discardsFor(legal, view, cardId)];
 }
 
 /**
- * @description The free discards a hand card is in (user rulings 2026-11-21: 2 move cards, or an active alone): one per partner type, as two cards of a type are the same discard
+ * @description The free discards a hand card is in (user rulings 2026-11-21, 2026-11-22: 2 move cards, an active alone, or the held passive alone, its reroll): one per partner type, as two cards of a type are
+ * the same discard (the same floor too, so the same label)
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} view [cards.view]
  * @param  {[string]} cardId
@@ -144,26 +146,31 @@ function costsSkull(action, view) {
 // Fog of War
 /* ---------------------------------------------------------------- */
 /**
- * @description Under Card Guy's Fog of War legal lists no move: every move of this card's piece type from the player's pieces (or one of them) to any square
- * not holding one of theirs, a pawn reaching the last rank once per promotion. The server takes the legal one & refuses the rest (409)
+ * @description Under Card Guy's Fog of War legal lists no move: the plain chess moves of this card's piece type on the board the player can see, as the engine makes them
+ * (movegen.js pseudoMoves, no card hooks; user ruling 2026-11-22: the previews of a normal game). A hidden piece blocks nothing here & its square glows as an empty one: a move onto it
+ * is the capture, to the server. A pawn's two forward diagonals always glow too, so it can try one (user ruling A 2026-11-22): not onto the player's own piece, each promotion onto the last rank.
+ * The king's safety isn't checked, a card that changes how a piece moves isn't counted. The server takes the legal ones & refuses the rest (409)
  * @param  {[object]} view [cards.view]
  * @param  {[object]} card [a hand card: a move card { id, piece } or the King card { id: "king" }]
  * @param  {[string]} from [only this square's piece, left out = all of them]
  * @return {[array]} actions
  */
 function blindMoves(view, card, from) {
-	const sq = view.board.sq, me = view.you, type = card.id === "king" ? "k" : card.piece, last = me === "w" ? "8" : "1";
-	const out = [];
-	sq.forEach(function (p, i) {
-		if (!p || p.c !== me || p.t !== type || (from && sqName(i) !== from)) { return; }
-		sq.forEach(function (q, j) {
-			if (q && q.c === me) { return; }
-			const to = sqName(j), move = { type: "move", card: card.id, from: sqName(i), to };
-			if (type === "p" && to[1] === last) { PROMOTIONS.forEach((promotion) => out.push({ ...move, promotion })); }
-			else { out.push(move); }
+	const type = card.id === "king" ? "k" : card.piece, sq = view.board.sq, me = view.you;
+	const moves = pseudoMoves({ board: view.board }, me).filter((m) => m.t === type && (!from || m.from === from));
+	if (type === "p") { // THE DIAGONALS THE ENGINE LEFT OUT: THE ONES THAT LOOK EMPTY (A PIECE IN SIGHT IS ITS CAPTURE OR THE PLAYER'S OWN, EN PASSANT IS ITS TOO)
+		const dr = me === "w" ? -1 : 1, last = me === "w" ? 0 : 7;
+		sq.forEach(function (p, i) {
+			const r = (i >> 3) + dr, at = sqName(i);
+			if (!p || p.c !== me || p.t !== "p" || (from && at !== from) || r < 0 || r > 7) { return; }
+			for (const f of [(i & 7) - 1, (i & 7) + 1]) {
+				const to = sqName(r * 8 + f);
+				if (f < 0 || f > 7 || sq[r * 8 + f] || moves.some((m) => m.from === at && m.to === to)) { continue; }
+				for (const promotion of r === last ? ["q", "r", "b", "n"] : [null]) { moves.push({ from: at, to, promotion }); }
+			}
 		});
-	});
-	return out;
+	}
+	return moves.map((m) => ({ type: "move", card: card.id, from: m.from, to: m.to, ...(m.promotion && { promotion: m.promotion }) })); // A CASTLE IS ITS KING'S from & to, AS IN legal
 }
 
 /**
@@ -241,7 +248,10 @@ function pickPiece(legal, view, square, hidden = false) {
 	const p = view.board.sq.find((q, i) => q && sqName(i) === square);
 	if (!p || p.c !== view.you) { return null; }
 	const card = handCards(view).find((c) => (p.t === "k" ? c.kind === "king" : c.kind === "move" && c.piece === p.t)), free = cardlessUnderFog(view, p);
-	const actions = [...(free ? blindMoves(view, { id: null, piece: p.t }, square).filter((a) => free(a.to)) : []), ...(card ? blindMoves(view, card, square) : [])];
+	const plain = free ? blindMoves(view, { id: null, piece: p.t }, square) : [];
+	const heretic = (view.enchant || []).some((e) => e && e.owner === view.you && isCard(e.key, "heretical-subjection") && (e.pieces || []).includes(p.id));
+	const steps = heretic ? blindMoves({ ...view, board: { ...view.board, castling: "", sq: view.board.sq.map((q) => (q === p ? { ...q, t: "k" } : q)) } }, { id: null, piece: "k" }, square) : []; // HERETICAL SUBJECTION: LIKE A KING TOO, THE ONE MOVE A CARD ADDS THAT THE ENGINE'S PLAIN ONES LACK
+	const actions = [...[...plain, ...steps.filter((a) => !plain.some((b) => b.to === a.to))].filter((a) => free(a.to)), ...(card ? blindMoves(view, card, square) : [])];
 	return actions.length ? { card: null, actions, picks: [square] } : null;
 }
 
@@ -308,6 +318,28 @@ function pick(sel, board, square) {
 }
 
 /**
+ * @description A left mouse press on a square (flow.js pressSquare, the drag's start): the pick a click on it would give (flow.js clickSquare: one of the lifted card's pieces through that card,
+ * else the piece picked directly, a card of its type spent), when the square holds one of the player's pieces & that pick has squares to be dragged to. null leaves the press to the click:
+ * a piece with nothing to play, the next square of the play being picked (a Swap's second piece), a piece that is itself the play (an active's target)
+ * @param  {[object|null]} sel [the play being picked, null for none]
+ * @param  {[array]} legal [cards.legal]
+ * @param  {[object]} view [cards.view]
+ * @param  {[string]} square ["e2"]
+ * @param  {[boolean]} hidden [cards.hidden]
+ * @return {[object|null]} pick [the piece is held with it]
+ */
+function pressPick(sel, legal, view, square, hidden = false) {
+	const board = view.board, p = board.sq[sqIndex(square)];
+	if (!p || p.c !== view.you) { return null; }
+	const on = sel ? pick(sel, board, square) : null;
+	if (on && sel.picks.length) { return null; } // THE PLAY GOES ON THROUGH THIS SQUARE: THE CLICK'S
+	const next = on || (sel && sel.card !== null && sel.picks.length ? pick({ ...sel, picks: [] }, board, square) : null) || pickPiece(legal, view, square, hidden);
+	if (!next) { return null; }
+	const { glow, ready } = options(next, board);
+	return glow.length && !ready.length ? next : null;
+}
+
+/**
  * @description Whether the plays ready are one move's promotions (the same from & to): the 3D promotion cards choose the piece, as in a normal game
  * @param  {[array]} ready [options().ready]
  * @return {[boolean]}
@@ -336,6 +368,24 @@ function focusList(legal, view, hidden) {
 // Words
 /* ---------------------------------------------------------------- */
 /**
+ * @description What a free discard of 2 move cards draws back (user ruling 2026-11-22: a card worth at least the lower of the two): "draw 1" with a pawn in the pair (anything),
+ * else the lower card's own type, "draw a Rook or better" (two queens: "draw a Queen"; a floor of 3 "draw a Knight or Bishop, or better"). A bare king: "no card back". When the player has no piece worth more than that floor
+ * (nothing better to draw, or nothing worth it: it drops) it names the most valuable type(s) they still have, as they are: "draw a Knight or Bishop", "draw a Bishop" (review 2 M6).
+ * The player's own pieces are in view.board under fog too
+ * @param  {[array]} pair [the 2 move cards, as handCards has them]
+ * @param  {[object]} view [cards.view]
+ * @return {[string]} words
+ */
+function drawBack(pair, view) {
+	const low = pair.reduce((a, b) => (VALUE[b.piece] < VALUE[a.piece] ? b : a)).piece, floor = VALUE[low];
+	const own = ["p", "n", "b", "r", "q"].filter((t) => view.board.sq.some((p) => p && p.c === view.you && p.t === t)), best = Math.max(0, ...own.map((t) => VALUE[t]));
+	if (!best) { return "no card back"; } // A BARE KING DRAWS NONE
+	if (!(floor > 1)) { return "draw 1"; } // A PAWN (OR A CARD THE VIEW DOESN'T NAME): ANYTHING
+	if (floor >= best) { return `draw a ${own.filter((t) => VALUE[t] === best).map((t) => PIECE_NAMES[t]).join(" or ")}`; }
+	return floor === 3 ? "draw a Knight or Bishop, or better" : `draw a ${PIECE_NAMES[low]} or better`; // TWO QUEENS ARE floor >= best: "draw a Queen"
+}
+
+/**
  * @description What a prompt's button says for a play
  * @param  {[object]} action
  * @param  {[object]} view [cards.view]
@@ -358,7 +408,11 @@ function label(action, view, catalog, taken = null) {
 	switch (action.type) {
 		case "move": return (action.promotion ? PIECE_NAMES[action.promotion] : `${action.from} to ${action.to}`) + (action.card === null ? " without a card" : "");
 		case "passive": return "Place in Board Effects (uses your turn)";
-		case "discard": return `Discard your ${action.cards.map((id) => cardName(id) || "card").join(" & ")} (${action.cards.length === 2 ? "draw 1" : "new one at turn end"})`;
+		case "discard": {
+			const held = action.cards.map((id) => handCards(view).find((c) => c.id === id) || {});
+			if (held[0].kind === "passive") { return `Reroll your ${cardName(action.cards[0]) || "passive"} (new passive now)`; }
+			return `Discard your ${action.cards.map((id) => cardName(id) || "card").join(" & ")} (${action.cards.length === 2 ? drawBack(held, view) : "new one at turn end"})`;
+		}
 		case "clear": {
 			if (action.discard === undefined) { return "Pay: skip this move"; }
 			return `Pay with your ${[].concat(action.discard).map((id) => cardName(id) || "card").join(" & ")}`;
@@ -431,4 +485,4 @@ function promptFocus(actions) {
 	return actions.length && actions[0].type === "discard" ? actions.length : 0;
 }
 
-module.exports = { movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, squaresOf, options, pick, promotionPick, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES };
+module.exports = { movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES, VALUE };

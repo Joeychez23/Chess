@@ -62,7 +62,7 @@ test("move cards only name piece types the player still has, weighted by count",
 		assert.ok(c.piece === "p" || c.piece === "q", c.piece);
 		if (c.piece === "p") pawns++;
 	}
-	assert.ok(Math.abs(pawns / n - 8 / 9) < 0.03, String(pawns / n));
+	assert.ok(Math.abs(pawns / n - 8 / 10) < 0.03, String(pawns / n)); // THE QUEEN COUNTS DOUBLE (USER RULING 2026-11-22): 8 IN 10, WAS 8 IN 9
 	const bare = game("4k3/8/8/8/8/8/8/4K3 w - - 0 1");
 	assert.equal(hand.drawMove(makeCtx(bare), "w"), null);
 });
@@ -155,6 +155,171 @@ test("a free discard that leaves no card action: the automatic redraw at once, t
 		assert.deepEqual(state.result, { winner: null, reason: "stalemate" });
 	} finally { activeOn = false; }
 });
+
+/* ---------------------------------------------------------------- */
+// The draw-back floor (user ruling 2026-11-22)
+/* ---------------------------------------------------------------- */
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+/**
+ * @description The piece types White draws back for a free discard of move cards a + b on fen, over 60 seeds (undefined when no card was drawn).
+ */
+const drawBacks = (fen, a, b, curses = []) => new Set(Array.from({ length: 60 }, (_, seed) => {
+	const s = game(fen, seed + 1);
+	Object.assign(s.players.w, { moves: [a, b].filter((c) => !curses.includes(c)), curses, actives: [], passive: null });
+	const { events } = applyAction(s, "w", { type: "discard", cards: [a.id, b.id] });
+	assert.deepEqual(events.slice(0, 2).map((e) => e.type), ["discard", "discard"]);
+	return (events.find((e) => e.type === "draw") || { card: {} }).card.piece; // THE FIRST DRAW IS THE DRAW-BACK (A REDRAW'S COME AFTER IT)
+}));
+const within = (got, allowed) => assert.ok([...got].every((t) => allowed.includes(t)), `drew ${[...got]}, allowed ${allowed}`);
+
+test("the piece values of the floor: pawn 1, knight 3, bishop 3, rook 5, queen 9", () => {
+	assert.deepEqual(hand.VALUE, { p: 1, n: 3, b: 3, r: 5, q: 9 });
+});
+
+test("a free discard of a knight and a bishop never draws a pawn back", () => {
+	const got = drawBacks(START_FEN, card("n", "t1"), card("b", "t2"));
+	within(got, ["n", "b", "r", "q"]);
+	assert.ok(got.size > 1);
+});
+
+test("a free discard of two rooks draws a rook or a queen", () => {
+	const got = drawBacks(START_FEN, card("r", "t1"), card("r", "t2"));
+	within(got, ["r", "q"]);
+	assert.equal(got.size, 2);
+});
+
+test("a free discard of a knight and a rook draws a card worth 3 or more: the lower of the two", () => {
+	const got = drawBacks(START_FEN, card("n", "t1"), card("r", "t2"));
+	within(got, ["n", "b", "r", "q"]);
+	assert.ok(got.has("n") || got.has("b"));
+});
+
+test("a free discard of a queen and a rook draws a card worth 5 or more", () => {
+	within(drawBacks(START_FEN, card("q", "t1"), card("r", "t2")), ["r", "q"]);
+});
+
+test("a free discard of two queens draws a queen only", () => {
+	assert.deepEqual([...drawBacks(START_FEN, card("q", "t1"), card("q", "t2"))], ["q"]);
+});
+
+test("a free discard with a pawn in the pair draws any type still on the board", () => {
+	const got = drawBacks(START_FEN, card("p", "t1"), card("q", "t2"));
+	assert.ok(got.has("p") && got.size >= 3);
+});
+
+test("the floor drops to the most valuable type left: two rooks with no rook or queen draw a knight or a bishop", () => {
+	assert.deepEqual([...drawBacks("4k3/8/8/8/8/8/PPPP4/1NB1K3 w - - 0 1", card("r", "t1"), card("r", "t2"))].sort(), ["b", "n"]);
+	assert.deepEqual([...drawBacks("4k3/8/8/8/8/8/PPPP4/4K3 w - - 0 1", card("q", "t1"), card("q", "t2"))], ["p"]);
+});
+
+test("a free discard of a pair by a bare king draws no card and doesn't throw", () => {
+	assert.deepEqual([...drawBacks("4k3/8/8/8/8/8/8/4K3 w - - 0 1", card("r", "t1"), card("r", "t2"))], [undefined]);
+});
+
+test("an entered Mirage in the pair counts as the piece type it shows", () => {
+	const mirage = { id: "t2", key: "mirage", piece: "r" };
+	within(drawBacks(START_FEN, card("q", "t1"), mirage, [mirage]), ["r", "q"]);
+});
+
+test("the opening deal, the refill and a Mulligan's draws are pinned (seed 1): a floor of 0 changes none of them. Re-pinned 2026-11-22 when a queen began to count double", () => {
+	const s = fresh();
+	assert.equal(s.players.w.moves.map((c) => c.piece).join(""), "pbrbnb");
+	assert.equal(s.players.b.moves.map((c) => c.piece).join(""), "qqpppp");
+	const after = applyAction(s, "w", legalActions(s, "w").find((a) => a.type === "move")).state;
+	assert.equal(after.players.w.moves.map((c) => c.piece).join(""), "brbnbb"); // THE END-OF-TURN REFILL
+	const ctx = makeCtx(fresh()), { out, ms } = hand.throwMoves(ctx.state.players.w); // AS MULLIGAN DRAWS (cards/active/mulligan.js)
+	hand.drawMoves(ctx, "w", out.length, ms);
+	assert.equal(ctx.state.players.w.moves.map((c) => c.piece).join(""), "bbppqq");
+});
+
+/* ---------------------------------------------------------------- */
+// The passive reroll (user ruling 2026-11-22)
+/* ---------------------------------------------------------------- */
+const { CARDS: REG, PASSIVE_KEYS } = require("../../cards-engine/cards/index.js");
+/**
+ * @description Runs fn with two more test passives in the registry, then takes them out again (the file's other tests draw from the cards registered at the top).
+ */
+const withPassives = (fn) => {
+	const keys = ["test-passive-b", "test-passive-c"];
+	for (const key of keys) register({ key, kind: "passive", name: key, rarity: "common", text: "" });
+	try { return fn(); } finally { for (const key of keys) { delete REG[key]; PASSIVE_KEYS.splice(PASSIVE_KEYS.indexOf(key), 1); } }
+};
+const holding = (s, key = "test-passive") => { s.players.w.passive = { id: "t7", key }; return s; };
+const REROLL = { type: "discard", cards: ["t7"] };
+const rerolls = (s) => legalActions(s, "w").filter((a) => actionKey(a) === actionKey(REROLL));
+
+test("the passive reroll is listed last among the free discards, only with a passive held", () => withPassives(() => {
+	const s = fresh();
+	assert.equal(legalActions(s, "w").filter((a) => a.type === "discard").length, 16);
+	const discards = legalActions(holding(s), "w").filter((a) => a.type === "discard");
+	assert.equal(discards.length, 17);
+	assert.deepEqual(discards[16], REROLL);
+}));
+
+test("no passive reroll in check, after the turn's free discard, or in a two-move turn; after Mulligan yes", () => withPassives(() => {
+	const checked = holding(game("4k3/8/8/8/8/8/4r3/4K3 w - - 0 1"));
+	assert.ok(inCheck(checked, "w"));
+	assert.equal(rerolls(checked).length, 0);
+	const used = holding(fresh());
+	used.discarded = "w";
+	assert.equal(rerolls(used).length, 0);
+	const two = holding(fresh());
+	two.multi = { player: "w", left: 2, moved: [], differ: true };
+	assert.equal(rerolls(two).length, 0);
+	two.multi = { player: "w", left: 1, moved: [], differ: false, mulled: true };
+	assert.equal(rerolls(two).length, 1);
+}));
+
+test("a passive reroll: the passive goes, a different one is in the hand at once, the turn goes on, no other free discard", () => withPassives(() => {
+	for (let seed = 1; seed <= 30; seed++) {
+		const s = holding(fresh(seed)), before = JSON.parse(JSON.stringify(s.players.w));
+		const { state, events } = applyAction(s, "w", REROLL), p = state.players.w;
+		assert.deepEqual(events.map((e) => e.type), ["discard", "draw"]);
+		assert.deepEqual(events[0], { type: "discard", player: "w", card: { id: "t7", key: "test-passive" } });
+		assert.deepEqual(events[1].card, p.passive);
+		assert.ok(["test-passive-b", "test-passive-c"].includes(p.passive.key), "a different passive, seed " + seed);
+		assert.deepEqual([state.board.turn, state.ply, state.discarded], ["w", 0, "w"]);
+		assert.deepEqual([p.moves, p.actives, p.used], [before.moves, before.actives, before.used]); // NOTHING ELSE MOVES, AND THE OLD CARD ISN'T "used"
+		assert.ok(!legalActions(state, "w").some((a) => a.type === "discard"));
+		assert.ok(legalActions(state, "w").some((a) => a.type === "passive") && legalActions(state, "w").some((a) => a.type === "move"));
+	}
+}));
+
+test("a rerolled passive can come back on a later draw: it isn't used", () => withPassives(() => {
+	const { state } = applyAction(holding(fresh()), "w", REROLL), ctx = makeCtx(state);
+	const seen = new Set();
+	for (let i = 0; i < 40; i++) { ctx.state.players.w.passive = null; seen.add(hand.drawCard(ctx, "w", "passive").key); }
+	assert.ok(seen.has("test-passive"));
+}));
+
+test("a passive placed in Board Effects can't be rerolled", () => withPassives(() => {
+	const { state } = applyAction(holding(fresh()), "w", { type: "passive" });
+	assert.equal(state.players.w.passive, null);
+	assert.ok(!legalActions(state, "b").some((a) => a.type === "discard" && a.cards.includes("t7")));
+	assert.throws(() => applyAction(state, "b", REROLL), IllegalAction);
+	const back = JSON.parse(JSON.stringify(state)); // WHITE'S TURN AGAIN, ITS PASSIVE STILL PLACED
+	back.board.turn = "w";
+	assert.equal(rerolls(back).length, 0);
+}));
+
+test("no passive reroll when no other passive is left to draw: it would only lose the card", () => {
+	assert.equal(rerolls(holding(fresh())).length, 0); // ONLY test-passive IS REGISTERED
+	withPassives(() => {
+		const s = holding(fresh());
+		s.players.w.used = ["test-passive-b"];
+		s.effects.push({ id: "t8", owner: "w", card: { id: "t8", key: "test-passive-c" }, placedAt: 0 });
+		assert.equal(rerolls(s).length, 0);
+		s.effects = [];
+		assert.equal(rerolls(s).length, 1);
+	});
+});
+
+test("the free discard of an active is still an active's: the passive's id is what tells a reroll apart", () => withPassives(() => {
+	const s = holding(fresh()), id = s.players.w.actives[0].id;
+	const { state, events } = applyAction(s, "w", { type: "discard", cards: [id] });
+	assert.deepEqual(events.map((e) => e.type), ["discard"]);
+	assert.deepEqual(state.players.w.passive, { id: "t7", key: "test-passive" });
+}));
 
 test("placing a passive puts it into Board Effects and uses the turn", () => {
 	const s = fresh();
@@ -744,4 +909,16 @@ test("under a refill lock a discarded active waits it out: none back at the end 
 	assert.deepEqual([r.players.w.actives.length, r.players.w.moves.length, r.players.w.refillLock], [0, 5, 0]); // THE LOCK HELD THE WHOLE REFILL
 	r = play(play(r, "b", "move"), "w", "move");
 	assert.deepEqual([r.players.w.actives.length, r.players.w.moves.length], [1, 6]);
+});
+
+test("drawMove: a queen on the board counts double (user ruling 2026-11-22), so a Queen card is 2 in 16 at the start, not 1 in 15", () => {
+	const s = fresh(7), ctx = makeCtx(s), n = 8000;
+	let queens = 0;
+	for (let i = 0; i < n; i++) {
+		s.players.w.moves = []; // NEVER FULL: EVERY DRAW LANDS
+		if (hand.drawMove(ctx, "w").piece === "q") { queens++; }
+	}
+	assert.ok(queens / n > 0.11 && queens / n < 0.14, `a Queen card ${(queens / n * 100).toFixed(1)}% of draws, 12.5% expected`);
+	const none = makeCtx(game("4k3/8/8/8/8/8/PPPP4/4K3 w - - 0 1"));
+	assert.equal(hand.drawMove(none, "w").piece, "p"); // NO QUEEN: NOTHING CHANGES
 });

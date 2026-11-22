@@ -203,6 +203,25 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		window.addEventListener("keydown", onPileKey, true);
 	}
 
+	/* ---- The lifted card's preview: a hand card with rules text (an active, the held passive, a curse), big enough to read, beside the board while it's lifted (user ruling 2026-11-22) ---- */
+	let preview = null, previewKey = null;
+	function showPreview() {
+		const c = lifted && current ? cards.get(`h:${lifted}`) : null, face = c && c.spot.card ? faceOf(c.spot.card, current.catalog) : null;
+		const key = face && face.text ? JSON.stringify(face) : null;
+		if (key === previewKey) { return; }
+		previewKey = key;
+		if (preview) { preview.remove(); preview = null; }
+		if (!key) { return; }
+		preview = document.createElement("canvas");
+		preview.className = "cardPreview"; // NO POINTER EVENTS (board3D.css): THE BOARD UNDER IT STILL TAKES THE CARD'S TARGETS
+		preview.width = Math.round(FACE_W * PILE_FACE);
+		preview.height = Math.round(FACE_H * PILE_FACE);
+		preview.setAttribute("role", "img");
+		preview.setAttribute("aria-label", `${face.name}, ${face.type}: ${face.text}`);
+		drawPlayFace(preview.getContext("2d"), face, c.spot.color, preview.width, preview.height, false);
+		document.body.append(preview);
+	}
+
 	return {
 		/**
 		 * @description Lays the table out for a view: new cards slide in from the red deck, moved ones slide to their new spot (one there or on its way already is left alone), gone ones are taken away
@@ -237,6 +256,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			}
 			if (openPile && JSON.stringify([openPile, pileOf(view, openPile), current.catalog]) !== pileKey) { showPile(openPile); } // A PASSIVE FIRED OR WAS PLACED WHILE IT WAS OPEN
 			refreshLift();
+			showPreview(); // THE LIFTED CARD LEFT THE HAND, OR THE CATALOG CAME
 		},
 		/**
 		 * @description Lifts the picked hand card high, the others go back down
@@ -246,6 +266,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			if (id === lifted) { return; }
 			lifted = id;
 			refreshLift();
+			showPreview();
 		},
 		/**
 		 * @description Lifts the hand card under the pointer a little & lights it
@@ -281,6 +302,8 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		 */
 		dispose() {
 			closePile();
+			lifted = null;
+			showPreview();
 			for (const c of [...cards.values(), ...green]) { free(c); }
 			cards.clear();
 			room.remove(frame);

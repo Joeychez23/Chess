@@ -33,11 +33,11 @@ const COUNTS = { draw: "drawn", "card-played": "played", "passive-placed": "play
  * When cardGuyTurn throws or the game refuses its action every time, the first legal action is played (a move when there is one) and stats.fallbacks counts it: the game never waits
  * @param  {[number]} seed [the game's seed, an integer. Card Guy's own dice come from it too, never from the engine's rng]
  * @param  {[object]} options [{ evaluate(fen) -> centipawns from White's side, bestOf(fen, lans) -> { from, to, promotion }, level: Card Guy's level,
- * stats: an object filled with { plies, capped (no result at MAX_PLIES), actionCapped (no result at MAX_ACTIONS), stuck (no result and no one can act), fallbacks, turnActions, discards } for the caller to read, optional }]
+ * stats: an object filled with { plies, capped (no result at MAX_PLIES), actionCapped (no result at MAX_ACTIONS), stuck (no result and no one can act), fallbacks, turnActions, discards (free discards of move cards or an active), rerolls (free discards of the passive, counted apart) } for the caller to read, optional }]
  * @return {[object]} game [{ winner: "w" | "b" | null, cards: { [key]: { w: Tally, b: Tally } } } with Tally = { drawn, played, fired }]
  */
 async function playGame(seed, { evaluate, bestOf, level, stats = {} }) {
-	Object.assign(stats, { plies: 0, capped: false, actionCapped: false, stuck: false, fallbacks: 0, turnActions: 0, discards: 0 });
+	Object.assign(stats, { plies: 0, capped: false, actionCapped: false, stuck: false, fallbacks: 0, turnActions: 0, discards: 0, rerolls: 0 });
 	let state = engine.newGame({ cardGuy: "b", level, seed });
 	const cards = {}, owed = { w: 0, b: 0 }; // owed: ACTIVES A SIDE THREW OUT BY THE FREE DISCARD AND HASN'T DRAWN BACK
 	const count = (e) => {
@@ -64,8 +64,9 @@ async function playGame(seed, { evaluate, bestOf, level, stats = {} }) {
 				if (!action || err.code !== "ILLEGAL") { break; } // CARD GUY ITSELF THREW: ASKING AGAIN GIVES THE SAME
 				refused.push(engine.actionKey(action));
 			}
-			if (next && action.type === "discard" && action.cards.length === 1) { owed[me]++; }
-			if (next) { Object.assign(stats, { turnActions: stats.turnActions + (["duel", "choice", "discard"].includes(action.type) ? 0 : 1), discards: stats.discards + (action.type === "discard" ? 1 : 0) }); }
+			const discard = !!next && action.type === "discard", reroll = discard && !!state.players[me].passive && action.cards[0] === state.players[me].passive.id; // state IS STILL THE ONE BEFORE THE ACTION
+			if (discard && !reroll && action.cards.length === 1) { owed[me]++; } // AN ACTIVE'S: THE REROLL DRAWS ITS PASSIVE AT ONCE, A REAL DRAW
+			if (next) { Object.assign(stats, { turnActions: stats.turnActions + (["duel", "choice", "discard"].includes(action.type) ? 0 : 1), discards: stats.discards + (discard && !reroll ? 1 : 0), rerolls: stats.rerolls + (reroll ? 1 : 0) }); }
 		}
 		if (!next) {
 			const legal = engine.legalActions(state, me), moves = legal.filter((a) => a.type === "move");

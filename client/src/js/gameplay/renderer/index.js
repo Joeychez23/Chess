@@ -37,7 +37,8 @@ let shownScreen = null; // WHAT THE 3D ROOM'S MONITOR WAS LAST TOLD TO SHOW (scr
 let cardPick = null; // WHAT A PICKED PROMOTION CARD CALLS (onCardPick), gameplay/input'S choosePromotion
 let shownPromotion = null; // THE COLOUR THE 3D CARDS WERE LAST DEALT FOR, null WHEN THEY'RE ON THE DECK (syncCards3D)
 let shownCardFocus = null; // THE CARD THE 3D BOARD FRAMES (game.cardFocus)
-let tablePick = null; // WHAT A CHESS CARDS GAME'S PICKED HAND CARD OR SQUARE CALLS (onTablePick), gameplay/cards/flow.js
+let tablePick = null; // WHAT A CHESS CARDS GAME'S PICKED HAND CARD OR SQUARE, & ITS MOUSE PRESS & RELEASE, CALL (onTablePick), gameplay/cards/flow.js
+let tableHeld = null; // THE PIECE A CHESS CARDS GAME'S DRAG HOLDS, { square, dragging } (holdTablePiece3D), null FOR NONE
 let table = null; // THE CHESS CARDS TABLE AS setTable3D LAST SAID IT, PUT ON EVERY 3D BOARD MOUNTED LATER
 let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
 let monitorHooks = null; // gameplay/monitor'S { handlers, announce, onChange, data } (setMonitorHooks), GIVEN TO EVERY 3D BOARD
@@ -80,7 +81,7 @@ export function drawBoard() {
 	}
 	syncTaken3D(fen);
 	syncFacing3D(fen);
-	const held = heldPiece();
+	const held = tableHeld || heldPiece(); // A CHESS CARDS GAME'S HELD PIECE IS flow.js'S (holdTablePiece3D): heldPiece() HAS NONE THERE
 	board3D.setHeld(held && held.square, held && held.dragging); // AFTER THE MOVE: A DROPPED PIECE SLIDES FROM WHERE IT WAS LET GO
 }
 
@@ -313,10 +314,30 @@ export function onCardPick(handler) {
 
 /**
  * @description Sets what a Chess Cards game's picked hand card or square does on the 3D board (gameplay/cards/flow.js)
- * @param  {[function]} handler [(hit) => {}, hit is { kind: "hand", id } or { kind: "square", square }]
+ * @param  {[function]} handler [(hit) => {}, hit is { kind: "hand", id } or { kind: "square", square } (a click or tap), { kind: "press", square } (the left mouse button went down on a square)
+ * or { kind: "release", square } (it came up with a piece held: the square a drag was let go on, else null)]
  */
 export function onTablePick(handler) {
 	tablePick = handler;
+}
+
+/**
+ * @description The piece a Chess Cards game's mouse drag holds on the 3D board (gameplay/cards/flow.js pressSquare / releaseSquare), kept so every sync lifts it again (drawBoard)
+ * @param  {[string|null]} square [the held piece's square, null to put it back down]
+ * @param  {[boolean]} dragging [the press is still down, so moving the pointer drags it]
+ */
+export function holdTablePiece3D(square, dragging) {
+	tableHeld = square ? { square, dragging: Boolean(dragging) } : null;
+	if (board3D) { board3D.setHeld(square || null, Boolean(dragging)); }
+}
+
+/**
+ * @description A Chess Cards drag let go on a square it plays to: the piece stands on that square at once, no longer held, as a normal game's drop lands; the move's slide starts & ends there (flow.js releaseSquare).
+ * holdTablePiece3D(square, false) then holdTablePiece3D(null) sends it home when the play isn't made
+ */
+export function dropTablePiece3D(square) {
+	tableHeld = null;
+	if (board3D) { board3D.dropHeld(square); }
 }
 
 /**

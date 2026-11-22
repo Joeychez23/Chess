@@ -15,14 +15,14 @@
 // Global
 /* ---------------------------------------------------------------- */
 const { game, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN
-const { toFen } = require("../../../../../cards-engine/board.js"); // THE VIEW'S BOARD AS A FEN, THE ENGINE'S OWN (NO OTHER PART OF THE ENGINE IS LOADED)
+const { toFen, sqIndex } = require("../../../../../cards-engine/board.js"); // THE VIEW'S BOARD AS A FEN, THE ENGINE'S OWN (NO OTHER PART OF THE ENGINE IS LOADED)
 const { cards, takeResponse } = require("./store.js"); // THE CARD ROUTES' LAST ANSWER
 const { sendAction, cardGuyTurn, getCardGuy } = require("./api.js"); // REQUESTS TO THE CARD ROUTES (/api/chess/cards)
 const { showBot } = require("../bots/say.js"); // CARD GUY'S NAME BESIDE THE BOARD
 const { showGameOver } = require("../menu/offers.js"); // THE GAME OVER SCREEN
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const S = require("./select.js"); // WHAT THE TABLE LETS THE PLAYER PICK, FROM cards.legal
-const { setTable3D, onTablePick, toggleTablePile3D } = require("../renderer/index.js"); // THE TABLE ON THE 3D BOARD
+const { setTable3D, onTablePick, toggleTablePile3D, holdTablePiece3D, dropTablePiece3D } = require("../renderer/index.js"); // THE TABLE ON THE 3D BOARD
 const { rarityColor } = require("../three/cardFaces.js"); // A PROMPT'S BORDER, THE COLOUR OF THE CARD THAT ASKED
 const { forfeitGame } = require("../validate/index.js"); // THE OLDER-VERSION GAME'S WAY OUT
 
@@ -37,6 +37,9 @@ let keyboard = false; // THE LAST PICK CAME FROM THE KEYS: A PROMPT TAKES THE FO
 let lastPlayed = null; // THE LAST card-played EVENT'S CARD: THE FRAME OF THE CHOICE IT ASKS FOR
 let lastTaken = null; // THE LAST card-taken EVENT'S CARD TAKEN FROM THE PLAYER: NAMES PICKPOCKET'S TAKE-BACK (select.js label)
 let confirm = null; // A KING MOVE THAT SPENDS A KING SKULL, WAITING ON THE PROMPT'S Play (USER RULING M7)
+let dragFrom = null; // THE SQUARE THE MOUSE PRESSED A PIECE ON (pressSquare): A RELEASE ONLY PLAYS THAT PIECE'S PICK
+let pressedNew = false; // THIS PRESS PICKED A PIECE THAT WASN'T PICKED YET (pressSquare): ITS CLICK KEEPS IT. A CLICK ON THE PIECE ALREADY PICKED PUTS IT DOWN
+let dropped = null; // THE SQUARE OF A DRAGGED PIECE LEFT OVER ITS TARGET (releaseSquare) UNTIL ITS PLAY IS ANSWERED OR GIVEN UP (settle)
 let promoting = null; // A MOVE'S PROMOTIONS WHILE THE ROOM'S PROMOTION CARDS ARE OUT (game.currPromotion), ONE PICKED SENDS ITS PLAY (promote)
 let shownPrompt = null; // WHAT THE PROMPT SHOWS (ITS BUTTONS AS JSON), SO IT'S ONLY REBUILT WHEN THAT CHANGES
 let promptStart = null; // THE PROMPT'S BUTTON THE KEYS FOCUS (select.js promptFocus), null WHILE IT'S HIDDEN
@@ -142,6 +145,7 @@ function show(response) {
 	lastPlayed = events.filter((e) => e && e.type === "card-played" && e.card && e.card.key).map((e) => e.card).pop() || lastPlayed;
 	lastTaken = events.filter((e) => e && e.type === "card-taken" && e.from === cards.you && e.card && typeof e.card === "object").map((e) => e.card).pop() || lastTaken;
 	sel = null; // THE GAME MOVED ON: A PICK IN PROGRESS STARTS AGAIN
+	dragFrom = null; // A PRESS STILL DOWN (A PLAY THE KEYS MADE MEANWHILE): ITS PIECE GOES DOWN WITH THE PICK (hover), ITS RELEASE MAY NEVER COME
 	squareFocus = null;
 	confirm = null;
 	endPromotion();
@@ -152,7 +156,12 @@ function show(response) {
 /* ---------------------------------------------------------------- */
 // Table
 /* ---------------------------------------------------------------- */
-onTablePick((hit) => { keyboard = false; if (hit.kind === "hand") { clickCard(hit.id); } else if (hit.kind === "square") { clickSquare(hit.square); } }); // THE 3D BOARD'S CLICKS & TAPS
+onTablePick((hit) => { // THE 3D BOARD'S CLICKS & TAPS, & THE MOUSE'S PRESS & RELEASE (THE DRAG)
+	if (hit.kind === "release") { releaseSquare(hit.square, Boolean(hit.dragged)); return; }
+	if (hit.kind === "press") { pressSquare(hit.square); return; }
+	keyboard = false;
+	if (hit.kind === "hand") { clickCard(hit.id); } else if (hit.kind === "square") { clickSquare(hit.square); }
+});
 
 const promptBox = document.getElementById("cardPrompt");
 
@@ -178,6 +187,14 @@ function refreshTable() {
 		lifted: sel ? sel.card : null, glow, glowFocus: squareFocus !== null ? glow[squareFocus] : !glow.length && stop?.kind === "square" ? stop.square : null,
 	});
 	showPrompt(ready, glow);
+	hover();
+}
+
+// THE PICKED PIECE FLOATS OVER ITS SQUARE WHILE IT'S PICKED, AS A NORMAL GAME'S CLICKED PIECE DOES (USER RULING 2026-11-22), & COMES DOWN WITH THE PICK. NOT WHILE THE MOUSE DRAGS ONE OR A DROPPED ONE WAITS
+function hover() {
+	if (dragFrom || dropped) { return; }
+	const square = sel && sel.picks.length ? sel.picks[0] : null, p = square && cards.view.board.sq[sqIndex(square)];
+	holdTablePiece3D(p && p.c === cards.you ? square : null, false);
 }
 
 /**
@@ -273,6 +290,7 @@ export function promote(type) {
  */
 function clickCard(id) {
 	if (!yourMove() || choosing()) { return; }
+	settle();
 	confirm = null; // A CLICK ELSEWHERE: THE SKULL'S QUESTION & THE PROMOTION CARDS GO
 	endPromotion();
 	if (sel && sel.card === id) {
@@ -293,9 +311,13 @@ function clickCard(id) {
  * several plays on the same squares go to the prompt. A square that leads nowhere puts the pick down
  * @param  {[string]} square ["e4"]
  */
-function clickSquare(square) {
+function clickSquare(square, drop = false) {
 	if (!yourMove()) { return; }
+	if (!drop) { settle(); } // A CLICK ELSEWHERE GIVES THE DROPPED PIECE'S PLAY UP
 	if (promoting) { cancelPick(); return; } // A CLICK AWAY FROM THE PROMOTION CARDS PUTS THE MOVE DOWN
+	const again = !drop && !pressedNew && !choosing() && sel && sel.picks.length === 1 && sel.picks[0] === square;
+	pressedNew = false;
+	if (again) { cancelPick(); return; } // THE PICKED PIECE CLICKED AGAIN: IT & ITS CARD GO DOWN, AS A NORMAL GAME'S (USER RULING 2026-11-22)
 	confirm = null;
 	const board = cards.view.board;
 	let next = sel && S.pick(sel, board, square);
@@ -310,8 +332,57 @@ function clickSquare(square) {
 	refreshTable();
 }
 
+/**
+ * @description A left mouse press on a square (three/pointer.js onPointerDown), the drag's start (user ruling 2026-11-22): on the player's turn, with no promotion cards out & no choice asked,
+ * one of the player's pieces that select.js pressPick gives a pick for is picked as a click on it would (its squares glow) & held: past the drag threshold it follows the pointer.
+ * A piece with nothing to play isn't held, with no message. The click that follows a press that didn't drag picks the same again (clickSquare): one pick
+ * @param  {[string]} square ["e2"]
+ */
+function pressSquare(square) {
+	if (!yourMove() || promoting || choosing()) { return; }
+	const next = S.pressPick(sel, cards.legal, cards.view, square, cards.hidden);
+	if (!next) { return; }
+	pressedNew = !(sel && sel.picks.length === 1 && sel.picks[0] === square);
+	settle();
+	keyboard = false;
+	confirm = null; // AS A CLICK ELSEWHERE: THE SKULL'S QUESTION GOES
+	sel = next;
+	squareFocus = null;
+	dragFrom = square;
+	holdTablePiece3D(square, true);
+	refreshTable();
+}
+
+/**
+ * @description The mouse let go of a held piece (three/pointer.js onPointerUp): it goes back to its square. Dragged onto one of its pick's squares, that is a click on the square
+ * (clickSquare: one ready play is sent, a skull move asks first, a promotion deals the cards, two forms of a square go to the prompt). Anywhere else a drag puts the piece & its card down (a click on a square that isn't a target does too, clickSquare); a press that never dragged keeps the pick
+ * @param  {[string|null]} square [the square a drag was let go on, null for none (off the board, on the glass or a card) or a press that never dragged: its click follows]
+ * @param  {[boolean]} dragged [the piece followed the pointer]
+ */
+function releaseSquare(square, dragged = false) {
+	const from = dragFrom;
+	dragFrom = null;
+	if (!(square && sel && sel.picks.length === 1 && sel.picks[0] === from && yourMove() && !promoting && S.pick(sel, cards.view.board, square))) { // sel.picks: NOT A PICK THE KEYS MADE MEANWHILE
+		if (dragged && from) { pressedNew = false; cancelPick(); } else { hover(); } // DRAGGED & LET GO OFF ITS TARGETS, ITS OWN SQUARE TOO: THE PIECE & ITS CARD GO DOWN (USER RULINGS 2026-11-22). A PRESS THAT NEVER DRAGGED KEEPS THE PICK, FLOATING: ITS CLICK FOLLOWS
+		return;
+	}
+	dropTablePiece3D(square); // IT LANDS ON THE TARGET AT ONCE (USER RULINGS 2026-11-22)
+	keyboard = false;
+	dropped = from; // send'S ANSWER OR A PICK GIVEN UP SENDS IT HOME (settle)
+	clickSquare(square, true);
+}
+
+// A DROPPED PIECE WHOSE PLAY WASN'T MADE GOES BACK TO ITS SQUARE (GIVEN UP, REFUSED, NO ANSWER). A MADE MOVE LEFT ITS SQUARE: NOTHING THERE TO PUT DOWN, ITS SLIDE ENDS IT
+function settle() {
+	if (!dropped) { return; }
+	holdTablePiece3D(dropped, false);
+	holdTablePiece3D(null);
+	dropped = null;
+}
+
 // PUTS THE PICK DOWN, THE SKULL'S QUESTION & THE PROMOTION CARDS WITH IT
 function cancelPick() {
+	settle();
 	sel = null;
 	squareFocus = null;
 	confirm = null;
@@ -338,8 +409,14 @@ async function send(action) {
 	confirm = null;
 	endPromotion();
 	refreshTable();
+	const piece = () => dropped && cards.view?.board.sq[sqIndex(dropped)]?.id, was = piece();
 	try { await act(action); }
-	finally { sending = false; refreshTable(); }
+	finally {
+		sending = false;
+		if (dropped && piece() === was) { settle(); } // STILL ON ITS SQUARE: THE PLAY WASN'T MADE
+		dropped = null;
+		refreshTable();
+	}
 }
 
 /**
@@ -359,6 +436,7 @@ export function handKey(key, repeat = false, button = false) {
 	if (plan === "page" || plan === "stop") { return plan === "stop"; }
 	if (plan === "blur") { document.activeElement?.blur(); } // AN ARROW: THE BUTTON LETS GO OF THE FOCUS, SO A LATER ENTER IS THE HAND'S (N1)
 	if (!yours) { keyFocus = S.stepFocus(S.focusList(cards.legal, cards.view, cards.hidden).length, keyFocus, key); refreshTable(); return true; } // CARD GUY'S TURN, AN ACTION ON ITS WAY: ONLY AN ARROW GETS HERE
+	settle(); // THE KEYS TAKE OVER: A DROPPED PIECE GOES HOME
 	keyboard = true;
 	if (key === "Escape") { cancelPick(); return true; }
 	const { glow } = sel ? S.options(sel, cards.view.board) : { glow: [] };

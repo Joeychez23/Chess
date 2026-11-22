@@ -9,6 +9,7 @@
 const { Chess } = require("chess.js");
 const engine = require("../../../cards-engine/index.js");
 const { inCheck } = require("../../../cards-engine/rules.js");
+const hand = require("../../../cards-engine/hand.js");
 const { CARDS, baseKey } = require("../../../cards-engine/cards/index.js");
 const ai = require("../ai.js");
 const { candidates, plainMoves, allowed, staticScore, isPlain, shape } = require("./candidates.js");
@@ -161,19 +162,19 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [] }, world =
 
 /**
  * @description Card Guy's free discard, at every level (user ruling 2026-11-21), decided before the search: scored, a 2-for-1 always loses to a move. The active when it has no play this turn (not even paying a curse's clear) and is common or uncommon and not Cleanse (user ruling R1),
- * else the first 2 move cards (hand order) with no move this turn, else none
+ * else the 2 move cards with no move this turn whose draw-back floor is lowest (the lower card's value: the widest draw; ties in hand order; user ruling 2026-11-22), else none. Never the passive's reroll
  * @param  {[array]} actions [the legal actions on Card Guy's guess]
- * @param  {[array]} actives [Card Guy's active cards]
+ * @param  {[object]} p [Card Guy's player in that guess: its actives and move cards]
  * @return {[object]} a discard action, or null
  */
-function freeDiscard(actions, actives) {
+function freeDiscard(actions, p) {
 	const discards = actions.filter((a) => a.type === "discard"), dead = (id) => !actions.some((a) => a.type !== "discard" && a.card === id);
-	const cheap = (id) => { const key = (actives.find((c) => c.id === id) || {}).key; return !!CARDS[key] && ["common", "uncommon"].includes(CARDS[key].rarity) && baseKey(key) !== "cleanse"; }; // RARE AND UP, AND CLEANSE, ARE KEPT FOR LATER (USER RULING R1)
+	const cheap = (id) => { const key = (p.actives.find((c) => c.id === id) || {}).key; return !!CARDS[key] && ["common", "uncommon"].includes(CARDS[key].rarity) && baseKey(key) !== "cleanse"; }; // RARE AND UP, AND CLEANSE, ARE KEPT FOR LATER (USER RULING R1). ONLY AN ACTIVE: A ONE-CARD DISCARD OF THE PASSIVE IS THE REROLL, NEVER TAKEN
 	const pays = (id) => actions.some((a) => a.type !== "discard" && a.discard === id); // IT CAN PAY A CURSE'S CLEAR (LEECH, SHACKLES): NOT DEAD
 	const active = discards.find((a) => a.cards.length === 1 && dead(a.cards[0]) && cheap(a.cards[0]) && !pays(a.cards[0]));
 	if (active) { return active; }
-	const ids = [...new Set(discards.flatMap((a) => (a.cards.length === 2 ? a.cards : [])))].filter(dead); // PAIRS COME IN HAND ORDER, SO THE IDS DO TOO
-	return ids.length >= 2 ? discards.find((a) => a.cards[0] === ids[0] && a.cards[1] === ids[1]) : null;
+	const moves = hand.moveCards(p), floor = (a) => Math.min(...a.cards.map((id) => hand.VALUE[moves.find((c) => c.id === id).piece]));
+	return discards.filter((a) => a.cards.length === 2 && a.cards.every(dead)).reduce((best, a) => (!best || floor(a) < floor(best) ? a : best), null); // PAIRS COME IN HAND ORDER: THE FIRST OF THE LOWEST
 }
 
 /**
@@ -195,7 +196,7 @@ async function cardGuyTurn(view, level, { evaluate, bestOf, seed, refused = [] }
 		const stop = !(duelValue(sim, me, sim.duel.card, sim.duel.piece) > 0); // GO ON ONLY WHEN THE NEXT HAND IS WORTH ITS RISK
 		return actions.find((a) => a.stop === stop) || actions[0];
 	}
-	const discard = freeDiscard(actions, sim.players[me].actives); // NONE ONCE ONE WAS REFUSED (allowed)
+	const discard = freeDiscard(actions, sim.players[me]); // NONE ONCE ONE WAS REFUSED (allowed)
 	if (discard) { return discard; }
 	return pick(await scoreTurn(view, { evaluate, bestOf, seed, refused }, world), level, rng);
 }

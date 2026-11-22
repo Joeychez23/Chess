@@ -788,7 +788,7 @@ describe("Hunger", () => {
 		r = untilTurn(r.state, "b", 1);
 		assert.equal(pawns(r.state, "b"), 6);
 		const picked = new Set();
-		for (let seed = 1; seed <= 12; seed++) { // THE PAWN IS PICKED BY state.rng
+		for (const seed of [1, 2, 4, 7, 8, 9, 10, 11, 12, 13, 14, 15]) { // THE PAWN IS PICKED BY state.rng. SEEDS WHOSE HANDS ALWAYS HOLD A MOVE (untilTurn PLAYS MOVES ONLY; 3, 5 & 6 DON'T SINCE A QUEEN COUNTS DOUBLE)
 			const t = fresh(seed);
 			makeCtx(t).giveCurse("b", "hunger", "w");
 			picked.add(ofType(untilTurn(t, "b", 3).events, "capture").find((e) => e.c === "b").piece);
@@ -1275,7 +1275,9 @@ describe("Mirage: no tell from a card's age", () => {
 			const b = JSON.parse(JSON.stringify(a));
 			b.players.w.curses = [];
 			b.players.w.moves.push({ id: m.id, key: "move", piece: "q" });
-			const card = a.players.w.moves.find((c) => legalActions(a, "w").some((x) => x.card === c.id)).id; // A REAL CARD IS PLAYED: THE REFILL DRAWS ONE
+			const real = a.players.w.moves.find((c) => legalActions(a, "w").some((x) => x.card === c.id));
+			if (!real) continue; // AN OPENING HAND WITH NO MOVE TO PLAY (MORE OFTEN SINCE A QUEEN COUNTS DOUBLE)
+			const card = real.id; // A REAL CARD IS PLAYED: THE REFILL DRAWS ONE
 			const act = legalActions(a, "w").find((x) => x.card === card), ra = applyAction(a, "w", act), rb = applyAction(b, "w", act);
 			assert.deepEqual(playerEvents(ra.state, ra.events, "w"), playerEvents(rb.state, rb.events, "w"));
 			assert.deepEqual(playerView(ra.state, "w").players.w, playerView(rb.state, "w").players.w);

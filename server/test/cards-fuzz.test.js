@@ -177,23 +177,40 @@ function checkMirageActions(s, color, acts) {
 	}
 }
 
+const WORTH = { p: 1, n: 3, b: 3, r: 5, q: 9 }; // THE ORACLE'S OWN COPY OF THE FLOOR'S VALUES
+
 /**
- * @description The free discard (user rulings 2026-11-21): never listed in check or twice a turn; it keeps the turn and the board; a pair of move cards gives 1 back at once, an active nothing (unless the automatic redraw ran, or the game ended on it).
+ * @description The free discard (user rulings 2026-11-21, 2026-11-22): never listed in check or twice a turn; it keeps the turn and the board; a pair of move cards gives 1 back at once, worth at least the lower of the two or else the best type the player still has (hit "d:floor" when the floor is above a pawn's); an active nothing; the held passive a different passive at once with nothing else in the hand moving (hit "d:reroll") (the counts unless the automatic redraw ran, or the game ended on it).
  */
-function checkDiscard(s, color, acts, a, state, events) {
+function checkDiscard(s, color, acts, a, state, events, hit) {
 	const listed = acts.some((x) => x.type === "discard");
 	if (listed) assert.ok(!inCheck(s, color) && s.discarded !== color, "a free discard listed in check or a second time this turn");
 	if (a.type !== "discard") return;
 	assert.equal(state.ply, s.ply, "the free discard ended the turn");
+	const before = s.players[color], after = state.players[color], reroll = !!before.passive && a.cards[0] === before.passive.id;
+	const drawn = (events.find((e) => e.type === "draw" && e.player === color) || {}).card; // THE DRAW-BACK COMES BEFORE ANY REDRAW'S
+	if (reroll) {
+		hit("d:reroll");
+		assert.equal(a.cards.length, 1, "a reroll with more than the passive");
+		assert.deepEqual(events.slice(0, 2).map((e) => [e.type, e.card.id]), [["discard", before.passive.id], ["draw", drawn.id]], "a reroll is the passive's discard, then a draw");
+		assert.ok(CARDS[drawn.key].kind === "passive" && baseKey(drawn.key) !== baseKey(before.passive.key), "the reroll drew " + drawn.key + " for " + before.passive.key);
+		assert.ok(!after.used.includes(before.passive.key) && after.used.length === before.used.length, "the rerolled passive counts as used");
+	} else if (a.cards.length === 2) {
+		const own = state.board.sq.filter((q) => q && q.c === color && q.t !== "k").map((q) => WORTH[q.t]);
+		const floor = Math.min(...hand.moveCards(before).filter((c) => a.cards.includes(c.id)).map((c) => WORTH[c.piece]));
+		if (own.length) assert.ok(drawn && drawn.key === "move" && WORTH[drawn.piece] >= Math.min(floor, Math.max(...own)), "a pair with floor " + floor + " drew back " + (drawn && drawn.piece));
+		if (own.length && floor > 1) hit("d:floor");
+	}
 	if (state.result) return;
 	assert.deepEqual([state.board.turn, state.discarded], [color, color], "the turn didn't stay, or the discard isn't marked");
 	assert.equal(JSON.stringify(state.board.sq), JSON.stringify(s.board.sq), "the free discard changed the board");
 	assert.ok(!legalActions(state, color).some((x) => x.type === "discard"), "a second free discard this turn");
 	if (events.some((e) => e.type === "redraw")) return;
-	const before = s.players[color], after = state.players[color];
 	const hasType = state.board.sq.some((q) => q && q.c === color && q.t !== "k"); // A LONE KING HAS NO TYPE TO DRAW (CORE RULES): NOTHING BACK
-	if (a.cards.length === 2) assert.equal(hand.moveCards(after).length, hand.moveCards(before).length - (hasType ? 1 : 2), "2 move cards discarded, not 1 back");
+	if (reroll) assert.deepEqual([after.passive, after.moves, after.actives, after.curses], [drawn, before.moves, before.actives, before.curses], "a reroll moved something else in the hand");
+	else if (a.cards.length === 2) assert.equal(hand.moveCards(after).length, hand.moveCards(before).length - (hasType ? 1 : 2), "2 move cards discarded, not 1 back");
 	else assert.equal(after.actives.length, before.actives.length - 1, "an active discarded, something back");
+	if (!reroll) assert.deepEqual(after.passive, before.passive, "a free discard of move or active cards changed the passive");
 }
 
 /**
@@ -221,7 +238,7 @@ function play(seed, stats, { setup, plies = PLIES, note } = {}) {
 			}
 			const { state, events } = applyAction(s, color, a);
 			for (const c of ["w", "b"]) checkEvents(state, events, c, checkView(state, c));
-			if (!s.pending && !s.duel) checkDiscard(s, color, acts, a, state, events);
+			if (!s.pending && !s.duel) checkDiscard(s, color, acts, a, state, events, hit);
 			if (note) note(state, events, hit);
 			hit("a:" + a.type);
 			for (const e of events) { hit("e:" + e.type); if (e.type === "card-played" || e.type === "passive-placed" || e.type === "curse-given") hit("k:" + baseKey(e.card.key)); }
@@ -268,7 +285,7 @@ else test("500 seeded random games with every card: no throw, never stuck, nothi
 	assert.equal(failed.length, 0, failed.length + " of " + seeds.length + " games failed; first: " + failed[0]);
 	if (only) return;
 	for (const k of new Set(Object.keys(CARDS).map(baseKey))) assert.ok(stats["k:" + k], "card " + k + " never played, placed or given"); // EVERY CARD THE LOADER REGISTERS
-	for (const k of ["a:move", "a:active", "a:passive", "a:discard", "a:choice", "a:duel", "e:capture", "e:curse-given", "e:enchant", "e:turn-skipped", "e:king-skull"]) assert.ok(stats[k] > 20, k + " met only " + (stats[k] || 0) + " times"); // THE SOAK REACHED THE CARD PATHS
+	for (const k of ["a:move", "a:active", "a:passive", "a:discard", "a:choice", "a:duel", "e:capture", "e:curse-given", "e:enchant", "e:turn-skipped", "e:king-skull", "d:floor", "d:reroll"]) assert.ok(stats[k] > 20, k + " met only " + (stats[k] || 0) + " times"); // THE SOAK REACHED THE CARD PATHS
 });
 
 /*
@@ -370,7 +387,8 @@ if (isMainThread) {
 			},
 		});
 		clean(r, t);
-		for (const k of ["x:entered", "x:crown", "x:no-king-card"]) assert.ok(r.stats[k] >= 20, k + " met only " + (r.stats[k] || 0) + " times");
+		for (const k of ["x:entered", "x:crown"]) assert.ok(r.stats[k] >= 20, k + " met only " + (r.stats[k] || 0) + " times");
+		assert.ok(r.stats["x:no-king-card"] >= 1, "x:no-king-card never met"); // WAS >= 20: THESE SEEDS NOW MEET IT 3 TIMES (A QUEEN COUNTS DOUBLE, THE DRAWS MOVED)
 	});
 
 	test("both sides under a Fog of War at once: each view hides the other's half, and a real capture of a fogged piece reaches the other player as \"?\"", (t) => {

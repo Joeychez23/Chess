@@ -8,6 +8,7 @@ const { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, RARITY_WEIGHTS, baseKey } = require(".
 const { resight, isSight } = require("./cards/sight.js");
 
 const MOVES = 6, ACTIVES = 1, MOVE_CAP = 9, ACTIVE_CAP = 3;
+const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 }; // THE PIECE VALUES, THE ONE PLACE IN THE ENGINE: THE FREE DISCARD'S FLOOR (drawMove) AND UNDERDOG'S MATERIAL
 const byId = (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1));
 
 /**
@@ -50,12 +51,14 @@ function put(ctx, color, slot, fields) {
 }
 
 /**
- * @description Draw one move card: a piece type color still has (king aside), weighted by how many of that type are on the board. null when color has only its king.
+ * @description Draw one move card: a piece type color still has (king aside), weighted by how many of that type are on the board, a queen counting as 2. null when color has only its king.
+ * With a floor (the free discard's draw-back, user ruling 2026-11-22) only the types worth floor or more (VALUE); when color has none of those, the most valuable type it still has (a knight and a bishop are both 3, so both stay in). No floor draws from every type, with one rng pick.
  */
-function drawMove(ctx, color) {
-	const left = ctx.state.board.sq.filter((q) => q && q.c === color && q.t !== "k").map((q) => q.t);
-	if (!left.length) return null;
-	return put(ctx, color, "moves", { key: "move", piece: ctx.rng.pick(left) });
+function drawMove(ctx, color, floor = 0) {
+	const all = ctx.state.board.sq.filter((q) => q && q.c === color && q.t !== "k").flatMap((q) => (q.t === "q" ? ["q", "q"] : [q.t])); // A QUEEN COUNTS DOUBLE (USER RULING 2026-11-22: THE QUEEN CARD WAS TOO RARE)
+	if (!all.length) return null;
+	const worth = (t) => VALUE[t] || 0, dropped = Math.min(floor, Math.max(...all.map(worth))); // THE FLOOR DROPS TO THE BEST TYPE LEFT
+	return put(ctx, color, "moves", { key: "move", piece: ctx.rng.pick(all.filter((t) => worth(t) >= dropped)) });
 }
 
 /**
@@ -93,13 +96,20 @@ function discard(ctx, color, id) {
 }
 
 /**
- * @description Draw one active or passive card from the registry, weighted by rarity, leaving out every version of a card color holds, has waiting in Board Effects or has used (compared by baseKey). null when nothing is left.
+ * @description The active or passive keys color can draw now: the registry's, less every version of a card color holds, has waiting in Board Effects or has used, and of `not` (a key, optional), compared by baseKey.
  */
-function drawCard(ctx, color, kind) {
-	const s = ctx.state, p = s.players[color];
+function drawable(state, color, kind, not) {
+	const p = state.players[color];
 	const held = [...p.moves, ...p.actives, ...p.curses, p.passive].filter(Boolean).map((c) => c.key);
-	const out = new Set([...held, ...s.effects.filter((e) => e.owner === color).map((e) => e.card.key), ...p.used].map(baseKey));
-	const keys = (kind === "active" ? ACTIVE_KEYS : PASSIVE_KEYS).filter((k) => !out.has(baseKey(k)));
+	const out = new Set([...held, ...state.effects.filter((e) => e.owner === color).map((e) => e.card.key), ...p.used, ...(not ? [not] : [])].map(baseKey));
+	return (kind === "active" ? ACTIVE_KEYS : PASSIVE_KEYS).filter((k) => !out.has(baseKey(k)));
+}
+
+/**
+ * @description Draw one active or passive card from the registry, weighted by rarity, leaving out every version of a card color holds, has waiting in Board Effects or has used (drawable), and of `not` (the passive a reroll just discarded: left out of this one draw only, it never joins used). null when nothing is left.
+ */
+function drawCard(ctx, color, kind, not) {
+	const keys = drawable(ctx.state, color, kind, not);
 	const weight = (k) => RARITY_WEIGHTS[CARDS[k].rarity];
 	const total = keys.reduce((n, k) => n + weight(k), 0);
 	if (!total) return null;
@@ -166,4 +176,4 @@ function discardRandom(ctx, color, n) {
 	}
 }
 
-module.exports = { MOVES, MOVE_CAP, ACTIVE_CAP, newCard, drawMove, drawCard, refill, take, discardRandom, mirages, moveCards, drawMoves, throwMoves, discard, kingCard, kingFree, big };
+module.exports = { MOVES, MOVE_CAP, ACTIVE_CAP, VALUE, newCard, drawMove, drawCard, drawable, refill, take, discardRandom, mirages, moveCards, drawMoves, throwMoves, discard, kingCard, kingFree, big };
