@@ -64,7 +64,8 @@ function allowedKeys(v, viewer) {
 	const vo = v.players[other(viewer)];
 	return new Set([...handOf(v.players[viewer]).map((c) => c.key), ...vo.hand.shown.map((c) => c.key), ...v.effects.map((e) => e.card.key),
 		...v.players.w.used, ...v.players.b.used, ...v.enchant.map((e) => e.key),
-		...["w", "b"].flatMap((c) => [...v.players[c].spot, v.players[c].pile.top, v.players[c].kept]).filter(Boolean).map((c) => c.key), ...v.players[viewer].gone]); // TASK 20e: THE ACTIVE SPOTS, THE PILES AS THE VIEW SHOWS THEM, viewer'S OWN PASSIVES THAT LEFT
+		...["w", "b"].flatMap((c) => [...v.players[c].spot, v.players[c].pile.top, v.players[c].kept]).filter(Boolean).map((c) => c.key), ...v.players[viewer].gone, // TASK 20e: THE ACTIVE SPOTS, THE PILES AS THE VIEW SHOWS THEM, viewer'S OWN PASSIVES THAT LEFT
+		...v.piled.map((e) => e.card.key)]); // TASK 21a: THE DISCARD LIST AS THE VIEW SHOWS IT (checkView PINS EACH ENTRY)
 }
 
 /**
@@ -95,6 +96,8 @@ function checkView(s, viewer) {
 		assert.ok(!noSquares(json).includes("\"" + c.id + "\""), "hidden card id " + c.id + " in view");
 		if (!allowed.has(c.key)) assert.ok(!json.includes("\"" + c.key + "\""), "hidden key " + c.key + " in view");
 	}
+	(s.piled || []).forEach(({ player, card: { down, ...c } }, i) => assert.deepEqual(v.piled[i], { player, card: down && player === opp && !s.result ? { down } : c }, "discard list entry " + i)); // TASK 21a: A BACK ONLY FOR THE OPPONENT'S FACE-DOWN CARD
+	assert.equal(v.piled.length, (s.piled || []).length);
 	for (const e of v.enchant) if (e.key === "trapdoor") assert.equal("square" in e.data, e.owner === viewer || !!s.result, "trapdoor square"); // OVER: SHOWN
 	if (fogBy(s, opp)) {
 		const letters = opp === "w" ? /[PNBRQK]/g : /[pnbrqk]/g, rank = opp === "w" ? "3" : "6";

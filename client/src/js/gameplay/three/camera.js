@@ -256,9 +256,9 @@ function pileSpot(home, box) {
 }
 
 /**
- * @description Frames an opened pile's column as a deal is framed, with the same home (view.dealHome): the camera glides there, & back exactly where the player had it when
- * the pile closes (unframeDeal). While it's framed Auto Lean stands down (leanIn: view.dealHome). Nothing at the monitor or while the promotion cards are out
- * @param  {[object|null]} box [the column (tableLayout.js columnBox), again when it changed; null: the pile closed]
+ * @description Frames an opened pile's column, or a hand card zoomed in on (cardTable.js zoom), as a deal is framed, with the same home (view.dealHome): the camera glides there, & back exactly where the player had it when
+ * the pile closes or the zoom ends (unframeDeal). While it's framed Auto Lean stands down (leanIn: view.dealHome). Nothing at the monitor or while the promotion cards are out
+ * @param  {[object|null]} box [the column (tableLayout.js columnBox) or the card's footprint, again when it changed; null: the pile closed]
  * @param  {[boolean]} animate [false cuts there (reduce motion)]
  */
 export function framePile(box, animate) {

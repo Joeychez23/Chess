@@ -312,6 +312,36 @@ describe("Overwatch", () => {
 		assert.ok(fired(r.events, "overwatch"));
 		assert.equal(ofType(r.events, "check").length, 0);
 	});
+
+	test("the shot's capture event names the bishop's square (from) for either owner and a castle's rook; a move's own capture names none", () => {
+		const shot = (events) => ofType(events, "capture").find((e) => e.by === null);
+		const s = game(FEN);
+		place(s, "overwatch", "b");
+		assert.deepEqual([shot(rookTo(s, "a3").events)].map((e) => [e.from, e.sq]), [["b4", "a3"]]);
+		const w = game("r6k/7p/8/1B6/8/8/7P/4K3 b - - 5 1"); // WHITE'S OWNER: Bb5 WATCHES a6
+		place(w, "overwatch", "w");
+		w.players.b.moves = [mv("r", "t1")];
+		assert.deepEqual([shot(applyAction(w, "b", { type: "move", card: "t1", from: "a8", to: "a6" }).events)].map((e) => [e.from, e.sq]), [["b5", "a6"]]);
+		const c = game("4k3/7p/8/1b6/8/8/8/4K2R w K - 0 1"); // THE CASTLE'S ROOK, ON f1
+		place(c, "overwatch", "b");
+		place(c, "t-kingguard", "w");
+		assert.deepEqual([shot(applyAction(c, "w", { type: "move", card: "king", from: "e1", to: "g1" }).events)].map((e) => [e.from, e.sq]), [["b5", "f1"]]);
+		const { events } = takeD5(PAWN, null);
+		assert.ok(!("from" in ofType(events, "capture")[0]));
+	});
+
+	test("under the owner's Fog of War the opponent's events keep the hidden bishop's square for its shot, and nothing else names the bishop", () => {
+		const s = game("4k3/7p/2b5/8/8/8/7P/R5K1 w - - 5 1"), bishop = id(s, "c6");
+		place(s, "overwatch", "b");
+		s.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 2, data: {} });
+		const { state, events } = rookTo(s, "a4");
+		assert.ok(fired(events, "overwatch"));
+		const seen = playerEvents(state, events, "w");
+		assert.deepEqual(ofType(seen, "capture").map((e) => [e.from, e.sq]), [["c6", "a4"]]);
+		assert.ok(!JSON.stringify(seen).includes('"' + bishop + '"'));
+		assert.equal(ofType(seen, "status").length, 0); // ITS FROZEN: ABOUT A HIDDEN PIECE, NOT TOLD
+		assert.equal(playerView(state, "w").board.sq[sqIndex("c6")], null);
+	});
 });
 
 describe("Escape Artist", () => {

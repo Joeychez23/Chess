@@ -397,7 +397,7 @@ function promptPlays(plays, { mouse = false, picks = 0, placed = false } = {}) {
 
 /**
  * @description The keyboard's stops, in order: the hand, then the player's pieces with a move that needs no card (cardless in legal; under fog those cardlessUnderFog covers),
- * then each Board Effects pile that holds a card ("mine" first), then each active spot that holds one ("mineSpot", "hisSpot"). While a card duel is on: only the duel cards legal lets the player pick
+ * then each Board Effects pile that holds a card ("mine" first), then each active spot that holds one ("mineSpot", "hisSpot"), then the discard list once it holds one ("discard"). While a card duel is on: only the duel cards legal lets the player pick
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} view [cards.view]
  * @param  {[boolean]} hidden [cards.hidden]
@@ -410,7 +410,7 @@ function focusList(legal, view, hidden) {
 		: [...new Set(legal.filter((a) => a.type === "move" && a.card === null).map((a) => a.from))];
 	const piles = [["mine", me], ["his", opp]].filter(([, owner]) => (view.effects || []).some((e) => e && e.owner === owner && e.card)).map(([pile]) => pile);
 	const spots = [["mineSpot", me], ["hisSpot", opp]].filter(([, owner]) => ((view.players[owner] || {}).spot || []).length).map(([pile]) => pile); // THE ACTIVE SPOTS OPEN AS THE PILES DO (TASK 20e)
-	piles.push(...spots);
+	piles.push(...spots, ...((view.piled || []).length ? ["discard"] : [])); // THE DISCARD LIST, OPENED FROM EITHER DISCARD PILE (TASK 21a)
 	return [...handCards(view).map((c) => ({ kind: "hand", id: c.id })), ...squares.sort().map((square) => ({ kind: "square", square })), ...piles.map((pile) => ({ kind: "pile", pile }))];
 }
 
@@ -498,7 +498,7 @@ function label(action, view, catalog, taken = null) {
 			if (t.piece) { return pieceAt(t.piece) || "That piece"; }
 			return "Play it";
 		}
-		case "duel": return action.stop === undefined ? `Card ${action.pick + 1}` : action.stop ? "Stop" : "Continue";
+		case "duel": return action.stop ? "Stop" : "Continue"; // A PICK IS NEVER A BUTTON: ITS CARD IS CLICKED ON THE TABLE
 		default: return capital(action.type);
 	}
 }
@@ -523,12 +523,12 @@ function stepFocus(n, index, key) {
  * arrows still step the hand's focus & Enter does nothing. A focused button keeps Enter (Tab put it there: the menu stays reachable), an arrow takes the focus off it first, as
  * handleCardKey does. While the promotion cards are out only Escape is the hand's. A held key (repeat) does nothing more
  * @param  {[object]} k [{ key: a KeyboardEvent.key, repeat, on: a game loaded & not over, yours: the player may pick (flow.js yourMove), button: a button or link has the focus,
- * promoting: the promotion cards are out, picked: a pick the player can put down, pile: a pile is opened (Escape closes it, on the turn or off it, once any pick is down) }]
+ * promoting: the promotion cards are out, picked: a pick the player can put down, pile: a pile is opened (Escape closes it, on the turn or off it, once any pick is down), zoomed: the camera is zoomed in on a hand card (Escape ends it as it closes a pile: review M4, Task 21a) }]
  * @return {[string]} plan ["page": the page has it (its nav, the focused button, handleCardKey), "stop": nobody, "hand": the hand uses it, "blur": the focus leaves the button, then "hand"]
  */
-function keyPlan({ key, repeat = false, on, yours, button = false, promoting = false, picked = false, pile = false }) {
+function keyPlan({ key, repeat = false, on, yours, button = false, promoting = false, picked = false, pile = false, zoomed = false }) {
 	if (!on) { return "page"; }
-	if (key === "Escape") { return (yours && picked) || pile ? "hand" : "page"; } // NOTHING TO PUT DOWN & NO PILE TO CLOSE: THE MENU'S ESCAPE
+	if (key === "Escape") { return (yours && picked) || pile || zoomed ? "hand" : "page"; } // NOTHING TO PUT DOWN, NO PILE TO CLOSE & NO ZOOM TO END: THE MENU'S ESCAPE
 	if (repeat) { return "stop"; }
 	if (key === "Enter" && button) { return "page"; }
 	if (promoting) { return "page"; } // handleCardKey HAS THE ARROWS & ENTER
@@ -566,4 +566,36 @@ function askedBy(view) {
 	return (d && (!p || p.card === "all-or-nothing") ? d.card : p && p.card) || null;
 }
 
-module.exports = { asking, askedBy, movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, dropPlay, pileDrops, promptPlays, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES, VALUE, CARD_MOVES };
+/**
+ * @description Whether a click on a hand card zooms in on it to be read (an ability card: an active, the passive, a curse) rather than lifting it to be played (a move card, the King card). User ruling, Task 21a
+ * @param  {[string]} kind [handCards' kind]
+ * @return {[boolean]}
+ */
+function zooms(kind) {
+	return kind === "active" || kind === "passive" || kind === "curse";
+}
+
+/**
+ * @description A hand card clicked, tapped or picked with the keys (flow.js clickCard): an ability card (zooms) clicked or tapped is read, never lifted (no high lift, no readable copy: user rulings R1 R2, Task 21a),
+ * & the camera zooms in on it whoever's turn it is (R4), but not while an answer's steps play, a card duel is on or the promotion cards are out (the camera can't frame it then: review M1). The keys' pick lifts as before
+ * @param  {[object]} c [{ kind: handCards' kind, keys: the keys picked it, showing: an answer's steps play (flow.js showing), duel: a card duel is on, promoting: the promotion cards are out }]
+ * @return {[object]} { read: it isn't lifted, zoom: the camera zooms in on it (three/pointer.js pickTable) }
+ */
+function handRead({ kind, keys, showing, duel, promoting }) {
+	const read = zooms(kind) && !keys;
+	return { read, zoom: read && !showing && !duel && !promoting };
+}
+
+/**
+ * @description The hand card the table lifts (three/cardTable.js lift: the high lift & an ability card's readable copy): the card being played, unless a click or tap picked it to be read (handRead),
+ * else the card the mouse let go on one of the player's places while its targets are picked or its play is on its way (flow.js onPlace)
+ * @param  {[object|null]} sel [the play being picked]
+ * @param  {[string|null]} onPlace [flow.js onPlace]
+ * @param  {[string|null]} read [the ability card a click or tap picked last, null for none]
+ * @return {[string|null]} id
+ */
+function liftedCard(sel, onPlace, read) {
+	return sel && !(read && sel.card === read) ? sel.card : onPlace;
+}
+
+module.exports = { asking, askedBy, movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, dropPlay, pileDrops, promptPlays, focusList, label, stepFocus, keyPlan, promptFocus, zooms, handRead, liftedCard, PIECE_NAMES, VALUE, CARD_MOVES };

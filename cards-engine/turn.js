@@ -229,7 +229,7 @@ function leave(ctx, e, replaced) {
 	const s = ctx.state, p = s.players[e.owner];
 	s.effects = s.effects.filter((x) => x.id !== e.id);
 	(p.gone = p.gone || []).push(baseKey(e.card.key));
-	hand.toPile(p, e.card);
+	hand.toPile(s, e.owner, e.card);
 	ctx.emit(replaced ? { type: "card-dropped", player: e.owner, card: e.card, replaced } : { type: "card-dropped", player: e.owner, card: e.card });
 }
 
@@ -241,7 +241,7 @@ function drop(ctx, player, a) {
 	if (e) return leave(ctx, e);
 	const [card, entry] = inEffect(s, player).find((x) => x[0].id === a.card);
 	p.spot = p.spot.filter((c) => c !== card);
-	hand.toPile(p, card);
+	hand.toPile(s, player, card);
 	ctx.emit({ type: "card-dropped", player, card });
 	ctx.endEnchant(entry);
 }
@@ -255,7 +255,7 @@ function sweep(ctx) {
 		for (const [card, entry] of inEffect(ctx.state, c)) {
 			if (entry) continue;
 			p.spot = p.spot.filter((x) => x !== card);
-			hand.toPile(p, card);
+			hand.toPile(ctx.state, c, card);
 			ctx.emit({ type: "card-ended", player: c, card });
 		}
 	}
@@ -279,7 +279,7 @@ function move(ctx, player, a) {
 	const match = (m) => m.from === a.from && m.to === a.to && m.promotion === a.promotion && (a.card === "king" ? m.t === "k" : !mc || hand.fits(mc.piece, m.t));
 	const mv = a.card === "king" ? kingMoves(s, player).find(match) : legalMoves(s, player).find(match);
 	const card = a.card === "king" || a.card === null ? a.card : hand.take(p, a.card);
-	if (card && card !== "king") hand.toPile(p, card, s.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === player)); // PLAYED: TO THE DISCARD PILE, FACE DOWN UNDER THE MOVER'S FOG (view.js HIDES THE CARD OF A FOGGED MOVE)
+	if (card && card !== "king") hand.toPile(s, player, card, s.enchant.some((e) => baseKey(e.key) === "fog-of-war" && e.owner === player)); // PLAYED: TO THE DISCARD PILE, FACE DOWN UNDER THE MOVER'S FOG (view.js HIDES THE CARD OF A FOGGED MOVE)
 	const vi = mv.capture ? pieceById(s.board, mv.capture) : -1, victim = vi < 0 ? null : s.board.sq[vi], vsq = sqName(vi); // vsq: WHERE IT STOOD (EN PASSANT: THE PAWN'S SQUARE)
 	s.board = makeMove(s.board, mv);
 	const ev = { type: "move", player, card, piece: mv.piece, from: mv.from, to: mv.to };
@@ -338,14 +338,14 @@ function act(ctx, player, a) {
 		if (p.passive && id === p.passive.id) { // THE REROLL: THE HELD PASSIVE GOES, A DIFFERENT ONE COMES AT ONCE (IT ISN'T used: A LATER TURN'S DRAW CAN BRING IT BACK)
 			const card = p.passive;
 			p.passive = null;
-			hand.toPile(p, card, true);
+			hand.toPile(s, player, card, true);
 			(p.gone = p.gone || []).push(baseKey(card.key));
 			ctx.emit({ type: "discard", player, card });
 			hand.drawCard(ctx, player, "passive", card.key);
 			s.discarded = { player, kind: "passive", n: 1 };
 		} else if (hand.moveCards(p).some((c) => c.id === id)) { // A MOVE CARD: THE FIRST IS REMEMBERED (Player.kept), THE SECOND, THIS TURN OR A LATER ONE, DRAWS 1 BACK AT ONCE, AT RANDOM (THE DROPPED FLOOR: SEE hand.drawMove)
 			const pair = p.kept;
-			if (pair) { hand.toPile(p, pair, true); p.kept = null; }
+			if (pair) { hand.toPile(s, player, pair, true); p.kept = null; }
 			hand.discard(ctx, player, id, !pair);
 			if (pair) hand.drawMove(ctx, player);
 			s.discarded = { player, kind: "move", n: (d ? d.n : 0) + 1 };
@@ -494,10 +494,10 @@ function startTurn(ctx, color) {
  * @description The no-legal-action rule for color (startTurn; after a free discard or Mulligan; Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard, a drop or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock; still none, and no drop that, tried on a copy, itself leaves one (a drop that opens nothing doesn't keep the game alive and buys no further redraw) → checkmate by the cards in check, else stalemate. Returns true when the game ended.
  */
 function noAction(ctx, color) {
-	const s = ctx.state, p = s.players[color];
+	const s = ctx.state;
 	const cardActions = (st = s) => turnActions(st, color).filter((a) => a.type !== "passive" && a.type !== "discard" && a.type !== "drop");
 	if (cardActions().length) return false;
-	const { out, ms } = hand.throwMoves(p); // AN ENTERED MIRAGE GOES WITH THEM AND COMES BACK HIDDEN AMONG THE DRAWS
+	const { out, ms } = hand.throwMoves(s, color); // AN ENTERED MIRAGE GOES WITH THEM AND COMES BACK HIDDEN AMONG THE DRAWS
 	ctx.emit({ type: "redraw", player: color });
 	hand.drawMoves(ctx, color, Math.max(out.length, hand.MOVES + hand.big(s, color)), ms); // UNDERDOG BEHIND: 7
 	if (cardActions().length) return false;

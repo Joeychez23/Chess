@@ -232,7 +232,7 @@ test("the opening deal, the refill and a Mulligan's draws are pinned (seed 1): a
 	assert.equal(s.players.b.moves.map((c) => c.piece).join(""), "rpmqq");
 	const after = applyAction(s, "w", legalActions(s, "w").find((a) => a.type === "move")).state;
 	assert.equal(after.players.w.moves.map((c) => c.piece).join(""), "rmrqq"); // THE END-OF-TURN REFILL
-	const ctx = makeCtx(fresh()), { out, ms } = hand.throwMoves(ctx.state.players.w); // AS MULLIGAN DRAWS (cards/active/mulligan.js)
+	const ctx = makeCtx(fresh()), { out, ms } = hand.throwMoves(ctx.state, "w"); // AS MULLIGAN DRAWS (cards/active/mulligan.js)
 	hand.drawMoves(ctx, "w", out.length, ms);
 	assert.equal(ctx.state.players.w.moves.map((c) => c.piece).join(""), "qmmmp");
 });

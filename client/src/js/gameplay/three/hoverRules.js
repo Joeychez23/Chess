@@ -48,6 +48,16 @@ export function hoverOn({ pointer, gesture, covered }) {
 }
 
 /**
+ * @description Whether a press may move the camera (pointer.js onPointerDown): never at the monitor; a left mouse press on a piece is piece input, one on any card (the Chess Cards table's, both decks,
+ * the promotion cards: user rulings, Task 21a) the card's. A right press, scroll & a finger still move it over them
+ * @param  {[object]} press { idle: the monitor is on the desk, left: a left mouse press, piece: one of the board's pieces is on the pressed square, card: a card is under it }
+ * @return {[boolean]}
+ */
+export function cameraFree({ idle, left, piece, card }) {
+	return Boolean(idle) && !(left && (piece || card));
+}
+
+/**
  * @description The pieces that turn see-through: those whose body covers the pointer, once it has rested on a tile the player can act on
  * @param  {[object]} hover { tile: the hovered tile or null, rested, actionable, bodies: the squares of the pieces under the pointer, held: the square of the piece in hand or null }
  * @return {[string[]]} [their squares]

@@ -175,6 +175,7 @@ const pieceMaterials = (type, color) => (models[type] ? [atlasMaterials[color]] 
 const SHADOW_Y = 0.015; // WORLD UNITS ABOVE THE BOARD: OVER THE GRID LINES (0.01), UNDER THE HIGHLIGHTS (0.02+)
 const SHADOW_OPACITY = 0.85;
 const SHADOW_FADE = 1.5; // PIECE UNITS OF LIFT AT WHICH THE SHADOW IS GONE
+const SHADOW_TIP = Math.PI / 8; // A TOPPLING PIECE'S TILT (rotation.z, three/motion.js) AT WHICH ITS SHADOW IS GONE: THE DISC TURNS WITH IT, IT WOULD STAND UP OFF THE BOARD
 const shadowGeometry = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 
 /**
@@ -212,7 +213,7 @@ export function updateShadow(mesh) {
 	const shadow = mesh.getObjectByName("shadow");
 	const lift = mesh.position.y / mesh.scale.y; // IN PIECE UNITS
 	shadow.position.y = SHADOW_Y / mesh.scale.y - lift;
-	shadow.material.opacity = SHADOW_OPACITY * MathUtils.clamp(1 - Math.max(lift, 0) / SHADOW_FADE, 0, 1) * (mesh.userData.opacity ?? 1);
+	shadow.material.opacity = SHADOW_OPACITY * MathUtils.clamp(1 - Math.max(lift, 0) / SHADOW_FADE, 0, 1) * MathUtils.clamp(1 - Math.abs(mesh.rotation.z) / SHADOW_TIP, 0, 1) * (mesh.userData.opacity ?? 1);
 }
 
 // SEE-THROUGH COPIES OF A PIECE'S MATERIALS (THEIR SHADER PATCH & UNIFORMS COME ALONG), SO IT FADES ON ITS OWN

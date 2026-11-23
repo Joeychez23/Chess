@@ -40,6 +40,7 @@ export { isCameraGesture, setSide, resetCamera } from "./camera.js";
 export { setMonitor, enterMonitor, leaveMonitor, monitorState, focusMonitor } from "./pointer.js";
 export { setPickable } from "./tileHover.js";
 export { setHeld, dropHeld, animateMove, animateUndo, glideHome } from "./motion.js";
+export { playBoardStep } from "./motion.js"; // A CHESS CARDS ANSWER'S BOARD STEPS (renderer/ boardStep3D)
 import { BOARD_SIZE, CELL_SIZE, PIECE_SIZE, FILES, DESK_Y, ROOM_BACKGROUND, BOARD_IMAGE, HIGHLIGHTS, FOCUS_RING, NEAR, REDUCE, NO_MONITOR, LABEL, FOV } from "./constants.js";
 
 export let view = null; // EVERYTHING ONE mount() MADE, null WHEN UNMOUNTED
@@ -621,7 +622,7 @@ export function setCardTable(state, legal, opts = {}) {
 	view.tableArgs = [state, legal, opts];
 	const made = !view.table && Boolean(view.cardTemplate);
 	if (made) {
-		view.table = createCardTable({ template: view.cardTemplate, room: view.room, tweens: view.tweens, requestRender, still: () => REDUCE.matches, frame: (box) => framePile(box, !REDUCE.matches) });
+		view.table = createCardTable({ template: view.cardTemplate, room: view.room, tweens: view.tweens, requestRender, still: () => REDUCE.matches, frame: (box, zoom = null) => { framePile(box, !REDUCE.matches); view.cardOptions.onTable({ kind: "zoom", id: zoom }); } }); // zoom: flow.js HEARS WHAT IS ZOOMED IN ON (ESCAPE & A PLAY END IT)
 		if (view.table) { view.table.lift(view.tableLifted); }
 	}
 	if (view.table) { view.table.set(state, opts); }
@@ -640,6 +641,10 @@ export function dealDuel(duel) {
 
 /**
  * @description Turns a duel card face up, framed in gold when won (cardTable.js flipDuel)
+ * @param  {[string]} player ["w" | "b", the duel-flip event's player]
+ * @param  {[number|null]} index [0..2 in the view's duel hands, null: a pick the view no longer shows]
+ * @param  {[object]} card [{ r, s }, the duel-flip event's card]
+ * @param  {[boolean]} won [true: its gold outline]
  */
 export function flipDuel(player, index, card, won = false) {
 	if (view && view.table) { view.table.flipDuel(player, index, card, won); }
