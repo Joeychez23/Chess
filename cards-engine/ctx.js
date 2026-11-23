@@ -22,12 +22,12 @@ function canCurse(state, to, by, opts = {}) {
 }
 
 /**
- * @description A captured piece (already off the board): a capture event { player, piece, t, c: the victim's colour, by: the capturing piece's id, null for a card effect, sq: the square it stood on (en passant: the pawn's square), passed in since the piece is gone }, its statuses cleared, its type added to its owner's captured list, ctx.resetHalf set (for a capture made outside a chess move); a Marked piece makes the capturer draw a move card and its owner discard 2 random cards.
+ * @description A captured piece (already off the board): a capture event { player, piece, t, c: the victim's colour, by: the capturing piece's id, null for a card effect, sq: the square it stood on (en passant: the pawn's square), passed in since the piece is gone, from: only for a card's ranged shot, the shooting piece's square (Overwatch's bishop: the client plays the shot; view.js keeps it under fog, SQUARE_KEYS) }, its statuses cleared, its type added to its owner's captured list, ctx.resetHalf set (for a capture made outside a chess move); a Marked piece makes the capturer draw a move card and its owner discard 2 random cards.
  */
-function capture(ctx, player, victim, by = null, sq) {
+function capture(ctx, player, victim, by = null, sq, from) {
 	const s = ctx.state, marked = statuses.has(s, victim.id, "marked");
 	ctx.resetHalf = true;
-	ctx.emit({ type: "capture", player, piece: victim.id, t: victim.t, c: victim.c, by, sq });
+	ctx.emit({ type: "capture", player, piece: victim.id, t: victim.t, c: victim.c, by, sq, ...(from ? { from } : {}) });
 	for (const e of s.statuses[victim.id] || []) statuses.clear(ctx, victim.id, e.s);
 	s.players[victim.c].captured.push(victim.t);
 	if (marked) { ctx.draw(player, 1); ctx.discardRandom(victim.c, 2); }
@@ -70,16 +70,16 @@ function makeCtx(state) {
 		discardRandom: (color, n) => hand.discardRandom(ctx, color, n),
 		giveStatus: (pieceId, s, turns, by) => statuses.give(ctx, pieceId, s, turns, by),
 		/**
-		 * @description A card takes the piece with this id outside a chess move: it leaves the board (a rook on its home square takes that castling right with it), then the shared capture handling, and returns true. A king is never taken by a card: returns false and changes nothing (a handler that takes "whatever stands on a square" can meet a king there). Throws for a piece not on the board.
+		 * @description A card takes the piece with this id outside a chess move: it leaves the board (a rook on its home square takes that castling right with it), then the shared capture handling (from: the shooting piece's square of a ranged shot, on the capture event), and returns true. A king is never taken by a card: returns false and changes nothing (a handler that takes "whatever stands on a square" can meet a king there). Throws for a piece not on the board.
 		 */
-		capture(player, pieceId) {
+		capture(player, pieceId, from) {
 			const b = state.board, i = pieceById(b, pieceId), victim = b.sq[i];
 			if (!victim) throw new Error("A card can't capture a piece not on the board");
 			if (victim.t === "k") return false; // A CARD EFFECT NEVER TAKES A KING
 			b.sq[i] = null;
 			for (const ch of LOSES[i] || "") b.castling = b.castling.replace(ch, "");
 			b.castling = b.castling || "-";
-			capture(ctx, player, victim, null, sqName(i));
+			capture(ctx, player, victim, null, sqName(i), from);
 			return true;
 		},
 		/**
@@ -162,7 +162,7 @@ function makeCtx(state) {
 			if (!state.effects.some((x) => x.id === e.id)) return; // ALREADY FIRED: ONCE
 			state.effects = state.effects.filter((x) => x.id !== e.id);
 			if (CARDS[e.card.key] && CARDS[e.card.key].oncePerGame) state.players[e.owner].used.push(e.card.key);
-			hand.toPile(state.players[e.owner], e.card);
+			hand.toPile(state, e.owner, e.card);
 			ctx.emit({ type: "passive-fired", player: e.owner, card: e.card });
 		},
 	};

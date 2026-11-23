@@ -3,8 +3,8 @@ import { view, setLabels, requestRender, squareUnder, pointer, raycaster, forwar
 import { setRoomSide, zoomTo, setCameraAt, zoomSpot, landHome, landTurn, landDealEase } from "./camera.js";
 import { liftHeld } from "./motion.js";
 import { hoverTile } from "./tileHover.js";
-import { hoverOn } from "./hoverRules.js";
-import { MIN_DISTANCE, MAX_DISTANCE, MAX_TILT, BOARD_SIZE, DRAG_PX, TOUCH_DRAG_PX, DRAG_HOLD_MS } from "./constants.js";
+import { hoverOn, cameraFree } from "./hoverRules.js";
+import { MIN_DISTANCE, MAX_DISTANCE, MAX_TILT, BOARD_SIZE, DRAG_PX, isDrag } from "./constants.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { MOUSE, TOUCH } from "three";
 import { dismissHint } from "./hint.js";
@@ -19,7 +19,7 @@ let cardHeld = false; // THE MOUSE IS DOWN ON A CHESS CARDS GAME'S CARD THAT CAN
 // Camera Controls
 /* ---------------------------------------------------------------- */
 
-// MOUSE: LEFT-DRAG PANS (ON A PIECE IT'S PIECE INPUT INSTEAD), RIGHT-DRAG ROTATES, SCROLL ZOOMS. TOUCH: ONE FINGER IS PIECE INPUT,
+// MOUSE: LEFT-DRAG PANS (ON A PIECE IT'S PIECE INPUT INSTEAD, ON A CHESS CARDS TABLE CARD NOTHING OR THE CARD'S DRAG), RIGHT-DRAG ROTATES, SCROLL ZOOMS. TOUCH: ONE FINGER IS PIECE INPUT,
 // TWO ROTATE & PINCH ZOOM. A PRESS THAT MOVES THE CAMERA PAST DRAG_PX (OR ANY TWO FINGER TOUCH) SETS cameraGesture, SO gameplay/input IGNORES IT
 export function createControls(camera, canvas) {
 	const controls = new OrbitControls(camera, canvas);
@@ -57,7 +57,7 @@ function startGesture() {
 	dismissHint();
 }
 
-// CAPTURE PHASE, BEFORE THE CONTROLS SEE IT: A LEFT MOUSE PRESS ON A PIECE IS PIECE INPUT, THE CAMERA SITS IT OUT UNTIL THE RELEASE
+// CAPTURE PHASE, BEFORE THE CONTROLS SEE IT: A LEFT MOUSE PRESS ON A PIECE IS PIECE INPUT, ONE ON A TABLE CARD THE CARD'S: THE CAMERA SITS IT OUT UNTIL THE RELEASE
 export function onPointerDown(e) {
 	if (!view.controlsActive) {
 		view.cameraGesture = false;
@@ -69,15 +69,14 @@ export function onPointerDown(e) {
 		view.touches.add(e.pointerId);
 		if (view.touches.size > 1) { view.multiTouch = true; }
 	}
-	const square = e.pointerType === "mouse" && e.button === 0 && squareUnder(e); // THE SAME SQUARE gameplay/input PICKS A PIECE UP FROM, NOT ONLY A HIT ON THE MESH: A PRESS BESIDE A PIECE ON ITS SQUARE PICKS IT UP TOO
-	view.controls.enabled = monitorIdle() && !(square && view.pieces.has(square)); // ZOOMED ON THE MONITOR THE CAMERA STAYS PUT
+	const left = e.pointerType === "mouse" && e.button === 0, square = left && squareUnder(e); // THE SAME SQUARE gameplay/input PICKS A PIECE UP FROM, NOT ONLY A HIT ON THE MESH: A PRESS BESIDE A PIECE ON ITS SQUARE PICKS IT UP TOO
+	view.controls.enabled = cameraFree({ idle: monitorIdle(), left, piece: Boolean(square && view.pieces.has(square)), card: left && (tableCovers(e) || cardAt(e) !== null) }); // ZOOMED ON THE MONITOR THE CAMERA STAYS PUT. A LEFT PRESS ON ANY CARD (THE TABLE'S, BOTH DECKS, A PROMOTION CARD) NEVER PANS (USER RULINGS, TASK 21a): RIGHT-DRAG & SCROLL STILL WORK OVER THEM
 	if (cardHeld) { releaseCard(null); } // A CARD STILL HELD: ITS RELEASE NEVER CAME, IT GOES BACK FIRST
 	tableDrag = false;
 	if (view.table && view.held) { view.cardOptions.onTable({ kind: "release", square: null, dragged: view.held.following }); } // A PIECE STILL HELD: ITS RELEASE NEVER CAME (LET GO OUTSIDE THE WINDOW), IT GOES BACK FIRST. dragged: AS releaseTable, A DRAG GIVES THE PICK UP
-	if (square && view.table && !view.table.open() && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && !tableAt(e) && cardAt(e) === null) { view.cardOptions.onTable({ kind: "press", square }); } // A CHESS CARDS GAME: flow.js DECIDES WHETHER THE PIECE IS HELD (setHeld). WHERE A TAP WOULD GO TO A SQUARE (pickTable)
+	if (square && view.table && !view.table.open() && !view.table.zoomed() && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && !tableAt(e) && cardAt(e) === null) { view.cardOptions.onTable({ kind: "press", square }); } // A CHESS CARDS GAME: flow.js DECIDES WHETHER THE PIECE IS HELD (setHeld). WHERE A TAP WOULD GO TO A SQUARE (pickTable)
 	const at = e.pointerType === "mouse" && e.button === 0 && view.table && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && cardAt(e) === null ? tableAt(e) : null;
-	cardHeld = Boolean(at && at.id && view.table.grab(at, view.cardOptions.onTable({ kind: "grab", from: at.kind, id: at.id }))); // A CARD: flow.js SAYS WHERE IT CAN BE LET GO (null: NOT HELD), THE TABLE WHETHER IT'S ONE OF THE PLAYER'S TO DRAG
-	if (cardHeld) { view.controls.enabled = false; } // THE DRAG IS THE CARD'S, NOT THE CAMERA'S
+	cardHeld = Boolean(at && at.id && view.table.grab(at, view.cardOptions.onTable({ kind: "grab", from: at.kind, id: at.id }))); // A CARD: flow.js SAYS WHERE IT CAN BE LET GO (null: NOT HELD), THE TABLE WHETHER IT'S ONE OF THE PLAYER'S TO DRAG. THE CAMERA IS OFF ALREADY (tableCovers)
 }
 
 // A HELD PIECE PAST THE DRAG THRESHOLD FOLLOWS THE POINTER (dragHeld). BEFORE gameplay/input'S mousemove / touchmove, SO ITS SQUARE LOOKUP SKIPS THE PIECE TOO
@@ -85,7 +84,7 @@ export function onPointerMove(e) {
 	view.pointerAt = { x: e.clientX, y: e.clientY };
 	if (e.pointerType === "mouse" && !cardHeld && !(view.held && view.held.dragging) && !view.controlsActive) { hoverGlass(e); hoverCards(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S. A PICKED PIECE THAT ONLY FLOATS (NO PRESS DOWN) LEAVES THE MOUSE ITS HOVER
 	if (e.pointerType === "mouse") { view.pointerOver = true; hoverBoard(e); } // ALSO WHILE A PIECE IS DRAGGED: THE BOX LEADS, THE HELD PIECE FLOATS OVER ITS TILE (liftHeld)
-	if (cardHeld && view.table && e.pointerType === "mouse" && (cardHeld === "moving" || Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > DRAG_PX)) { // PAST THE DRAG THRESHOLD THE CARD FOLLOWS THE POINTER (A SHAKY CLICK STILL LIFTS IT)
+	if (cardHeld && view.table && e.pointerType === "mouse" && (cardHeld === "moving" || isDrag(Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y), performance.now() - view.press.time, false))) { // HELD & MOVED AS A PIECE IS (isDrag) THE CARD FOLLOWS THE POINTER: A QUICK OR SHAKY CLICK STAYS A CLICK
 		cardHeld = "moving";
 		const rect = view.renderer.domElement.getBoundingClientRect();
 		pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
@@ -94,9 +93,7 @@ export function onPointerMove(e) {
 	}
 	const held = view.held;
 	if (!held || !held.dragging || view.cameraGesture) { return; }
-	const touch = e.pointerType === "touch";
-	const moved = Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > (touch ? TOUCH_DRAG_PX : DRAG_PX);
-	if (!held.following && moved && (touch || performance.now() - view.press.time > DRAG_HOLD_MS)) { held.following = true; } // A MOUSE WAITS DRAG_HOLD_MS LIKE 2D, TOUCH ONLY GOES BY DISTANCE (gameplay/input)
+	if (!held.following && isDrag(Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y), performance.now() - view.press.time, e.pointerType === "touch")) { held.following = true; } // A MOUSE WAITS DRAG_HOLD_MS LIKE 2D, TOUCH ONLY GOES BY DISTANCE (gameplay/input)
 	if (held.following) { liftHeld(); }
 }
 
@@ -244,7 +241,7 @@ function cardAt(e) {
 	return view.cards.hit(raycaster);
 }
 
-// THE CHESS CARDS TABLE UNDER A POINTER EVENT: ONE OF THE PLAYER'S HAND CARDS, A BOARD EFFECTS PILE (NOT WHILE A CARD DUEL IS ON: THE PILES DON'T OPEN) OR A DUEL CARD (cardTable.js hit), null FOR NONE, WHILE THE MONITOR IS ON THE DESK
+// THE CHESS CARDS TABLE UNDER A POINTER EVENT: ONE OF THE PLAYER'S HAND CARDS, A BOARD EFFECTS PILE OR AN ACTIVE SPOT OR A DISCARD PILE ("discard": THE DISCARD LIST) (NOT WHILE A CARD DUEL IS ON: THE PILES DON'T OPEN) OR A DUEL CARD (cardTable.js hit), null FOR NONE, WHILE THE MONITOR IS ON THE DESK
 function tableAt(e) {
 	if (!view.table || !monitorIdle()) { return null; }
 	const rect = view.renderer.domElement.getBoundingClientRect();
@@ -252,6 +249,15 @@ function tableAt(e) {
 	raycaster.setFromCamera(pointer, view.camera);
 	const hit = view.table.hit(raycaster);
 	return hit && hit.kind === "pile" && view.tableArgs && view.tableArgs[0].duel ? null : hit;
+}
+
+// ANY CARD OF THE CHESS CARDS TABLE UNDER A POINTER EVENT (cardTable.js covers): ALSO THE ONES tableAt LEAVES OUT (CARD GUY'S HAND, THE PILES & HANDS DURING A DUEL, HIS DUEL CARDS), BOTH DECKS, & WHILE THE MENU IS OPEN (tableOn)
+function tableCovers(e) {
+	if (!view.table) { return false; }
+	const rect = view.renderer.domElement.getBoundingClientRect();
+	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+	raycaster.setFromCamera(pointer, view.camera);
+	return view.table.covers(raycaster);
 }
 
 // A MOUSE OVER A CARD LIFTS IT & SHOWS THE HAND CURSOR. AFTER hoverGlass(), WHICH SETS THE CURSOR FOR THE GLASS
@@ -289,12 +295,17 @@ function pickTable(e, stop) {
 		togglePile(null);
 		return true;
 	}
+	if (view.table.zoomed()) { // ZOOMED IN ON A HAND CARD: A TAP ANYWHERE, ON THE CARD TOO, ENDS IT (THE CAMERA GOES BACK) & DOES NOTHING MORE, AS AN OPENED PILE
+		if (stop) { e.stopPropagation(); }
+		view.table.zoom(null);
+		return true;
+	}
 	if (!hit) { return false; }
 	if (stop) { e.stopPropagation(); }
 	if (hit.kind === "pile") { // A FINGER'S TAP ON A CARD OF THE OPENED PILE: flow.js OFFERS ITS DROP BUTTON WHEN THE GAME LISTS ONE (true), ELSE THE PILE CLOSES AS FOR THE MOUSE, WHICH DRAGS THE CARD
 		if (!(view.pointerType !== "mouse" && hit.id && hit.pile === view.table.open() && view.cardOptions.onTable({ kind: "pile", pile: hit.pile, id: hit.id }))) { togglePile(hit.pile); }
 	}
-	else { view.cardOptions.onTable({ ...hit, touch: view.pointerType !== "mouse" }); } // touch: A TAP KEEPS ITS BUTTONS, THE MOUSE PLAYS BY DRAGGING (flow.js)
+	else if (view.cardOptions.onTable({ ...hit, touch: view.pointerType !== "mouse" }) && hit.kind === "hand") { view.table.zoom(hit.id); } // touch: A TAP KEEPS ITS BUTTONS, THE MOUSE PLAYS BY DRAGGING (flow.js). true: AN ABILITY CARD, THE CAMERA ZOOMS IN ON IT
 	return true;
 }
 

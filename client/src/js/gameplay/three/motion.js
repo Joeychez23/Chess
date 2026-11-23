@@ -77,8 +77,12 @@ function dragPoint() {
 // Animation
 /* ---------------------------------------------------------------- */
 
+const TOPPLE_MS = 600; // HOW LONG A TOPPLING PIECE TAKES TO FALL ONTO ITS SIDE (playBoardStep)...
+const TOPPLE_REST_MS = 300; // ...& LIES THERE BEFORE IT FADES OUT
+
 // PUTS A MOVING PIECE WHERE THE TIME SAYS (now = Infinity FINISHES IT), ENDING IT AT progress 1. THE CLOCK STARTS ON ITS FIRST FRAME
-// PLUS ITS delay (A KNIGHT'S STOP), ease IS THE RESTART SLIDE'S SLOW START & LANDING, fade 1 FADES IN & -1 FADES OUT & DROPS
+// PLUS ITS delay (A KNIGHT'S STOP), ease IS THE RESTART SLIDE'S SLOW START & LANDING, fade 1 FADES IN & -1 FADES OUT & DROPS,
+// tip -1 OR 1 TOPPLES IT TOWARD THE a- OR h-FILE (ITS ROTATION ORDER "ZYX", playBoardStep), SLOWLY AT FIRST AS IN A FAINT, A QUARTER TURN AT THE END
 export function stepAnim(anim, now) {
 	if (anim.start === null) { anim.start = now + anim.delay; }
 	const t = now === Infinity || !anim.duration ? 1 : MathUtils.clamp((now - anim.start) / anim.duration, 0, 1);
@@ -87,6 +91,12 @@ export function stepAnim(anim, now) {
 	let y = y0 + (y1 - y0) * along + (anim.hop ? hopArc(t) * HOP_HEIGHT : 0) + anim.arc * hopArc(t);
 	if (anim.fade < 0) { y -= t * SINK_DEPTH; }
 	mesh.position.set(x0 + (x1 - x0) * along, y, z0 + (z1 - z0) * along);
+	if (anim.tip) { // IT TURNS ABOUT THE EDGE OF ITS FOOT ON THE BOARD: r, ITS WIDEST REACH FROM ITS AXIS, SO NO PART OF IT GOES THROUGH THE BOARD
+		const a = (Math.PI / 2) * t * t, { min, max } = mesh.geometry.boundingBox, r = mesh.scale.y * Math.max(-min.x, max.x, -min.z, max.z);
+		mesh.rotation.z = -anim.tip * a;
+		mesh.position.x += anim.tip * r * (1 - Math.cos(a));
+		mesh.position.y += r * Math.sin(a);
+	}
 	if (anim.fade) { setOpacity(mesh, anim.fade > 0 ? t : 1 - t); } // ALSO PUTS THE SHADOW UNDER IT
 	else { updateShadow(mesh); }
 	if (y0 !== 0 || y1 !== 0) { // TO OR FROM A PILE: THE SHADOW FOLLOWS THE SURFACE THE PIECE IS GOING TO OR LEAVING
@@ -100,16 +110,16 @@ export function stepAnim(anim, now) {
 }
 
 export function finishAnims() {
-	for (const anim of [...view.anims]) { stepAnim(anim, Infinity); }
+	while (view.anims.size) { for (const anim of [...view.anims]) { stepAnim(anim, Infinity); } } // ONE AN ENDING ONE STARTS (THE TOPPLE'S FADE) ENDS TOO: NONE IS LEFT FOR A BOARD THAT CAN'T DRAW
 }
 
 // STARTS AN ANIMATION OF mesh FROM WHERE IT'S DRAWN NOW TO (x1, z1) AT HEIGHT y1 (THE BOARD'S, 0, IF NOT GIVEN), RESOLVES WHEN IT ENDS.
 // arc IS HOW MUCH HIGHER IT IS HALFWAY THERE, A PILE'S FLIGHT
-export function animate(mesh, x1, z1, { hop = false, ease = false, fade = 0, delay = 0, duration, onEnd, y1 = 0, arc = 0 }) {
+export function animate(mesh, x1, z1, { hop = false, ease = false, fade = 0, delay = 0, duration, onEnd, y1 = 0, arc = 0, tip = 0 }) {
 	const x0 = mesh.position.x, y0 = mesh.position.y, z0 = mesh.position.z;
 	if (fade > 0) { setOpacity(mesh, 0); } // UNSEEN UNTIL ITS FIRST FRAME
 	return new Promise(function (done) {
-		view.anims.add({ mesh, x0, y0, z0, x1, y1, z1, hop, arc, ease, fade, delay, duration, onEnd, start: null, done });
+		view.anims.add({ mesh, x0, y0, z0, x1, y1, z1, hop, arc, ease, fade, delay, duration, onEnd, tip, start: null, done });
 		requestRender();
 	});
 }
@@ -132,16 +142,18 @@ function slide(mesh, square, options) {
  * @param  {[string]} from ["e2"]
  * @param  {[string]} to ["e4"]
  * @param  {[string]} promotion ["q", "r", "b" or "n" when a pawn promotes, the pawn turns into it on arrival]
+ * @param  {[string|null]} taken [a Chess Cards board step's: the square of the piece the move takes as the engine told it, null for none, so nothing is guessed (a fog-hidden piece taken
+ * isn't on the board); not given: from the pieces on the board, en passant the pawn beside it]
  * @return {[Promise<void>]} [resolves when every piece has stopped]
  */
-export function animateMove(from, to, promotion) {
+export function animateMove(from, to, promotion, taken) {
 	if (!view || !view.pieces.has(from)) { return Promise.resolve(); }
 	finishAnims();
 	const mesh = view.pieces.get(from);
 	const { type, color } = mesh.userData;
 	const fileStep = fileOf(to) - fileOf(from);
-	let captured = view.pieces.get(to);
-	if (type === "p" && fileStep !== 0 && !captured) { captured = view.pieces.get(to[0] + from[1]); } // EN PASSANT: THE PAWN BESIDE IT
+	let captured = view.pieces.get(taken === undefined ? to : taken);
+	if (taken === undefined && type === "p" && fileStep !== 0 && !captured) { captured = view.pieces.get(to[0] + from[1]); } // EN PASSANT: THE PAWN BESIDE IT
 	const knight = type === "n";
 	const landed = mesh.position.y === 0 && mesh.position.x === center(fileOf(to)) && mesh.position.z === center(rowOf(to)); // A CHESS CARDS DROP ALREADY STANDS ON to (dropHeld): NO HOP IN PLACE, NO WAIT FOR ONE
 	faceTravel(mesh, from, to); // TURNS AS IT STARTS SLIDING, LIKE 2D
@@ -162,6 +174,41 @@ export function animateMove(from, to, promotion) {
 		if (rook) { moves.push(slide(rook, (fileStep > 0 ? "f" : "d") + from[1], {})); }
 	}
 	return Promise.all(moves).then(() => {});
+}
+
+/**
+ * @description One of a Chess Cards answer's board steps (gameplay/cards/boardShow.js boardSteps), resolving when it has ended: a move slides or hops as a drawn one does (animateMove: its own
+ * capture, the one taken named, castling's rook, a promotion), a swap slides the pieces on a & b to each other's square together without turning (Swap: neither is taken), a take sinks the
+ * piece on its square as it fades out (as a piece with no square leaves on a restart, glideHome), out slides the piece on from to to without turning (piece: a hidden one is put on from first)
+ * & back slides it home again (piece: then it's removed), a topple tips the piece on its square over onto its side toward its nearer side of the board (Hunger's pawn, a forfeit), it lies there
+ * a moment, then leaves as a take does, a handover slides the piece on from to to without turning & it turns to its new colour c as it lands (Opposing Finality; one already c's is another piece
+ * than the one handed over: it stays). Nothing there, or a board that can't draw: at once. A new kind of step is one more case here
+ * @param  {[object]} step [{ op: "move", from, to, taken, promotion } | { op: "swap", a, b } | { op: "take" | "topple", square } | { op: "out" | "back", from, to, piece } | { op: "handover", from, to, c }]
+ * @return {[Promise<void>]} [resolves when it has ended]
+ */
+export function playBoardStep(step) {
+	if (!view || view.lost) { return Promise.resolve(); } // A LOST CONTEXT DRAWS NO FRAME: AN ANIMATION STARTED NOW WOULD NEVER END
+	if (step.op === "move") { return animateMove(step.from, step.to, step.promotion, step.taken || null); } // NO taken: THE ENGINE TOLD NO CAPTURE, NONE IS GUESSED
+	if (step.op === "swap") { // slide MOVES EACH IN view.pieces: THE FIRST OVERWRITES THE SECOND'S SQUARE, THE SECOND THEN TAKES THE FIRST'S
+		const a = view.pieces.get(step.a), b = view.pieces.get(step.b);
+		return Promise.all([a && slide(a, step.b, {}), b && slide(b, step.a, {})]).then(() => {});
+	}
+	if (step.op === "out" && step.piece && !view.pieces.has(step.from)) { place(addPiece(step.piece.t, step.piece.c), step.from); } // THE FOG'S HIDDEN BISHOP SHOWS FOR ITS SHOT (USER RULING 2026-11-23)
+	const mesh = view.pieces.get(step.square || step.from);
+	if (!mesh) { return Promise.resolve(); }
+	const leave = (delay) => animate(mesh, mesh.position.x, mesh.position.z, { fade: -1, delay, duration: RESTART_SLIDE_MS, y1: mesh.position.y, onEnd: () => removePiece(mesh) }); // y1: A TOPPLED PIECE LIES ABOVE THE BOARD, IT SINKS FROM THERE AS FAR AS A TAKE DOES
+	if (step.op === "take" || step.op === "topple") { view.pieces.delete(step.square); }
+	if (step.op === "take") { return leave(0); }
+	if (step.op === "topple") {
+		mesh.rotation.order = "ZYX"; // THE TIP TURNS IT ABOUT THE BOARD'S AXIS AFTER ITS YAW (setYaw), WHICH STAYS AS IT WAS
+		return new Promise((done) => animate(mesh, mesh.position.x, mesh.position.z, { tip: fileOf(step.square) < 4 ? -1 : 1, duration: TOPPLE_MS, onEnd: () => leave(TOPPLE_REST_MS).then(done) })); // onEnd, NOT .then(): finishAnims ENDS THE FADE TOO
+	}
+	if (step.op === "handover") {
+		if (mesh.userData.color === step.c) { return Promise.resolve(); }
+		return slide(mesh, step.to, { onEnd: function () { removePiece(mesh); place(addPiece(mesh.userData.type, step.c), step.to); } }); // AS A PROMOTION TURNS ITS PAWN ON ARRIVAL
+	}
+	const hide = step.op === "back" && step.piece; // THE HIDDEN ONE GOES BACK INTO THE FOG
+	return slide(mesh, step.to, { onEnd: hide ? function () { if (view.pieces.get(step.to) === mesh) { view.pieces.delete(step.to); } removePiece(mesh); } : undefined });
 }
 
 /**

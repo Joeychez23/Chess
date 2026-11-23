@@ -1,6 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { faceOf, rarityColor, RARITY_COLORS, drawPlayFace } = require("../src/js/gameplay/three/cardFaces.js");
+const { faceOf, rarityColor, RARITY_COLORS, drawPlayFace, drawBackFace } = require("../src/js/gameplay/three/cardFaces.js");
+const { GOLD } = require("../src/js/gameplay/three/cardLayout.js");
 
 const catalog = {
 	"fog-of-war-rare": { name: "Fog of War", kind: "active", text: "For 3 turns ...", skulls: 0, rarity: "rare" },
@@ -56,4 +57,13 @@ test("the Knight / Bishop card's face: the knight upper left, the bishop lower r
 	const plain = recorder();
 	drawPlayFace(plain.ctx, faceOf({ id: "c1", key: "move", piece: "r" }), "b", w, h);
 	assert.deepEqual([plain.seen.text.filter((t) => t[0] === "♜").length, plain.seen.lines.length], [1, 0]); // THE OTHER MOVE CARDS ARE AS THEY WERE
+});
+
+test("a hidden card of the discard list: its back & an empty gold name bar where drawPlayFace puts the bar, along the top or the bottom, nothing else (fix round 1, I1)", () => {
+	const drawn = (draw) => { const seen = [], ctx = new Proxy({ fillRect: (...r) => seen.push([ctx.fillStyle, ...r]), fillText: (t) => seen.push(["text", t]), measureText: (t) => ({ width: String(t).length }) }, { get: (o, k) => (k in o ? o[k] : () => {}), set: (o, k, v) => { o[k] = v; return true; } }); draw(ctx); return seen; };
+	for (const barBottom of [false, true]) {
+		const bar = drawn((ctx) => drawPlayFace(ctx, faceOf({ id: "c1", key: "move", piece: "n" }), "w", 300, 420, barBottom)).find((r) => r[0] === GOLD); // A MOVE CARD'S NAME BAR IS GOLD
+		assert.equal(bar[2] > 210, barBottom);
+		assert.deepEqual(drawn((ctx) => drawBackFace(ctx, "#38080a", 300, 420, barBottom)), [["#38080a", 0, 0, 300, 420], bar]); // NO NAME, NO TEXT: NOTHING TELLS THE CARD
+	}
 });

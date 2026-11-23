@@ -16,7 +16,7 @@ const other = (c) => (c === "w" ? "b" : "w");
 function cancel(ctx, player) {
 	const s = ctx.state, opp = other(player), gone = s.effects.filter((e) => e.owner === opp).sort((a, b) => a.placedAt - b.placedAt);
 	s.effects = s.effects.filter((e) => e.owner !== opp);
-	for (const e of gone) { require("../../hand.js").toPile(s.players[opp], e.card); ctx.emit({ type: "passive-cancelled", player: opp, card: e.card }); } // LAZY hand.js: SEE shackles.js
+	for (const e of gone) { require("../../hand.js").toPile(s, opp, e.card); ctx.emit({ type: "passive-cancelled", player: opp, card: e.card }); } // LAZY hand.js: SEE shackles.js
 }
 
 /**

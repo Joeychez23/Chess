@@ -313,6 +313,14 @@ test("focusList: the keyboard's stops: the hand, then the pieces with a move tha
 	assert.deepEqual(S.focusList([], hs, true).filter((x) => x.kind !== "hand"), [{ kind: "square", square: "c1" }, { kind: "square", square: "f1" }]); // UNDER FOG: THE PIECES A CARDLESS CARD COVERS
 });
 
+test("focusList: the discard list is the last stop once a card has gone to either discard pile (Task 21a)", () => {
+	const v = view({ piled: [{ player: "b", card: { down: true } }], effects: [{ id: "c40", owner: "b", card: { id: "c40", key: "veto" } }] });
+	assert.deepEqual(S.focusList(LEGAL, v, false).slice(-2), [{ kind: "pile", pile: "his" }, { kind: "pile", pile: "discard" }]);
+	assert.ok(!S.focusList(LEGAL, view({ piled: [] }), false).some((x) => x.pile === "discard"));
+	assert.ok(!S.focusList(LEGAL, view(), false).some((x) => x.pile === "discard")); // A VIEW FROM BEFORE THE LIST
+	assert.deepEqual(S.pileDrops([{ type: "drop", card: "c40" }], v, "discard"), []); // ENTER ON IT OPENS IT (flow.js handKey): NOTHING TO DROP THERE
+});
+
 test("stepFocus: the arrows step through a list and stop at its ends; none yet starts at the first", () => {
 	assert.equal(S.stepFocus(3, null, "ArrowRight"), 0);
 	assert.equal(S.stepFocus(3, 0, "ArrowRight"), 1);

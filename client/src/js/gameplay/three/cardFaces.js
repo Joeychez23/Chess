@@ -163,3 +163,19 @@ export function drawPlayFace(ctx, face, color, w, h, barBottom = false) {
 		ctx.globalAlpha = 1;
 	}
 }
+
+/**
+ * @description A hidden card of the opened discard list: its back, with an empty gold name bar where drawPlayFace puts the bar, so it says whose it was as the list's face-up cards do (Task 21a fix round 1, I1). Nothing else: nothing tells the card
+ * @param {CanvasRenderingContext2D} ctx the 2D context to draw on
+ * @param {string} back the back's CSS colour (cards.js CARD_BACK)
+ * @param {number} w canvas width
+ * @param {number} h canvas height
+ * @param {boolean} barBottom as drawPlayFace's: the player's own card
+ */
+export function drawBackFace(ctx, back, w, h, barBottom = false) {
+	const inset = w * 0.04, line = w * 0.02, barH = h * 0.12; // drawPlayFace'S BAR
+	ctx.fillStyle = back;
+	ctx.fillRect(0, 0, w, h);
+	ctx.fillStyle = GOLD;
+	ctx.fillRect(inset + line, barBottom ? h - inset - line - barH : inset + line, w - 2 * (inset + line), barH);
+}

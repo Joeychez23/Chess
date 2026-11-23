@@ -164,3 +164,15 @@ test("a duel card's face: its rank and suit, hearts and diamonds red, clubs and 
 	assert.equal(color(ten, "♣"), color(drawn({ r: 2, s: "s" }), "♠"));
 	assert.notEqual(color(ace, "♥"), color(ten, "♣"));
 });
+
+test("a pick barred by Grace isn't pickable while another remains, for the player whose turn it is only (cards-engine/turn.js legalActions)", () => {
+	const duel = { player: "w", piece: 1, card: "all-or-nothing", step: "pick", wins: 0, round: 1, hands: { w: [null, null, null], b: [null, null, null] }, picked: { w: [], b: [1] }, spades: null };
+	const picks = (view, you = "w", d = duel) => duelLayout(d, you, view).filter((x) => x.pickable).map((x) => x.index);
+	const barred = JSON.stringify({ pick: 0, type: "duel" });
+	assert.deepEqual(picks(null), [0, 1, 2]);
+	assert.deepEqual(picks({ barred, board: { turn: "w" } }), [1, 2]);
+	assert.deepEqual(picks({ barred, board: { turn: "b" } }), [0, 1, 2]); // THE BAR IS ON THE PLAYER WHOSE TURN IT IS
+	assert.deepEqual(picks({ barred: JSON.stringify({ type: "move", from: "e2", to: "e4" }), board: { turn: "w" } }), [0, 1, 2]); // ANOTHER KIND OF ACTION BARRED
+	const last = { ...duel, picked: { w: [1, 2], b: [1, 2] }, hands: { w: [null, { r: 5, s: "c" }, { r: 9, s: "d" }], b: [null, { r: 5, s: "h" }, { r: 9, s: "s" }] } };
+	assert.deepEqual(picks({ barred, board: { turn: "w" } }, "w", last), [0]); // THE ONLY PICK LEFT STAYS: A BARRED PICK IS LEFT OUT ONLY WHILE ANOTHER REMAINS
+});

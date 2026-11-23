@@ -8,6 +8,7 @@ const { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, RARITY_WEIGHTS, CLIMB_SHARES, CLIMB_EN
 const { resight, isSight } = require("./cards/sight.js");
 
 const MOVES = 5, ACTIVES = 1, MOVE_CAP = 9, ACTIVE_CAP = 3;
+const PILED = 6; // THE DISCARD LIST KEEPS THIS MANY (toPile; USER RULING 2026-11-23: THE LAST 6, BOTH PLAYERS' IN ONE LIST)
 const VALUE = { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 }; // THE VALUES, THE ONE PLACE IN THE ENGINE: A PIECE TYPE'S (UNDERDOG'S MATERIAL) AND A MOVE CARD TYPE'S (THE FREE DISCARD'S FLOOR, drawMove; m: THE KNIGHT / BISHOP CARD)
 const CARD_MOVES = { p: "p", m: "nb", r: "r", q: "q" }; // THE PIECE TYPES EACH MOVE CARD TYPE MOVES, THE ONE TABLE (USER RULING 2026-11-22: ONE KNIGHT / BISHOP CARD, "m", IN PLACE OF THE KNIGHT CARD AND THE BISHOP CARD)
 
@@ -51,14 +52,16 @@ function newCard(state, key, extra) {
 }
 
 /**
- * @description card joins p's discard pile, Player.pile { n, top }: only how many lie there and the top card are kept. down: the other player was never shown this card (a discard from the hand, a move card played under a Fog of War), so the top carries down: true and view.js shows them its back; a face-up card never does. Phalanx's and Peasant Immunity's bookkeeping stays behind (it names pieces), a Mirage lies there as the move card it showed (asMove), and the King card is no played card: it never lies there.
+ * @description card joins color's discard pile, Player.pile { n, top }: only how many lie there and the top card are kept. down: the other player was never shown this card (a discard from the hand, a move card played under a Fog of War), so the top carries down: true and view.js shows them its back; a face-up card never does. Phalanx's and Peasant Immunity's bookkeeping stays behind (it names pieces), a Mirage lies there as the move card it showed (asMove), and the King card is no played card: it never lies there.
+ * It also goes first in state.piled, the last PILED cards to join either player's pile, newest first: { player, card: the top as stored, its down mark with it } (a game saved before the list has none: it starts here).
  */
-function toPile(p, card, down) {
+function toPile(s, color, card, down) {
 	if (card.key === "king") return;
-	const top = asMove(card);
+	const p = s.players[color], top = asMove(card);
 	for (const k of ["denied", "stopping", "down"]) delete top[k];
 	if (down && !card.faceUp) top.down = true;
 	p.pile = { n: ((p.pile && p.pile.n) || 0) + 1, top };
+	s.piled = [{ player: color, card: { ...top } }, ...(s.piled || [])].slice(0, PILED);
 }
 
 /**
@@ -109,11 +112,11 @@ function drawMoves(ctx, color, n, entering = []) {
 }
 
 /**
- * @description Throw out p's move cards, entered Mirages with them (they wait again, to take over one of the new draws through drawMoves): returns { out: the cards thrown out as copies, by id, ms: the Mirages }. They go to p's discard pile face down, a Mirage as the move card it shows (the pile's count must not tell it apart).
+ * @description Throw out color's move cards, entered Mirages with them (they wait again, to take over one of the new draws through drawMoves): returns { out: the cards thrown out as copies, by id, ms: the Mirages }. They go to color's discard pile face down, a Mirage as the move card it shows (the pile's count must not tell it apart).
  */
-function throwMoves(p) {
-	const ms = mirages(p), out = moveCards(p).map((c) => ({ ...c }));
-	for (const c of out) toPile(p, c, true);
+function throwMoves(s, color) {
+	const p = s.players[color], ms = mirages(p), out = moveCards(p).map((c) => ({ ...c }));
+	for (const c of out) toPile(s, color, c, true);
 	p.moves = [];
 	for (const m of ms) m.waiting = true;
 	return { out, ms };
@@ -125,7 +128,7 @@ function throwMoves(p) {
 function discard(ctx, color, id, keep) {
 	const p = ctx.state.players[color], m = mirages(p).find((c) => c.id === id), card = m ? { ...m } : take(p, id);
 	if (keep) p.kept = asMove(card);
-	else toPile(p, card, true);
+	else toPile(ctx.state, color, card, true);
 	ctx.emit(keep ? { type: "discard", player: color, card, kept: true } : { type: "discard", player: color, card });
 	if (m) ctx.clearCurse(color, m);
 	return card;
@@ -173,7 +176,7 @@ const big = (s, color) => (s.effects.some((e) => { const r = e.owner === color &
  */
 function refill(ctx, color) {
 	const s = ctx.state, p = s.players[color], only = s.multi && s.multi.player === color && s.multi.draw, plus = big(s, color);
-	if (only) for (const card of throwMoves(p).out) ctx.emit({ type: "discard", player: color, card });
+	if (only) for (const card of throwMoves(s, color).out) ctx.emit({ type: "discard", player: color, card });
 	if (p.refillLock > 0) p.refillLock--;
 	else {
 		drawMoves(ctx, color, (only || MOVES + plus) - moveCards(p).length, p.curses.filter((c) => c.waiting));
@@ -217,7 +220,7 @@ function discardRandom(ctx, color, n) {
 		if (card !== p.passive) discard(ctx, color, card.id);
 		else {
 			p.passive = null;
-			toPile(p, card, true);
+			toPile(ctx.state, color, card, true);
 			ctx.emit({ type: "discard", player: color, card });
 		}
 	}

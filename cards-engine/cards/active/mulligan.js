@@ -17,7 +17,7 @@ module.exports = {
 	 * @description Every move card discarded, by id (a discard event each; an entered Mirage among them, in disguise to its holder: the curse stays), then as many new move cards drawn, then the Mirage takes over one random move card in the hand, its id and piece type, with no event (hand.throwMoves, hand.drawMoves). The turn goes on to one move (user ruling 2026-11-21): a one-move two-move turn marked mulled, so the free discard stays open (turn.js turnActions) and no move is the automatic redraw (turn.js act).
 	 */
 	play(ctx, player) {
-		const hand = require("../../hand.js"), { out, ms } = hand.throwMoves(ctx.state.players[player]);
+		const hand = require("../../hand.js"), { out, ms } = hand.throwMoves(ctx.state, player);
 		for (const card of out) ctx.emit({ type: "discard", player, card });
 		hand.drawMoves(ctx, player, out.length, ms);
 		ctx.state.multi = { player, left: 1, moved: [], differ: false, mulled: true };

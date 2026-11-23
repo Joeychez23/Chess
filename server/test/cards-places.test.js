@@ -110,7 +110,7 @@ test("the remembered card lasts over turns and doesn't block an active discard o
 
 test("nothing clears the remembered card: not a Mulligan's throw-out, not a lost duel's whole hand", () => {
 	const s = act(game(), "w", D("t1")).state, ctx = makeCtx(s);
-	hand.throwMoves(s.players.w);
+	hand.throwMoves(s, "w");
 	hand.discardRandom(ctx, "w");
 	assert.deepEqual(s.players.w.kept, card("p", "t1"));
 	assert.deepEqual([s.players.w.moves, s.players.w.actives], [[], []]);
@@ -169,15 +169,17 @@ test("a passive that fires goes to its owner's pile, without its bookkeeping; th
 	s.effects.push({ id: "t7", owner: "b", card: { id: "t7", key: "t-pas-a", denied: ["w3"], stopping: "w4" }, placedAt: 0 });
 	ctx.passiveFired(s.effects[0]);
 	assert.deepEqual(s.players.b.pile, { n: 1, top: { id: "t7", key: "t-pas-a" } });
-	hand.toPile(s.players.b, { id: "king", key: "king", faceUp: true });
+	hand.toPile(s, "b", { id: "king", key: "king", faceUp: true });
 	assert.equal(s.players.b.pile.n, 1);
+	assert.deepEqual(s.piled, [{ player: "b", card: { id: "t7", key: "t-pas-a" } }]); // THE LIST TOO: NO BOOKKEEPING, NO KING CARD
 });
 
 test("the automatic redraw's thrown-out cards go to the pile face down, a Mirage among them as the move card it shows", () => {
 	const s = game(), p = s.players.w;
 	p.curses = [{ id: "t6", key: "mirage", piece: "r" }];
-	hand.throwMoves(p);
+	hand.throwMoves(s, "w");
 	assert.deepEqual(p.pile, { n: 6, top: { id: "t6", key: "move", piece: "r", down: true } });
+	assert.deepEqual(s.piled[0], { player: "w", card: { id: "t6", key: "move", piece: "r", down: true } }); // THE LIST NAMES NO CURSE EITHER
 });
 
 test("an active with no lasting effect lies on the active spot until the end of the turn it was played in, then on the pile", () => {
@@ -438,4 +440,54 @@ test("a finished game shows the face-down top and the remembered card", () => {
 	s.result = { winner: "b", reason: "checkmate" };
 	const o = playerView(s, "b").players.w;
 	assert.deepEqual([o.kept, o.pile.top], [card("p", "t5"), card("p", "t4")]);
+});
+
+/* ---------------------------------------------------------------- */
+// The last 6 cards to join a discard pile, both players' in one list (Task 21a A)
+/* ---------------------------------------------------------------- */
+const P = (player, c) => ({ player, card: c });
+const down = (c) => ({ ...c, down: true });
+
+/**
+ * @description White's free discard of two move cards (both to the pile face down), then plays by both players, one after the other
+ */
+function sevenToPiles() {
+	let s = act(game(), "w", D("t1")).state; // REMEMBERED: NOT ON THE PILE YET
+	s = act(s, "w", D("t2")).state; // t1 THEN t2, FACE DOWN
+	for (const [c, cid] of [["w", "t3"], ["b", "u1"], ["w", "t4"], ["b", "u2"]]) s = act(s, c, pawnMove(s, c, cid)).state;
+	return s;
+}
+
+test("the list: every card that joins either discard pile, newest first, as the pile keeps it with its down mark, at most 6", () => {
+	const s = sevenToPiles();
+	assert.deepEqual(s.piled, [P("b", card("p", "u2")), P("w", card("p", "t4")), P("b", card("p", "u1")), P("w", card("p", "t3")), P("w", down(card("p", "t2"))), P("w", down(card("p", "t1")))]);
+	const t = act(s, "w", pawnMove(s, "w", "t5")).state;
+	assert.deepEqual(t.piled.map((e) => e.card.id), ["t5", "u2", "t4", "u1", "t3", "t2"]); // THE 7TH PUSHES THE OLDEST OUT
+	assert.equal(t.players.w.pile.n + t.players.b.pile.n, 7); // THE PILES STILL COUNT THEM ALL
+});
+
+test("the view's list: the other player's face-down cards are backs, the player's own are readable, all are once the game is over", () => {
+	const s0 = sevenToPiles(), s = act(s0, "w", pawnMove(s0, "w", "t5")).state, b = playerView(s, "b"), w = playerView(s, "w");
+	assert.deepEqual(b.piled, [P("w", card("p", "t5")), P("b", card("p", "u2")), P("w", card("p", "t4")), P("b", card("p", "u1")), P("w", card("p", "t3")), P("w", { down: true })]); // A BACK: NO ID, KEY OR PIECE
+	assert.ok(!JSON.stringify(b).includes("\"t2\""));
+	assert.deepEqual(w.piled[5], P("w", card("p", "t2"))); // THE OWNER: THE CARD, WITHOUT THE MARK
+	assert.deepEqual(s.piled[5], P("w", down(card("p", "t2")))); // THE STATE KEEPS IT
+	s.result = { winner: "b", reason: "checkmate" };
+	assert.deepEqual(playerView(s, "b").piled[5], P("w", card("p", "t2")));
+});
+
+test("a move card played under its player's Fog of War is a back in the other player's list", () => {
+	const s = game();
+	s.enchant.push({ id: "e1", key: "fog-of-war", owner: "w", pieces: [], left: 3, data: {} });
+	const { state } = act(s, "w", pawnMove(s, "w", "t3"));
+	assert.deepEqual([playerView(state, "b").piled, playerView(state, "w").piled], [[P("w", { down: true })], [P("w", card("p", "t3"))]]);
+});
+
+test("a game saved before the list has none: it reads as empty, fills from the next card and plays on", () => {
+	const s = game();
+	delete s.piled;
+	assert.deepEqual(playerView(s, "w").piled, []);
+	const t = act(s, "w", pawnMove(s, "w", "t3")).state;
+	assert.deepEqual(t.piled, [P("w", card("p", "t3"))]);
+	assert.ok(legalActions(fromView(playerView(t, "b"), 5), "b").length);
 });

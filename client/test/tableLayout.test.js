@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { tableSpots, columnStep, columnBox, pileCards, placeAt, deskPoint, PILES, DISCARD, ASKEW, HAND_Z } = require("../src/js/gameplay/three/tableLayout.js");
+const { tableSpots, columnStep, columnBox, pileCards, placeAt, deskPoint, spotHit, PILES, DISCARD, ASKEW, HAND_Z } = require("../src/js/gameplay/three/tableLayout.js");
 const { PILE_AREA } = require("../src/js/gameplay/three/piles.js");
 const { CARD_SIZE, DECK, cardSpots } = require("../src/js/gameplay/three/cardLayout.js");
 const S = require("../src/js/gameplay/cards/select.js");
@@ -71,6 +71,58 @@ test("the discard pile: its top card on a block as thick as the cards under it, 
 	assert.ok([...want.values()].filter((s) => s.discard).every((s) => !s.pile && !s.hand)); // NOT OPENED, NOT PICKED
 	const empty = tableSpots(view(), Y);
 	assert.deepEqual([...empty.keys()], ["w:king", "b:king"]);
+});
+
+const P = (player, card) => ({ player, card });
+const at = (s) => [Math.round(s.x * 100) / 100, Math.round(s.z * 100) / 100];
+
+test("the discard list (Task 21a): opened, its 6 cards lie newest first, 2 across & 3 down right of the discard piles, each in its owner's colour, a hidden one a back", () => {
+	const piled = [P("b", { down: true }), P("w", move("m6")), P("b", { id: "a5", key: "x" }), P("w", move("m4")), P("b", move("m3", "r")), P("w", move("m2"))];
+	const v = { ...view({ pile: { n: 3, top: move("m6") } }, { pile: { n: 3, top: { down: true } } }), piled };
+	const open = tableSpots(v, { ...Y, open: "discard" }), shut = tableSpots(v, Y), log = piled.map((e, i) => open.get(`log:${i}`));
+	assert.deepEqual(log.map(at), [[39.2, -6.3], [43.8, -6.3], [39.2, 0], [43.8, 0], [39.2, 6.3], [43.8, 6.3]]); // 0.6 RIGHT OF THE FIRST BUILD (FIX ROUND 1, M2)
+	assert.deepEqual(log.map((s) => s.color), ["b", "w", "b", "w", "b", "w"]);
+	assert.deepEqual([log[0].faceDown, log[0].card, log[1].faceDown, log[1].card, log[2].card], [false, null, false, move("m6"), { id: "a5", key: "x" }]); // A HIDDEN ONE (card null) LIES FACE UP, ITS FACE PAINTED AS ITS BACK WITH ITS OWNER'S BAR (cardTable.js paint, FIX ROUND 1, I1)
+	assert.ok(log.every((s) => s.log && !s.pile && !s.hand && !s.discard && s.from === null));
+	assert.deepEqual([...shut.entries()], [...tableSpots({ ...v, piled: undefined }, Y).entries()]); // SHUT: THE TABLE AS BEFORE THE LIST
+	assert.deepEqual(open.get("w:m6"), shut.get("w:m6")); // THE PILES STAY AS THEY ARE
+	assert.equal(pileCards(v, "discard").length, 6);
+	const box = columnBox("discard", 6), r = (x) => Math.round(x * 100) / 100;
+	assert.deepEqual([r(box.x0), r(box.x1), r(box.z0), r(box.z1)], [37.05, 45.95, -9.3, 9.3]);
+	assert.ok(box.x0 > DISCARD.mine.x + CARD_SIZE.w / 2 && box.x1 < 48); // CLEAR OF THE PILES, ON THE DESK
+	const one = columnBox("discard", 1);
+	assert.deepEqual([r(one.x0), r(one.x1), r(one.z0), r(one.z1)], [37.05, 41.35, -9.3, -3.3]);
+});
+
+test("the discard list says whose each card was by its name bar, as the piles do: the player's along the bottom, Card Guy's along the top, for move cards, actives, passives & backs (fix round 1, I1)", () => {
+	const kinds = [move("m1"), { id: "a1", key: "double-time" }, { id: "p1", key: "spite" }, { down: true }]; // A MOVE CARD, AN ACTIVE, A PASSIVE, A BACK
+	const each = kinds.flatMap((card) => [P("w", card), P("b", card)]);
+	for (const piled of [each.slice(0, 6), each.slice(2)]) { // THE LIST HOLDS 6: EVERY KIND OF EACH OWNER OVER THE TWO
+		const open = tableSpots({ ...view(), piled }, { ...Y, open: "discard" });
+		piled.forEach((e, i) => assert.equal(open.get(`log:${i}`).barBottom, e.player === "w", `log:${i}, ${e.player}'s ${e.card.key || "back"}`));
+	}
+	const mine = tableSpots(view({}, {}, [passive("w", "q1"), passive("b", "q2")]), Y);
+	assert.deepEqual([mine.get("w:q1").barBottom, mine.get("b:q2").barBottom], [true, false]); // THE PILES' OWN MARK, THE ONE THE LIST FOLLOWS
+});
+
+test("both remembered cards, lying askew on the discard piles, clear the opened list: Card Guy's no longer covers the newest card's corner (fix round 1, M2)", () => {
+	const v = { ...view({ pile: { n: 1, top: move("m6") }, kept: move("m9") }, { pile: { n: 1, top: { down: true } }, kept: { down: true } }), piled: Array.from({ length: 6 }, (_, i) => P("w", move(`l${i}`))) };
+	const want = tableSpots(v, { ...Y, open: "discard" }), box = columnBox("discard", 6), w = CARD_SIZE.w / 2, h = CARD_SIZE.h / 2;
+	for (const key of ["w:m9", "b:#kept"]) {
+		const k = want.get(key), corners = [[w, h], [w, -h], [-w, h], [-w, -h]].map(([x, z]) => [k.x + x * Math.cos(k.yaw) + z * Math.sin(k.yaw), k.z - x * Math.sin(k.yaw) + z * Math.cos(k.yaw)]); // three.js's TURN ABOUT y
+		assert.ok(corners.every(([x]) => x < box.x0), `${key}'s corners ${JSON.stringify(corners)} reach the list (x from ${box.x0})`);
+	}
+	assert.ok(box.x1 < 48, "on the desk");
+});
+
+test("a hit on either discard pile or on the opened list names the discard list; the hand & the piles as before; Card Guy's hand nothing", () => {
+	const v = { ...view({ moves: [move("m1")], pile: { n: 2, top: move("m6") }, kept: move("m9") }, { pile: { n: 1, top: { down: true } } }, [passive("w", "p1")]), piled: [P("w", move("m6"))] };
+	const want = tableSpots(v, { ...Y, open: "discard" });
+	for (const key of ["w:m6", "w:#under", "w:m9", "b:#top1", "log:0"]) { assert.deepEqual(spotHit(key, want.get(key)), { kind: "pile", pile: "discard", id: null }, key); }
+	assert.deepEqual(spotHit("w:m1", want.get("w:m1")), { kind: "hand", id: "m1" });
+	assert.deepEqual(spotHit("w:p1", want.get("w:p1")), { kind: "pile", pile: "mine", id: "p1" });
+	assert.equal(spotHit("b:king", want.get("b:king")), null);
+	assert.ok(want.get("w:m6").top && !want.get("w:m9").top && !want.get("w:#under").top); // THE KEYBOARD'S FRAME GOES ROUND THE PILE'S TOP CARD
 });
 
 test("a card keeps its key from the hand to its place, so it's the same card that slides there", () => {

@@ -377,13 +377,36 @@ export function dealDuel3D(duel) {
 	if (board3D) { board3D.dealDuel(duel); }
 }
 
+/**
+ * @description Turns a duel card face up on the 3D board, framed in gold when won (three/index.js flipDuel)
+ * @param  {[string]} player ["w" | "b", the duel-flip event's player]
+ * @param  {[number|null]} index [0..2 in the view's duel hands, null: a pick the view no longer shows]
+ * @param  {[object]} card [{ r, s }, the duel-flip event's card]
+ * @param  {[boolean]} won [true: its gold outline]
+ */
 export function flipDuel3D(player, index, card, won) {
 	if (board3D) { board3D.flipDuel(player, index, card, won); }
 }
 
+/**
+ * @description The card duel is over on the 3D board (three/index.js endDuel), & none is kept for a board mounted later
+ */
 export function endDuel3D() {
 	tableDuel = null;
 	if (board3D) { board3D.endDuel(); }
+}
+
+/**
+ * @description One of a Chess Cards answer's board steps (gameplay/cards/boardShow.js) on the 3D board (three/motion.js playBoardStep): a move, a swap, a take, a piece out to a square or back, a topple, a handover.
+ * chessInst isn't changed: the answer's set step loads its view, & drawBoard then sets the pieces to it (they already stand there). At once on 2D & under reduce motion (the set lands the view)
+ * @param  {[object]} step [boardSteps']
+ * @return {[Promise<void>]} [resolves when the step has ended]
+ */
+export function boardStep3D(step) {
+	if (!board3D || game.reduceMotion) { return Promise.resolve(); }
+	const done = board3D.playBoardStep(step);
+	if (step.op === "move") { shownTaken = null; syncTaken3D(); } // THE MOVE'S OWN TAKEN PIECE LEAVES AS A DRAWN MOVE'S DOES (drawBoard)
+	return done;
 }
 
 /**

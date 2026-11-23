@@ -4,7 +4,7 @@
  *
  */
 
-const { sqIndex } = require("../../board.js");
+const { sqIndex, sqName } = require("../../board.js");
 const { attacksSquare } = require("../../movegen.js");
 const { hooksFor } = require("../../rules.js");
 
@@ -25,7 +25,7 @@ module.exports = {
 				const i = b.sq.findIndex((p, j) => p && p.c === owner && p.t === "b" && attacksSquare(s, j, p, to, hooks));
 				if (i < 0) continue;
 				const bishop = b.sq[i].id;
-				ctx.capture(owner, q.id);
+				ctx.capture(owner, q.id, sqName(i)); // THE CAPTURE EVENT'S from: WHERE THE SHOT CAME FROM, SO THE CLIENT PLAYS IT (ALSO UNDER THE OWNER'S FOG, USER RULING 2026-11-23)
 				ctx.giveStatus(bishop, "frozen", 2, owner);
 				return true;
 			}

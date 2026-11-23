@@ -26,7 +26,11 @@ export const PILES = {
 	hisSpot: { side: "his", place: "spot", x: -33.6, z: PILE_Z.his, dir: -1, end: -20 },
 };
 const DISCARD_X = 34; // ON THE GREEN DECK'S OUTER SIDE, CLEAR OF THE TAKEN PIECES (piles.js PILE_AREA MIRRORED: THEY REACH x 31): 31 + 0.85 (placeAt'S REACH & A GAP) + HALF A CARD (2.15). THE CARD ENDS AT x 36.15, THE DESK AT 48
-export const DISCARD = { mine: { x: DISCARD_X, z: PILE_Z.mine }, his: { x: DISCARD_X, z: PILE_Z.his } }; // BY THE GREEN DECK (USER RULING 2026-11-22): YOURS NEARER YOU, CARD GUY'S FARTHER. NEVER OPENED
+export const DISCARD = { mine: { x: DISCARD_X, z: PILE_Z.mine }, his: { x: DISCARD_X, z: PILE_Z.his } }; // BY THE GREEN DECK (USER RULING 2026-11-22): YOURS NEARER YOU, CARD GUY'S FARTHER. EITHER OPENS THE DISCARD LIST (LOG), NOT A COLUMN
+// THE OPENED DISCARD LIST (view.piled, TASK 21a): THE NEWEST CARD'S CENTRE, RIGHT OF THE DISCARD PILES, THEN 2 ACROSS & 3 DOWN TOWARD THE PLAYER, WHOLE CARDS, NEWEST FIRST IN READING ORDER. x 37.05 .. 45.95 (THE DESK AT 48), z -9.3 .. 9.3
+// 0.6 FARTHER RIGHT THAN A CARD & A GAP: CLEAR OF THE ASKEW REMEMBERED CARD, WHOSE CORNER REACHES x 36.94 (FIX ROUND 1, M2)
+const LOG = { x: DISCARD_X + CARD_SIZE.w + COLUMN_GAP + 0.6, z: -(CARD_SIZE.h + COLUMN_GAP), across: 2 };
+const logSpot = (i) => ({ x: LOG.x + (i % LOG.across) * (CARD_SIZE.w + COLUMN_GAP), z: LOG.z + Math.floor(i / LOG.across) * (CARD_SIZE.h + COLUMN_GAP) }); // i 0: THE NEWEST
 // THE CARD DUEL (TABLE UI DOC, "All or Nothing card duel"): BOTH HANDS STACKED AT THEIR ROW'S LEFT END (YOU AT THE BOTTOM, SO x -18.4 FOR BOTH ROWS: A FULL ROW'S FIRST CARD), THEN THE ROUND'S 3 CARDS,
 // THEN THE SPADES SET, 4.6 APART AS THE HAND, 2.6 OF WOOD BETWEEN THE GROUPS. THE ROW SPANS x -20.55 .. 15.95: INSIDE TODAY'S FULL HAND (TO 20.55), CLEAR OF THE NEAR TAKEN PIECES (x 23)
 const STACK_X = -((HAND_FIT - 1) / 2) * HAND_STEP;
@@ -45,24 +49,26 @@ export function columnStep(n, room) {
 }
 
 /**
- * @description The cards of a place that opens, oldest first: the passives waiting (view.effects) or the actives in effect (the player's spot)
+ * @description The cards of a place that opens, oldest first: the passives waiting (view.effects) or the actives in effect (the player's spot); the discard list's newest first (view.piled)
  * @param {object} view cards.view
- * @param {string} pile a key of PILES
+ * @param {string} pile a key of PILES, or "discard"
  * @returns {object[]} the cards as the view has them; { down: true } is one the view hides
  */
 export function pileCards(view, pile) {
+	if (pile === "discard") { return (view.piled || []).map((e) => e.card); } // A VIEW FROM BEFORE THE LIST: NONE
 	const p = PILES[pile], owner = p.side === "mine" ? view.you : view.you === "w" ? "b" : "w";
 	if (p.place === "spot") { return ((view.players[owner] || {}).spot || []).filter(Boolean); }
 	return (view.effects || []).filter((e) => e && e.owner === owner && e.card).map((e) => e.card);
 }
 
 /**
- * @description The desk an opened column of n cards covers, for the camera to frame (room space, unturned)
- * @param {string} pile a key of PILES
+ * @description The desk an opened column of n cards covers, for the camera to frame (room space, unturned); the discard list's n cards ("discard") as LOG lays them
+ * @param {string} pile a key of PILES, or "discard"
  * @param {number} n the cards in it
  * @returns {{ x0: number, x1: number, z0: number, z1: number }} its edges
  */
 export function columnBox(pile, n) {
+	if (pile === "discard") { const m = Math.max(n, 1), right = logSpot(Math.min(m, LOG.across) - 1), last = logSpot(m - 1); return { x0: LOG.x - CARD_SIZE.w / 2, x1: right.x + CARD_SIZE.w / 2, z0: LOG.z - CARD_SIZE.h / 2, z1: last.z + CARD_SIZE.h / 2 }; }
 	const p = PILES[pile], far = p.z + p.dir * (Math.max(n, 1) - 1) * columnStep(n, Math.abs(p.end - p.z));
 	return { x0: p.x - CARD_SIZE.w / 2, x1: p.x + CARD_SIZE.w / 2, z0: Math.min(p.z, far) - CARD_SIZE.h / 2, z1: Math.max(p.z, far) + CARD_SIZE.h / 2 };
 }
@@ -81,6 +87,18 @@ export function placeAt(x, z) {
 }
 
 /**
+ * @description What a tap or press on the card lying at a spot of tableSpots reaches (cardTable.js hit)
+ * @param {string} key the spot's key
+ * @param {object} spot the spot
+ * @returns {{ kind: "hand", id: string }|{ kind: "pile", pile: string, id: string|null }|null} pile: a key of PILES, or "discard" for either discard pile's cards & the opened list's (id null: it opens, nothing is dragged off it); null: nothing (Card Guy's hand)
+ */
+export function spotHit(key, spot) {
+	if (spot.hand) { return { kind: "hand", id: key.slice(2) }; }
+	if (spot.pile) { return { kind: "pile", pile: spot.pile, id: spot.card ? spot.card.id : null }; }
+	return spot.discard || spot.log ? { kind: "pile", pile: "discard", id: null } : null;
+}
+
+/**
  * @description Where a duel card lies in its row (room space, unturned)
  * @param {"mine"|"his"} side the player's row or Card Guy's
  * @param {"round"|"spades"} set the round's deal or the spades deal beside it
@@ -95,11 +113,12 @@ export function duelSpot(side, set, index) {
  * @description Every duel card of a view's duel: the round's 3 per player, & the spades deal's beside them while it is up
  * @param {object} duel view.duel (not null)
  * @param {string} you the player's colour
+ * @param {object} [view] the view the duel is of: its Grace bar (view.barred, on the player whose turn it is) leaves the barred pick out while another remains, as cards-engine/turn.js legalActions
  * @returns {{ key: string, side: "mine"|"his", set: "round"|"spades", index: number, card: { r: number, s: string }|null, won: boolean, pickable: boolean, x: number, z: number }[]} card: null while face down;
  * won: in step "decide", the duel's player's last flipped card of the current set (that round was won), or all 3 of their round cards when the suit score won it;
  * pickable: the player may pick it now, as the engine allows (cards-engine/duel.js actions): theirs, of the current set, face down, in step "pick", not picked yet, & the player not a pick ahead of the other
  */
-export function duelLayout(duel, you) {
+export function duelLayout(duel, you, view = null) {
 	const out = [], other = (c) => (c === "w" ? "b" : "w"), opp = other(duel.player);
 	for (const [set, d] of [["round", duel], ["spades", duel.spades]]) {
 		if (!d) { continue; }
@@ -116,6 +135,10 @@ export function duelLayout(duel, you) {
 			}));
 		}
 	}
+	let bar = null;
+	try { bar = view && typeof view.barred === "string" && view.board && view.board.turn === you ? JSON.parse(view.barred) : null; } catch { bar = null; }
+	const picks = out.filter((d) => d.pickable);
+	if (bar && bar.type === "duel" && picks.length > 1) { picks.filter((d) => d.index === bar.pick).forEach((d) => { d.pickable = false; }); } // GRACE TOOK THIS PICK BACK: NOT AGAIN WHILE ANOTHER REMAINS
 	return out;
 }
 
@@ -135,11 +158,11 @@ export function deskPoint(origin, dir, y) {
  * @description Where every card of the view lies: the player's hand, Card Guy's (face down, but the King card & the cards the player may see face up), & both players' active spot, passive pile & discard pile.
  * A card is keyed by its owner & id wherever it lies, so a played card is the same card on its way to its place; one the view hides has its place's key
  * @param {object} view cards.view
- * @param {{ open?: string|null, base: number, layer: number, stage?: object|null }} opts open: the opened pile (a key of PILES), base: the desk's height for a lying card, layer: a card's thickness,
+ * @param {{ open?: string|null, base: number, layer: number, stage?: object|null }} opts open: the opened pile (a key of PILES, or "discard": the discard list, view.piled, laid out at LOG), base: the desk's height for a lying card, layer: a card's thickness,
  * stage: { id, from: "hand" | "pile", place: "spot" | "passive" | "discard" }: the player's card that was dragged from there & let go on that place of theirs lies on it (staged: true), until the view moves it,
  * stacked: a card duel is laid, both hands lie stacked at DUEL_STACK
  * @returns {Map<string, object>} key -> { card (null: face down), x, y, z, yaw?, faceDown, barBottom, hand (the player's), pile (a key of PILES | null), discard ("mine" | "his", a discard pile's), color (the owner's: the glyph's colour),
- * top (a pile's newest), thick (a discard pile's block: this many cards), from (a new card slides in from: "deck", Card Guy's "hand", null: it's put there) }
+ * top (a pile's newest, a discard pile's top card), thick (a discard pile's block: this many cards), log (a card of the opened discard list, keyed "log:<index>", color & barBottom: whose it was, card null: a back, painted face up), from (a new card slides in from: "deck", Card Guy's "hand", null: it's put there) }
  */
 export function tableSpots(view, { open = null, base, layer, stage = null, stacked = false }) {
 	const want = new Map(), you = view.you, opp = you === "w" ? "b" : "w";
@@ -159,9 +182,11 @@ export function tableSpots(view, { open = null, base, layer, stage = null, stack
 		const under = top ? Math.max(n - 1, 0) : n, from = side === "his" ? "hand" : null;
 		const lie = (card, y, more) => ({ card: card.down ? null : card, x: d.x, y, z: d.z, faceDown: Boolean(card.down), barBottom: false, hand: false, pile: null, discard: side, color: owner, from, ...more });
 		if (under) { want.set(`${owner}:#under`, lie({ down: true }, base, { thick: under, from: null })); } // HOW THICK THE PILE IS: ONE BLOCK, THE CARDS UNDER THE TOP ONE
-		if (top) { want.set(key(owner, top, `#top${n}`), lie(top, base + under * layer)); } // A FACE-DOWN TOP IS KEYED BY THE COUNT: THE NEXT ONE IS A NEW CARD THAT SLIDES IN
+		if (top) { want.set(key(owner, top, `#top${n}`), lie(top, base + under * layer, { top: true })); } // A FACE-DOWN TOP IS KEYED BY THE COUNT: THE NEXT ONE IS A NEW CARD THAT SLIDES IN
 		if (pl.kept) { want.set(key(owner, pl.kept, "#kept"), lie(pl.kept, base + (under + (top ? 1 : 0)) * layer, { yaw: ASKEW })); }
 	}
+	if (open === "discard") { pileCards(view, open).forEach((card, i) => want.set(`log:${i}`, { card: card.down ? null : card, ...logSpot(i), y: base, faceDown: false, barBottom: view.piled[i].player === you, hand: false, pile: null, log: true, color: view.piled[i].player, from: null })); } // A COPY OF EACH, KEYED BY ITS PLACE IN THE LIST: THE PILES' OWN CARDS STAY PUT.
+	// ITS NAME BAR SAYS WHOSE IT WAS, AS ON THE PILES; A HIDDEN ONE (card null) LIES FACE UP, ITS FACE PAINTED AS ITS BACK WITH THAT BAR (cardTable.js paint): A TURNED-OVER CARD'S BACK HAS NONE (FIX ROUND 1, I1)
 	const s = stage && want.get(`${you}:${stage.id}`);
 	if (s && (stage.from === "hand" ? s.hand : Boolean(s.pile))) { // STILL WHERE IT WAS DRAGGED FROM: ONCE THE ANSWER MOVES IT, IT GOES TO ITS OWN PLACE
 		const pile = stage.place === "spot" ? "mineSpot" : "mine", p = stage.place === "discard" ? DISCARD.mine : PILES[pile];

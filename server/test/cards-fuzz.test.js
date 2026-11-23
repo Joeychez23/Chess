@@ -56,7 +56,8 @@ function allowedKeys(v, viewer) {
 	const vo = v.players[other(viewer)], p = v.pending && v.pending.player === viewer ? v.pending : null;
 	return new Set(["move", ...handOf(v.players[viewer]).map((c) => c.key), ...vo.hand.shown.map((c) => c.key), ...v.effects.map((e) => e.card.key),
 		...v.players.w.used, ...v.players.b.used, ...v.enchant.map((e) => e.key), ...(v.duel ? [v.duel.card] : []), ...(v.pending ? [v.pending.kind] : []), ...(p ? [p.card, ...p.options] : []),
-		...["w", "b"].flatMap((c) => [...(v.players[c].spot || []), v.players[c].pile && v.players[c].pile.top, v.players[c].kept]).filter(Boolean).map((c) => c.key), ...(v.players[viewer].gone || [])]);
+		...["w", "b"].flatMap((c) => [...(v.players[c].spot || []), v.players[c].pile && v.players[c].pile.top, v.players[c].kept]).filter(Boolean).map((c) => c.key), ...(v.players[viewer].gone || []),
+		...v.piled.map((e) => e.card.key)]); // TASK 21a: THE DISCARD LIST AS THE VIEW SHOWS IT (checkView'S SECRET IDS CATCH A HIDDEN ONE SHOWN THERE)
 }
 
 /**
@@ -78,7 +79,7 @@ function checkView(s, viewer, secret = []) {
 	assert.equal(v.you, viewer);
 	assert.equal(vo.hand.count, handOf(o).length);
 	for (const k of ["moves", "actives", "passive", "curses", "seen", "gone"]) assert.ok(!(k in vo), "opponent " + k + " in view");
-	const places = JSON.stringify([vo.pile, vo.kept, vo.spot]), top = o.pile && o.pile.top, back = { down: true };
+	const places = JSON.stringify([vo.pile, vo.kept, vo.spot, v.piled.filter((e) => e.player === opp)]), top = o.pile && o.pile.top, back = { down: true }; // TASK 21a: THE OPPONENT'S CARDS IN THE DISCARD LIST TOO
 	assert.equal(vo.pile.n, (o.pile && o.pile.n) || 0, "the opponent's pile count");
 	assert.deepEqual(vo.spot, o.spot || [], "the opponent's active spot is public");
 	assert.ok(!JSON.stringify(v.players[viewer]).includes("\"down\""), "a face-down mark on viewer's own cards");
@@ -260,6 +261,21 @@ function checkDrop(s, color, acts, a, state, events) {
 }
 
 /**
+ * @description Whose a new discard list entry is decides who may read it (view.js playerView): it is the player who last held its card, so a wrong colour at any hand.js toPile or throwMoves caller fails (Task 21a fix round 1, M1).
+ * The holder: whose the card was before the action (hand, remembered card, active spot, placed passives), then the action's events in order (drawn, taken by Bounty or Pickpocket, a curse given). The new entries are the list's first, as many as the piles grew by (none when they shrank: Grace put an earlier state back)
+ */
+function checkOwners(s, state, events) {
+	const grew = ["w", "b"].reduce((n, c) => n + ((state.players[c].pile || {}).n || 0) - ((s.players[c].pile || {}).n || 0), 0), holder = new Map();
+	for (const c of ["w", "b"]) { const p = s.players[c]; for (const card of [...handOf(p), ...(p.kept ? [p.kept] : []), ...(p.spot || []), ...s.effects.filter((x) => x.owner === c).map((x) => x.card)]) holder.set(card.id, c); }
+	for (const x of events) {
+		if (!x.card || typeof x.card !== "object") continue;
+		if (x.type === "draw" || x.type === "card-taken") holder.set(x.card.id, x.player);
+		else if (x.type === "curse-given") holder.set(x.card.id, other(x.player)); // IT NAMES THE GIVER
+	}
+	for (const e of (state.piled || []).slice(0, Math.max(0, grew))) assert.equal(holder.get(e.card.id), e.player, "discard list entry " + e.card.id + " (" + e.card.key + ") marked " + e.player + "'s, last held by " + holder.get(e.card.id));
+}
+
+/**
  * @description One seeded game to its result or the ply cap, every check at every ply; throws with the ply in the message. Adds what it met to stats. A directed run passes opts: setup(state, seed) changes the new game (or returns the state to play from), plies is its cap, note(state, events, hit) counts or checks what it looks for after each action.
  */
 function play(seed, stats, { setup, plies = PLIES, note } = {}) {
@@ -284,6 +300,7 @@ function play(seed, stats, { setup, plies = PLIES, note } = {}) {
 				s = copy;
 			}
 			const { state, events } = applyAction(s, color, a);
+			checkOwners(s, state, events);
 			for (const c of ["w", "b"]) {
 				for (const e of events) {
 					const hid = e.player === other(c) && e.card && typeof e.card === "object" && (e.type === "discard" ? !isMirage(e.card) && !visibleTo(state, c, e.card) : e.type === "move" && boardFog(state, other(c)));
