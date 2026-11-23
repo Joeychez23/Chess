@@ -13,7 +13,7 @@ const { VALUE } = require("./score.js");
 
 const TOP_PLAIN = 5; // PLAIN MOVES KEPT BESIDE bestPlain
 const CHECK = 50; // A CHECK'S STATIC SCORE (cp)
-const PASSIVES = 3; // WAITING PASSIVES A PLAYER MAY HAVE (THE ENGINE'S turn.js PASSIVES, NOT EXPORTED)
+const { PASSIVES } = engine; // WAITING PASSIVES A PLAYER MAY HAVE
 const KING = 20000; // TAKING THE KING WINS
 
 const other = (c) => (c === "w" ? "b" : "w");

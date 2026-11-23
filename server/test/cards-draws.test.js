@@ -196,8 +196,10 @@ test("drawCard never lowers the chance of epic or legendary: a pool whose base s
 	for (const full of [16, CLIMB_END]) tiersNear(rarityShares(full, ["t-common", "t-uncommon"]), { rare: 3 / 12, epic: 8 / 12, legendary: 1 / 12 }, "4 epics, a legendary and a rare, turn " + full);
 });
 
-test("drawCard: a pool with no epic or legendary card keeps the base weights", () => {
-	tiersNear(rarityShares(CLIMB_END, [...MORE_EPICS, "t-epic", "t-legendary"]), base(["common", "uncommon", "rare"]), "no epic or legendary");
+test("drawCard: a pool with no epic or legendary card still climbs, the table shared out: common 26, uncommon 23, rare 20 of 69 (user ruling R-3, 2026-11-23)", () => {
+	const none = [...MORE_EPICS, "t-epic", "t-legendary"];
+	tiersNear(rarityShares(CLIMB_END, none), { common: 26 / 69, uncommon: 23 / 69, rare: 20 / 69 }, "no epic or legendary");
+	tiersNear(rarityShares(1, none), base(["common", "uncommon", "rare"]), "no epic or legendary, turn 1");
 });
 
 test("drawCard: a pool just under the table's epic-or-legendary share climbs (4 epics: 30% by the base weights, 31% by the table)", () => {

@@ -448,9 +448,9 @@ test("under the player's Fog of War Card Guy still reaches a legal action, also 
 });
 
 test("refusals under the player's Fog of War correct Card Guy's guess of the fogged pieces: checked by a fogged piece, he answers the check inside the real game's limit", async () => {
-	for (const seed of [1, 67]) { // 18 REFUSALS IN ONE TURN (A FOGGED BISHOP'S CHECK, EVERY OTHER MOVE TRIED FIRST) AND, BEFORE THE DRAWS OF TASK 20e, 12
+	for (const [seed, most] of [[1, 8], [67, 8], [66, 6]]) { // 18 REFUSALS IN ONE TURN (A FOGGED BISHOP'S CHECK, EVERY OTHER MOVE TRIED FIRST) AND, BEFORE THE DRAWS OF TASK 20e, 12. SINCE THOSE DRAWS GAMES 1 AND 67 PASS WITHOUT THE FITTED GUESS (simulate's fit): GAME 66 PINS IT, 4 WITH IT AND 8 WITHOUT (FINAL REVIEW F-M1)
 		const { worst } = await underFog([seed]);
-		assert.ok(worst <= 8, "game " + seed + ": " + worst + " refusals in one turn"); // cardsController MAX_REFUSALS
+		assert.ok(worst <= most, "game " + seed + ": " + worst + " refusals in one turn"); // 8: cardsController MAX_REFUSALS
 	}
 });
 
@@ -798,4 +798,24 @@ test("Card Guy keeps his waiting passives otherwise: no rarer one in hand, fewer
 	const checked = waiting([["witness", 0], ["hex", 1], ["patience", 2]], "underdog", { fen: "4k3/8/8/8/8/8/4r3/4K3 w - - 0 1" }); // IN CHECK NO PASSIVE IS PLACED: NO DROP FOR ONE
 	assert.ok(legalActions(checked.s, "w").some((a) => a.type === "drop") && !legalActions(checked.s, "w").some((a) => a.type === "passive"));
 	await never(checked.s, "in check");
+});
+
+test("Card Guy skips the swap on a turn where his search's move mates or wins material: he plays it and keeps his passives (fix round 1, I2)", async () => {
+	for (const [fen, why] of [["6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1", "a mate in one"], ["q5k1/8/8/8/8/8/8/R3K3 w - - 0 1", "a free queen"]]) {
+		const { s } = waiting([["witness", 2], ["hex", 0], ["patience", 1]], "underdog", { fen });
+		Object.assign(s.players.w, { moves: [hand.newCard(s, "move", { piece: "r" })], actives: [] });
+		assert.ok(legalActions(s, "w").some((a) => a.type === "passive") && legalActions(s, "w").some((a) => a.type === "drop"));
+		const a = await cardGuyTurn(playerView(s, "w"), 2400, opts({ legal: engine.playerLegal(s, "w") }));
+		assert.deepEqual([a.type, a.from, a.to], ["move", "a1", "a8"], why);
+		assert.equal(applyAction(s, "w", a).state.effects.filter((e) => e.owner === "w").length, 3, why);
+	}
+});
+
+test("Card Guy drops for the swap only when the list he is told holds the placing: checked by a fogged piece he keeps his passives (fix round 1, I3)", async () => {
+	const { s } = waiting([["witness", 0], ["hex", 1], ["patience", 2]], "underdog", { fen: "k7/8/4r3/8/8/8/8/4K3 w - - 0 1" });
+	fogUp(s, "b");
+	const legal = engine.playerLegal(s, "w");
+	assert.ok(legal.some((a) => a.type === "drop") && !legal.some((a) => a.type === "passive"));
+	const { action } = await ask(s, "w", {});
+	assert.notEqual(action.type, "drop");
 });

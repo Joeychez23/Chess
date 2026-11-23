@@ -111,13 +111,13 @@ function activeActions(state, color) {
 /**
  * @description Every action player may take now; empty when the game is over. While a choice is pending, only the pending player's { type: "choice", option } actions (one per pending.options entry; a barred one left out while another remains); else turnActions. While a card duel is open (state.duel, no choice pending) both players get only duel.actions: their picks and the stop-or-go decision (a barred one left out while another remains).
  */
-function legalActions(state, player) {
+function legalActions(state, player, blind) {
 	const pend = state.pending;
 	if (!state.result && !pend && state.duel) { // A CARD DUEL HOLDS THE TURN: ONLY ITS PICKS AND DECISIONS, FOR EITHER PLAYER
 		const acts = duel.actions(state, player), left = player === state.board.turn ? acts.filter((a) => actionKey(a) !== state.barred) : acts; // THE BAR IS ON THE PLAYER WHOSE TURN IT IS: THE KEY NAMES NO PLAYER
 		return left.length ? left : acts; // A BARRED PICK (GRACE) IS LEFT OUT WHILE ANOTHER REMAINS
 	}
-	if (state.result || !pend) return turnActions(state, player);
+	if (state.result || !pend) return turnActions(state, player, blind);
 	if (pend.player !== player) return [];
 	const opts = (pend.options || []).map((option) => ({ type: "choice", option })), left = opts.filter((a) => actionKey(a) !== state.barred); // NO options: REBUILT FROM THE OTHER PLAYER'S VIEW
 	return left.length ? left : opts; // A BARRED OPTION (GRACE) IS LEFT OUT WHILE ANOTHER REMAINS: A CHOICE MUST BE ANSWERED
@@ -163,9 +163,9 @@ function addedMoveOk(state, player, a) {
 }
 
 /**
- * @description The turn's actions for player, ignoring a pending choice; empty when the game is over or it isn't player's turn. During a two-move turn only moves; in check no discard or passive; the drops of placed cards (drops) outside a two-move turn, in check too. Then every card in play with rules.actions(state, player, actions, src) -> actions changes the list (rules.rulesInPlay order: placed passives, held curses, enchantments), and what the cards added is checked (anything not built here): an added active, passive or discard is dropped; an added move action stays only when addedMoveOk, and one routed to a card's act also only when, tried on a copy, it leaves player's king out of check; a card-defined action (a type not in BUILT_IN, with card: <held card id> or enchant: <player's enchantment id>) only when sourceOf finds its source, never in a two-move turn, and only when, tried on a copy, it leaves player's king out of check. Then the barred action is left out.
+ * @description The turn's actions for player, ignoring a pending choice; empty when the game is over or it isn't player's turn. During a two-move turn only moves; in check no discard or passive; the drops of placed cards (drops) outside a two-move turn (after Mulligan they stay), in check too. Then every card in play with rules.actions(state, player, actions, src) -> actions changes the list (rules.rulesInPlay order: placed passives, held curses, enchantments), and what the cards added is checked (anything not built here): an added active, passive or discard is dropped; an added move action stays only when addedMoveOk, and one routed to a card's act also only when, tried on a copy, it leaves player's king out of check; a card-defined action (a type not in BUILT_IN, with card: <held card id> or enchant: <player's enchantment id>) only when sourceOf finds its source, never in a two-move turn, and only when, tried on a copy, it leaves player's king out of check. Then the barred action is left out.
  */
-function turnActions(state, player) {
+function turnActions(state, player, blind) {
 	if (state.result || player !== state.board.turn) return [];
 	let out = [...moveActions(state, player)];
 	const p = state.players[player], multi = !!(state.multi && state.multi.player === player), checked = inCheck(state, player);
@@ -177,7 +177,7 @@ function turnActions(state, player) {
 		}
 	}
 	if (!checked && (!multi || state.multi.mulled)) out.push(...freeDiscards(state, player)); // BEFORE THE PLAY: NONE IN A TWO-MOVE TURN, BUT AFTER MULLIGAN (USER RULINGS 2026-11-21)
-	if (!multi) out.push(...drops(state, player));
+	if (!multi || state.multi.mulled) out.push(...drops(state, player, blind)); // AS THE FREE DISCARD: BEFORE THE PLAY, SO ALSO BEFORE MULLIGAN'S ONE MOVE (RULING R5, 2026-11-22)
 	const built = new Set(out.map(actionKey));
 	for (const [r, src] of rulesInPlay(state)) if (r.actions) out = r.actions(state, player, out, src);
 	const survives = (a) => { const ctx = makeCtx(JSON.parse(JSON.stringify(state))); ctx.trial = true; cardAct(ctx, player, a); return !inCheck(ctx.state, player); };
@@ -208,12 +208,13 @@ function inEffect(state, color) {
 }
 
 /**
- * @description The drops for player, { type: "drop", card: <card id> }: each of player's own waiting passives (by placedAt), then each of player's actives in effect (inEffect: one with a live enchantment). Free, any number a turn, not the free discard. One that, tried on a copy, would put either king in check is left out (ending a Stronghold whose piece faces the enemy king would let the next move take it). Never the other player's card, a curse or a status: a harmful effect on the player is none of their placed cards.
+ * @description The drops for player, { type: "drop", card: <card id> }: each of player's own waiting passives (by placedAt), then each of player's actives in effect (inEffect: one with a live enchantment). Free, any number a turn, not the free discard. One that, tried on a copy, would put either king in check is left out (ending a Stronghold whose piece faces the enemy king would let the next move take it); blind keeps those in, for view.playerLegal only. Never the other player's card, a curse or a status: a harmful effect on the player is none of their placed cards.
  */
-function drops(state, player) {
+function drops(state, player, blind) {
 	const ids = [...state.effects.filter((e) => e.owner === player).sort((x, y) => x.placedAt - y.placedAt).map((e) => e.id), ...inEffect(state, player).filter((x) => x[1]).map((x) => x[0].id)];
 	const checks = (s) => ["w", "b"].filter((c) => inCheck(s, c)), was = ids.length ? checks(state) : [];
 	return ids.map((card) => ({ type: "drop", card })).filter((a) => {
+		if (blind) return true; // THE LIST TOLD UNDER THE OTHER PLAYER'S FOG (view.playerLegal): A CHECK WOULD SHOW WHERE A HIDDEN PIECE STANDS, applyAction REFUSES THE DROP INSTEAD
 		const ctx = makeCtx(JSON.parse(JSON.stringify(state)));
 		ctx.trial = true;
 		drop(ctx, player, a);
@@ -490,19 +491,21 @@ function startTurn(ctx, color) {
 }
 
 /**
- * @description The no-legal-action rule for color (startTurn; after a free discard or Mulligan; Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard, a drop or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock; still none → checkmate by the cards in check, else stalemate. Returns true when the game ended.
+ * @description The no-legal-action rule for color (startTurn; after a free discard or Mulligan; Grace after barring a move): with no card action (move, active, or card-defined action; cardless moves count, a discard, a drop or placing a passive doesn't), move cards are thrown out and a full hand redrawn, max(thrown out, 6; 7 while hand.big: Underdog) under the 9 cap and ignoring refillLock; still none, and no drop that, tried on a copy, itself leaves one (a drop that opens nothing doesn't keep the game alive and buys no further redraw) → checkmate by the cards in check, else stalemate. Returns true when the game ended.
  */
 function noAction(ctx, color) {
 	const s = ctx.state, p = s.players[color];
-	const cardActions = () => turnActions(s, color).filter((a) => a.type !== "passive" && a.type !== "discard" && a.type !== "drop");
+	const cardActions = (st = s) => turnActions(st, color).filter((a) => a.type !== "passive" && a.type !== "discard" && a.type !== "drop");
 	if (cardActions().length) return false;
 	const { out, ms } = hand.throwMoves(p); // AN ENTERED MIRAGE GOES WITH THEM AND COMES BACK HIDDEN AMONG THE DRAWS
 	ctx.emit({ type: "redraw", player: color });
 	hand.drawMoves(ctx, color, Math.max(out.length, hand.MOVES + hand.big(s, color)), ms); // UNDERDOG BEHIND: 7
 	if (cardActions().length) return false;
+	const opens = (a) => { const c = makeCtx(JSON.parse(JSON.stringify(s))); c.trial = true; drop(c, color, a); return cardActions(c.state).length > 0; }; // ONLY WHAT THE DROP ITSELF OPENS: NO SECOND REDRAW FOR A CARD THAT DOES NOTHING (USER RULING R-2, 2026-11-23)
+	if (turnActions(s, color).some((a) => a.type === "drop" && opens(a))) return false; // A DROP WOULD LEAVE A CARD ACTION (A STRONGHOLD ON THE ONLY MOBILE PIECE): THE GAME GOES ON (RULING R1, 2026-11-22)
 	const mate = inCheck(s, color);
 	end(ctx, mate ? other(color) : null, mate ? "checkmate" : "stalemate");
 	return true;
 }
 
-module.exports = { PASSIVE_CHANCE, actionKey, barKey, legalActions, act, endTurn, startTurn, noAction };
+module.exports = { PASSIVE_CHANCE, PASSIVES, actionKey, barKey, legalActions, act, endTurn, startTurn, noAction };

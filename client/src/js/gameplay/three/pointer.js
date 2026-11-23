@@ -12,7 +12,8 @@ import { redrawScreen } from "./screen.js";
 import { uvToGrid, isTap } from "./monitor/monitor.js";
 import { CARD_ORDER } from "./cardLayout.js";
 
-let tableDrag = false; // THIS PRESS DRAGGED A CHESS CARDS GAME'S PIECE (releaseTable): ITS CLICK ISN'T A TAP
+let tableDrag = false; // THIS PRESS DRAGGED A CHESS CARDS GAME'S PIECE (releaseTable) OR CARD (releaseCard): ITS CLICK ISN'T A TAP
+let cardHeld = false; // THE MOUSE IS DOWN ON A CHESS CARDS GAME'S CARD THAT CAN BE DRAGGED (cardTable.js grab): "moving" ONCE IT FOLLOWS THE POINTER
 
 /* ---------------------------------------------------------------- */
 // Camera Controls
@@ -70,16 +71,27 @@ export function onPointerDown(e) {
 	}
 	const square = e.pointerType === "mouse" && e.button === 0 && squareUnder(e); // THE SAME SQUARE gameplay/input PICKS A PIECE UP FROM, NOT ONLY A HIT ON THE MESH: A PRESS BESIDE A PIECE ON ITS SQUARE PICKS IT UP TOO
 	view.controls.enabled = monitorIdle() && !(square && view.pieces.has(square)); // ZOOMED ON THE MONITOR THE CAMERA STAYS PUT
+	if (cardHeld) { releaseCard(null); } // A CARD STILL HELD: ITS RELEASE NEVER CAME, IT GOES BACK FIRST
 	tableDrag = false;
 	if (view.table && view.held) { view.cardOptions.onTable({ kind: "release", square: null, dragged: view.held.following }); } // A PIECE STILL HELD: ITS RELEASE NEVER CAME (LET GO OUTSIDE THE WINDOW), IT GOES BACK FIRST. dragged: AS releaseTable, A DRAG GIVES THE PICK UP
-	if (square && view.table && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && !tableAt(e) && cardAt(e) === null) { view.cardOptions.onTable({ kind: "press", square }); } // A CHESS CARDS GAME: flow.js DECIDES WHETHER THE PIECE IS HELD (setHeld). WHERE A TAP WOULD GO TO A SQUARE (pickTable)
+	if (square && view.table && !view.table.open() && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && !tableAt(e) && cardAt(e) === null) { view.cardOptions.onTable({ kind: "press", square }); } // A CHESS CARDS GAME: flow.js DECIDES WHETHER THE PIECE IS HELD (setHeld). WHERE A TAP WOULD GO TO A SQUARE (pickTable)
+	const at = e.pointerType === "mouse" && e.button === 0 && view.table && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && cardAt(e) === null ? tableAt(e) : null;
+	cardHeld = Boolean(at && at.id && view.table.grab(at, view.cardOptions.onTable({ kind: "grab", from: at.kind, id: at.id }))); // A CARD: flow.js SAYS WHERE IT CAN BE LET GO (null: NOT HELD), THE TABLE WHETHER IT'S ONE OF THE PLAYER'S TO DRAG
+	if (cardHeld) { view.controls.enabled = false; } // THE DRAG IS THE CARD'S, NOT THE CAMERA'S
 }
 
 // A HELD PIECE PAST THE DRAG THRESHOLD FOLLOWS THE POINTER (dragHeld). BEFORE gameplay/input'S mousemove / touchmove, SO ITS SQUARE LOOKUP SKIPS THE PIECE TOO
 export function onPointerMove(e) {
 	view.pointerAt = { x: e.clientX, y: e.clientY };
-	if (e.pointerType === "mouse" && !(view.held && view.held.dragging) && !view.controlsActive) { hoverGlass(e); hoverCards(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S. A PICKED PIECE THAT ONLY FLOATS (NO PRESS DOWN) LEAVES THE MOUSE ITS HOVER
+	if (e.pointerType === "mouse" && !cardHeld && !(view.held && view.held.dragging) && !view.controlsActive) { hoverGlass(e); hoverCards(e); } // TOUCH HAS NO HOVER, A DRAG IS THE CAMERA'S. A PICKED PIECE THAT ONLY FLOATS (NO PRESS DOWN) LEAVES THE MOUSE ITS HOVER
 	if (e.pointerType === "mouse") { view.pointerOver = true; hoverBoard(e); } // ALSO WHILE A PIECE IS DRAGGED: THE BOX LEADS, THE HELD PIECE FLOATS OVER ITS TILE (liftHeld)
+	if (cardHeld && view.table && e.pointerType === "mouse" && (cardHeld === "moving" || Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > DRAG_PX)) { // PAST THE DRAG THRESHOLD THE CARD FOLLOWS THE POINTER (A SHAKY CLICK STILL LIFTS IT)
+		cardHeld = "moving";
+		const rect = view.renderer.domElement.getBoundingClientRect();
+		pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+		raycaster.setFromCamera(pointer, view.camera);
+		view.table.follow(raycaster);
+	}
 	const held = view.held;
 	if (!held || !held.dragging || view.cameraGesture) { return; }
 	const touch = e.pointerType === "touch";
@@ -92,7 +104,7 @@ export function onPointerMove(e) {
 export function onPointerUp(e) {
 	if (!view) { return; }
 	view.controls.enabled = monitorIdle();
-	if (e.pointerType === "mouse") { releaseTable(e); return; }
+	if (e.pointerType === "mouse") { releaseTable(e); releaseCard(e); return; }
 	view.touches.delete(e.pointerId);
 	if (!view.touches.size) { view.multiTouch = false; }
 }
@@ -105,6 +117,24 @@ function releaseTable(e) {
 	tableDrag = held.following;
 	const onBoard = held.following && e.type === "pointerup" && monitorIdle() && !glassHit(e) && !tableAt(e);
 	view.cardOptions.onTable({ kind: "release", square: (onBoard && squareUnder(e)) || null, dragged: held.following }); // dragged: IT FOLLOWED THE POINTER, SO LETTING GO OFF A TARGET GIVES THE PICK UP
+}
+
+// A CHESS CARDS GAME'S MOUSE LET GO OF THE CARD IT DRAGGED: flow.js PLAYS IT FOR THE PLACE UNDER IT ({ kind: "drop" }, true: TAKEN) & THE CARD STAYS THERE, ELSE IT SLIDES BACK
+// (NOWHERE, ON THE GLASS, A CANCELLED POINTER, A DROP THE GAME DOESN'T OFFER). A PRESS THAT NEVER DRAGGED IS LEFT TO ITS CLICK
+function releaseCard(e) {
+	if (cardHeld === "moving" && e && e.type === "pointerup" && view.table) { // THE PLACE IS MEASURED AT THE RELEASE, FROM THE CAMERA AS IT IS NOW: IT MAY HAVE GLIDED SINCE THE LAST MOVE (FINAL REVIEW F-M5)
+		const rect = view.renderer.domElement.getBoundingClientRect();
+		pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+		view.camera.updateMatrixWorld();
+		raycaster.setFromCamera(pointer, view.camera);
+		view.table.follow(raycaster);
+	}
+	cardHeld = false;
+	const drop = view.table ? view.table.release() : null;
+	if (!drop) { return; }
+	tableDrag = true;
+	const on = Boolean(e) && e.type === "pointerup" && monitorIdle() && !glassHit(e);
+	view.table.settle(Boolean(view.cardOptions.onTable(on ? drop : { ...drop, place: null }))); // NOT ON THE DESK: flow.js STILL HEARS OF IT (NO PLACE), SO A CARD THAT LAY ON THE ACTIVE SPOT FOR ITS TARGETS HAS ITS PICK CANCELLED (REVIEW M1)
 }
 
 /* ---------------------------------------------------------------- */
@@ -243,19 +273,27 @@ function pickCard(e, stop) {
 	return true;
 }
 
+// A TAP OPENS OR CLOSES A PILE. flow.js HEARS OF IT (id: null): THE DROP BUTTONS OF THE PILE THAT WAS OPEN GO
+function togglePile(pile) {
+	view.table.togglePile(pile);
+	view.cardOptions.onTable({ kind: "pile", pile: view.table.open(), id: null });
+}
+
 // A CHESS CARDS GAME'S TAP: A PILE OPENS OR CLOSES, A HAND CARD OR A SQUARE GOES TO cardOptions.onTable (gameplay/cards/flow.js). NOT ON THE GLASS: THAT'S THE MONITOR'S, NOR WHILE cardOptions.tableOn() IS FALSE
 function pickTable(e, stop) {
 	if (!view.table || !view.cardOptions.tableOn() || view.cameraGesture || tableDrag || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType) || glassHit(e)) { return false; } // THE MENU OPEN: THE PAGE'S CLICK-AWAY CLOSES IT, NOTHING IS PLAYED
 	const at = tableAt(e), square = at ? null : squareUnder(e), hit = at || (square ? { kind: "square", square } : null);
 	if (view.table.open() && !(at && at.kind === "pile")) { // A PILE IS OPEN: A TAP ANYWHERE ELSE CLOSES IT & DOES NOTHING MORE
 		if (stop) { e.stopPropagation(); }
-		view.table.togglePile(null);
+		togglePile(null);
 		return true;
 	}
 	if (!hit) { return false; }
 	if (stop) { e.stopPropagation(); }
-	if (hit.kind === "pile") { view.table.togglePile(hit.pile); }
-	else { view.cardOptions.onTable(hit); }
+	if (hit.kind === "pile") { // A FINGER'S TAP ON A CARD OF THE OPENED PILE: flow.js OFFERS ITS DROP BUTTON WHEN THE GAME LISTS ONE (true), ELSE THE PILE CLOSES AS FOR THE MOUSE, WHICH DRAGS THE CARD
+		if (!(view.pointerType !== "mouse" && hit.id && hit.pile === view.table.open() && view.cardOptions.onTable({ kind: "pile", pile: hit.pile, id: hit.id }))) { togglePile(hit.pile); }
+	}
+	else { view.cardOptions.onTable({ ...hit, touch: view.pointerType !== "mouse" }); } // touch: A TAP KEEPS ITS BUTTONS, THE MOUSE PLAYS BY DRAGGING (flow.js)
 	return true;
 }
 

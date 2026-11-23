@@ -6,7 +6,7 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { newGame, legalActions, applyAction, IllegalAction, playerView, playerEvents, fromView } = require("../../cards-engine/index.js");
+const { newGame, legalActions, applyAction, IllegalAction, playerView, playerLegal, playerEvents, fromView } = require("../../cards-engine/index.js");
 const { fromFen, sqIndex } = require("../../cards-engine/board.js");
 const { inCheck } = require("../../cards-engine/rules.js");
 const { makeCtx } = require("../../cards-engine/ctx.js");
@@ -148,6 +148,15 @@ test("a saved game from before these fields plays on: no remembered card, an emp
 /* ---------------------------------------------------------------- */
 // The discard pile and the active spot (Idea 4)
 /* ---------------------------------------------------------------- */
+test("the turn's free discard reaches the other player as its player and count, never its kind (a reroll would tell a passive was held)", () => {
+	const s = game();
+	s.players.w.passive = { id: "t7", key: "t-pas-a" };
+	const { state } = act(s, "w", D("t7"));
+	assert.deepEqual(state.discarded, { player: "w", kind: "passive", n: 1 });
+	assert.deepEqual(playerView(state, "w").discarded, state.discarded);
+	assert.deepEqual(playerView(state, "b").discarded, { player: "w", n: 1 });
+});
+
 test("a move card played lies face up on its player's pile; under that player's Fog of War it lies face down", () => {
 	const s = game();
 	assert.deepEqual(act(s, "w", pawnMove(s, "w", "t3")).state.players.w.pile, { n: 1, top: card("p", "t3") });
@@ -288,6 +297,37 @@ test("a drop that would put a king in check is not offered: the Stronghold rook 
 	assert.deepEqual(of(s, "w", "drop"), []);
 });
 
+/**
+ * @description The Stronghold position with Black's Fog of War up (when fog) and Black's king, hidden from White on rank 8, on sq.
+ */
+function strongholdKing(sq, fog = true) {
+	const s = stronghold(), b = s.board.sq, k = b.findIndex((p) => p && p.c === "b" && p.t === "k");
+	if (k !== sqIndex(sq)) { b[sqIndex(sq)] = b[k]; b[k] = null; }
+	if (fog) s.enchant.push({ id: "fog", key: "fog-of-war", owner: "b", pieces: [], left: 40, data: {} });
+	return s;
+}
+
+test("under the other player's Fog of War the drops a player is told don't depend on a hidden piece: the game refuses the one that would give check (final review F-I1, ruling 2026-11-22)", () => {
+	const off = strongholdKing("f8"), on = strongholdKing("d8"), told = (s) => playerLegal(s, "w").filter((a) => a.type === "drop");
+	assert.deepEqual(playerView(on, "w").board.sq, playerView(off, "w").board.sq); // WHITE SEES THE SAME BOARD: THE KING IS HIDDEN ON BOTH SQUARES
+	assert.deepEqual(told(off), [{ type: "drop", card: "t8" }]);
+	assert.deepEqual(told(on), told(off));
+	assert.deepEqual(of(on, "w", "drop"), []); // THE TRUE LIST KEEPS RULE R4: STALEMATE, CHECKMATE AND applyAction READ IT
+	const before = JSON.stringify(on);
+	assert.throws(() => act(on, "w", { type: "drop", card: "t8" }), IllegalAction);
+	assert.equal(JSON.stringify(on), before); // REFUSED AS A BLIND MOVE IS: NOTHING CHANGED
+	assert.doesNotThrow(() => act(off, "w", { type: "drop", card: "t8" }));
+});
+
+test("with no Fog of War a drop that would give check is still not told", () => {
+	const s = strongholdKing("d8", false);
+	assert.deepEqual(playerLegal(s, "w").filter((a) => a.type === "drop"), []);
+	assert.deepEqual(playerLegal(s, "w"), legalActions(s, "w"));
+	const own = strongholdKing("d8", false);
+	own.enchant.push({ id: "fog", key: "fog-of-war", owner: "w", pieces: [], left: 40, data: {} }); // THE PLAYER'S OWN FOG HIDES NOTHING FROM THEM
+	assert.deepEqual(playerLegal(own, "w").filter((a) => a.type === "drop"), []);
+});
+
 test("a turn with only drops left redraws: a drop is no card action", () => {
 	const s = game("k7/8/8/8/8/8/PP6/KB6 w - - 0 1"); // KING BOXED IN BY ITS OWN HEXED PIECES
 	for (const sq of ["a2", "b2", "b1"]) s.statuses[id(s, sq)] = [{ s: "hexed", left: 2, by: "b" }];
@@ -296,6 +336,70 @@ test("a turn with only drops left redraws: a drop is no card action", () => {
 	const { state, events } = act(s, "w", { type: "drop", card: "p1" });
 	assert.ok(events.some((e) => e.type === "redraw"));
 	assert.deepEqual(state.result, { winner: null, reason: "stalemate" });
+});
+
+/**
+ * @description White: king a1 boxed in by the b3 queen, a rook under its own Stronghold (card t8) on rookSq, Rook cards in hand. Black has made the move to: it is White's turn again. Returns applyAction's answer to that move.
+ */
+function boxed(fen, rookSq, to) {
+	const s = game(fen);
+	Object.assign(s.players.w, { moves: [1, 2, 3].map((n) => card("r", "t" + n)), actives: [{ id: "t8", key: "stronghold-common" }] }); // THE COMMON ONE: THE PIECE CAN'T MOVE
+	s.players.b.moves = [card("r", "u1"), card("r", "u2")];
+	const t = act(s, "w", of(s, "w", "active").find((a) => a.target.piece === id(s, rookSq))).state;
+	t.players.w.actives = []; // THE REFILL'S NEW ACTIVE WOULD BE A CARD ACTION
+	return act(t, "b", of(t, "b", "move").find((a) => a.to === to));
+}
+
+test("no stalemate while a drop would open a move: the Stronghold on the only mobile piece (fix round 1, I1)", () => {
+	const { state } = boxed("6k1/8/8/8/8/1q6/8/K6R w - - 0 1", "h1", "g7");
+	assert.ok(!inCheck(state, "w"));
+	assert.equal(state.result, null);
+	assert.deepEqual(of(state, "w", "move"), []);
+	assert.deepEqual(of(state, "w", "drop"), [{ type: "drop", card: "t8" }]);
+	const after = act(state, "w", { type: "drop", card: "t8" }).state;
+	assert.deepEqual([after.result, after.board.turn], [null, "w"]);
+	assert.ok(of(after, "w", "move").length > 0);
+});
+
+test("no checkmate by the cards while a drop would open the answer; a drop that opens nothing still ends the game (fix round 1, I1)", () => {
+	const { state } = boxed("4r1k1/8/8/8/8/1q6/8/K6R w - - 0 1", "h1", "e1"); // Re1+: ONLY THE STRONGHOLD ROOK CAN TAKE IT
+	assert.ok(inCheck(state, "w"));
+	assert.equal(state.result, null);
+	const after = act(state, "w", { type: "drop", card: "t8" }).state;
+	assert.equal(after.result, null);
+	assert.ok(of(after, "w", "move").some((a) => a.from === "h1" && a.to === "e1"));
+	const mate = boxed("4r1k1/8/8/7R/8/1q6/8/K7 w - - 0 1", "h5", "e1").state; // THE ROOK ON h5 CAN'T REACH: ITS DROP OPENS NOTHING
+	assert.deepEqual(mate.result, { winner: "b", reason: "checkmate" });
+});
+
+test("a placed card that does nothing buys no second redraw: the game ends as it would without the card (user ruling R-2, 2026-11-23)", () => {
+	// WHITE: KING BOXED, SEVEN BLOCKED PAWNS, ONE FREE ROOK; ONLY A ROOK CARD IN THE REDRAW GIVES A MOVE
+	const run = (seed, extra) => {
+		const s = newGame({ cardGuy: "b", level: 1300, seed });
+		s.board = fromFen("7k/8/8/8/2p1p1p1/p1PpPpPp/P1pP1P1P/K6R w - - 0 20");
+		Object.assign(s.players.w, { moves: [1, 2, 3, 4, 5].map((n) => card("p", "t" + n)), actives: [], passive: null });
+		Object.assign(s.players.b, { moves: [1, 2, 3, 4, 5].map((n) => card("p", "u" + n)), actives: [], passive: null });
+		if (extra) s.effects.push(placed("x1", "t-pas-a"));
+		return act(s, "w", D("t1")).state.result; // NO CARD ACTION AFTER THE DISCARD: THE REDRAW RUNS
+	};
+	let stale = 0;
+	for (let seed = 1; seed <= 120; seed++) {
+		const bare = run(seed, false);
+		if (bare) stale++;
+		assert.deepEqual(run(seed, true), bare, "seed " + seed);
+	}
+	assert.ok(stale >= 5, "only " + stale + " of 120 redraws found no Rook card");
+});
+
+test("placed cards can be dropped after a Mulligan, before the one move it leaves; not in another two-move turn (fix round 1, R5)", () => {
+	const t = game();
+	t.effects.push(placed("p1", "t-pas-a"));
+	t.multi = { player: "w", left: 1, moved: [], mulled: true };
+	assert.deepEqual(of(t, "w", "drop"), [{ type: "drop", card: "p1" }]);
+	const { state } = act(t, "w", { type: "drop", card: "p1" });
+	assert.deepEqual([state.effects, state.board.turn, state.multi], [[], "w", t.multi]);
+	t.multi = { player: "w", left: 2, moved: [], differ: true };
+	assert.deepEqual(of(t, "w", "drop"), []);
 });
 
 /* ---------------------------------------------------------------- */

@@ -229,8 +229,8 @@ function frame(now) {
 	view.tweens.step(now);
 	if (view.cameraTurn) { stepCamera(now); }
 	if (view.zoom) { stepZoom(now); }
-	if (view.controls.enableDamping && !view.zoom && monitorIdle()) { view.controls.update(); } // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME. NOT AT THE MONITOR: IT WOULD AIM THE CAMERA BACK AT THE BOARD
-	followCamera(); // THE HOVER BOX STAYS UNDER A STILL POINTER WHILE THE CAMERA MOVES BY ITSELF
+	const gliding = view.controls.enableDamping && !view.zoom && monitorIdle() && view.controls.update(); // STILL GLIDING: ITS "change" ASKS FOR THE NEXT FRAME. NOT AT THE MONITOR: IT WOULD AIM THE CAMERA BACK AT THE BOARD
+	followCamera(gliding); // THE HOVER BOX STAYS UNDER A STILL POINTER WHILE THE CAMERA MOVES BY ITSELF
 	stepFire(now, view.renderer.domElement.height); // ITS OWN TIMER ASKS FOR ITS FRAMES (fire.js)
 	stepClock(); // SO DOES THE CLOCK'S (clock.js)
 	view.renderer.render(view.scene, view.camera);
@@ -649,6 +649,14 @@ export function dropCard() {
  */
 export function toggleCardPile(pile) {
 	if (view && view.table) { view.table.togglePile(pile); }
+}
+
+/**
+ * @description The pile that is open
+ * @return {[string|null]} [a key of tableLayout.js PILES, null for none]
+ */
+export function openCardPile() {
+	return view && view.table ? view.table.open() : null;
 }
 
 /**

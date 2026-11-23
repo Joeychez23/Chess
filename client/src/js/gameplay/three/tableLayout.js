@@ -2,6 +2,7 @@
 
 import { CARD_SIZE, DECK, CARD_Y } from "./cardLayout.js";
 import { handCards } from "../cards/select.js";
+import { PILE_AREA } from "./piles.js";
 
 export const HAND_Z = 17.7; // THE PLAYER'S ROW ON THE NEAR GREEN (THE PROMOTION STRIP'S x, MIRRORED ONTO z), CARD GUY'S AT -HAND_Z. CLEAR OF THE BOARD'S FRAME (14.25)
 const HAND_STEP = 4.6; // CENTRE TO CENTRE (TABLE UI DOC)
@@ -10,19 +11,22 @@ const PILE_CLEAR = 3.5; // EACH PLACE THIS FAR FROM THE DECKS' EDGE (A DECK SPAN
 const PEEK = 1.2; // AN OLDER CARD OF A SHUT PILE PEEKS OUT BY ITS NAME BAR; AN OPENED COLUMN'S CARDS NEVER OVERLAP MORE
 const COLUMN_GAP = 0.3; // BETWEEN AN OPENED COLUMN'S WHOLE CARDS
 const PILE_Z = { mine: 3 + PILE_CLEAR + CARD_SIZE.h / 2, his: -3.36 - PILE_CLEAR - CARD_SIZE.h / 2 }; // 9.5 & -9.86. THE NEWEST CARD'S CENTRE: YOURS BELOW THE DECKS, CARD GUY'S ABOVE
+const HIS_PASSIVE_Z = PILE_AREA.z0 - 0.5 - CARD_SIZE.h / 2; // -22. CARD GUY'S PASSIVE PILE: JUST BEYOND THE TAKEN PIECES (piles.js PILE_AREA z -18.5 .. -5.5 AT THE DECK'S x), WHICH STOOD ON IT AT -9.86. ITS COLUMN OF 3 ENDS AT z -37.6 (THE DESK AT -40),
+// 3.95 RIGHT OF THE LAMP'S FOOT, 1.8 LEFT OF HIS HAND ROW (TASK 20e D FIX ROUND 1, I3)
 const PLACE_REACH = 0.5; // placeAt: THIS FAR ROUND A PLACE'S CARD STILL COUNTS
 export const ASKEW = 0.3; // THE REMEMBERED MOVE CARD LIES TURNED THIS MUCH (RADIANS) ON THE DISCARD PILE
 
-// THE PLACES THAT OPEN INTO A COLUMN: THE PASSIVE PILES ("mine", "his": WHERE THE BOARD EFFECTS PILES WERE) & THE ACTIVE SPOTS, ON THE WOOD LEFT OF THEM. dir: TOWARD THE OWNER, end: WHERE THE COLUMN STOPS (THE DESK IS z -40 .. 32).
+// THE PLACES THAT OPEN INTO A COLUMN: THE PASSIVE PILES ("mine": WHERE THE BOARD EFFECTS PILE WAS, "his": BEYOND THE TAKEN PIECES) & THE ACTIVE SPOTS, ON THE WOOD LEFT OF THEM. dir: TOWARD THE OWNER, end: WHERE THE COLUMN STOPS (THE DESK IS z -40 .. 32).
 // CARD GUY'S ACTIVE SPOT IS 4.2 FARTHER LEFT THAN YOURS, CLEAR OF THE TAKEN PIECES (piles.js PILE_AREA x -31 .. -23), & ITS COLUMN STOPS SHORT OF THE LAMP'S FOOT (RADIUS 4.4 ROUND x -35, z -25).
 // shortcut: 8 OR MORE ACTIVES IN EFFECT AT ONCE FOR CARD GUY RUN UNDER THE LAMP'S FOOT (PEEK IS THE LEAST OVERLAP), TURN THE COLUMN IF A CARD EVER ALLOWS THAT MANY
 export const PILES = {
 	mine: { side: "mine", place: "passive", x: DECK.x, z: PILE_Z.mine, dir: 1, end: 31.5 },
-	his: { side: "his", place: "passive", x: DECK.x, z: PILE_Z.his, dir: -1, end: -39.5 },
+	his: { side: "his", place: "passive", x: DECK.x, z: HIS_PASSIVE_Z, dir: -1, end: -39.5 },
 	mineSpot: { side: "mine", place: "spot", x: -29.4, z: PILE_Z.mine, dir: 1, end: 31.5 },
 	hisSpot: { side: "his", place: "spot", x: -33.6, z: PILE_Z.his, dir: -1, end: -20 },
 };
-export const DISCARD = { mine: { x: -DECK.x, z: PILE_Z.mine }, his: { x: -DECK.x, z: PILE_Z.his } }; // BY THE GREEN DECK (USER RULING 2026-11-22). NEVER OPENED
+const DISCARD_X = 34; // ON THE GREEN DECK'S OUTER SIDE, CLEAR OF THE TAKEN PIECES (piles.js PILE_AREA MIRRORED: THEY REACH x 31): 31 + 0.85 (placeAt'S REACH & A GAP) + HALF A CARD (2.15). THE CARD ENDS AT x 36.15, THE DESK AT 48
+export const DISCARD = { mine: { x: DISCARD_X, z: PILE_Z.mine }, his: { x: DISCARD_X, z: PILE_Z.his } }; // BY THE GREEN DECK (USER RULING 2026-11-22): YOURS NEARER YOU, CARD GUY'S FARTHER. NEVER OPENED
 
 /**
  * @description How far apart an opened column's cards lie: whole cards while the column fits, else overlapping in the room there is, by no less than a name bar
@@ -72,14 +76,27 @@ export function placeAt(x, z) {
 }
 
 /**
+ * @description Where a ray meets a level plane: the desk under the pointer, where a dragged card is dropped (the card itself floats higher, so nearer the camera)
+ * @param {{ x: number, y: number, z: number }} origin the ray's start
+ * @param {{ x: number, y: number, z: number }} dir its direction
+ * @param {number} y the plane's height
+ * @returns {{ x: number, z: number }|null} null when the ray never comes down (or up) to it
+ */
+export function deskPoint(origin, dir, y) {
+	const t = (y - origin.y) / dir.y;
+	return dir.y && t > 0 ? { x: origin.x + dir.x * t, z: origin.z + dir.z * t } : null;
+}
+
+/**
  * @description Where every card of the view lies: the player's hand, Card Guy's (face down, but the King card & the cards the player may see face up), & both players' active spot, passive pile & discard pile.
  * A card is keyed by its owner & id wherever it lies, so a played card is the same card on its way to its place; one the view hides has its place's key
  * @param {object} view cards.view
- * @param {{ open?: string|null, base: number, layer: number }} opts open: the opened pile (a key of PILES), base: the desk's height for a lying card, layer: a card's thickness
+ * @param {{ open?: string|null, base: number, layer: number, stage?: object|null }} opts open: the opened pile (a key of PILES), base: the desk's height for a lying card, layer: a card's thickness,
+ * stage: { id, from: "hand" | "pile", place: "spot" | "passive" | "discard" }: the player's card that was dragged from there & let go on that place of theirs lies on it (staged: true), until the view moves it
  * @returns {Map<string, object>} key -> { card (null: face down), x, y, z, yaw?, faceDown, barBottom, hand (the player's), pile (a key of PILES | null), discard ("mine" | "his", a discard pile's), color (the owner's: the glyph's colour),
  * top (a pile's newest), thick (a discard pile's block: this many cards), from (a new card slides in from: "deck", Card Guy's "hand", null: it's put there) }
  */
-export function tableSpots(view, { open = null, base, layer }) {
+export function tableSpots(view, { open = null, base, layer, stage = null }) {
 	const want = new Map(), you = view.you, opp = you === "w" ? "b" : "w";
 	const key = (owner, card, place) => `${owner}:${card && !card.down && card.id !== undefined ? card.id : place}`;
 	const row = (n, i) => (i - (n - 1) / 2) * (n > HAND_FIT ? (HAND_STEP * (HAND_FIT - 1)) / (n - 1) : HAND_STEP);
@@ -99,6 +116,12 @@ export function tableSpots(view, { open = null, base, layer }) {
 		if (under) { want.set(`${owner}:#under`, lie({ down: true }, base, { thick: under, from: null })); } // HOW THICK THE PILE IS: ONE BLOCK, THE CARDS UNDER THE TOP ONE
 		if (top) { want.set(key(owner, top, `#top${n}`), lie(top, base + under * layer)); } // A FACE-DOWN TOP IS KEYED BY THE COUNT: THE NEXT ONE IS A NEW CARD THAT SLIDES IN
 		if (pl.kept) { want.set(key(owner, pl.kept, "#kept"), lie(pl.kept, base + (under + (top ? 1 : 0)) * layer, { yaw: ASKEW })); }
+	}
+	const s = stage && want.get(`${you}:${stage.id}`);
+	if (s && (stage.from === "hand" ? s.hand : Boolean(s.pile))) { // STILL WHERE IT WAS DRAGGED FROM: ONCE THE ANSWER MOVES IT, IT GOES TO ITS OWN PLACE
+		const pile = stage.place === "spot" ? "mineSpot" : "mine", p = stage.place === "discard" ? DISCARD.mine : PILES[pile];
+		const under = stage.place === "discard" ? (((view.players[you] || {}).pile || {}).n || 0) + 2 : pileCards(view, pile).length; // ON TOP OF WHAT LIES THERE (THE DISCARD PILE: ITS REMEMBERED CARD TOO)
+		Object.assign(s, { x: p.x, y: base + under * layer, z: p.z, staged: true });
 	}
 	return want;
 }

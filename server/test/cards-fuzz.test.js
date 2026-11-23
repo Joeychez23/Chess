@@ -7,7 +7,7 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { newGame, legalActions, applyAction, playerView, playerEvents } = require("../../cards-engine/index.js"); // THE REAL LOADER: NO reset, NO register HERE
+const { newGame, legalActions, applyAction, playerView, playerEvents, playerLegal, actionKey } = require("../../cards-engine/index.js"); // THE REAL LOADER: NO reset, NO register HERE
 const { baseKey, CARDS } = require("../../cards-engine/cards/index.js");
 const { inCheck } = require("../../cards-engine/rules.js");
 const { fromView } = require("../../cards-engine/view.js");
@@ -234,7 +234,15 @@ function checkDiscard(s, color, acts, a, state, events, hit) {
 function checkDrop(s, color, acts, a, state, events) {
 	const mine = [...s.effects.filter((e) => e.owner === color).map((e) => e.id), ...(s.players[color].spot || []).map((c) => c.id)];
 	const listed = acts.filter((x) => x.type === "drop");
-	assert.ok(listed.every((x) => mine.includes(x.card)) && !(listed.length && s.multi), "a drop of a card that isn't the player's own placed one, or in a two-move turn");
+	assert.ok(listed.every((x) => mine.includes(x.card)) && !(listed.length && s.multi && !s.multi.mulled), "a drop of a card that isn't the player's own placed one, or in a two-move turn"); // AFTER MULLIGAN THEY STAY (RULING R5)
+	if (boardFog(s, other(color))) { // UNDER THE OTHER PLAYER'S FOG THE TOLD DROPS ARE EVERY OWN PLACED CARD, WHATEVER CHECK A DROP WOULD GIVE: NOTHING OF A HIDDEN PIECE (FINAL REVIEW F-I1; applyAction REFUSES THE ONE THAT GIVES CHECK)
+		const live = s.enchant.filter((e) => e.owner === color).map((e) => baseKey(e.key)); // AN ACTIVE IN EFFECT: A SPOT CARD WITH AN ENCHANTMENT OF ITS OWN LEFT, THE NEWEST CARD FIRST
+		const spot = [...(s.players[color].spot || [])].reverse().filter((c) => { const i = live.indexOf(baseKey(c.key)); if (i >= 0) live.splice(i, 1); return i >= 0; }).reverse();
+		const own = s.multi && s.multi.player === color && !s.multi.mulled ? [] : [...s.effects.filter((e) => e.owner === color).sort((x, y) => x.placedAt - y.placedAt).map((e) => e.id), ...spot.map((c) => c.id)];
+		const told = playerLegal(s, color).filter((x) => x.type === "drop");
+		assert.deepEqual(told, own.map((card) => ({ type: "drop", card })).filter((x) => actionKey(x) !== s.barred), "under the other player's fog the told drops aren't the player's own placed cards");
+		assert.ok(listed.every((x) => told.some((y) => y.card === x.card)), "a legal drop isn't told under the other player's fog");
+	}
 	if (a.type !== "drop") return;
 	const before = s.players[color], after = state.players[color], passive = s.effects.find((e) => e.id === a.card);
 	assert.deepEqual(events[0], { type: "card-dropped", player: color, card: passive ? passive.card : before.spot.find((c) => c.id === a.card) }, "a drop's first event");
@@ -390,6 +398,26 @@ if (isMainThread) {
 		clean(r, t);
 		assert.ok(r.stats["x:mirage-fog"] >= 50, "a Mirage was held under a fog after only " + (r.stats["x:mirage-fog"] || 0) + " actions");
 		assert.ok(r.stats["x:mirage-duel"] >= 5, "a Mirage was held in a duel after only " + (r.stats["x:mirage-duel"] || 0) + " actions");
+	});
+
+	test("placed cards under a Fog of War (either side's, any version): the drops a player is told are its own placed cards, whatever the hidden pieces", (t) => {
+		const r = soak(SEEDS, {
+			plies: 60,
+			setup(s, seed) {
+				fogUp(s, seed % 2 ? "w" : "b", ["fog-of-war", "fog-of-war-rare", "fog-of-war-epic"][seed % 3], 40);
+				for (const c of ["w", "b"]) { place(s, "grace", c); s.players[c].actives = [hand.newCard(s, "stronghold")]; }
+			},
+			note(state, events, hit) {
+				const c = state.board.turn;
+				if (state.result || state.pending || state.duel || !boardFog(state, other(c))) return;
+				const told = playerLegal(state, c).filter((a) => a.type === "drop").length;
+				if (told) hit("x:fog-drops");
+				if (told > legalActions(state, c).filter((a) => a.type === "drop").length) hit("x:fog-drop-refused");
+			},
+		});
+		clean(r, t);
+		assert.ok(r.stats["x:fog-drops"] >= 50, "drops were told under a fog after only " + (r.stats["x:fog-drops"] || 0) + " actions");
+		assert.ok(r.stats["x:fog-drop-refused"] >= 1, "the soak never reached a told drop the game refuses");
 	});
 
 	test("a Mirage holder's mating capture taken back by Grace: the Mirage it passed is back in its hand, and neither view nor the events name it to its holder", () => {

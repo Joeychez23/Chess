@@ -60,11 +60,12 @@ export function setPickable(squares) {
 }
 
 /**
- * @description Each frame, before it's drawn (three/index.js frame): while the camera moves by itself (Auto Lean's glide, a framed deal or pile, a Flip Board turn) the box follows
+ * @description Each frame, before it's drawn (three/index.js frame): while the camera moves by itself (Auto Lean's glide, a framed deal or pile, a Flip Board turn, or gliding on by damping after an orbit or zoom is let go) the box follows
  * the tile under the still pointer, so a click always lands on the tile the box shows. The mouse cursor is hidden there: the box is the only pointer
+ * @param  {boolean} gliding the camera controls moved the camera this frame (damping)
  */
-export function followCamera() {
-	if (!view.hover || !view.hover.tile || !(view.dealEase || view.cameraTurn)) { return; }
+export function followCamera(gliding) {
+	if (!view.hover || !view.hover.tile || !(view.dealEase || view.cameraTurn || gliding)) { return; }
 	view.camera.updateMatrixWorld(); // THE RAY IS CAST FROM IT, & IT'S ONLY BROUGHT UP TO DATE AS THE FRAME IS DRAWN
 	rehover();
 }

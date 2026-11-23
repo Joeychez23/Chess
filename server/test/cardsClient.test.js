@@ -335,6 +335,17 @@ test("keyPlan: while a card game is on, the arrows and Enter never reach the pag
 	assert.equal(plan("Escape"), "page");
 });
 
+test("keyPlan: Escape closes an opened pile before it goes to the menu, on the turn & off it; a pick goes down first (Task 20e D, M3)", () => {
+	const plan = (k = {}) => S.keyPlan({ key: "Escape", on: true, yours: true, ...k });
+	assert.equal(plan({ pile: true }), "hand");
+	assert.equal(plan({ pile: true, yours: false }), "hand");
+	assert.equal(plan({ pile: true, picked: true }), "hand");
+	assert.equal(plan({ pile: true, repeat: true }), "hand");
+	assert.equal(plan({ pile: true, promoting: true }), "hand");
+	assert.equal(plan({ pile: false, yours: false }), "page");
+	assert.equal(plan({ pile: true, on: false }), "page"); // THE GAME OVER: THE PAGE'S
+});
+
 test("keyPlan: an arrow takes the focus off a focused button first; a focused button keeps Enter, on the turn or off it (N1)", () => {
 	const plan = (key, k = {}) => S.keyPlan({ key, on: true, yours: true, button: true, ...k });
 	assert.equal(plan("ArrowDown"), "blur");

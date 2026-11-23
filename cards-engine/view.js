@@ -76,6 +76,7 @@ function playerView(state, player) {
 	const bare = (c) => { const { down, ...card } = c; return down && !state.result ? { down } : card; }; // A FACE-DOWN CARD: ITS BACK ONLY
 	Object.assign(vo, { spot: o.spot || [], pile: { n: (o.pile && o.pile.n) || 0, top: o.pile && o.pile.top ? bare(o.pile.top) : null }, kept: o.kept ? bare({ ...o.kept, down: !o.kept.faceUp }) : null });
 	if (me.pile && me.pile.top) delete me.pile.top.down; // player'S OWN: THE CARD
+	if (v.discarded && v.discarded.player === opp && !state.result) v.discarded = { player: opp, n: v.discarded.n }; // NOT THE KIND: "passive" WOULD TELL THE OTHER PLAYER HELD ONE
 	for (const e of v.enchant) if (!state.result && baseKey(e.key) === "trapdoor" && e.owner !== player && e.data) delete e.data.square; // OVER: THE SQUARE SHOWS
 	for (const e of v.enchant) if (e.data && isSight(e)) { delete e.data.ids; delete e.data.fake; } // WHICH CARDS A SIGHT SHOWS, AND WHICH ARE FAKE (sight.js), STAY HIDDEN
 	const fog = !state.result && fogged(state, opp, player); // A FINISHED GAME HIDES NOTHING (USER RULING 2026-11-21)
@@ -212,11 +213,12 @@ function toFen(stateOrView) {
 }
 
 /**
- * @description The legal actions player is told: all of them, but under the opponent's Fog of War none that would show where a hidden piece stands: no move, no action with a move in it (Last Stand) and none naming a hidden piece. The rules don't change: applyAction still takes any legal action.
+ * @description The legal actions player is told: all of them, but under the opponent's Fog of War none that would show where a hidden piece stands: no move, no action with a move in it (Last Stand) and none naming a hidden piece; and every drop of player's own placed cards is told, also one that would put a king in check, which applyAction refuses (as a blind move). The rules don't change: applyAction still takes any legal action.
  */
 function playerLegal(state, player) {
-	const all = require("./turn.js").legalActions(state, player); // LAZY: turn.js LOADS THE CARDS, WHICH LOAD THIS FILE'S NEIGHBOURS
-	if (!fogged(state, other(player), player)) return all;
+	const turn = require("./turn.js"); // LAZY: turn.js LOADS THE CARDS, WHICH LOAD THIS FILE'S NEIGHBOURS
+	if (!fogged(state, other(player), player)) return turn.legalActions(state, player);
+	const all = turn.legalActions(state, player, true); // EVERY DROP OF THE PLAYER'S OWN PLACED CARDS: LEAVING OUT THE ONE THAT GIVES CHECK WOULD TELL WHERE A HIDDEN KING STANDS (RULING 2026-11-22)
 	const ids = hiddenIds(state, other(player));
 	return all.filter((a) => !JSON.stringify(a).includes('"move"') && !ids.some((id) => JSON.stringify(a).includes('"' + id + '"')));
 }

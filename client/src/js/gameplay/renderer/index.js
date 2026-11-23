@@ -374,6 +374,14 @@ export function toggleTablePile3D(pile) {
 	if (board3D) { board3D.toggleCardPile(pile); }
 }
 
+/**
+ * @description The pile that is open on the 3D board
+ * @return {[string|null]} ["mine", "his", "mineSpot" or "hisSpot", null for none]
+ */
+export function tablePileOpen3D() {
+	return board3D ? board3D.openCardPile() : null;
+}
+
 function applyTable3D() {
 	if (!board3D || !table) { return; }
 	const { view, legal, opts } = table;
