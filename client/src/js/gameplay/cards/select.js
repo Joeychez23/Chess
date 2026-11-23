@@ -219,6 +219,7 @@ function cardlessUnderFog(view, piece) {
  */
 function lift(legal, view, cardId, hidden = false) {
 	if (cardId === null) { return { card: null, actions: legal.slice(), picks: [] }; }
+	if (view.duel) { return { card: cardId, actions: [], picks: [] }; } // A CARD DUEL IS ON: A HAND CARD PLAYS NOTHING, UNDER FOG TOO
 	const card = handCards(view).find((c) => c.id === cardId), discard = discardsFor(legal, view, cardId); // DISCARDS STAY LISTED UNDER FOG
 	if (hidden && card && (card.kind === "king" || card.kind === "move")) { return { card: cardId, actions: [...blindMoves(view, card), ...discard], picks: [] }; }
 	if (hidden && card && isCard(card.key, "last-stand")) { return { card: cardId, actions: [...blindLastStand(view, card), ...discard], picks: [] }; }
@@ -235,6 +236,7 @@ function lift(legal, view, cardId, hidden = false) {
  * @return {[object|null]} pick [null when it can't move]
  */
 function pickPiece(legal, view, square, hidden = false) {
+	if (view.duel) { return null; } // A CARD DUEL IS ON: NO PIECE IS PICKED UP, UNDER FOG TOO
 	if (!hidden) {
 		const actions = shortcutFor(legal, square);
 		return actions.length ? { card: null, actions, picks: [square] } : null;
@@ -395,13 +397,14 @@ function promptPlays(plays, { mouse = false, picks = 0, placed = false } = {}) {
 
 /**
  * @description The keyboard's stops, in order: the hand, then the player's pieces with a move that needs no card (cardless in legal; under fog those cardlessUnderFog covers),
- * then each Board Effects pile that holds a card ("mine" first), then each active spot that holds one ("mineSpot", "hisSpot")
+ * then each Board Effects pile that holds a card ("mine" first), then each active spot that holds one ("mineSpot", "hisSpot"). While a card duel is on: only the duel cards legal lets the player pick
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} view [cards.view]
  * @param  {[boolean]} hidden [cards.hidden]
- * @return {[array]} [{ kind: "hand", id } | { kind: "square", square } | { kind: "pile", pile }]
+ * @return {[array]} [{ kind: "hand", id } | { kind: "square", square } | { kind: "pile", pile } | { kind: "duel", index }]
  */
 function focusList(legal, view, hidden) {
+	if (view.duel) { return legal.filter((a) => a.type === "duel" && Number.isInteger(a.pick)).map((a) => ({ kind: "duel", index: a.pick })); }
 	const me = view.you, opp = me === "w" ? "b" : "w";
 	const squares = hidden ? view.board.sq.map((p, i) => (p && p.c === me && cardlessUnderFog(view, p) ? sqName(i) : null)).filter(Boolean)
 		: [...new Set(legal.filter((a) => a.type === "move" && a.card === null).map((a) => a.from))];
@@ -479,6 +482,7 @@ function label(action, view, catalog, taken = null) {
 				const name = taken && taken.id === o && (taken.key === "move" ? PIECE_NAMES[taken.piece] : catalog[taken.key] && catalog[taken.key].name);
 				return name ? `Your ${name} card` : "The card taken from you";
 			}
+			if (view.pending && isCard(view.pending.card, "all-or-nothing") && PIECE_NAMES[o]) { return PIECE_NAMES[o]; } // THE DUEL'S FIRST WIN: KNIGHT OR BISHOP
 			return pieceAt(o) || (catalog[o] && catalog[o].name) || cardName(o) || (o[0] === "?" ? "A hidden card" : o);
 		}
 		case "active": {
@@ -494,6 +498,7 @@ function label(action, view, catalog, taken = null) {
 			if (t.piece) { return pieceAt(t.piece) || "That piece"; }
 			return "Play it";
 		}
+		case "duel": return action.stop === undefined ? `Card ${action.pick + 1}` : action.stop ? "Stop" : "Continue";
 		default: return capital(action.type);
 	}
 }
@@ -540,4 +545,25 @@ function promptFocus(actions) {
 	return actions.length && (actions[0].type === "discard" || actions[0].type === "drop") ? actions.length : 0;
 }
 
-module.exports = { movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, dropPlay, pileDrops, promptPlays, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES, VALUE, CARD_MOVES };
+/**
+ * @description Whether the player is asked for an answer: every legal action is a choice's option, or a card duel's Stop or Continue (step decide). The prompt's buttons are all of them,
+ * with no Cancel, & nothing else is picked meanwhile
+ * @param  {[array]} legal [cards.legal]
+ * @return {[boolean]}
+ */
+function asking(legal) {
+	return legal.length > 0 && legal.every((a) => a.type === "choice" || (a.type === "duel" && a.stop !== undefined));
+}
+
+/**
+ * @description The key of the card a choice or the card duel's Stop or Continue is asked for (flow.js askingCard: the prompt's title & border): while a duel is on its own card, the version
+ * played, also for All or Nothing's Knight or Bishop (the engine asks it with the base key), else the pending choice's card
+ * @param  {[object]} view [cards.view]
+ * @return {[string|null]} key
+ */
+function askedBy(view) {
+	const p = view.pending, d = view.duel;
+	return (d && (!p || p.card === "all-or-nothing") ? d.card : p && p.card) || null;
+}
+
+module.exports = { asking, askedBy, movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, dropPlay, pileDrops, promptPlays, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES, VALUE, CARD_MOVES };

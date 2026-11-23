@@ -4,14 +4,16 @@ import { CanvasTexture, SRGBColorSpace, MeshBasicMaterial, Mesh, Plane, Vector3 
 import { CARD_SIZE, DECK, CARD_Y } from "./cardLayout.js";
 import { findParts, frameGeometry, lerp, CARD_LIGHT, CARD_BACK, HOVER_LIGHT, FOCUS, FRAME_GAP, FRAME_WIDTH, FRAME_DROP, LIFT, LIFT_MS, DEAL_MS, DEAL_STAGGER_MS, STACK_STEP, FACE_W, FACE_H } from "./cards.js";
 import { DESK_Y } from "./constants.js";
-import { faceOf, drawPlayFace } from "./cardFaces.js";
-import { tableSpots, pileCards, columnBox, placeAt, deskPoint, PILES, DISCARD, HAND_Z } from "./tableLayout.js";
+import { faceOf, drawPlayFace, drawDuelFace } from "./cardFaces.js";
+import { tableSpots, pileCards, columnBox, placeAt, deskPoint, duelLayout, PILES, DISCARD, HAND_Z } from "./tableLayout.js";
 
 const LAYER = STACK_STEP + 0.001; // A CARD'S THICKNESS (cards.js STACK_STEP) & A HAIR: AN OVERLAPPING CARD LIES ON THE ONE UNDER IT
 const DIM_LIGHT = 0x6E6654; // A HAND CARD WITH NO PLAY BUT A DISCARD THIS TURN (select.js dimmed): ITS FACE UNDER LESS LIGHT
 const GREEN_DECK = { x: -DECK.x, z: DECK.z }; // THE MIRROR OF THE RED DECK (BAKED INTO THE ROOM)
 const GREEN_DECK_CARDS = 4; // AS MANY SLABS AS THE RED DECK, SQUARED UP: ONE CARD'S FOOTPRINT
 const GREEN_BACK = 0x0E3B22;
+const GREEN_TOP = DESK_Y + GREEN_DECK_CARDS * STACK_STEP; // A DUEL CARD DEALT FROM (& GOING BACK TO) THE GREEN DECK LIES ON ITS TOP SLAB
+const FLIP_LIFT = CARD_SIZE.w / 2 + 0.2; // A FLIPPING DUEL CARD TURNS ON ITS LONG AXIS: HALF ITS WIDTH UP, SO ITS EDGE CLEARS THE BAIZE
 const PICK_LIFT = 1.1; // A LIFTED (PICKED) CARD FLOATS THIS HIGH, ABOVE A HOVERED ONE
 const PILE_FACE = 0.5; // THE LIFTED CARD'S PREVIEW: THIS FRACTION OF THE FACE TEXTURE'S SIZE
 const DRAG_Y = CARD_Y + PICK_LIFT; // A DRAGGED CARD FLOATS AT A LIFTED HAND CARD'S HEIGHT, UNDER THE POINTER
@@ -22,7 +24,7 @@ const PILE_NAMES = { mine: "Your passives", his: "Card Guy's passives", mineSpot
  * @description The Chess Cards table in the room, made from its card template. Children of the room, so they turn with it (Flip Board)
  * @param {{ template: Object3D, room: Group, tweens: object, requestRender: () => void, still?: () => boolean, frame?: (box: object|null) => void }} options as createCards (cards.js), & frame: the camera frames this much of the desk
  * (an opened pile's column, tableLayout.js columnBox), null: it goes back (camera.js framePile)
- * @returns {{ set: Function, lift: Function, hover: Function, hit: Function, togglePile: Function, open: Function, grab: Function, follow: Function, release: Function, settle: Function, dispose: Function }|null} the table, null when the template can't be used
+ * @returns {{ set: Function, lift: Function, hover: Function, hit: Function, togglePile: Function, open: Function, grab: Function, follow: Function, release: Function, settle: Function, dealDuel: Function, flipDuel: Function, endDuel: Function, dispose: Function }|null} the table, null when the template can't be used
  */
 export function createCardTable({ template, room, tweens, requestRender, still = () => false, frame: frameBox = () => {} }) {
 	if (!findParts(template)) { return null; }
@@ -33,7 +35,9 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 	frame.visible = false;
 	room.add(frame);
 	const cards = new Map(); // KEY (tableLayout.js tableSpots: THE OWNER & THE CARD'S ID) -> { root, face, faceMaterial, canvas, texture, faceKey, scaleY, spot, at, lift, liftTo, moveToken, liftToken, landed }
-	let current = { view: null, catalog: {}, focus: null, focusPile: null, dim: [] };
+	let current = { view: null, catalog: {}, focus: null, focusPile: null, focusDuel: null, dim: [] };
+	const duelCards = new Map(), leaving = new Set(); // duelCards: tableLayout.js duelLayout's KEY -> A CARD AS cards' WITH duel (ITS duelLayout ENTRY, card SET AS IT FLIPS) & outline (THE WON CARD'S GOLD FRAME); leaving: GOING BACK TO THE GREEN DECK
+	let duelDeal = null; // THE DUEL LAID: { round, player, piece, spades, flips: the set flipDuel turns }; WHILE SET THE HANDS LIE STACKED
 	const lands = Object.entries(LANDINGS).map(function ([place, p]) { // A GOLD FRAME ROUND EACH PLACE THE DRAGGED CARD CAN BE LET GO ON (AN EMPTY PLACE DRAWS NOTHING ELSE)
 		const m = new Mesh(frame.geometry, frameMaterial);
 		m.position.set(p.x, DESK_Y + 0.02, p.z);
@@ -51,7 +55,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		const root = template.clone(true), parts = findParts(root);
 		root.visible = true; // THE TEMPLATE IS HIDDEN (room.js), ITS CLONE WITH IT
 		parts.back.material = back;
-		const c = { root, face: parts.face, faceMaterial: null, canvas: null, texture: null, faceKey: null, scaleY: root.scale.y, spot: null, at: null, lift: 0, liftTo: 0, moveToken: 0, liftToken: 0, landed: false };
+		const c = { root, face: parts.face, back: parts.back, faceMaterial: null, canvas: null, texture: null, faceKey: null, scaleY: root.scale.y, spot: null, at: null, lift: 0, liftTo: 0, moveToken: 0, liftToken: 0, landed: false };
 		if (faceDown) { parts.face.material = back; root.rotation.z = Math.PI; } // TURNED OVER: THE BACK ON TOP
 		else {
 			c.canvas = document.createElement("canvas");
@@ -91,20 +95,21 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 	// THE FRAME'S HEIGHT: A HAND CARD'S JUST UNDER IT, A PILE CARD'S AT ITS OWN HEIGHT (UNDER IT IS THE DESK TOP, WHICH HIDES IT)
 	const frameY = (c) => c.spot.y - (c.spot.pile ? 0 : FRAME_DROP);
 
-	// SLIDES A CARD TO ITS SPOT (FROM THE DECK WHEN IT'S NEW), AS THE PROMOTION CARDS ARE DEALT
-	function moveTo(c, delay) {
+	// SLIDES A CARD TO ITS SPOT (FROM THE DECK WHEN IT'S NEW), AS THE PROMOTION CARDS ARE DEALT. done: RUNS ONCE IT LANDS, UNLESS ANOTHER SLIDE OR free() CAME FIRST
+	function moveTo(c, delay, done = () => {}) {
 		const token = ++c.moveToken, from = { ...c.at }, to = { x: c.spot.x, y: c.spot.y, z: c.spot.z, yaw: c.spot.yaw || 0 };
-		if (still() || (from.x === to.x && from.y === to.y && from.z === to.z && from.yaw === to.yaw)) { c.at = to; c.landed = true; place(c); return; }
+		if (still() || (from.x === to.x && from.y === to.y && from.z === to.z && from.yaw === to.yaw)) { c.at = to; c.landed = true; place(c); done(); return; }
 		c.landed = false;
 		tweens.add({
 			duration: DEAL_MS, delay,
 			update(k) { if (token !== c.moveToken) { return; } c.at = { x: lerp(from.x, to.x, k), y: lerp(from.y, to.y, k), z: lerp(from.z, to.z, k), yaw: lerp(from.yaw, to.yaw, k) }; place(c); },
-			onEnd() { if (token === c.moveToken) { c.landed = true; placeFrame(); requestRender(); } },
+			onEnd() { if (token === c.moveToken) { c.landed = true; placeFrame(); requestRender(); done(); } },
 		});
 	}
 
-	// THE KEYBOARD'S CARD: A HAND CARD, OR A PILE'S NEWEST
-	const focusedCard = () => (current.focus ? cards.get(`${current.view.you}:${current.focus}`) || null : current.focusPile ? [...cards.values()].find((c) => c.spot.pile === current.focusPile && c.spot.top) || null : null);
+	// THE KEYBOARD'S CARD: A HAND CARD, A PILE'S NEWEST, OR ONE OF THE PLAYER'S DUEL CARDS OF THE CURRENT SET
+	const focusedCard = () => (current.focus ? cards.get(`${current.view.you}:${current.focus}`) || null : current.focusPile ? [...cards.values()].find((c) => c.spot.pile === current.focusPile && c.spot.top) || null
+		: current.focusDuel !== null && duelDeal ? duelCards.get(`mine:${duelDeal.spades ? "spades" : "round"}:${current.focusDuel}`) || null : null);
 
 	// THE GOLD FRAME GOES ROUND THE KEYBOARD'S CARD ONCE IT HAS LANDED, AS ON THE PROMOTION CARDS
 	function placeFrame() {
@@ -163,7 +168,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 	// LAYS THE TABLE OUT FOR current: NEW CARDS SLIDE IN (FROM THE RED DECK, OR FROM CARD GUY'S HAND TO HIS PLACES), MOVED ONES SLIDE TO THEIR NEW SPOT (ONE THERE OR ON ITS WAY ALREADY IS LEFT ALONE), GONE ONES ARE TAKEN AWAY
 	function lay() {
 		if (openPile && !pileCards(current.view, openPile).length) { openPile = null; } // ITS LAST CARD LEFT
-		const want = tableSpots(current.view, { open: openPile, base: DESK_Y + 0.005, layer: LAYER, stage });
+		const want = tableSpots(current.view, { open: openPile, base: DESK_Y + 0.005, layer: LAYER, stage, stacked: Boolean(duelDeal) });
 		for (const [key, c] of [...cards]) {
 			const w = want.get(key);
 			if (w && w.faceDown === c.spot.faceDown) { continue; }
@@ -205,6 +210,46 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		requestRender();
 	}
 
+	/* ---- The card duel: its cards dealt from the green deck into the rows (tableLayout.js duelLayout), each face up once flipped, the won one framed in gold ---- */
+	function paintDuel(c) {
+		const ctx = c.canvas.getContext("2d");
+		ctx.clearRect(0, 0, FACE_W, FACE_H);
+		drawDuelFace(ctx, c.duel.card, FACE_W, FACE_H);
+		c.texture.needsUpdate = true;
+	}
+
+	function outline(c) {
+		if (c.outline) { return; }
+		c.outline = new Mesh(frame.geometry, frameMaterial);
+		c.outline.position.set(c.spot.x, c.spot.y - FRAME_DROP, c.spot.z);
+		c.outline.visible = c.landed; // ITS CARD STILL ON ITS WAY: IT SHOWS WHEN THE CARD LANDS (dealDuel)
+		room.add(c.outline);
+	}
+
+	function unoutline(c) {
+		if (c.outline) { room.remove(c.outline); c.outline = null; }
+	}
+
+	// TURNS A DUEL CARD OVER WHERE IT LIES, ON ITS LONG AXIS, RISING SO ITS EDGE CLEARS THE BAIZE: FACE UP, OR FACE DOWN AGAIN (A TAKE-BACK)
+	function turn(c, up) {
+		c.spot.faceDown = !up;
+		const token = ++c.liftToken, sink = up ? STACK_STEP : -STACK_STEP; // place() LIFTS A FACE-DOWN CARD STACK_STEP: THE TURN STARTS AT THE HEIGHT IT LIES AT
+		if (still()) { c.root.rotation.z = up ? 0 : Math.PI; c.lift = 0; place(c); return; }
+		tweens.add({
+			duration: DEAL_MS,
+			update(k) { if (token !== c.liftToken) { return; } c.root.rotation.z = up ? lerp(Math.PI, 0, k) : lerp(0, Math.PI, k); c.lift = sink * (1 - k) + FLIP_LIFT * Math.sin(Math.PI * k); place(c); },
+			onEnd() { requestRender(); },
+		});
+	}
+
+	// A DUEL CARD SLIDES BACK TO THE GREEN DECK & IS TAKEN AWAY THERE
+	function sendBack(c) {
+		unoutline(c);
+		leaving.add(c);
+		c.spot = { ...c.spot, x: GREEN_DECK.x, y: GREEN_TOP, z: GREEN_DECK.z };
+		moveTo(c, 0, () => { leaving.delete(c); free(c); requestRender(); });
+	}
+
 	/* ---- The lifted card's preview: a hand card with rules text (an active, the held passive, a curse), big enough to read, beside the board while it's lifted (user ruling 2026-11-22) ---- */
 	let preview = null, previewKey = null;
 	function showPreview() {
@@ -228,10 +273,11 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		/**
 		 * @description Lays the table out for a view (lay)
 		 * @param {object} view cards.view
-		 * @param {object} opts { catalog: cards.catalog, focus: the keyboard's hand card id | null, focusPile: the keyboard's pile (a key of tableLayout.js PILES) | null, dim: the hand card ids drawn dimmer }
+		 * @param {object} opts { catalog: cards.catalog, focus: the keyboard's hand card id | null, focusPile: the keyboard's pile (a key of tableLayout.js PILES) | null,
+		 * focusDuel: the keyboard's duel card, an index 0..2 of the player's current set | null, dim: the hand card ids drawn dimmer }
 		 */
 		set(view, opts = {}) {
-			current = { view, catalog: opts.catalog || {}, focus: opts.focus || null, focusPile: opts.focusPile || null, dim: opts.dim || [] };
+			current = { view, catalog: opts.catalog || {}, focus: opts.focus || null, focusPile: opts.focusPile || null, focusDuel: Number.isInteger(opts.focusDuel) ? opts.focusDuel : null, dim: opts.dim || [] };
 			lay();
 		},
 		/**
@@ -255,14 +301,18 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			refreshLift();
 		},
 		/**
-		 * @description What a ray hits first: one of the player's hand cards, or a card of a passive pile or an active spot (shut or opened into its column). Never a discard pile: it isn't opened
+		 * @description What a ray hits first: one of the player's hand cards (none while a duel is laid: the hands are stacked), a card of a passive pile or an active spot (shut or opened into its column),
+		 * or a duel card the player may pick now (tableLayout.js duelLayout's pickable, as of the last dealDuel). Never a discard pile: it isn't opened
 		 * @param {Raycaster} raycaster already set from the camera & pointer
-		 * @returns {{ kind: "hand", id: string }|{ kind: "pile", pile: string, id: string|null }|null} pile: a key of tableLayout.js PILES, id: the card hit (null: face down)
+		 * @returns {{ kind: "hand", id: string }|{ kind: "pile", pile: string, id: string|null }|{ kind: "duel", index: number }|null} pile: a key of tableLayout.js PILES, id: the card hit (null: face down), index: 0..2 in the view's duel hands
 		 */
 		hit(raycaster) {
-			const picks = [...cards].filter(([, c]) => c.spot.hand || c.spot.pile);
-			const first = raycaster.intersectObjects(picks.map(([, c]) => c.face), false)[0];
+			const picks = [...cards].filter(([, c]) => (c.spot.hand && !duelDeal) || c.spot.pile);
+			const duels = [...duelCards.values()].filter((c) => c.duel.pickable);
+			const first = raycaster.intersectObjects([...picks.map(([, c]) => c.face), ...duels.flatMap((c) => [c.face, c.back])], false)[0]; // A TURNED CARD'S FACE LOOKS DOWN: A RAY FROM ABOVE MEETS ONLY ITS BACK (FRONT FACES ONLY)
 			if (!first) { return null; }
+			const duel = duels.find((x) => x.face === first.object || x.back === first.object);
+			if (duel) { return { kind: "duel", index: duel.duel.index }; }
 			const [key, c] = picks.find(([, x]) => x.face === first.object);
 			return c.spot.hand ? { kind: "hand", id: key.slice(2) } : { kind: "pile", pile: c.spot.pile, id: c.spot.card ? c.spot.card.id : null };
 		},
@@ -345,6 +395,70 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			if (current.view) { lay(); }
 		},
 		/**
+		 * @description Lays a card duel out as the view shows it (after set(); call it on every answer with a view.duel, before or after that answer's flipDuel calls: the table ends the same). The first time both hands
+		 * slide into stacks at their rows' left end & every duel card of the view is dealt from the green deck, face up if already flipped. A new round, or another duel (another player or piece), sends the old duel
+		 * cards back & deals 3 new ones each; a spades deal adds its set beside the round's, which stay. Every card already laid is brought to the view: turned up & painted when it shows, turned back down when it no
+		 * longer does (a take-back), the gold outline on exactly the view's won cards, pickable as the view allows; one the view no longer has (a taken-back spades deal) goes back to the green deck
+		 * @param {object} duel view.duel (not null)
+		 */
+		dealDuel(duel) {
+			if (!current.view || !duel) { return; }
+			const spades = Boolean(duel.spades), redeal = Boolean(duelDeal && (duelDeal.round !== duel.round || duelDeal.player !== duel.player || duelDeal.piece !== duel.piece));
+			if (redeal) { for (const c of duelCards.values()) { sendBack(c); } duelCards.clear(); }
+			const first = !duelDeal, want = duelLayout(duel, current.view.you), keys = new Set(want.map((d) => d.key));
+			// flips: THE SET A flipDuel TURNS. A SPADES DEAL WITH NO PICK YET CAME IN THE SAME ANSWER AS THE ROUND'S LAST FLIPS, SO THOSE STILL GO TO THE ROUND (ONE PICK PER ANSWER: A SPADES FLIP COMES AFTER A VIEW WITH A SPADES PICK)
+			duelDeal = { round: duel.round, player: duel.player, piece: duel.piece, spades, flips: spades && duel.spades.picked.w.length + duel.spades.picked.b.length ? "spades" : "round" };
+			if (first) { lay(); } // THE HANDS SLIDE INTO THEIR STACKS
+			for (const [key, c] of duelCards) { if (!keys.has(key)) { sendBack(c); duelCards.delete(key); } }
+			let dealt = 0;
+			for (const d of want) {
+				let c = duelCards.get(d.key);
+				if (c) { // LAID ALREADY: BROUGHT TO WHAT THE VIEW SHOWS
+					const was = c.duel.card;
+					c.duel = d;
+					if (d.card && !(was && was.r === d.card.r && was.s === d.card.s)) { paintDuel(c); }
+					if (Boolean(d.card) !== Boolean(was)) { turn(c, Boolean(d.card)); }
+				} else {
+					c = make(false, greenMaterial);
+					Object.assign(c, { duel: d, outline: null, spot: { x: d.x, y: CARD_Y, z: d.z, faceDown: !d.card }, at: { x: GREEN_DECK.x, y: GREEN_TOP, z: GREEN_DECK.z, yaw: 0 } });
+					if (d.card) { paintDuel(c); } else { c.root.rotation.z = Math.PI; } // FACE DOWN: TURNED OVER, ITS GREEN BACK ON TOP
+					duelCards.set(d.key, c);
+					moveTo(c, (redeal ? DEAL_MS : 0) + (dealt++) * DEAL_STAGGER_MS, () => { if (c.outline) { c.outline.visible = true; } }); // A NEW ROUND'S CARDS LEAVE THE DECK ONCE THE OLD ONES ARE BACK
+				}
+				if (d.won) { outline(c); } else { unoutline(c); }
+			}
+			requestRender();
+		},
+		/**
+		 * @description Flips one of a player's duel cards face up where it lies, & frames it in gold when won. A card already face up (dealDuel showed the answer's view first) only takes the frame.
+		 * The set: the round's, until the last dealDuel's view had a spades pick, then the spades deal's (so the round's last tied flips land on the round whether dealDuel laid the spades deal before them or after)
+		 * @param {string} player "w" | "b" (the duel-flip event's player)
+		 * @param {number|null} index 0..2 in the view's duel hands; null (a pick the view no longer shows): the card of that set already showing card, else the first face-down one (face down they all look alike)
+		 * @param {{ r: number, s: string }} card the duel-flip event's card
+		 * @param {boolean} won the gold frame
+		 */
+		flipDuel(player, index, card, won = false) {
+			if (!duelDeal || !current.view) { return; }
+			const side = player === current.view.you ? "mine" : "his", set = duelDeal.flips;
+			const row = [...duelCards.values()].filter((x) => x.duel.side === side && x.duel.set === set);
+			const c = index === null || index === undefined ? row.find((x) => x.duel.card && x.duel.card.r === card.r && x.duel.card.s === card.s) || row.find((x) => !x.duel.card) : duelCards.get(`${side}:${set}:${index}`);
+			if (!c) { return; }
+			if (!c.duel.card) { Object.assign(c.duel, { card, pickable: false }); paintDuel(c); turn(c, true); } // NO LONGER PICKED, BEFORE THE ANSWER'S VIEW SAYS SO
+			if (won) { outline(c); }
+			placeFrame();
+			requestRender();
+		},
+		/**
+		 * @description The duel is over: its cards slide back to the green deck & go, the hands slide back into their rows
+		 */
+		endDuel() {
+			if (!duelDeal) { return; }
+			for (const c of duelCards.values()) { sendBack(c); }
+			duelCards.clear();
+			duelDeal = null;
+			if (current.view) { lay(); }
+		},
+		/**
 		 * @description Takes every card & the frame out of the room & frees what they own. The template's geometry is the room's to free
 		 */
 		dispose() {
@@ -352,8 +466,11 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			reader.remove();
 			lifted = null;
 			showPreview();
-			for (const c of [...cards.values(), ...green]) { free(c); }
+			for (const c of [...cards.values(), ...green, ...duelCards.values(), ...leaving]) { if (c.outline) { room.remove(c.outline); } free(c); }
 			cards.clear();
+			duelCards.clear();
+			leaving.clear();
+			duelDeal = null;
 			drag = stage = null;
 			for (const m of lands) { room.remove(m); }
 			room.remove(frame);

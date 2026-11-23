@@ -27,6 +27,11 @@ export const PILES = {
 };
 const DISCARD_X = 34; // ON THE GREEN DECK'S OUTER SIDE, CLEAR OF THE TAKEN PIECES (piles.js PILE_AREA MIRRORED: THEY REACH x 31): 31 + 0.85 (placeAt'S REACH & A GAP) + HALF A CARD (2.15). THE CARD ENDS AT x 36.15, THE DESK AT 48
 export const DISCARD = { mine: { x: DISCARD_X, z: PILE_Z.mine }, his: { x: DISCARD_X, z: PILE_Z.his } }; // BY THE GREEN DECK (USER RULING 2026-11-22): YOURS NEARER YOU, CARD GUY'S FARTHER. NEVER OPENED
+// THE CARD DUEL (TABLE UI DOC, "All or Nothing card duel"): BOTH HANDS STACKED AT THEIR ROW'S LEFT END (YOU AT THE BOTTOM, SO x -18.4 FOR BOTH ROWS: A FULL ROW'S FIRST CARD), THEN THE ROUND'S 3 CARDS,
+// THEN THE SPADES SET, 4.6 APART AS THE HAND, 2.6 OF WOOD BETWEEN THE GROUPS. THE ROW SPANS x -20.55 .. 15.95: INSIDE TODAY'S FULL HAND (TO 20.55), CLEAR OF THE NEAR TAKEN PIECES (x 23)
+const STACK_X = -((HAND_FIT - 1) / 2) * HAND_STEP;
+const SET_GAP = 1.5 * HAND_STEP; // CENTRE TO CENTRE ACROSS THE GAP BETWEEN TWO GROUPS
+export const DUEL_STACK = { mine: { x: STACK_X, z: HAND_Z }, his: { x: STACK_X, z: -HAND_Z } };
 
 /**
  * @description How far apart an opened column's cards lie: whole cards while the column fits, else overlapping in the room there is, by no less than a name bar
@@ -76,6 +81,45 @@ export function placeAt(x, z) {
 }
 
 /**
+ * @description Where a duel card lies in its row (room space, unturned)
+ * @param {"mine"|"his"} side the player's row or Card Guy's
+ * @param {"round"|"spades"} set the round's deal or the spades deal beside it
+ * @param {number} index 0..2, as the view's hands
+ * @returns {{ x: number, z: number }}
+ */
+export function duelSpot(side, set, index) {
+	return { x: STACK_X + SET_GAP + (set === "spades" ? 2 * HAND_STEP + SET_GAP : 0) + index * HAND_STEP, z: DUEL_STACK[side].z };
+}
+
+/**
+ * @description Every duel card of a view's duel: the round's 3 per player, & the spades deal's beside them while it is up
+ * @param {object} duel view.duel (not null)
+ * @param {string} you the player's colour
+ * @returns {{ key: string, side: "mine"|"his", set: "round"|"spades", index: number, card: { r: number, s: string }|null, won: boolean, pickable: boolean, x: number, z: number }[]} card: null while face down;
+ * won: in step "decide", the duel's player's last flipped card of the current set (that round was won), or all 3 of their round cards when the suit score won it;
+ * pickable: the player may pick it now, as the engine allows (cards-engine/duel.js actions): theirs, of the current set, face down, in step "pick", not picked yet, & the player not a pick ahead of the other
+ */
+export function duelLayout(duel, you) {
+	const out = [], other = (c) => (c === "w" ? "b" : "w"), opp = other(duel.player);
+	for (const [set, d] of [["round", duel], ["spades", duel.spades]]) {
+		if (!d) { continue; }
+		const current = !duel.spades || set === "spades", decided = current && duel.step === "decide", mine = d.picked[you];
+		const suit = decided && d.picked[duel.player].length === 3 && d.hands[duel.player][d.picked[duel.player][2]].r === d.hands[opp][d.picked[opp][2]].r; // ALL 3 PICKS TIED: THE SUIT SCORE WON, SO ALL 3 CARDS DID (RULING M1)
+		const ahead = mine.length > d.picked[other(you)].length; // WAITING FOR THE OTHER PICK
+		for (const side of ["mine", "his"]) {
+			const owner = side === "mine" ? you : other(you), last = d.picked[owner][d.picked[owner].length - 1];
+			d.hands[owner].forEach((card, index) => out.push({
+				key: `${side}:${set}:${index}`, side, set, index, card: card || null,
+				won: Boolean(card) && decided && owner === duel.player && (suit || index === last),
+				pickable: side === "mine" && current && duel.step === "pick" && !ahead && !mine.includes(index), // FACE DOWN THEN TOO: A CARD SHOWS ONCE BOTH HAVE PICKED AT ITS DEPTH
+				...duelSpot(side, set, index),
+			}));
+		}
+	}
+	return out;
+}
+
+/**
  * @description Where a ray meets a level plane: the desk under the pointer, where a dragged card is dropped (the card itself floats higher, so nearer the camera)
  * @param {{ x: number, y: number, z: number }} origin the ray's start
  * @param {{ x: number, y: number, z: number }} dir its direction
@@ -92,19 +136,20 @@ export function deskPoint(origin, dir, y) {
  * A card is keyed by its owner & id wherever it lies, so a played card is the same card on its way to its place; one the view hides has its place's key
  * @param {object} view cards.view
  * @param {{ open?: string|null, base: number, layer: number, stage?: object|null }} opts open: the opened pile (a key of PILES), base: the desk's height for a lying card, layer: a card's thickness,
- * stage: { id, from: "hand" | "pile", place: "spot" | "passive" | "discard" }: the player's card that was dragged from there & let go on that place of theirs lies on it (staged: true), until the view moves it
+ * stage: { id, from: "hand" | "pile", place: "spot" | "passive" | "discard" }: the player's card that was dragged from there & let go on that place of theirs lies on it (staged: true), until the view moves it,
+ * stacked: a card duel is laid, both hands lie stacked at DUEL_STACK
  * @returns {Map<string, object>} key -> { card (null: face down), x, y, z, yaw?, faceDown, barBottom, hand (the player's), pile (a key of PILES | null), discard ("mine" | "his", a discard pile's), color (the owner's: the glyph's colour),
  * top (a pile's newest), thick (a discard pile's block: this many cards), from (a new card slides in from: "deck", Card Guy's "hand", null: it's put there) }
  */
-export function tableSpots(view, { open = null, base, layer, stage = null }) {
+export function tableSpots(view, { open = null, base, layer, stage = null, stacked = false }) {
 	const want = new Map(), you = view.you, opp = you === "w" ? "b" : "w";
 	const key = (owner, card, place) => `${owner}:${card && !card.down && card.id !== undefined ? card.id : place}`;
 	const row = (n, i) => (i - (n - 1) / 2) * (n > HAND_FIT ? (HAND_STEP * (HAND_FIT - 1)) / (n - 1) : HAND_STEP);
 	const mine = handCards(view);
-	mine.forEach((card, i) => want.set(key(you, card), { card, x: row(mine.length, i), y: CARD_Y + i * layer, z: HAND_Z, faceDown: false, barBottom: false, hand: true, pile: null, color: you, from: "deck" }));
+	mine.forEach((card, i) => want.set(key(you, card), { card, x: stacked ? STACK_X : row(mine.length, i), y: CARD_Y + i * layer, z: HAND_Z, faceDown: false, barBottom: false, hand: true, pile: null, color: you, from: "deck" }));
 	const o = view.players[opp] || {}, hand = o.hand || { count: 0, shown: [] }, shown = hand.shown || [];
 	const his = [...(o.king ? [{ id: "king", key: "king" }] : []), ...shown, ...Array.from({ length: Math.max(0, (hand.count || 0) - shown.length) }, () => null)];
-	his.forEach((card, i) => want.set(key(opp, card, `#${i}`), { card, x: -row(his.length, i), y: CARD_Y + i * layer, z: -HAND_Z, faceDown: !card, barBottom: false, hand: false, pile: null, color: opp, from: "deck" })); // HIS CARDS SHOW HIS PIECES
+	his.forEach((card, i) => want.set(key(opp, card, `#${i}`), { card, x: stacked ? STACK_X : -row(his.length, i), y: CARD_Y + i * layer, z: -HAND_Z, faceDown: !card, barBottom: false, hand: false, pile: null, color: opp, from: "deck" })); // HIS CARDS SHOW HIS PIECES
 	for (const [pile, p] of Object.entries(PILES)) { // OLDEST FIRST, THE NEWEST ON TOP AT THE PLACE; THE OLDER ONES TOWARD THE OWNER, PEEKING OUT OR (OPENED) WHOLE
 		const owner = p.side === "mine" ? you : opp, list = pileCards(view, pile), step = pile === open ? columnStep(list.length, Math.abs(p.end - p.z)) : PEEK;
 		list.forEach((card, i) => want.set(key(owner, card, `${pile}${i}`), { card: card.down ? null : card, x: p.x, y: base + i * layer, z: p.z + p.dir * (list.length - 1 - i) * step, faceDown: Boolean(card.down), barBottom: p.side === "mine", hand: false, pile, color: owner, top: i === list.length - 1, from: p.side === "his" ? "hand" : null }));

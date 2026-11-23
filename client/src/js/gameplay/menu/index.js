@@ -193,7 +193,9 @@ export function handleView(e) {
 }
 
 // AUTO LEAN ON OR OFF (three/lean.js), THE WORDS SAY WHAT A PRESS WILL DO
+let autoLean = false; // KEPT HERE, NOT READ BACK FROM THE BUTTON: innerText COMES BACK IN CAPITALS (THE MENU'S text-transform), SO THE WORDS NEVER MATCHED & IT ONLY TURNED ON
 function showAutoLean(on) {
+	autoLean = on;
 	setAutoLean(on);
 	optAutoLeanBtn.innerText = on ? "Turn Auto Lean: Off" : "Turn Auto Lean: On";
 }
@@ -204,7 +206,7 @@ function showAutoLean(on) {
 function handleAutoLean(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	const on = optAutoLeanBtn.innerText !== "Turn Auto Lean: Off";
+	const on = !autoLean;
 	showAutoLean(on);
 	try { localStorage.setItem(AUTO_LEAN_KEY, on ? "on" : "off"); } catch { } // NOT SAVED (PRIVATE MODE) -> ONLY UNTIL THE PAGE RELOADS
 }

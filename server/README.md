@@ -24,6 +24,7 @@
 | `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
 | `DATA_SERVICE_URL` | Optional. Where the data service answers. Defaults to `http://127.0.0.1:8090` (`npm run dev` in `data-service`). On AWS it's the data service's private IP |
 | `DATA_SERVICE_SECRET` | Signs every call to the data service. The same value as `DATA_SERVICE_SECRET` in `data-service/.env`, at least 32 characters (the command is in `.env.example`) |
+| `CARDS_TEST_SEED` | Optional, never in production. A whole number (0 to 4294967295): every new Chess Cards game is dealt from it, so a dev server deals one known game. Ignored when `NODE_ENV` is `production` |
 
 The server doesn't touch DynamoDB. Every read and write of the games and players
 goes through the data service ([Data service](../data-service/README.md)), which uses the AWS

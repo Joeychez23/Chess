@@ -258,7 +258,26 @@ test("the seed is random hex, an integer only from CARDS_TEST_SEED, never from t
 	assert.deepEqual(stored(fixed.game_id), E.newGame({ cardGuy: "b", level: 1300, seed: 7 })); // THE SAME GAME AS THE ENGINE MAKES FROM 7
 });
 
-test("CARDS_TEST_SEED is ignored outside tests, and when it isn't a whole number", async () => {
+test("CARDS_TEST_SEED deals one known game anywhere but production (a dev server too, and an unset NODE_ENV)", async () => {
+	const opening = (state) => ["w", "b"].map((c) => ({ king: state.players[c].king, moves: state.players[c].moves, actives: state.players[c].actives }));
+	const seven = opening(E.newGame({ cardGuy: "b", level: 1300, seed: 7 }));
+	assert.deepEqual(seven.map((p) => [p.king, p.moves.length, p.actives.length]), [[true, 5, 1], [true, 5, 1]]); // THE KING CARD, 5 MOVE CARDS, 1 ACTIVE
+	process.env.CARDS_TEST_SEED = "7";
+	try {
+		for (const env of ["test", "development", undefined]) {
+			if (env === undefined) { delete process.env.NODE_ENV; } else { process.env.NODE_ENV = env; }
+			const first = await start({}, { guest: env + "-1" }), second = await start({}, { guest: env + "-2" });
+			assert.deepEqual(opening(stored(first.game_id)), seven, String(env));
+			assert.deepEqual(opening(stored(second.game_id)), seven, String(env));
+		}
+		process.env.NODE_ENV = "production";
+		const live = await start({}, { guest: "live" });
+		assert.equal(live.http, 200);
+		assert.notDeepEqual(opening(stored(live.game_id)), seven);
+	} finally { process.env.NODE_ENV = "test"; }
+});
+
+test("CARDS_TEST_SEED is ignored in production, and when it isn't a whole number", async () => {
 	const seven = JSON.stringify(E.newGame({ cardGuy: "b", level: 1300, seed: 7 }));
 	process.env.CARDS_TEST_SEED = "7";
 	process.env.NODE_ENV = "production";
