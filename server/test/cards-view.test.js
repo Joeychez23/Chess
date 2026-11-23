@@ -319,7 +319,7 @@ test("Foresight shows the seen cards and the fakes, and no seen field", () => {
 });
 
 test("fromView keeps everything the view shows", () => {
-	const s = randomGame(7, 12, () => {}), me = s.board.turn, opp = other(me);
+	const s = randomGame(8, 12, () => {}), me = s.board.turn, opp = other(me);
 	assert.ok(!s.enchant.some((e) => e.key === "fog-of-war"), "the game this part needs has no fog up"); // THE FOGGED CASE IS BELOW
 	const v = playerView(s, me), f = fromView(v, 7);
 	assert.deepEqual(f.board, s.board);

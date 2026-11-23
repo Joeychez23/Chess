@@ -397,9 +397,9 @@ export function handleTouchCancel() { // THE BROWSER (A SYSTEM GESTURE) OR THE 3
 
 /**
  * @description A Chess Cards game's keys (gameplay/cards/flow.js handKey): the arrows step through the hand, or while a card is being played through the squares that glow,
- * Enter lifts the card or picks the square, Escape puts the card down. Off the player's turn the arrows still step & Enter does nothing, so the page's nav never gets them (N1).
+ * Enter lifts the card or picks the square, Escape puts the card down, then closes an opened pile. Off the player's turn the arrows still step & Enter does nothing, so the page's nav never gets them (N1).
  * Run in the capture phase on the window (gameplay/index.js), like handleCardKey, so the page's nav never sees a key it used. A held Enter is stopped whatever has the focus
- * (a prompt's button, the menu's Restart: N3). Nothing else while the menu is open, a Board Effects pile is open, the monitor is off the desk, a field has the keys or a modifier
+ * (a prompt's button, the menu's Restart: N3). Nothing else while the menu is open, the monitor is off the desk, a field has the keys or a modifier
  * is down; a focused button or link keeps Enter, an arrow takes the focus off it first
  * @param  {[KeyboardEvent]} e [a keydown]
  * @return {[boolean]} [the key was used or stopped, & its default & other handlers are stopped]
@@ -407,7 +407,7 @@ export function handleTouchCancel() { // THE BROWSER (A SYSTEM GESTURE) OR THE 3
 export function handleHandKey(e) {
 	if (!game.cardGame || e.altKey || e.ctrlKey || e.metaKey) { return false; }
 	if (e.key === "Enter" && e.repeat) { e.preventDefault(); e.stopPropagation(); return true; } // A HELD ENTER PRESSES NOTHING MORE: NOT A PROMPT'S BUTTON, NOT RESTART'S SECOND, FORFEITING PRESS (N3)
-	if (game.menuToggled || isCameraGesture() || document.querySelector(".cardPile")) { return false; } // AN OPENED BOARD EFFECTS PILE HAS THE KEYS (three/cardTable.js)
+	if (game.menuToggled || isCameraGesture()) { return false; }
 	if (!/^(Arrow(Up|Down|Left|Right)|Enter|Escape)$/.test(e.key) || (monitorState3D() || "idle") !== "idle") { return false; }
 	const target = e.target;
 	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return false; }

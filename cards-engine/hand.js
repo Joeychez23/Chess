@@ -143,7 +143,7 @@ function drawable(state, color, kind, not) {
 
 /**
  * @description Draw one active or passive card from the registry, weighted by rarity, leaving out every version of a card color holds, has waiting in Board Effects or has used (drawable), and of `not` (the passive a reroll just discarded: left out of this one draw only, it never joins used). null when nothing is left.
- * The climb (user ruling 2026-11-22): at turn 1 (board.full) each tier's chance is its share by RARITY_WEIGHTS of the cards color can draw at this moment; at turn CLIMB_END and after it is the tier's CLIMB_SHARES share; between, each tier's share moves in equal steps per turn. A tier with no card to draw has no share: its table share goes to the tiers that have cards, in proportion to theirs, so no tier with a card is ever at 0. Inside a tier every card is equally likely. It never lowers the chance of epic or legendary: a pool whose base epic-plus-legendary share is at or above the table's (the absent tiers shared out) draws by the base weights. board.full steps back when a move is taken back, and the odds with it. Curse draws (ctx.randomCurses) have no climb.
+ * The climb (user ruling 2026-11-22): at turn 1 (board.full) each tier's chance is its share by RARITY_WEIGHTS of the cards color can draw at this moment; at turn CLIMB_END and after it is the tier's CLIMB_SHARES share; between, each tier's share moves in equal steps per turn. A tier with no card to draw has no share: its table share goes to the tiers that have cards, in proportion to theirs, so no tier with a card is ever at 0. Inside a tier every card is equally likely. It never lowers the chance of epic or legendary: a pool whose base epic-plus-legendary share is at or above the table's (the absent tiers shared out) draws by the base weights; a pool with no epic or legendary card left has nothing to lower and follows the table shared out. board.full steps back when a move is taken back, and the odds with it. Curse draws (ctx.randomCurses) have no climb.
  */
 function drawCard(ctx, color, kind, not) {
 	const keys = drawable(ctx.state, color, kind, not), base = (k) => RARITY_WEIGHTS[CARDS[k].rarity];
@@ -153,7 +153,7 @@ function drawCard(ctx, color, kind, not) {
 	const start = (t) => of(t).length * RARITY_WEIGHTS[t], table = (t) => CLIMB_SHARES[t], all = sum(start), shared = sum(table);
 	const steps = CLIMB_END - 1, step = Math.min(ctx.state.board.full, CLIMB_END) - 1;
 	let key;
-	if (step <= 0 || sum(start, top) * shared >= sum(table, top) * all) { // THE BASE WEIGHTS: TURN 1, OR THE CLIMB WOULD LOWER EPIC OR LEGENDARY
+	if (step <= 0 || (top.length && sum(start, top) * shared >= sum(table, top) * all)) { // THE BASE WEIGHTS: TURN 1, OR THE CLIMB WOULD LOWER EPIC OR LEGENDARY (NONE LEFT: NOTHING TO LOWER, THE TABLE IS SHARED OUT, USER RULING R-3)
 		let r = ctx.rng.int(all);
 		key = keys.find((k) => (r -= base(k)) < 0);
 	} else { // IN WHOLE NUMBERS (rng.int): THE TIER FIRST, ITS SHARE OUT OF all * shared * steps (WELL UNDER 2^32), THEN ONE OF ITS CARDS

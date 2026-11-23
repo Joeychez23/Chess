@@ -5,7 +5,7 @@
  *	card route's answer on the board, act sends one of the player's legal actions & while Card Guy owes one (card_guy_due: its turn, a duel pick or a choice)
  *	it's asked for half a second later, like the AI's move. The server decides everything (store.js keeps its answer): the board only shows the view's pieces,
  *	chess.js holds them for the renderer & is never asked what's legal. The table (three/cardTable.js, through the renderer) shows the hands, decks & Board Effects,
- *	& the player plays from it: a card clicked (or picked with the keys) lifts, the squares select.js offers glow, the last one picked sends the action, a prompt
+ *	& the player plays from it: a card clicked (or picked with the keys) lifts, the squares select.js offers glow, the last one picked sends the action; with the mouse an active, the passive & the free discard are played by dragging the card to its place on the desk (dropCard), a prompt
  *	(#cardPrompt) chooses when several plays share the squares or need none (or asks first when a King move spends a King skull), & a move's promotions deal the
  *	room's promotion cards, as in a normal game
  *
@@ -22,7 +22,7 @@ const { showBot } = require("../bots/say.js"); // CARD GUY'S NAME BESIDE THE BOA
 const { showGameOver } = require("../menu/offers.js"); // THE GAME OVER SCREEN
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const S = require("./select.js"); // WHAT THE TABLE LETS THE PLAYER PICK, FROM cards.legal
-const { setTable3D, onTablePick, toggleTablePile3D, holdTablePiece3D, dropTablePiece3D } = require("../renderer/index.js"); // THE TABLE ON THE 3D BOARD
+const { setTable3D, onTablePick, toggleTablePile3D, tablePileOpen3D, holdTablePiece3D, dropTablePiece3D } = require("../renderer/index.js"); // THE TABLE ON THE 3D BOARD
 const { rarityColor } = require("../three/cardFaces.js"); // A PROMPT'S BORDER, THE COLOUR OF THE CARD THAT ASKED
 const { forfeitGame } = require("../validate/index.js"); // THE OLDER-VERSION GAME'S WAY OUT
 
@@ -40,6 +40,8 @@ let confirm = null; // A KING MOVE THAT SPENDS A KING SKULL, WAITING ON THE PROM
 let dragFrom = null; // THE SQUARE THE MOUSE PRESSED A PIECE ON (pressSquare): A RELEASE ONLY PLAYS THAT PIECE'S PICK
 let pressedNew = false; // THIS PRESS PICKED A PIECE THAT WASN'T PICKED YET (pressSquare): ITS CLICK KEEPS IT. A CLICK ON THE PIECE ALREADY PICKED PUTS IT DOWN
 let dropped = null; // THE SQUARE OF A DRAGGED PIECE LEFT OVER ITS TARGET (releaseSquare) UNTIL ITS PLAY IS ANSWERED OR GIVEN UP (settle)
+let byMouse = false; // THE LAST PICK WAS THE MOUSE'S: IT PLAYS BY DRAGGING, SO ITS PROMPT HAS NO DISCARD, PLACE OR PLAY BUTTON & A CLICKED ACTIVE OR PASSIVE ONLY LIFTS TO BE READ (TASK 20e). THE KEYS & A TAP PLAY AS BEFORE
+let onPlace = null; // THE CARD THE MOUSE DRAGGED TO ONE OF THE PLAYER'S PLACES (dropCard), LYING THERE WHILE ITS TARGETS ARE PICKED OR ITS PLAY IS ON ITS WAY (THE TABLE KEEPS IT THERE WHILE IT'S THE LIFTED CARD)
 let promoting = null; // A MOVE'S PROMOTIONS WHILE THE ROOM'S PROMOTION CARDS ARE OUT (game.currPromotion), ONE PICKED SENDS ITS PLAY (promote)
 let shownPrompt = null; // WHAT THE PROMPT SHOWS (ITS BUTTONS AS JSON), SO IT'S ONLY REBUILT WHEN THAT CHANGES
 let promptStart = null; // THE PROMPT'S BUTTON THE KEYS FOCUS (select.js promptFocus), null WHILE IT'S HIDDEN
@@ -159,7 +161,17 @@ function show(response) {
 onTablePick((hit) => { // THE 3D BOARD'S CLICKS & TAPS, & THE MOUSE'S PRESS & RELEASE (THE DRAG)
 	if (hit.kind === "release") { releaseSquare(hit.square, Boolean(hit.dragged)); return; }
 	if (hit.kind === "press") { pressSquare(hit.square); return; }
+	if (hit.kind === "grab") { return landings(hit); }
+	if (hit.kind === "drop") { return dropCard(hit); }
+	if (hit.kind === "pile") { // A PILE TAPPED: ANOTHER PILE'S DROP BUTTONS GO, A FINGER'S TAP ON ONE OF THE OPENED PILE'S CARDS (id) OFFERS ITS OWN
+		if (dropOffer()) { cancelPick(); }
+		if (!hit.id) { return false; }
+		keyboard = false;
+		byMouse = false;
+		return offerDrops(hit.pile, hit.id);
+	}
 	keyboard = false;
+	byMouse = !hit.touch;
 	if (hit.kind === "hand") { clickCard(hit.id); } else if (hit.kind === "square") { clickSquare(hit.square); }
 });
 
@@ -176,6 +188,7 @@ const choosing = () => cards.legal.length > 0 && cards.legal.every((a) => a.type
  */
 function refreshTable() {
 	if (!cards.view) { return; }
+	if (onPlace !== null && !sending && !(sel && sel.card === onPlace)) { onPlace = null; } // ITS PLAY WAS ANSWERED OR GIVEN UP: IT GOES WHERE THE VIEW HAS IT
 	if (!sel && choosing() && yourMove()) { sel = S.lift(cards.legal, cards.view, null); } // A CHOICE IS PICKED AT ONCE: ITS PIECES GLOW, ITS OPTIONS ARE BUTTONS
 	const { glow, ready } = sel ? S.options(sel, cards.view.board) : { glow: [], ready: [] };
 	const stops = S.focusList(cards.legal, cards.view, cards.hidden);
@@ -186,7 +199,7 @@ function refreshTable() {
 	setTable3D(cards.view, cards.legal, {
 		pickable: yourMove() ? cards.view.board.sq.map((p, i) => (picking && p && p.c === cards.you && S.pickPiece(cards.legal, cards.view, sqName(i), cards.hidden) ? sqName(i) : null)).filter(Boolean) : null, // THE 3D HOVER FADES WHAT COVERS THESE & THE GLOWING SQUARES, NOTHING (null) OFF THE PLAYER'S TURN (USER RULING R1, TASK 20E)
 		catalog: cards.catalog, focus: stop?.kind === "hand" ? stop.id : null, focusPile: stop?.kind === "pile" ? stop.pile : null, dim: S.dimmed(cards.legal, cards.view, cards.hidden),
-		lifted: sel ? sel.card : null, glow, glowFocus: squareFocus !== null ? glow[squareFocus] : !glow.length && stop?.kind === "square" ? stop.square : null,
+		lifted: sel ? sel.card : onPlace, glow, glowFocus: squareFocus !== null ? glow[squareFocus] : !glow.length && stop?.kind === "square" ? stop.square : null,
 	});
 	showPrompt(ready, glow);
 	hover();
@@ -213,6 +226,7 @@ function askingCard() {
 		if (played && (!asked || played.name === asked.name)) { return { name: played.name, rarity: played.rarity }; } // A VERSION: THE SAME NAME, ITS OWN RARITY
 		return asked ? { name: asked.name, rarity: asked.rarity } : { name: "Choose", rarity: null };
 	}
+	if (dropOffer()) { return { name: "Your placed cards", rarity: null }; }
 	const spent = sel && sel.actions[0] && hand.find((c) => c.id === sel.actions[0].card);
 	return faceOf(spent) || { name: "", rarity: null };
 }
@@ -226,7 +240,7 @@ function askingCard() {
  */
 function showPrompt(ready, glow) {
 	const live = Boolean(sel) && yourMove(), mode = live && confirm ? "skull" : null;
-	const pick = !live || mode || promoting ? [] : choosing() ? sel.actions : sel.picks.length === 0 || ready.length > 1 ? ready : [];
+	const pick = !live || mode || promoting ? [] : choosing() ? sel.actions : S.promptPlays(sel.picks.length === 0 || ready.length > 1 ? ready : [], { mouse: byMouse, picks: sel.picks.length, placed: sel.card !== null && sel.card === onPlace });
 	const key = JSON.stringify([mode, confirm, pick]);
 	if (key === shownPrompt) { return; }
 	shownPrompt = key;
@@ -297,15 +311,70 @@ function clickCard(id) {
 	endPromotion();
 	if (sel && sel.card === id) {
 		const { glow, ready } = S.options(sel, cards.view.board), play = ready.filter((a) => a.type === "active" && !a.target);
-		if (!glow.length && play.length === 1) { choose(play[0]); return; } // ONE MORE CLICK CONFIRMS (TABLE UI DOC), ALSO WITH ITS DISCARD ON THE PROMPT
+		if (!byMouse && !glow.length && play.length === 1) { choose(play[0]); return; } // ONE MORE TAP OR ENTER CONFIRMS (TABLE UI DOC), ALSO WITH ITS DISCARD ON THE PROMPT. THE MOUSE DRAGS IT TO THE ACTIVE SPOT INSTEAD
 		cancelPick();
 		return;
 	}
-	const next = S.lift(cards.legal, cards.view, id, cards.hidden);
-	sel = next.actions.length ? next : null;
+	const next = S.lift(cards.legal, cards.view, id, cards.hidden), kind = S.handCards(cards.view).find((c) => c.id === id)?.kind;
+	sel = byMouse && (kind === "active" || kind === "passive") ? { card: id, actions: [], picks: [] } : next.actions.length ? next : null; // THE MOUSE'S CLICK ONLY LIFTS AN ACTIVE OR THE PASSIVE TO BE READ: IT'S PLAYED BY DRAGGING (dropCard)
 	if (!sel) { showStatus("action", "That card can't be played now.", MESSAGE_TIME); }
 	squareFocus = null;
 	refreshTable();
+}
+
+/**
+ * @description The mouse went down on one of the player's cards (three/pointer.js onPointerDown), the drag's start: the places of theirs it can be let go on (select.js dropPlay), which the table frames
+ * while it's dragged. A hand card with none is still dragged, & slides back wherever it's let go
+ * @param  {[object]} hit [{ from: "hand" | "pile" (a card of an opened pile), id }]
+ * @return {[array|null]} places ["spot", "passive", "discard"; null: it isn't picked up (not the player's turn, a choice asked, the promotion cards out, a placed card the game doesn't let them drop)]
+ */
+function landings({ from, id }) {
+	if (!yourMove() || promoting || choosing()) { return null; }
+	const places = ["spot", "passive", "discard"].filter((place) => S.dropPlay(cards.legal, cards.view, { from, id }, { side: "mine", place }, cards.hidden));
+	return from === "pile" && !places.length ? null : places;
+}
+
+/**
+ * @description The mouse let go of a dragged card (three/pointer.js releaseCard), what select.js dropPlay says: on the discard pile its free discard (a placed card: its drop), an active on the
+ * active spot is played, or lies there while its targets are picked (the board lights them; dragged off again, or a click on a square that isn't one, it goes back to the hand), the passive on
+ * the passive pile is placed. Anywhere else, or a play the game doesn't offer: the card goes back
+ * @param  {[object]} hit [{ from, id, place: three/tableLayout.js placeAt's, null for nowhere }]
+ * @return {[boolean]} taken [the card stays on the place: its play was sent or is being picked]
+ */
+function dropCard({ from, id, place }) {
+	if (!yourMove() || promoting || choosing()) { return false; }
+	const play = S.dropPlay(cards.legal, cards.view, { from, id }, place, cards.hidden);
+	keyboard = false;
+	byMouse = true;
+	settle();
+	confirm = null;
+	if (!play) { if (sel && sel.card !== null && (sel.card === id || sel.card === onPlace)) { cancelPick(); } return false; } // ITS OWN PICK GOES DOWN WITH IT: DRAGGED BACK BEFORE THE LAST TARGET. THE PICK OF A CARD LYING ON THE ACTIVE SPOT TOO: THE TABLE SENDS THAT CARD BACK WHEN ANOTHER'S DROP IS REFUSED (REVIEW M1)
+	onPlace = id;
+	if (play.pick) { sel = play.pick; squareFocus = null; refreshTable(); return true; }
+	choose(play.action);
+	return true;
+}
+
+// THE PICK IS THE DROP BUTTONS OF AN OPENED PILE (offerDrops)
+const dropOffer = () => Boolean(sel) && sel.actions.length > 0 && sel.actions.every((a) => a.type === "drop");
+
+/**
+ * @description The keys' & a tap's way to drop a placed card (the mouse drags it to the discard pile): with one of the player's own piles opened, Enter on it offers a prompt button per card of it
+ * the game lets them drop, a tap on one of its cards that card's (select.js pileDrops). Cancel has the keys' focus (select.js promptFocus)
+ * @param  {[string]} pile [the opened pile]
+ * @param  {[string|null]} id [the card tapped, null: every card of the pile]
+ * @return {[boolean]} offered [false: nothing to drop there now]
+ */
+function offerDrops(pile, id = null) {
+	if (!yourMove() || promoting || choosing()) { return false; }
+	const drops = S.pileDrops(cards.legal, cards.view, pile, id);
+	if (!drops.length) { return false; }
+	settle();
+	confirm = null;
+	sel = { card: null, actions: drops, picks: [] };
+	squareFocus = null;
+	refreshTable();
+	return true;
 }
 
 /**
@@ -347,6 +416,7 @@ function pressSquare(square) {
 	pressedNew = !(sel && sel.picks.length === 1 && sel.picks[0] === square);
 	settle();
 	keyboard = false;
+	byMouse = true;
 	confirm = null; // AS A CLICK ELSEWHERE: THE SKULL'S QUESTION GOES
 	sel = next;
 	squareFocus = null;
@@ -425,7 +495,7 @@ async function send(action) {
  * @description A Chess Cards game's key (gameplay/input handleHandKey), what it does decided by select.js keyPlan. While the game is on the arrows & Enter stay off the page's nav: off the
  * player's turn the arrows step through select.js focusList & Enter does nothing (N1). On it the arrows step through focusList (the hand, the pieces with a move that needs no card, the
  * Board Effects piles), or while a play's squares glow through them; Enter lifts the focused card, picks the focused piece or square, or opens the focused pile (with none focused yet:
- * focuses the first); Escape puts the pick down. A prompt with nothing glowing takes the first key's focus (one Card Guy's play raised doesn't have it). A focused button keeps Enter, an
+ * focuses the first; on the player's own opened pile it offers its drop buttons, offerDrops); Escape puts the pick down, then closes an opened pile, off the turn too. A prompt with nothing glowing takes the first key's focus (one Card Guy's play raised doesn't have it). A focused button keeps Enter, an
  * arrow takes the focus off it first. While the promotion cards are out only Escape is the hand's (handleCardKey has the rest). A held key (repeat) does nothing more
  * @param  {[string]} key [a KeyboardEvent.key: an arrow, "Enter" or "Escape"]
  * @param  {[boolean]} repeat [KeyboardEvent.repeat]
@@ -433,13 +503,15 @@ async function send(action) {
  * @return {[boolean]} [the key was used or stopped: the page doesn't get it]
  */
 export function handKey(key, repeat = false, button = false) {
-	const on = Boolean(cards.view) && !cards.result && !game.gameOver, yours = on && yourMove();
-	const plan = S.keyPlan({ key, repeat, on, yours, button, promoting: Boolean(promoting), picked: Boolean(sel) && !choosing() });
+	const on = Boolean(cards.view) && !cards.result && !game.gameOver, yours = on && yourMove(), picked = Boolean(sel) && !choosing(), pile = tablePileOpen3D();
+	const plan = S.keyPlan({ key, repeat, on, yours, button, promoting: Boolean(promoting), picked, pile: Boolean(pile) });
 	if (plan === "page" || plan === "stop") { return plan === "stop"; }
 	if (plan === "blur") { document.activeElement?.blur(); } // AN ARROW: THE BUTTON LETS GO OF THE FOCUS, SO A LATER ENTER IS THE HAND'S (N1)
+	if (key === "Escape" && !(yours && picked)) { toggleTablePile3D(null); return true; } // NO PICK TO PUT DOWN: THE OPENED PILE CLOSES, ON THE TURN OR OFF IT (keyPlan GIVES THE MENU ITS ESCAPE WHEN NONE IS OPEN)
 	if (!yours) { keyFocus = S.stepFocus(S.focusList(cards.legal, cards.view, cards.hidden).length, keyFocus, key); refreshTable(); return true; } // CARD GUY'S TURN, AN ACTION ON ITS WAY: ONLY AN ARROW GETS HERE
 	settle(); // THE KEYS TAKE OVER: A DROPPED PIECE GOES HOME
 	keyboard = true;
+	byMouse = false;
 	if (key === "Escape") { cancelPick(); return true; }
 	const { glow } = sel ? S.options(sel, cards.view.board) : { glow: [] };
 	if (promptStart && !glow.length) { promptStart.focus(); return true; } // ITS BUTTONS ARE THE WAY ON
@@ -455,7 +527,7 @@ export function handKey(key, repeat = false, button = false) {
 	const stop = stops[keyFocus];
 	if (stop.kind === "hand") { clickCard(stop.id); }
 	else if (stop.kind === "square") { clickSquare(stop.square); }
-	else { toggleTablePile3D(stop.pile); }
+	else if (!(pile === stop.pile && offerDrops(stop.pile))) { toggleTablePile3D(stop.pile); } // ENTER ON THE PLAYER'S OWN OPENED PILE: ITS DROP BUTTONS WHEN THE GAME LISTS ONE, ELSE IT CLOSES
 	return true;
 }
 

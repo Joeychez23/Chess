@@ -1,11 +1,11 @@
 /* ---- Chess Cards table: both hands, the green deck & each player's three places (the active spot, the passive pile, the discard pile: tableLayout.js), every card a clone of the room's card at the promotion cards' size & look (cards.js) ---- */
 
-import { CanvasTexture, SRGBColorSpace, MeshBasicMaterial, Mesh } from "three";
+import { CanvasTexture, SRGBColorSpace, MeshBasicMaterial, Mesh, Plane, Vector3 } from "three";
 import { CARD_SIZE, DECK, CARD_Y } from "./cardLayout.js";
 import { findParts, frameGeometry, lerp, CARD_LIGHT, CARD_BACK, HOVER_LIGHT, FOCUS, FRAME_GAP, FRAME_WIDTH, FRAME_DROP, LIFT, LIFT_MS, DEAL_MS, DEAL_STAGGER_MS, STACK_STEP, FACE_W, FACE_H } from "./cards.js";
 import { DESK_Y } from "./constants.js";
 import { faceOf, drawPlayFace } from "./cardFaces.js";
-import { tableSpots, pileCards, columnBox, HAND_Z } from "./tableLayout.js";
+import { tableSpots, pileCards, columnBox, placeAt, deskPoint, PILES, DISCARD, HAND_Z } from "./tableLayout.js";
 
 const LAYER = STACK_STEP + 0.001; // A CARD'S THICKNESS (cards.js STACK_STEP) & A HAIR: AN OVERLAPPING CARD LIES ON THE ONE UNDER IT
 const DIM_LIGHT = 0x6E6654; // A HAND CARD WITH NO PLAY BUT A DISCARD THIS TURN (select.js dimmed): ITS FACE UNDER LESS LIGHT
@@ -14,13 +14,15 @@ const GREEN_DECK_CARDS = 4; // AS MANY SLABS AS THE RED DECK, SQUARED UP: ONE CA
 const GREEN_BACK = 0x0E3B22;
 const PICK_LIFT = 1.1; // A LIFTED (PICKED) CARD FLOATS THIS HIGH, ABOVE A HOVERED ONE
 const PILE_FACE = 0.5; // THE LIFTED CARD'S PREVIEW: THIS FRACTION OF THE FACE TEXTURE'S SIZE
+const DRAG_Y = CARD_Y + PICK_LIFT; // A DRAGGED CARD FLOATS AT A LIFTED HAND CARD'S HEIGHT, UNDER THE POINTER
+const LANDINGS = { spot: PILES.mineSpot, passive: PILES.mine, discard: DISCARD.mine }; // THE PLAYER'S PLACES A DRAGGED CARD CAN BE LET GO ON
 const PILE_NAMES = { mine: "Your passives", his: "Card Guy's passives", mineSpot: "Your actives in effect", hisSpot: "Card Guy's actives in effect" }; // WHAT A SCREEN READER HEARS OF AN OPENED PILE
 
 /**
  * @description The Chess Cards table in the room, made from its card template. Children of the room, so they turn with it (Flip Board)
  * @param {{ template: Object3D, room: Group, tweens: object, requestRender: () => void, still?: () => boolean, frame?: (box: object|null) => void }} options as createCards (cards.js), & frame: the camera frames this much of the desk
  * (an opened pile's column, tableLayout.js columnBox), null: it goes back (camera.js framePile)
- * @returns {{ set: Function, lift: Function, hover: Function, hit: Function, togglePile: Function, open: Function, dispose: Function }|null} the table, null when the template can't be used
+ * @returns {{ set: Function, lift: Function, hover: Function, hit: Function, togglePile: Function, open: Function, grab: Function, follow: Function, release: Function, settle: Function, dispose: Function }|null} the table, null when the template can't be used
  */
 export function createCardTable({ template, room, tweens, requestRender, still = () => false, frame: frameBox = () => {} }) {
 	if (!findParts(template)) { return null; }
@@ -32,6 +34,16 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 	room.add(frame);
 	const cards = new Map(); // KEY (tableLayout.js tableSpots: THE OWNER & THE CARD'S ID) -> { root, face, faceMaterial, canvas, texture, faceKey, scaleY, spot, at, lift, liftTo, moveToken, liftToken, landed }
 	let current = { view: null, catalog: {}, focus: null, focusPile: null, dim: [] };
+	const lands = Object.entries(LANDINGS).map(function ([place, p]) { // A GOLD FRAME ROUND EACH PLACE THE DRAGGED CARD CAN BE LET GO ON (AN EMPTY PLACE DRAWS NOTHING ELSE)
+		const m = new Mesh(frame.geometry, frameMaterial);
+		m.position.set(p.x, DESK_Y + 0.02, p.z);
+		m.visible = false;
+		m.userData.place = place;
+		room.add(m);
+		return m;
+	});
+	const dragPlane = new Plane(new Vector3(0, 1, 0), -DRAG_Y), dragPoint = new Vector3(), deskAt = new Vector3();
+	let drag = null, stage = null; // drag: THE CARD THE MOUSE HOLDS { c, id, from: "hand" | "pile", places, moved, desk: THE DESK UNDER THE POINTER { x, z } | null }, stage: THE CARD LET GO ON A PLACE, LYING THERE WHILE IT IS THE LIFTED ONE (tableLayout.js tableSpots)
 	let lifted = null, hovered = null, openPile = null, boxKey = "null", laid = false; // openPile: THE PILE OPENED INTO A COLUMN, boxKey: WHAT THE CAMERA WAS LAST TOLD TO FRAME, laid: THE FIRST LAYOUT IS DONE
 
 	// A CLONE OF THE TEMPLATE: FACE UP WITH ITS OWN CANVAS, OR FACE DOWN IN back'S COLOUR (ITS FACE UNDERNEATH, NEVER SEEN)
@@ -104,8 +116,8 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 	// EACH HAND CARD'S LIFT & LIGHT: LIFTED (PICKED) HIGHEST, HOVERED OR FOCUSED A LITTLE
 	function refreshLift() {
 		for (const [key, c] of cards) {
-			if (!c.spot.hand) { continue; }
-			const id = key.slice(2), up = id === lifted ? PICK_LIFT : id === hovered || id === current.focus ? LIFT : 0;
+			if (!c.spot.hand || (drag && drag.c === c && drag.moved)) { continue; }
+			const id = key.slice(2), up = c.spot.staged ? 0 : id === lifted ? PICK_LIFT : id === hovered || id === current.focus ? LIFT : 0;
 			if (c.faceMaterial) { c.faceMaterial.color.setHex(current.dim.includes(id) ? DIM_LIGHT : up ? HOVER_LIGHT : CARD_LIGHT); }
 			if (up === c.liftTo) { continue; }
 			c.liftTo = up;
@@ -143,7 +155,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		const list = openPile ? pileCards(current.view, openPile) : [], box = openPile ? columnBox(openPile, list.length) : null, key = JSON.stringify(box);
 		const text = openPile ? `${PILE_NAMES[openPile]}, newest first: ${list.slice().reverse().map(say).join("; ")}` : "";
 		if (reader.textContent !== text) { reader.textContent = text; }
-		if (key === boxKey) { return; }
+		if (key === boxKey || (drag && drag.moved && drag.from === "pile")) { return; } // A PLACED CARD DRAGGED: THE CAMERA SHOWS THE WAY TO THE DISCARD PILE (follow)
 		boxKey = key;
 		frameBox(box);
 	}
@@ -151,10 +163,11 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 	// LAYS THE TABLE OUT FOR current: NEW CARDS SLIDE IN (FROM THE RED DECK, OR FROM CARD GUY'S HAND TO HIS PLACES), MOVED ONES SLIDE TO THEIR NEW SPOT (ONE THERE OR ON ITS WAY ALREADY IS LEFT ALONE), GONE ONES ARE TAKEN AWAY
 	function lay() {
 		if (openPile && !pileCards(current.view, openPile).length) { openPile = null; } // ITS LAST CARD LEFT
-		const want = tableSpots(current.view, { open: openPile, base: DESK_Y + 0.005, layer: LAYER });
+		const want = tableSpots(current.view, { open: openPile, base: DESK_Y + 0.005, layer: LAYER, stage });
 		for (const [key, c] of [...cards]) {
 			const w = want.get(key);
 			if (w && w.faceDown === c.spot.faceDown) { continue; }
+			if (drag && drag.c === c) { drag = null; showLands([]); } // THE DRAGGED CARD LEFT THE TABLE
 			free(c);
 			cards.delete(key);
 		}
@@ -176,13 +189,20 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			c.spot = spot;
 			c.root.scale.y = c.scaleY * (spot.thick || 1);
 			if (!spot.faceDown) { paint(c); }
-			if (was.x !== spot.x || was.y !== spot.y || was.z !== spot.z || (was.yaw || 0) !== (spot.yaw || 0)) { moveTo(c, 0); } // THE SAME SPOT: A SLIDE ON ITS WAY THERE (OR ITS DEAL'S STAGGER) GOES ON
+			if (drag && drag.c === c && drag.moved) { continue; } // UNDER THE POINTER
+			if (c.adrift) { c.adrift = false; moveTo(c, 0); } // LET GO: IT SLIDES FROM THERE TO WHERE IT LIES NOW
+			else if (was.x !== spot.x || was.y !== spot.y || was.z !== spot.z || (was.yaw || 0) !== (spot.yaw || 0)) { moveTo(c, 0); } // THE SAME SPOT: A SLIDE ON ITS WAY THERE (OR ITS DEAL'S STAGGER) GOES ON
 			else if (was.thick !== spot.thick) { place(c); }
 		}
 		laid = true;
 		frameOpen();
 		refreshLift();
 		showPreview(); // THE LIFTED CARD LEFT THE HAND, OR THE CATALOG CAME
+	}
+
+	function showLands(places) {
+		for (const m of lands) { m.visible = places.includes(m.userData.place); }
+		requestRender();
 	}
 
 	/* ---- The lifted card's preview: a hand card with rules text (an active, the held passive, a curse), big enough to read, beside the board while it's lifted (user ruling 2026-11-22) ---- */
@@ -221,6 +241,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		lift(id) {
 			if (id === lifted) { return; }
 			lifted = id;
+			if (stage && stage.id !== id) { stage = null; if (current.view) { lay(); } } // THE CARD LET GO ON A PLACE IS NO LONGER THE ONE PLAYED: IT GOES WHERE THE VIEW HAS IT
 			refreshLift();
 			showPreview();
 		},
@@ -262,6 +283,68 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			return openPile;
 		},
 		/**
+		 * @description The mouse went down on a card: one of the player's hand cards, or a face-up card of their own opened pile, is held. It moves once the pointer does (follow)
+		 * @param {{ id: string|null }} hit what hit() gave
+		 * @param {string[]|null} places the player's places it can be let go on ("spot", "passive", "discard": framed while it's dragged), null: it isn't held
+		 * @returns {boolean} held
+		 */
+		grab(hit, places) {
+			const c = current.view && hit.id && places ? cards.get(`${current.view.you}:${hit.id}`) : null;
+			if (!c || !(c.spot.hand || (c.spot.pile && c.spot.pile === openPile && PILES[openPile].side === "mine"))) { return false; }
+			drag = { c, id: hit.id, from: c.spot.hand ? "hand" : "pile", places, moved: false, desk: null };
+			return true;
+		},
+		/**
+		 * @description The held card goes under the pointer, floating. The first time: its landing places are framed, & for a placed card the camera shows its column & the discard pile
+		 * @param {Raycaster} raycaster already set from the camera & pointer
+		 */
+		follow(raycaster) {
+			if (!drag || !raycaster.ray.intersectPlane(dragPlane, dragPoint)) { return; }
+			room.worldToLocal(dragPoint); // FLIP BOARD TURNS THE ROOM
+			const c = drag.c;
+			if (!drag.moved) {
+				drag.moved = true;
+				c.moveToken++;
+				c.liftToken++;
+				c.lift = c.liftTo = 0;
+				c.landed = false;
+				showLands(drag.places);
+				if (drag.from === "pile") {
+					const b = columnBox(c.spot.pile, pileCards(current.view, c.spot.pile).length), d = DISCARD.mine;
+					boxKey = "drag";
+					frameBox({ x0: Math.min(b.x0, d.x - CARD_SIZE.w / 2), x1: Math.max(b.x1, d.x + CARD_SIZE.w / 2), z0: Math.min(b.z0, d.z - CARD_SIZE.h / 2), z1: Math.max(b.z1, d.z + CARD_SIZE.h / 2) });
+				}
+			}
+			c.at = { x: dragPoint.x, y: DRAG_Y, z: dragPoint.z, yaw: 0 };
+			const desk = deskPoint(raycaster.ray.origin, raycaster.ray.direction, DESK_Y); // THE PLACE IT'S DROPPED ON IS THE DESK UNDER THE POINTER, NOT UNDER THE CARD FLOATING NEARER THE CAMERA (REVIEW I2)
+			if (desk) { room.worldToLocal(deskAt.set(desk.x, DESK_Y, desk.z)); }
+			drag.desk = desk ? { x: deskAt.x, z: deskAt.z } : null;
+			place(c);
+			requestRender();
+		},
+		/**
+		 * @description The mouse let go of the held card. It stays where it is until settle()
+		 * @returns {{ kind: "drop", from: "hand"|"pile", id: string, place: object|null }|null} what was dragged & the place under it (tableLayout.js placeAt), null when no card was dragged (a press that never moved: its click follows)
+		 */
+		release() {
+			const d = drag;
+			drag = null;
+			if (!d || !d.moved) { return null; }
+			showLands([]);
+			const at = d.desk ? placeAt(d.desk.x, d.desk.z) : null;
+			d.c.adrift = true;
+			stage = at && at.side === "mine" ? { id: d.id, from: d.from, place: at.place } : null;
+			return { kind: "drop", from: d.from, id: d.id, place: at };
+		},
+		/**
+		 * @description After release(): the card lies on the place it was let go on while it's the lifted card (its play is on its way, or its targets are picked), or slides back to where it was. The camera goes back to the opened pile
+		 * @param {boolean} held the drop was taken
+		 */
+		settle(held) {
+			if (!held) { stage = null; }
+			if (current.view) { lay(); }
+		},
+		/**
 		 * @description Takes every card & the frame out of the room & frees what they own. The template's geometry is the room's to free
 		 */
 		dispose() {
@@ -271,6 +354,8 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			showPreview();
 			for (const c of [...cards.values(), ...green]) { free(c); }
 			cards.clear();
+			drag = stage = null;
+			for (const m of lands) { room.remove(m); }
 			room.remove(frame);
 			backMaterial.dispose();
 			greenMaterial.dispose();

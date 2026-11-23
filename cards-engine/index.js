@@ -76,7 +76,7 @@ function graceUndo(state, player, action, done, graceId) {
 }
 
 module.exports = {
-	ENGINE_VERSION, KING_SKULLS, IllegalAction, newGame, applyAction, legalActions: turn.legalActions, actionKey: turn.actionKey, rng, board,
+	ENGINE_VERSION, KING_SKULLS, PASSIVES: turn.PASSIVES, IllegalAction, newGame, applyAction, legalActions: turn.legalActions, actionKey: turn.actionKey, rng, board,
 	playerView: view.playerView, playerEvents: view.playerEvents, fromView: view.fromView, toFen: view.toFen, playerLegal: view.playerLegal,
 };
 

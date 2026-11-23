@@ -184,7 +184,7 @@ export function frameDeal(animate) {
 	if (!view.room || !monitorIdle()) { return; }
 	const home = view.dealHome;
 	if (home && !home.back && !view.pileBox) { return; } // ALREADY FRAMED, OR ON ITS WAY
-	if (view.pileBox) { view.pileBox = null; view.table.togglePile(null); } // AN OPENED PILE HAD THE FRAME: IT CLOSES, THE DEAL IS FRAMED FROM THE SAME HOME
+	if (view.pileBox) { view.pileBox = null; view.controls.maxTargetRadius = BOARD_SIZE / 2; view.table.togglePile(null); } // AN OPENED PILE HAD THE FRAME: IT CLOSES, THE DEAL IS FRAMED FROM THE SAME HOME
 	landTurn(); // FLIP BOARD WOULD TAKE THE CAMERA ELSEWHERE: THE FRAME IS WORKED OUT FROM WHERE ITS TURN ENDS
 	if (home) { home.back = false; }
 	else {
@@ -209,6 +209,7 @@ export function unframeDeal(animate) {
 	if (!home) { retryLean(); return; } // THE PROMOTION CARDS WENT BACK WITHOUT A FRAME: AUTO LEAN MAY LEAN AGAIN
 	const restore = function () {
 		view.controls.maxDistance = home.maxDistance;
+		view.controls.maxTargetRadius = BOARD_SIZE / 2; // AS pointer.js createControls: AN OPENED PILE'S FRAME LIFTED IT (framePile)
 		view.dealHome = null;
 		retryLean(); // THE DEAL'S OR THE OPENED PILE'S FRAME IS OVER
 	};
@@ -268,6 +269,7 @@ export function framePile(box, animate) {
 	}
 	if (!monitorIdle() || dealing()) { return; } // shortcut: A PILE OPENED BY THE KEYS MEANWHILE LIES OPEN UNFRAMED, OPEN IT AGAIN TO FRAME IT
 	view.pileBox = box;
+	view.controls.maxTargetRadius = Infinity; // THE COLUMN IS OFF THE BOARD: THE CONTROLS WOULD PULL THE TARGET BACK ONTO IT AT THE FIRST ZOOM OR ORBIT (three 0.187 OrbitControls.update CLAMPS IT). BACK IN unframeDeal
 	landTurn();
 	if (view.dealHome) { view.dealHome.back = false; }
 	else {

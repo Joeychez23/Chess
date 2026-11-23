@@ -97,7 +97,7 @@ function actionsFor(legal, view, cardId) {
 }
 
 /**
- * @description The free discard of a hand card (Task 20e: one card at a time, a move card, an active, or the held passive, its reroll): its own, when legal lists it. Segment D replaces the button with a drag
+ * @description The free discard of a hand card (Task 20e: one card at a time, a move card, an active, or the held passive, its reroll): its own, when legal lists it. A button for the keys & a tap; the mouse drags the card to the discard pile (dropPlay)
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} view [cards.view]
  * @param  {[string]} cardId
@@ -343,6 +343,57 @@ function promotionPick(ready) {
 }
 
 /**
+ * @description What a card dragged with the mouse & let go over a place of the desk plays (Task 20e, flow.js dropCard). A hand card on the player's discard pile: its own free discard; an active on their
+ * active spot: played at once when it has one play with no target, else its targets are picked next (its plays without its discard); the held passive on their passive pile: placed.
+ * One of the player's placed cards (an opened pile's) on their discard pile: its drop. Only what legal lists (under fog, Last Stand's blind plays too, as lift), anything else puts the card back
+ * @param  {[array]} legal [cards.legal]
+ * @param  {[object]} view [cards.view]
+ * @param  {[object]} drag [{ from: "hand" | "pile", id }: the card dragged, from the hand or from an opened pile]
+ * @param  {[object|null]} place [where it was let go (three/tableLayout.js placeAt): { side: "mine" | "his", place: "spot" | "passive" | "discard" }, null for nowhere]
+ * @param  {[boolean]} hidden [cards.hidden]
+ * @return {[object|null]} play [{ action }: sent, { pick }: the play being picked from here on, null: the card goes back]
+ */
+function dropPlay(legal, view, drag, place, hidden = false) {
+	if (!place || place.side !== "mine") { return null; }
+	const send = (action) => (action ? { action } : null);
+	if (drag.from === "pile") { return send(place.place === "discard" && legal.find((a) => a.type === "drop" && a.card === drag.id)); }
+	const card = handCards(view).find((c) => c.id === drag.id);
+	if (!card) { return null; }
+	if (place.place === "discard") { return send(legal.find((a) => a.type === "discard" && a.cards.length === 1 && a.cards[0] === card.id)); }
+	if (place.place === "passive") { return send(card.kind === "passive" && legal.find((a) => a.type === "passive")); }
+	if (card.kind !== "active") { return null; }
+	const pick = { card: card.id, actions: lift(legal, view, card.id, hidden).actions.filter((a) => a.type === "active"), picks: [] };
+	if (!pick.actions.length) { return null; }
+	const { glow, ready } = options(pick, view.board);
+	return !glow.length && ready.length === 1 ? { action: ready[0] } : { pick };
+}
+
+/**
+ * @description The drops the keys & a tap offer as buttons for the player's own opened pile (the mouse drags the card to the discard pile, dropPlay): one per card of it whose drop legal lists.
+ * Never one of Card Guy's cards, whatever legal says
+ * @param  {[array]} legal [cards.legal]
+ * @param  {[object]} view [cards.view]
+ * @param  {[string]} pile [the opened pile, a key of three/tableLayout.js PILES: only "mine" (the passives waiting) & "mineSpot" (the actives in effect) hold the player's cards]
+ * @param  {[string|null]} id [only this card's (a tap on it), null: every card's (Enter on the pile)]
+ * @return {[array]} actions [{ type: "drop", card }]
+ */
+function pileDrops(legal, view, pile, id = null) {
+	const own = pile === "mine" ? (view.effects || []).filter((e) => e && e.owner === view.you && e.card).map((e) => e.card) : pile === "mineSpot" ? ((view.players[view.you] || {}).spot || []).filter(Boolean) : [];
+	return own.filter((c) => !c.down && c.id !== undefined && (id === null || c.id === id)).map((c) => legal.find((a) => a.type === "drop" && a.card === c.id)).filter(Boolean);
+}
+
+/**
+ * @description The plays a prompt offers as buttons. The mouse plays by dragging (Task 20e), so its prompt has no discard & no placing, & an active's plays only once the card was dropped on the
+ * active spot (placed: its targets with no square) or squares are picked (two plays on the same squares). A curse's clear & a move's two forms stay. The keys & a tap keep every button
+ * @param  {[array]} plays [the plays ready (options().ready)]
+ * @param  {[object]} how [{ mouse: the pick is the mouse's, picks: the squares picked so far, placed: the card lies on the active spot }]
+ * @return {[array]} plays
+ */
+function promptPlays(plays, { mouse = false, picks = 0, placed = false } = {}) {
+	return mouse ? plays.filter((a) => a.type !== "discard" && a.type !== "passive" && (a.type !== "active" || picks > 0 || placed)) : plays;
+}
+
+/**
  * @description The keyboard's stops, in order: the hand, then the player's pieces with a move that needs no card (cardless in legal; under fog those cardlessUnderFog covers),
  * then each Board Effects pile that holds a card ("mine" first), then each active spot that holds one ("mineSpot", "hisSpot")
  * @param  {[array]} legal [cards.legal]
@@ -407,6 +458,10 @@ function label(action, view, catalog, taken = null) {
 	switch (action.type) {
 		case "move": return (action.promotion ? PIECE_NAMES[action.promotion] : `${action.from} to ${action.to}`) + (action.card === null ? " without a card" : "");
 		case "passive": return "Place in Board Effects (uses your turn)";
+		case "drop": { // ONE OF THE PLAYER'S PLACED CARDS: A PASSIVE WAITING OR AN ACTIVE IN EFFECT
+			const c = [...(view.effects || []).map((e) => e && e.card), ...((view.players[view.you] || {}).spot || [])].find((x) => x && x.id === action.card);
+			return `Discard your ${(c && catalog[c.key] && catalog[c.key].name) || "card"} from the table`;
+		}
 		case "discard": {
 			const held = action.cards.map((id) => handCards(view).find((c) => c.id === id) || {});
 			if (held[0].kind === "passive") { return `Reroll your ${cardName(action.cards[0]) || "passive"} (new passive now)`; }
@@ -463,12 +518,12 @@ function stepFocus(n, index, key) {
  * arrows still step the hand's focus & Enter does nothing. A focused button keeps Enter (Tab put it there: the menu stays reachable), an arrow takes the focus off it first, as
  * handleCardKey does. While the promotion cards are out only Escape is the hand's. A held key (repeat) does nothing more
  * @param  {[object]} k [{ key: a KeyboardEvent.key, repeat, on: a game loaded & not over, yours: the player may pick (flow.js yourMove), button: a button or link has the focus,
- * promoting: the promotion cards are out, picked: a pick the player can put down }]
+ * promoting: the promotion cards are out, picked: a pick the player can put down, pile: a pile is opened (Escape closes it, on the turn or off it, once any pick is down) }]
  * @return {[string]} plan ["page": the page has it (its nav, the focused button, handleCardKey), "stop": nobody, "hand": the hand uses it, "blur": the focus leaves the button, then "hand"]
  */
-function keyPlan({ key, repeat = false, on, yours, button = false, promoting = false, picked = false }) {
+function keyPlan({ key, repeat = false, on, yours, button = false, promoting = false, picked = false, pile = false }) {
 	if (!on) { return "page"; }
-	if (key === "Escape") { return yours && picked ? "hand" : "page"; } // NOTHING TO PUT DOWN: THE MENU'S ESCAPE
+	if (key === "Escape") { return (yours && picked) || pile ? "hand" : "page"; } // NOTHING TO PUT DOWN & NO PILE TO CLOSE: THE MENU'S ESCAPE
 	if (repeat) { return "stop"; }
 	if (key === "Enter" && button) { return "page"; }
 	if (promoting) { return "page"; } // handleCardKey HAS THE ARROWS & ENTER
@@ -477,12 +532,12 @@ function keyPlan({ key, repeat = false, on, yours, button = false, promoting = f
 }
 
 /**
- * @description The prompt's button the keys focus: Cancel (after the plays) when the first play is a discard, so Enter alone never discards a dimmed card (N2), else the first
+ * @description The prompt's button the keys focus: Cancel (after the plays) when the first play is a discard or a placed card's drop, so Enter alone never discards a dimmed card (N2) or drops a card, else the first
  * @param  {[array]} actions [the prompt's plays, its buttons in order; Cancel follows them]
  * @return {[number]} index [of the button]
  */
 function promptFocus(actions) {
-	return actions.length && actions[0].type === "discard" ? actions.length : 0;
+	return actions.length && (actions[0].type === "discard" || actions[0].type === "drop") ? actions.length : 0;
 }
 
-module.exports = { movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES, VALUE, CARD_MOVES };
+module.exports = { movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, dropPlay, pileDrops, promptPlays, focusList, label, stepFocus, keyPlan, promptFocus, PIECE_NAMES, VALUE, CARD_MOVES };

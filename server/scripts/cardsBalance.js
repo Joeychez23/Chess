@@ -75,7 +75,7 @@ async function main() {
 	const totals = drawTotals(results), shares = (counts, keys) => { const all = Object.values(counts).reduce((n, x) => n + x, 0); return keys.map((k) => `${k} ${pct((counts[k] || 0) / all)}`).join(", ") + ` (${all} drawn)`; };
 	console.log("move cards drawn by type: " + shares(totals.moveTypes, ["p", "m", "r", "q"]));
 	for (const [band, counts] of Object.entries(totals.rarityByBand)) { console.log(`actives & passives drawn in turns ${band}: ` + shares(counts, ["common", "uncommon", "rare", "epic", "legendary"])); }
-	console.log(`games decided ${played - stats.capped - stats.actionCapped - stats.stuck}, draws at the ${MAX_PLIES}-ply cap ${stats.capped}, stopped at the action cap ${stats.actionCapped}, stuck ${stats.stuck}, fallback actions ${stats.fallbacks}, average plies ${played ? (stats.plies / played).toFixed(1) : "-"}, free discards ${pct(stats.discards / stats.turnActions)} of turn actions, single move-card discards ${stats.singles}, automatic redraws after one ${stats.singleRedraws}, passive rerolls ${stats.rerolls}`);
+	console.log(`games decided ${played - stats.capped - stats.actionCapped - stats.stuck}, draws at the ${MAX_PLIES}-ply cap ${stats.capped}, stopped at the action cap ${stats.actionCapped}, stuck ${stats.stuck}, fallback actions ${stats.fallbacks}, average plies ${played ? (stats.plies / played).toFixed(1) : "-"}, free discards ${pct(stats.discards / stats.turnActions)} of turn actions, single move-card discards ${stats.singles}, automatic redraws after one ${stats.singleRedraws} (Card Guy only discards dead cards, so 0 is expected), passive rerolls ${stats.rerolls}`);
 }
 
 main().catch((err) => { console.error(err); }); // A REPORT, NOT A GATE: EXIT CODE 0
