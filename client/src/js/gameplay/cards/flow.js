@@ -7,7 +7,8 @@
  *	chess.js holds them for the renderer & is never asked what's legal. The table (three/cardTable.js, through the renderer) shows the hands, decks & Board Effects,
  *	& the player plays from it: a card clicked (or picked with the keys) lifts, the squares select.js offers glow, the last one picked sends the action; with the mouse an active, the passive & the free discard are played by dragging the card to its place on the desk (dropCard), a prompt
  *	(#cardPrompt) chooses when several plays share the squares or need none (or asks first when a King move spends a King skull), & a move's promotions deal the
- *	room's promotion cards, as in a normal game
+ *	room's promotion cards, as in a normal game. All or Nothing's card duel is dealt on the table & its events shown one after another (duelShow.js); the player picks a duel card
+ *	by clicking or tapping it (or the keys), & the prompt asks Stop or Continue after a win
  *
  */
 
@@ -22,7 +23,8 @@ const { showBot } = require("../bots/say.js"); // CARD GUY'S NAME BESIDE THE BOA
 const { showGameOver } = require("../menu/offers.js"); // THE GAME OVER SCREEN
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
 const S = require("./select.js"); // WHAT THE TABLE LETS THE PLAYER PICK, FROM cards.legal
-const { setTable3D, onTablePick, toggleTablePile3D, tablePileOpen3D, holdTablePiece3D, dropTablePiece3D } = require("../renderer/index.js"); // THE TABLE ON THE 3D BOARD
+const { duelSteps } = require("./duelShow.js"); // WHAT AN ANSWER SHOWS OF THE CARD DUEL
+const { setTable3D, onTablePick, toggleTablePile3D, tablePileOpen3D, holdTablePiece3D, dropTablePiece3D, dealDuel3D, flipDuel3D, endDuel3D } = require("../renderer/index.js"); // THE TABLE ON THE 3D BOARD
 const { rarityColor } = require("../three/cardFaces.js"); // A PROMPT'S BORDER, THE COLOUR OF THE CARD THAT ASKED
 const { forfeitGame } = require("../validate/index.js"); // THE OLDER-VERSION GAME'S WAY OUT
 
@@ -45,6 +47,8 @@ let onPlace = null; // THE CARD THE MOUSE DRAGGED TO ONE OF THE PLAYER'S PLACES 
 let promoting = null; // A MOVE'S PROMOTIONS WHILE THE ROOM'S PROMOTION CARDS ARE OUT (game.currPromotion), ONE PICKED SENDS ITS PLAY (promote)
 let shownPrompt = null; // WHAT THE PROMPT SHOWS (ITS BUTTONS AS JSON), SO IT'S ONLY REBUILT WHEN THAT CHANGES
 let promptStart = null; // THE PROMPT'S BUTTON THE KEYS FOCUS (select.js promptFocus), null WHILE IT'S HIDDEN
+let duelShow = Promise.resolve(); // THE CARD DUEL'S STEPS OF THE ANSWERS SO FAR ON THE TABLE, ONE ANSWER'S AFTER ANOTHER'S (showDuel)
+let showing = 0; // ANSWERS WHOSE DUEL STEPS AREN'T ALL SHOWN YET: NOTHING IS PICKED MEANWHILE (yourMove)
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -87,7 +91,7 @@ export function startCards(response) {
  * @param  {[object]} action [one of cards.legal]
  * @return {[array]} events [the action's events, [] when it didn't go through]
  */
-export async function act(action) {
+export async function act(action, again = false) {
 	const response = await sendAction(game.GAME_URL, game.GAME_ID, action);
 	if (!response?.view) {
 		console.log(response?.message || "The action didn't go through: no answer from the server");
@@ -95,7 +99,9 @@ export async function act(action) {
 		return [];
 	}
 	if (response.status === 409 && !response.stale && !response.result) { showStatus("action", cards.hidden ? "That move isn't allowed. The fog hides why." : "That play isn't allowed now.", MESSAGE_TIME); } // NOT LEGAL: UNDER FOG A BLIND MOVE THE SERVER REFUSED
-	const events = show(response);
+	const events = show(response, action);
+	if (response.stale && !again && action.type === "duel" && Number.isInteger(action.pick) && cards.legal.some((a) => a.type === "duel" && a.pick === action.pick)) { return act(action, true); } // CARD GUY'S PICK WAS SAVED FIRST: THE PLAYER'S, STILL LEGAL, IS SENT ONCE MORE, WITH NO MESSAGE (M3)
+	await duelShow; // ITS DUEL CARDS FLIP BEFORE CARD GUY'S NEXT ACTION OR THE RESULT
 	if (cards.result) { showGameOver(cards.result); }
 	else if (cards.cardGuyDue) { playCardGuy(); }
 	return events;
@@ -124,6 +130,7 @@ function playCardGuy() {
 			clearStatus("ai");
 			keyboard = false; // A PROMPT CARD GUY'S PLAY RAISES DOESN'T TAKE THE FOCUS: AN ENTER MEANT FOR SOMETHING ELSE WOULD ANSWER IT
 			show(response);
+			await duelShow;
 		}
 		if (cards.result) { showGameOver(cards.result); } // DOES NOTHING WHEN IT'S ALREADY SHOWN
 	})().finally(function () { cardGuyLoop = null; });
@@ -135,15 +142,19 @@ function playCardGuy() {
 /* ---------------------------------------------------------------- */
 /**
  * @description Keeps a card route's answer (store.js) & puts its view's pieces on the board: the renderer draws chessInst, so it's loaded with them, unchecked (a card game's
- * board can be one chess wouldn't allow). drawBoard slides a single move in & sets anything else at once
+ * board can be one chess wouldn't allow). drawBoard slides a single move in & sets anything else at once. An answer with card duel steps puts its view on the board & the table in
+ * them, after its flips (showDuel: the result shows after the cards that decide it, I1)
  * @param  {[object]} response [cardsResponse, an answer without a view changes nothing]
+ * @param  {[object|null]} action [the player's own action it answers, null for Card Guy's & a load]
  * @return {[array]} events [the answer's events]
  */
-function show(response) {
-	const events = takeResponse(response);
+function show(response, action = null) {
+	if (game.gameOver && !response?.result) { return []; } // AN ANSWER SAVED BEFORE A LIVE FORFEIT BUT DELIVERED AFTER IT: THE GAME IS OVER, IT WOULD LAY THE DUEL AGAIN (N1)
+	const prev = cards.view, events = takeResponse(response);
 	if (!response?.view) { return events; }
-	chessInst.load(toFen(cards.view.board), { skipValidation: true }); // A "?" PIECE (NEVER SENT SINCE FOG HIDES WHOLE PIECES) PRINTS AS "?", WHICH chess.js SKIPS
-	game.refresh = true;
+	const steps = duelSteps(prev, cards.view, events, action);
+	if (cards.view.result && cards.view.duel) { cards.view = { ...cards.view, duel: null }; } // A FINISHED GAME SHOWS NO DUEL (M6): ITS STEPS END IT, THE TABLE GETS THE VIEW WITHOUT ONE (ITS PILES OPEN AGAIN)
+	if (!(prev && prev.duel) && cards.view.duel) { keyFocus = null; } // A DUEL STARTS: A HAND STOP ISN'T CARRIED ONTO ITS CARDS (M7)
 	lastPlayed = events.filter((e) => e && e.type === "card-played" && e.card && e.card.key).map((e) => e.card).pop() || lastPlayed;
 	lastTaken = events.filter((e) => e && e.type === "card-taken" && e.from === cards.you && e.card && typeof e.card === "object").map((e) => e.card).pop() || lastTaken;
 	sel = null; // THE GAME MOVED ON: A PICK IN PROGRESS STARTS AGAIN
@@ -151,8 +162,36 @@ function show(response) {
 	squareFocus = null;
 	confirm = null;
 	endPromotion();
+	if (steps.length) { showDuel(steps); return events; }
+	loadBoard(cards.view);
 	refreshTable();
 	return events;
+}
+
+// THE RENDERER DRAWS chessInst: LOADED WITH THE VIEW'S PIECES, UNCHECKED. A "?" PIECE (NEVER SENT SINCE FOG HIDES WHOLE PIECES) PRINTS AS "?", WHICH chess.js SKIPS
+function loadBoard(view) {
+	chessInst.load(toFen(view.board), { skipValidation: true });
+	game.refresh = true;
+}
+
+/**
+ * @description An answer's card duel steps (duelShow.js) on the table, after the answers' before it, with a short wait between two as between Card Guy's actions: the deal (no pile stays open),
+ * each flip, the winner's gold outline, then the answer's own view on the board & the table (set) at once with the view's duel or its end (S2: set BEFORE endDuel). Nothing is picked &
+ * nothing else sets the table meanwhile (showing). Then the table & the prompt are refreshed for what's legal now
+ * @param  {[array]} steps [duelSteps']
+ */
+function showDuel(steps) {
+	showing++; // FIRST: ONLY THE CHAIN'S finally BRINGS IT DOWN, ALSO WHEN A STEP THROWS (M5)
+	const shown = { view: cards.view, legal: cards.legal }; // THIS ANSWER'S, FOR ITS set: A LATER ANSWER'S VIEW WAITS FOR ITS OWN STEPS
+	duelShow = duelShow.then(async function () {
+		for (const [i, step] of steps.entries()) {
+			if (i && steps[i - 1].op !== "set") { await wait(CARD_GUY_WAIT); }
+			if (step.op === "set") { loadBoard(shown.view); refreshTable(shown); }
+			else if (step.op === "deal") { if (tablePileOpen3D()) { toggleTablePile3D(null); } dealDuel3D(step.duel); }
+			else if (step.op === "flip") { flipDuel3D(step.player, step.index, step.card, step.won); }
+			else { endDuel3D(); }
+		}
+	}).catch((err) => console.warn("The card duel couldn't be shown", err)).finally(function () { showing--; refreshTable(); });
 }
 
 /* ---------------------------------------------------------------- */
@@ -172,33 +211,35 @@ onTablePick((hit) => { // THE 3D BOARD'S CLICKS & TAPS, & THE MOUSE'S PRESS & RE
 	}
 	keyboard = false;
 	byMouse = !hit.touch;
-	if (hit.kind === "hand") { clickCard(hit.id); } else if (hit.kind === "square") { clickSquare(hit.square); }
+	if (hit.kind === "hand") { clickCard(hit.id); } else if (hit.kind === "square") { clickSquare(hit.square); } else if (hit.kind === "duel") { pickDuel(hit.index); }
 });
 
 const promptBox = document.getElementById("cardPrompt");
 
-// THE PLAYER MAY PICK: THE GAME IS ON, NOTHING IS ON ITS WAY & IT'S THEIR TURN (A PLAY IN legal, OR UNDER FOG NOTHING OWED BY CARD GUY: THE MOVES AREN'T LISTED)
-const yourMove = () => Boolean(cards.view) && !cards.result && !game.gameOver && !sending && (cards.legal.length > 0 || (cards.hidden && !cards.cardGuyDue));
+// THE PLAYER MAY PICK: THE GAME IS ON, NOTHING IS ON ITS WAY, NO DUEL CARD STILL FLIPPING (showDuel) & IT'S THEIR TURN (A PLAY IN legal, OR UNDER FOG NOTHING OWED BY CARD GUY: THE MOVES AREN'T LISTED)
+const yourMove = () => Boolean(cards.view) && !cards.result && !game.gameOver && !sending && !showing && (cards.legal.length > 0 || (cards.hidden && !cards.cardGuyDue));
 
-// A CHOICE IS ASKED OF THE PLAYER: EVERY LEGAL ACTION IS AN OPTION OF IT
-const choosing = () => cards.legal.length > 0 && cards.legal.every((a) => a.type === "choice");
+// AN ANSWER IS ASKED OF THE PLAYER: EVERY LEGAL ACTION IS A CHOICE'S OPTION, OR THE DUEL'S STOP OR CONTINUE (select.js asking)
+const choosing = () => S.asking(cards.legal);
 
 /**
- * @description Puts the view, the play being picked & the keyboard's focus on the table, & the prompt when the play needs one
+ * @description Puts the view, the play being picked & the keyboard's focus on the table, & the prompt when the play needs one. While an answer's duel steps are shown only their set does (I1)
+ * @param  {[object|null]} shown [showDuel's { view, legal }: that answer's own, null for the latest (cards.view)]
  */
-function refreshTable() {
-	if (!cards.view) { return; }
+function refreshTable(shown = null) {
+	if (!cards.view || (showing && !shown)) { return; } // NOT AN ARROW OR ANOTHER ANSWER MID-FLIPS: THE TABLE WOULD SHOW THE RESULT BEFORE ITS CARDS FLIP
+	const view = shown ? shown.view : cards.view, legal = shown ? shown.legal : cards.legal;
 	if (onPlace !== null && !sending && !(sel && sel.card === onPlace)) { onPlace = null; } // ITS PLAY WAS ANSWERED OR GIVEN UP: IT GOES WHERE THE VIEW HAS IT
 	if (!sel && choosing() && yourMove()) { sel = S.lift(cards.legal, cards.view, null); } // A CHOICE IS PICKED AT ONCE: ITS PIECES GLOW, ITS OPTIONS ARE BUTTONS
-	const { glow, ready } = sel ? S.options(sel, cards.view.board) : { glow: [], ready: [] };
-	const stops = S.focusList(cards.legal, cards.view, cards.hidden);
+	const { glow, ready } = sel ? S.options(sel, view.board) : { glow: [], ready: [] };
+	const stops = S.focusList(legal, view, cards.hidden);
 	if (keyFocus !== null) { keyFocus = stops.length ? Math.min(keyFocus, stops.length - 1) : null; }
 	if (squareFocus !== null && squareFocus >= glow.length) { squareFocus = null; }
 	const stop = keyFocus === null ? null : stops[keyFocus];
 	const picking = !promoting && !choosing(); // AS pressSquare: ONLY THEN IS A PIECE PICKED UP
-	setTable3D(cards.view, cards.legal, {
-		pickable: yourMove() ? cards.view.board.sq.map((p, i) => (picking && p && p.c === cards.you && S.pickPiece(cards.legal, cards.view, sqName(i), cards.hidden) ? sqName(i) : null)).filter(Boolean) : null, // THE 3D HOVER FADES WHAT COVERS THESE & THE GLOWING SQUARES, NOTHING (null) OFF THE PLAYER'S TURN (USER RULING R1, TASK 20E)
-		catalog: cards.catalog, focus: stop?.kind === "hand" ? stop.id : null, focusPile: stop?.kind === "pile" ? stop.pile : null, dim: S.dimmed(cards.legal, cards.view, cards.hidden),
+	setTable3D(view, legal, {
+		pickable: yourMove() ? view.board.sq.map((p, i) => (picking && p && p.c === cards.you && S.pickPiece(legal, view, sqName(i), cards.hidden) ? sqName(i) : null)).filter(Boolean) : null, // THE 3D HOVER FADES WHAT COVERS THESE & THE GLOWING SQUARES, NOTHING (null) OFF THE PLAYER'S TURN (USER RULING R1, TASK 20E)
+		catalog: cards.catalog, focus: stop?.kind === "hand" ? stop.id : null, focusPile: stop?.kind === "pile" ? stop.pile : null, focusDuel: stop?.kind === "duel" ? stop.index : null, dim: S.dimmed(legal, view, cards.hidden),
 		lifted: sel ? sel.card : onPlace, glow, glowFocus: squareFocus !== null ? glow[squareFocus] : !glow.length && stop?.kind === "square" ? stop.square : null,
 	});
 	showPrompt(ready, glow);
@@ -221,7 +262,7 @@ function askingCard() {
 	const hand = S.handCards(cards.view);
 	if (sel && sel.card !== null) { return faceOf(hand.find((c) => c.id === sel.card)) || { name: "", rarity: null }; }
 	if (choosing()) {
-		const asked = cards.view.pending && catalog[cards.view.pending.card];
+		const asked = catalog[S.askedBy(cards.view)]; // IN A DUEL ITS OWN CARD, KNIGHT OR BISHOP TOO (M1: ALSO AFTER A RELOAD)
 		const played = lastPlayed && catalog[lastPlayed.key];
 		if (played && (!asked || played.name === asked.name)) { return { name: played.name, rarity: played.rarity }; } // A VERSION: THE SAME NAME, ITS OWN RARITY
 		return asked ? { name: asked.name, rarity: asked.rarity } : { name: "Choose", rarity: null };
@@ -305,7 +346,7 @@ export function promote(type) {
  * @param  {[string]} id [the card's id, "king" for the King card]
  */
 function clickCard(id) {
-	if (!yourMove() || choosing()) { return; }
+	if (!yourMove() || choosing() || cards.view.duel) { return; } // A DUEL IS ON: NO HAND CARD LIFTS
 	settle();
 	confirm = null; // A CLICK ELSEWHERE: THE SKULL'S QUESTION & THE PROMOTION CARDS GO
 	endPromotion();
@@ -329,7 +370,7 @@ function clickCard(id) {
  * @return {[array|null]} places ["spot", "passive", "discard"; null: it isn't picked up (not the player's turn, a choice asked, the promotion cards out, a placed card the game doesn't let them drop)]
  */
 function landings({ from, id }) {
-	if (!yourMove() || promoting || choosing()) { return null; }
+	if (!yourMove() || promoting || choosing() || cards.view.duel) { return null; } // A DUEL IS ON: NO CARD IS DRAGGED
 	const places = ["spot", "passive", "discard"].filter((place) => S.dropPlay(cards.legal, cards.view, { from, id }, { side: "mine", place }, cards.hidden));
 	return from === "pile" && !places.length ? null : places;
 }
@@ -444,6 +485,12 @@ function releaseSquare(square, dragged = false) {
 	clickSquare(square, true);
 }
 
+// A DUEL CARD PICKED (A CLICK, A TAP, ENTER ON THE KEYS' ONE): ITS PICK IS SENT WHEN legal HAS IT. ONE GRACE BARS IS HIT ON THE TABLE BUT ISN'T LEGAL: NOTHING HAPPENS
+function pickDuel(index) {
+	const action = yourMove() && cards.legal.find((a) => a.type === "duel" && a.pick === index);
+	if (action) { send(action); }
+}
+
 // A DROPPED PIECE WHOSE PLAY WASN'T MADE GOES BACK TO ITS SQUARE (GIVEN UP, REFUSED, NO ANSWER). A MADE MOVE LEFT ITS SQUARE: NOTHING THERE TO PUT DOWN, ITS SLIDE ENDS IT
 function settle() {
 	if (!dropped) { return; }
@@ -463,9 +510,11 @@ function cancelPick() {
 }
 
 /**
- * @description The menu is opening (moves/index.js revertUnfinishedMove): the card being played goes down
+ * @description The menu is opening (moves/index.js revertUnfinishedMove): the card being played goes down. Also when the game is over (showGameOver opens the menu, or at the 3D monitor
+ * calls revertUnfinishedMove): a duel still on (a forfeit, the chess route's) ends on the table, after any steps still being shown, & frees the hands & the piles (M6)
  */
 export function putDown() {
+	if (game.gameOver && cards.view?.duel) { cards.view = { ...cards.view, duel: null }; showDuel([{ op: "set" }, { op: "end" }]); }
 	if (sel || confirm || promoting) { cancelPick(); }
 }
 
@@ -527,6 +576,7 @@ export function handKey(key, repeat = false, button = false) {
 	const stop = stops[keyFocus];
 	if (stop.kind === "hand") { clickCard(stop.id); }
 	else if (stop.kind === "square") { clickSquare(stop.square); }
+	else if (stop.kind === "duel") { pickDuel(stop.index); }
 	else if (!(pile === stop.pile && offerDrops(stop.pile))) { toggleTablePile3D(stop.pile); } // ENTER ON THE PLAYER'S OWN OPENED PILE: ITS DROP BUTTONS WHEN THE GAME LISTS ONE, ELSE IT CLOSES
 	return true;
 }

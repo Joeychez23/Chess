@@ -322,7 +322,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	view = { taken: new Map(), arriving: new Set(), phone, container, renderer, scene, camera, plane, surroundings, marks, pieces: new Map(), anims: new Set(), side: "w", labelSide: "w", cameraTurn: null, frameId: null }; // taken: PILE KEY -> MESH, arriving: TAKEN OFF THE BOARD, WAITING FOR setTaken, frameId: THE requestRender() FRAME WAITING TO RUN, side: THE SIDE THE CAMERA IS ON (OR TURNING TO), labelSide: THE SIDE THE LABELS READ FROM, cameraTurn: FLIP BOARD'S TURN IN PROGRESS { from, to, start }
 	Object.assign(view, { small: null, lost: false, onContextLost: lost, onContextRestored: restored, held: null, room: null, screenState: null, screenFace: null }); // room: THE LIBRARY ONCE IT'S LOADED (addRoom), screenState & screenFace: WHAT ITS MONITOR WAS LAST TOLD // held: THE PICKED UP PIECE (setHeld) { mesh, dragging, following }
 	Object.assign(view, { monitorOptions: { ...NO_MONITOR, ...(monitor || {}) }, monitor: null, monitorData: null, monitorSeen: "idle", glass: null, zoom: null, home: null, zoomLook: new Vector3(), leaving: [] }); // monitor: ITS STATE MACHINE ONCE THE ROOM HAS LOADED, monitorData: WHAT setMonitor() WAS LAST TOLD, zoom: THE CAMERA'S MOVE TO OR FROM THE GLASS, home: WHERE IT WAS ON THE DESK, zoomLook: WHAT IT LOOKS AT MEANWHILE, leaving: leaveMonitor()'S RESOLVES
-	Object.assign(view, { tweens: createTweens(requestRender), cards: null, cardOptions: { onPick() {}, onTable() {}, tableOn: () => true, ...(cards || {}) }, promotion: null, cardCursor: false, dealHome: null, dealEase: null, cardTemplate: null, table: null, tableArgs: null, tableLifted: null }); // tweens: THE CARDS' SLIDES & THE CAMERA'S DEAL MOVES (STEPPED IN frame), cards: THE PROMOTION CARDS ONCE THE ROOM HAS LOADED (A room WITHOUT THEM LEAVES null), table: A CHESS CARDS GAME'S TABLE (setCardTable) ONCE THE ROOM HAS LOADED, tableArgs & tableLifted: WHAT IT WAS LAST TOLD, promotion: { color } WHILE ONE IS ASKED FOR, cardCursor: THE HAND CURSOR IS A CARD'S, dealHome: WHERE THE CAMERA WAS BEFORE IT FRAMED A DEAL { position, target, maxDistance, back }, dealEase: THE CAMERA'S DEAL MOVE RUNNING (moveDealCamera)
+	Object.assign(view, { tweens: createTweens(requestRender), cards: null, cardOptions: { onPick() {}, onTable() {}, tableOn: () => true, ...(cards || {}) }, promotion: null, cardCursor: false, dealHome: null, dealEase: null, cardTemplate: null, table: null, tableArgs: null, tableLifted: null, tableDuel: null }); // tweens: THE CARDS' SLIDES & THE CAMERA'S DEAL MOVES (STEPPED IN frame), cards: THE PROMOTION CARDS ONCE THE ROOM HAS LOADED (A room WITHOUT THEM LEAVES null), table: A CHESS CARDS GAME'S TABLE (setCardTable) ONCE THE ROOM HAS LOADED, tableArgs, tableLifted & tableDuel: WHAT IT WAS LAST TOLD, promotion: { color } WHILE ONE IS ASKED FOR, cardCursor: THE HAND CURSOR IS A CARD'S, dealHome: WHERE THE CAMERA WAS BEFORE IT FRAMED A DEAL { position, target, maxDistance, back }, dealEase: THE CAMERA'S DEAL MOVE RUNNING (moveDealCamera)
 	view.drawn = new Promise((resolve) => { view.markDrawn = resolve; }); // whenDrawn(): THE FIRST FRAME WITH THE SQUARES IN (textureReady)
 	view.textureReady = false;
 	Object.assign(view, { controls: createControls(camera, canvas), controlsActive: false, cameraGesture: false, press: { x: 0, y: 0, time: 0 }, pointerAt: { x: 0, y: 0 }, pointerOver: false, pickable: null, pointerType: null, touches: new Set(), multiTouch: false }); // cameraGesture: THE CAMERA CONTROLS OWN THE POINTER, touches: THE FINGERS DOWN (pointerId), multiTouch: MORE THAN ONE WAS, SINCE ALL WERE UP
@@ -619,11 +619,39 @@ export function setTaken(captures, playerColor) {
 export function setCardTable(state, legal, opts = {}) {
 	if (!view) { return; }
 	view.tableArgs = [state, legal, opts];
-	if (!view.table && view.cardTemplate) {
+	const made = !view.table && Boolean(view.cardTemplate);
+	if (made) {
 		view.table = createCardTable({ template: view.cardTemplate, room: view.room, tweens: view.tweens, requestRender, still: () => REDUCE.matches, frame: (box) => framePile(box, !REDUCE.matches) });
 		if (view.table) { view.table.lift(view.tableLifted); }
 	}
 	if (view.table) { view.table.set(state, opts); }
+	if (made && view.table && view.tableDuel) { view.table.dealDuel(view.tableDuel); } // A CARD DUEL DEALT WHILE THE ROOM LOADED
+}
+
+/**
+ * @description Deals a card duel on the table, or brings the one laid to the view (cardTable.js dealDuel). Kept until the room has loaded
+ * @param  {[object]} duel [view.duel, of the view the table was last set to]
+ */
+export function dealDuel(duel) {
+	if (!view) { return; }
+	view.tableDuel = duel;
+	if (view.table) { view.table.dealDuel(duel); }
+}
+
+/**
+ * @description Turns a duel card face up, framed in gold when won (cardTable.js flipDuel)
+ */
+export function flipDuel(player, index, card, won = false) {
+	if (view && view.table) { view.table.flipDuel(player, index, card, won); }
+}
+
+/**
+ * @description The card duel is over: its cards go back to the green deck, the hands back into their rows (cardTable.js endDuel)
+ */
+export function endDuel() {
+	if (!view) { return; }
+	view.tableDuel = null;
+	if (view.table) { view.table.endDuel(); }
 }
 
 /**

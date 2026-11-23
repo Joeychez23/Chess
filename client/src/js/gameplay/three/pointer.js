@@ -244,13 +244,14 @@ function cardAt(e) {
 	return view.cards.hit(raycaster);
 }
 
-// THE CHESS CARDS TABLE UNDER A POINTER EVENT: ONE OF THE PLAYER'S HAND CARDS OR A BOARD EFFECTS PILE (cardTable.js hit), null FOR NONE, WHILE THE MONITOR IS ON THE DESK
+// THE CHESS CARDS TABLE UNDER A POINTER EVENT: ONE OF THE PLAYER'S HAND CARDS, A BOARD EFFECTS PILE (NOT WHILE A CARD DUEL IS ON: THE PILES DON'T OPEN) OR A DUEL CARD (cardTable.js hit), null FOR NONE, WHILE THE MONITOR IS ON THE DESK
 function tableAt(e) {
 	if (!view.table || !monitorIdle()) { return null; }
 	const rect = view.renderer.domElement.getBoundingClientRect();
 	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
 	raycaster.setFromCamera(pointer, view.camera);
-	return view.table.hit(raycaster);
+	const hit = view.table.hit(raycaster);
+	return hit && hit.kind === "pile" && view.tableArgs && view.tableArgs[0].duel ? null : hit;
 }
 
 // A MOUSE OVER A CARD LIFTS IT & SHOWS THE HAND CURSOR. AFTER hoverGlass(), WHICH SETS THE CURSOR FOR THE GLASS

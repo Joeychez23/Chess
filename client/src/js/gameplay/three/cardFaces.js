@@ -7,6 +7,9 @@ export const RARITY_COLORS = { common: "#7D7F86", uncommon: "#2E8B57", rare: "#2
 const TYPE_LABELS = { king: "Move", move: "Move", active: "Active", passive: "Passive", curse: "Curse" }; // ANYTHING ELSE IS AN "Effect"
 const SKULL = "☠";
 const MAX_SKULLS = 3;
+const SUITS = { c: "♣", d: "♦", h: "♥", s: "♠" };
+const RANK_NAMES = { 11: "J", 12: "Q", 13: "K", 14: "A" };
+const RED = "#B3202A";
 
 /**
  * @description The colour of a rarity's frame
@@ -54,6 +57,36 @@ function wrap(ctx, text, width) {
 	}
 	if (line) { lines.push(line); }
 	return lines;
+}
+
+/**
+ * @description Draws a duel card's face, a plain playing card: cream with the promotion cards' gold frame, the suit big in the middle, the rank & suit in two corners (hearts & diamonds red)
+ * @param {CanvasRenderingContext2D} ctx the 2D context to draw on
+ * @param {{ r: number, s: string }} card r 2..14 (14 the ace), s "c" | "d" | "h" | "s"
+ * @param {number} w canvas width
+ * @param {number} h canvas height
+ */
+export function drawDuelFace(ctx, card, w, h) {
+	const inset = w * 0.04, rank = RANK_NAMES[card.r] || String(card.r), suit = SUITS[card.s] || "?", ink = card.s === "h" || card.s === "d" ? RED : INK;
+	ctx.fillStyle = CREAM;
+	ctx.fillRect(0, 0, w, h);
+	ctx.strokeStyle = GOLD;
+	ctx.lineWidth = w * 0.02;
+	ctx.strokeRect(inset, inset, w - inset * 2, h - inset * 2);
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	ctx.fillStyle = ink;
+	ctx.font = `${Math.round(h * 0.4)}px ${FONT}`;
+	ctx.fillText(suit, w / 2, h / 2);
+	for (const turned of [false, true]) { // TOP LEFT, THEN BOTTOM RIGHT TURNED 180 DEGREES (AS drawCardFace's CORNERS)
+		ctx.save();
+		if (turned) { ctx.translate(w, h); ctx.rotate(Math.PI); }
+		ctx.font = `bold ${Math.round(h * 0.11)}px ${FONT}`;
+		ctx.fillText(rank, w * 0.16, h * 0.1);
+		ctx.font = `${Math.round(h * 0.09)}px ${FONT}`;
+		ctx.fillText(suit, w * 0.16, h * 0.2);
+		ctx.restore();
+	}
 }
 
 /**

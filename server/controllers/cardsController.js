@@ -30,7 +30,7 @@ const cardGuyTurns = new Map(); // GAME ID -> CARD GUY'S ACTION BEING PICKED & S
 /* ---------------------------------------------------------------- */
 /**
  * @description Creates a card game vs Card Guy for the requester (signed in or a guest, who gets a guest_game cookie for it). Signed in players have one AI or card game open at a time:
- * while one is open this answers 409, unless replace_current forfeits it first. A guest's earlier game (the one their cookie names, card or normal) is forfeited: the cookie moves to the new game. The seed is 32 random bytes, an integer only from CARDS_TEST_SEED while NODE_ENV is "test", never from the request
+ * while one is open this answers 409, unless replace_current forfeits it first. A guest's earlier game (the one their cookie names, card or normal) is forfeited: the cookie moves to the new game. The seed is 32 random bytes, an integer only from CARDS_TEST_SEED while NODE_ENV isn't "production" (tests, a dev server), never from the request
  * @param  {[object]} req.body [{ start_color ("alternate" | "random" | "w" | "b", anything else is random), ai_level (Card Guy's level, as /api/chess/game), replace_current (true = forfeit the open AI or card game) }]
  * @return {[object]} response [cardsResponse | { status: 409, game_id (the open one), message }]
  */
@@ -44,7 +44,7 @@ async function newCardsGame(req, res) {
 
 	const color = isColor(start_color) ? start_color : "random";
 	const level = readLevel(ai_level);
-	const fixed = process.env.NODE_ENV === "test" && /^\d+$/.test(process.env.CARDS_TEST_SEED || "") && Number(process.env.CARDS_TEST_SEED) <= 0xFFFFFFFF; // TESTS ONLY, A WHOLE NUMBER THE ENGINE TAKES ONLY: ANYWHERE ELSE EVERY GAME WOULD BE THE SAME ONE
+	const fixed = process.env.NODE_ENV !== "production" && /^\d+$/.test(process.env.CARDS_TEST_SEED || "") && Number(process.env.CARDS_TEST_SEED) <= 0xFFFFFFFF; // TESTS & DEV SERVERS ONLY (A KNOWN DEAL), A WHOLE NUMBER THE ENGINE TAKES ONLY: IN PRODUCTION EVERY GAME WOULD BE THE SAME ONE
 	const seed = fixed ? Number(process.env.CARDS_TEST_SEED) : crypto.randomBytes(32).toString("hex");
 	const state = newGame({ cardGuy: color == "b" ? "w" : "b", level, seed }); // THE DATA SERVICE PICKS THE SIDES: loadCardsGame SETS cardGuy FROM THE GAME ON EVERY READ
 	const response = await createCardsGame({ color, level, state: JSON.stringify(state), fen: toFen(state) });

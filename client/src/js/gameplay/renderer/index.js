@@ -42,6 +42,7 @@ let tablePick = null; // WHAT A CHESS CARDS GAME'S PICKED HAND CARD OR SQUARE, &
 let pickableKey = null, pickableNow = null; // THE NORMAL GAME'S PICKABLE SQUARES LAST WORKED OUT (pickable3D)
 let tableHeld = null; // THE PIECE A CHESS CARDS GAME'S DRAG HOLDS, { square, dragging } (holdTablePiece3D), null FOR NONE
 let table = null; // THE CHESS CARDS TABLE AS setTable3D LAST SAID IT, PUT ON EVERY 3D BOARD MOUNTED LATER
+let tableDuel = null; // THE CARD DUEL THE TABLE WAS LAST DEALT (dealDuel3D), DEALT ON EVERY 3D BOARD MOUNTED LATER, null FOR NONE
 let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
 let monitorHooks = null; // gameplay/monitor'S { handlers, announce, onChange, data } (setMonitorHooks), GIVEN TO EVERY 3D BOARD
 let shownMonitor = null; // WHAT THE MONITOR'S CHANNELS WERE LAST SENT (monitorHooks.data() AS JSON)
@@ -359,11 +360,30 @@ export function dropTablePiece3D(square) {
  * @description A Chess Cards game's table on the 3D board (three/index.js setCardTable, liftCard / dropCard & highlightSquares). Kept for a board mounted later
  * @param  {[object]} view [cards.view]
  * @param  {[array]} legal [cards.legal]
- * @param  {[object]} opts [{ pickable: the squares of the pieces the player can pick up, null while they can't act (the 3D hover's fade), catalog, focus: the keyboard's hand card, focusPile: the keyboard's pile, dim: the hand cards drawn dimmer, lifted: the card being played, glow: its next squares, glowFocus: the keyboard's square }]
+ * @param  {[object]} opts [{ pickable: the squares of the pieces the player can pick up, null while they can't act (the 3D hover's fade), catalog, focus: the keyboard's hand card, focusPile: the keyboard's pile, focusDuel: the keyboard's duel card (an index), dim: the hand cards drawn dimmer, lifted: the card being played, glow: its next squares, glowFocus: the keyboard's square }]
  */
 export function setTable3D(view, legal, opts) {
 	table = { view, legal, opts };
 	applyTable3D();
+}
+
+/**
+ * @description A Chess Cards game's card duel on the 3D board (three/index.js dealDuel, flipDuel & endDuel, gameplay/cards/flow.js): deals it or brings it to the view, turns a card up, ends it.
+ * The duel dealt is kept for a board mounted later
+ * @param  {[object]} duel [view.duel]
+ */
+export function dealDuel3D(duel) {
+	tableDuel = duel;
+	if (board3D) { board3D.dealDuel(duel); }
+}
+
+export function flipDuel3D(player, index, card, won) {
+	if (board3D) { board3D.flipDuel(player, index, card, won); }
+}
+
+export function endDuel3D() {
+	tableDuel = null;
+	if (board3D) { board3D.endDuel(); }
 }
 
 /**
@@ -385,7 +405,7 @@ export function tablePileOpen3D() {
 function applyTable3D() {
 	if (!board3D || !table) { return; }
 	const { view, legal, opts } = table;
-	board3D.setCardTable(view, legal, { catalog: opts.catalog, focus: opts.focus, focusPile: opts.focusPile, dim: opts.dim });
+	board3D.setCardTable(view, legal, { catalog: opts.catalog, focus: opts.focus, focusPile: opts.focusPile, focusDuel: opts.focusDuel, dim: opts.dim });
 	if (opts.lifted) { board3D.liftCard(opts.lifted); }
 	else { board3D.dropCard(); }
 	board3D.highlightSquares(opts.glow || [], opts.glowFocus || null);
@@ -580,6 +600,7 @@ async function show3D() {
 	shownMonitor = null; // A NEW BOARD (ONE REBUILT AFTER A LOST CONTEXT TOO) GETS THE DATA AGAIN
 	syncMonitor3D();
 	applyTable3D();
+	if (tableDuel) { board3D.dealDuel(tableDuel); }
 	if (heldFace) { board3D.setFace(heldFace); } // THE GAME ENDED BEFORE THIS BOARD WENT UP
 	game.refresh = true;
 	requestFrame();
