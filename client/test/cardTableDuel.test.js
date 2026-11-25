@@ -244,3 +244,28 @@ test("the won outline shows only once its card has landed (review M2)", () => {
 	assert.equal(t.room.children.filter((o) => o.isMesh && o.visible && near(o, p)).length, 1, "the outline, once landed");
 	t.table.dispose();
 });
+
+test("the duel deals from & returns to the green deck baked into the room (cardLayout.js GREEN_DECK, at its top GREEN_DECK.y); the table draws no green deck of its own (Task 23 S2)", () => {
+	const { GREEN_DECK } = require("../src/js/gameplay/three/cardLayout.js");
+	const { STACK_STEP } = require("../src/js/gameplay/three/cards.js");
+	assert.deepEqual(GREEN_DECK, { x: 24.5, z: 0, y: 0.44 });
+	const room = new THREE.Group(), moves = [];
+	const table = createCardTable({ template: template(), room, tweens: { add(t) { moves.push(t); } }, requestRender() {} });
+	assert.equal(room.children.filter((o) => o.type === "Group").length, 0, "no green slabs: only the frame & the landing frames");
+	const v = view(duel());
+	table.set(v, {});
+	moves.forEach((t) => t.update(1));
+	moves.length = 0;
+	const before = new Set(room.children);
+	table.dealDuel(v.duel);
+	const dealt = room.children.filter((o) => !before.has(o));
+	assert.equal(dealt.length, 6);
+	moves.forEach((t) => t.update(0)); // EACH SLIDE'S START: THE DECK'S TOP
+	for (const o of dealt) { assert.deepEqual([o.position.x, o.position.y, o.position.z], [GREEN_DECK.x, GREEN_DECK.y + STACK_STEP, GREEN_DECK.z], "face down on the deck's top"); }
+	moves.forEach((t) => t.update(1));
+	moves.length = 0;
+	table.endDuel();
+	moves.forEach((t) => t.update(1)); // EACH SLIDE'S END
+	for (const o of dealt) { assert.deepEqual([o.position.x, o.position.y, o.position.z], [GREEN_DECK.x, GREEN_DECK.y + STACK_STEP, GREEN_DECK.z], "back on the deck's top"); }
+	table.dispose();
+});

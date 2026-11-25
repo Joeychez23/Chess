@@ -44,6 +44,7 @@ let tablePick = null; // WHAT A CHESS CARDS GAME'S PICKED HAND CARD OR SQUARE, &
 let pickableKey = null, pickableNow = null; // THE NORMAL GAME'S PICKABLE SQUARES LAST WORKED OUT (pickable3D)
 let tableHeld = null; // THE PIECE A CHESS CARDS GAME'S DRAG HOLDS, { square, dragging } (holdTablePiece3D), null FOR NONE
 let table = null; // THE CHESS CARDS TABLE AS setTable3D LAST SAID IT, PUT ON EVERY 3D BOARD MOUNTED LATER
+let tableSide = null; // game.viewColor WHEN flow.js WAS LAST TOLD OF THE 3D TABLE (tableUp): FLIP BOARD TURNS THE ROOM, A PROMPT'S PLAQUES BY A SQUARE ARE LAID AGAIN (REVIEW I2)
 let tableDuel = null; // THE CARD DUEL THE TABLE WAS LAST DEALT (dealDuel3D), DEALT ON EVERY 3D BOARD MOUNTED LATER, null FOR NONE
 let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
 let monitorHooks = null; // gameplay/monitor'S { handlers, announce, onChange, data } (setMonitorHooks), GIVEN TO EVERY 3D BOARD
@@ -71,6 +72,7 @@ export function drawBoard() {
 	const cards = Boolean(board3D.hasCards?.()); // THE ROOM'S CARDS ARE THE PROMOTION PICKER, THE FLAT ONE STAYS WHEN IT HAS NONE
 	if (cards !== game.cards3D) { game.cards3D = cards; game.refresh = true; }
 	board3D.setSide(game.viewColor, !game.reduceMotion); // FLIP BOARD TURNS THE CAMERA
+	if (game.viewColor !== tableSide) { tableUp(); }
 	syncCards3D();
 	syncMarks3D();
 	syncScreen3D();
@@ -429,6 +431,38 @@ export function tablePileOpen3D() {
 	return board3D ? board3D.openCardPile() : null;
 }
 
+/**
+ * @description A Chess Cards prompt's brass plaques on the 3D table (three/index.js showTableButtons, gameplay/cards/flow.js showPrompt), [] takes them away
+ * @param  {[array]} list [[{ id, label }]]
+ * @param  {[object|null]} anchor [tableLayout.js plaqueAnchor's]
+ * @return {[boolean]} [the 3D table is up: false on 2D & while its room loads, the prompt keeps its 2D buttons]
+ */
+export function showTableButtons3D(list, anchor) {
+	return Boolean(board3D) && board3D.showTableButtons(list, anchor);
+}
+
+/**
+ * @description The keyboard's plaque on the 3D table (three/index.js focusTableButton)
+ * @param  {[number|null]} index
+ */
+export function focusTableButton3D(index) {
+	if (board3D) { board3D.focusTableButton(index); }
+}
+
+/**
+ * @description A plaque on the 3D table sinks & rises (three/index.js pressTableButton)
+ * @param  {[string]} id
+ */
+export function pressTableButton3D(id) {
+	if (board3D) { board3D.pressTableButton(id); }
+}
+
+// flow.js LAYS A CHESS CARDS PROMPT'S PLAQUES AGAIN (ITS { kind: "table" }): A NEW 3D BOARD (ITS ROOM STILL LOADING: THE 2D BUTTONS SHOW) OR THE ROOM TURNED (FLIP BOARD). THE TABLE COMING UP SAYS SO ITSELF (three/index.js setCardTable)
+function tableUp() {
+	tableSide = game.viewColor;
+	tablePick?.({ kind: "table" });
+}
+
 function applyTable3D() {
 	if (!board3D || !table) { return; }
 	const { view, legal, opts } = table;
@@ -627,6 +661,7 @@ async function show3D() {
 	shownMonitor = null; // A NEW BOARD (ONE REBUILT AFTER A LOST CONTEXT TOO) GETS THE DATA AGAIN
 	syncMonitor3D();
 	applyTable3D();
+	tableUp();
 	if (tableDuel) { board3D.dealDuel(tableDuel); }
 	if (heldFace) { board3D.setFace(heldFace); } // THE GAME ENDED BEFORE THIS BOARD WENT UP
 	game.refresh = true;

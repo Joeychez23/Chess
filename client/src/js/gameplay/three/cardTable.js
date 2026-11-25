@@ -1,33 +1,78 @@
-/* ---- Chess Cards table: both hands, the green deck & each player's three places (the active spot, the passive pile, the discard pile: tableLayout.js), every card a clone of the room's card at the promotion cards' size & look (cards.js) ---- */
+/* ---- Chess Cards table: both hands, the card duel dealt from the room's baked green deck & each player's three places (the active spot, the passive pile, the discard pile: tableLayout.js), every card a clone of the room's card at the promotion cards' size & look (cards.js) ---- */
 
-import { CanvasTexture, SRGBColorSpace, MeshBasicMaterial, Mesh, Plane, Vector3, Box3, Ray, Matrix4 } from "three";
-import { CARD_SIZE, DECK, CARD_Y } from "./cardLayout.js";
+import { CanvasTexture, SRGBColorSpace, MeshBasicMaterial, MeshStandardMaterial, Mesh, Plane, Vector3, Box3, Ray, Matrix4, Shape, ExtrudeGeometry } from "three";
+import { CARD_SIZE, DECK, GREEN_DECK, CARD_Y, FONT } from "./cardLayout.js";
 import { findParts, frameGeometry, lerp, CARD_LIGHT, CARD_BACK, HOVER_LIGHT, FOCUS, FRAME_GAP, FRAME_WIDTH, FRAME_DROP, LIFT, LIFT_MS, DEAL_MS, DEAL_STAGGER_MS, STACK_STEP, FACE_W, FACE_H } from "./cards.js";
 import { DESK_Y } from "./constants.js";
 import { faceOf, drawPlayFace, drawDuelFace, drawBackFace } from "./cardFaces.js";
-import { tableSpots, pileCards, columnBox, placeAt, deskPoint, duelLayout, spotHit, PILES, DISCARD, HAND_Z } from "./tableLayout.js";
+import { tableSpots, pileCards, columnBox, placeAt, deskPoint, duelLayout, spotHit, buttonLayout, PILES, DISCARD, HAND_Z, BOARD_RECT, DESK_AVOID, PLAQUE_TEXT, PLAQUE_LINE } from "./tableLayout.js";
 
 const LAYER = STACK_STEP + 0.001; // A CARD'S THICKNESS (cards.js STACK_STEP) & A HAIR: AN OVERLAPPING CARD LIES ON THE ONE UNDER IT
 const DIM_LIGHT = 0x6E6654; // A HAND CARD WITH NO PLAY BUT A DISCARD THIS TURN (select.js dimmed): ITS FACE UNDER LESS LIGHT
-const GREEN_DECK = { x: -DECK.x, z: DECK.z }; // THE MIRROR OF THE RED DECK (BAKED INTO THE ROOM)
-const GREEN_DECK_CARDS = 4; // AS MANY SLABS AS THE RED DECK, SQUARED UP: ONE CARD'S FOOTPRINT
-const GREEN_BACK = 0x0E3B22;
-const GREEN_TOP = DESK_Y + GREEN_DECK_CARDS * STACK_STEP; // A DUEL CARD DEALT FROM (& GOING BACK TO) THE GREEN DECK LIES ON ITS TOP SLAB
-const RED_DECK = new Box3(new Vector3(DECK.x - CARD_SIZE.w / 2, DESK_Y, DECK.z - CARD_SIZE.h / 2), new Vector3(DECK.x + CARD_SIZE.w / 2, DECK.y, DECK.z + CARD_SIZE.h / 2)); // THE BAKED RED DECK, IN THE ROOM'S SPACE: A CARD'S FOOTPRINT FROM THE DESK UP TO WHERE THE PROMOTION CARDS LIE ON IT (cards.js)
+const GREEN_BACK = 0x0E3B22; // THE DUEL CARDS' BACKS, AS THE BAKED GREEN DECK'S
+const GREEN_TOP = GREEN_DECK.y; // A DUEL CARD DEALT FROM (& GOING BACK TO) THE GREEN DECK LIES ON ITS TOP, AS THE PROMOTION CARDS ON THE RED ONE'S (cards.js)
+const deckBox = (d) => new Box3(new Vector3(d.x - CARD_SIZE.w / 2, DESK_Y, d.z - CARD_SIZE.h / 2), new Vector3(d.x + CARD_SIZE.w / 2, d.y, d.z + CARD_SIZE.h / 2)); // A BAKED DECK, IN THE ROOM'S SPACE: A CARD'S FOOTPRINT FROM THE DESK UP TO ITS TOP
+const DECKS = [deckBox(DECK), deckBox(GREEN_DECK)];
 const FLIP_LIFT = CARD_SIZE.w / 2 + 0.2; // A FLIPPING DUEL CARD TURNS ON ITS LONG AXIS: HALF ITS WIDTH UP, SO ITS EDGE CLEARS THE BAIZE
 const PICK_LIFT = 1.1; // A LIFTED (PICKED) CARD FLOATS THIS HIGH, ABOVE A HOVERED ONE. AN ABILITY CARD A CLICK OR TAP PICKED ISN'T LIFTED: flow.js NEVER SAYS IT (select.js liftedCard, TASK 21a)
 const PILE_FACE = 0.5; // THE LIFTED CARD'S PREVIEW: THIS FRACTION OF THE FACE TEXTURE'S SIZE
 const DRAG_Y = CARD_Y + PICK_LIFT; // A DRAGGED CARD FLOATS AT A LIFTED HAND CARD'S HEIGHT, UNDER THE POINTER
 const LANDINGS = { spot: PILES.mineSpot, passive: PILES.mine, discard: DISCARD.mine }; // THE PLAYER'S PLACES A DRAGGED CARD CAN BE LET GO ON
 const PILE_NAMES = { mine: "Your passives", his: "Card Guy's passives", mineSpot: "Your actives in effect", hisSpot: "Card Guy's actives in effect", discard: "The last cards on the discard piles" }; // WHAT A SCREEN READER HEARS OF AN OPENED PILE
+const PLAQUE_H = 0.25; // A PLAQUE BUTTON: A LOW BRASS BAR LYING ON THE BAIZE OR THE DESK
+const BAIZE = { edge: 21.2, top: CARD_Y - 0.02 }, MAT = { edge: 22, top: DESK_Y + 0.1 }; // build_library.py: THE BAIZE (±21.2, TOP Z0 + 0.13) ON ITS LEATHER EDGE (±22, TOP Z0 + 0.1) ON THE DESK (Z0, DESK_Y)
+const VIEW_EDGE = 0.99; // deskInView: THE SCREEN'S EDGES THIS FAR IN (NDC). 0.98 (FIT_NDC) LEAVES 0.03 TOO LITTLE DESK UNDER THE HAND FOR TWO ROWS OF TWO-LINE PLAQUES IN THE PINNED OPENING VIEW
+const restOn = (p) => { const reach = (e) => Math.abs(p.x) - p.w / 2 < e && Math.abs(p.z) - p.d / 2 < e; return reach(BAIZE.edge) ? BAIZE.top : reach(MAT.edge) ? MAT.top : DESK_Y; }; // THE HIGHEST SURFACE UNDER A PLAQUE'S FOOTPRINT: IT LIES ON THAT (REVIEW M2)
+const PLAQUE_SINK = PLAQUE_H * 0.8, PRESS_MS = 2 * LIFT_MS; // A PRESS SINKS IT ABOUT ITS OWN HEIGHT & IT RISES AGAIN
+const PLAQUE_PX = 64; // ITS TOP'S TEXTURE, PIXELS PER UNIT
+const PLAQUE_BEVEL = { size: 0.08, thickness: 0.06 }; // ITS EDGES: A REAL BEVEL ALL ROUND, SO THEY CATCH THE ROOM'S LIGHT (RULING T23-16)
+// ITS BRASS (RULING T23-16): THE RED DECK'S FRAME IS build_library.py's plastic:brass, BAKED (DIFFUSE, ROUGHNESS 0.85) INTO THE ROOM'S LIGHT MAP, & READS #B18133 IN THE BAKE'S GAME RENDER
+// (bake-out/library/game-opening.png). A PLAQUE MOVES, SO IT CAN'T BE BAKED: IT'S LIT BY THE SCENE'S HEMISPHERE & KEY LIGHT AS THE PIECES ARE (three/index.js), WHICH GIVE A TOP FACE ABOUT 0.95,
+// SO THIS ALBEDO READS ABOUT THE SAME
+const BRASS = { color: 0xB58638, roughness: 0.85, metalness: 0 };
+const PLAQUE_HOVER = 1.35; // A HOVERED PLAQUE'S TOP: THIS MUCH BRIGHTER BRASS (AS A HOVERED HAND CARD'S FACE GOES FROM CARD_LIGHT TO HOVER_LIGHT)
+const PLAQUE_FOCUS = { color: 0xFFF3C4, gap: 0.12, width: 0.12 }; // THE KEYBOARD'S FRAME ROUND A PLAQUE: THIN, WHITE-GOLD
+
+/**
+ * @description The part of the desk the camera shows (ruling T23-24), for the plaques (tableLayout.js buttonLayout's within): where the screen's corners, VIEW_EDGE in from its edges, meet the desk & the
+ * top of a plaque on the baize, in the room's space (unturned); on each, the rectangle inside that footprint (a trapezoid, narrowest at the screen's bottom), & the part both share. A corner looking
+ * past the horizon reaches far off: buttonLayout clips the rectangle to the desk.
+ * shortcut: each axis takes the footprint's two middle corners, exact while the camera looks along the room's z (the opening view, either side); orbited toward a corner the rectangle can
+ * poke past the screen's sides near its corners, & then createCardTable's screen check lays no plaques (ruling T23-28). Take the footprint's true inscribed rectangle if those prompts should keep plaques
+ * @param {PerspectiveCamera} camera
+ * @param {Object3D} room the table's parent (turned with the player's side)
+ * @returns {{ x0: number, x1: number, z0: number, z1: number }}
+ */
+export function deskInView(camera, room) {
+	camera.updateMatrixWorld();
+	room.updateWorldMatrix(true, false);
+	const toRoom = new Matrix4().copy(room.matrixWorld).invert(), ray = new Ray(), at = new Vector3();
+	const inside = [DESK_Y, BAIZE.top + PLAQUE_H].map((y) => {
+		const plane = new Plane(new Vector3(0, 1, 0), -y).applyMatrix4(room.matrixWorld), xs = [], zs = [];
+		for (const [nx, ny] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+			ray.origin.setFromMatrixPosition(camera.matrixWorld);
+			ray.direction.set(nx * VIEW_EDGE, ny * VIEW_EDGE, 0.5).unproject(camera).sub(ray.origin).normalize();
+			if (!ray.intersectPlane(plane, at)) { ray.at(1e4, at); } // OVER THE HORIZON
+			at.applyMatrix4(toRoom);
+			xs.push(at.x);
+			zs.push(at.z);
+		}
+		xs.sort((a, b) => a - b);
+		zs.sort((a, b) => a - b);
+		return { x0: xs[1], x1: xs[2], z0: zs[1], z1: zs[2] };
+	});
+	return { x0: Math.max(...inside.map((r) => r.x0)), x1: Math.min(...inside.map((r) => r.x1)), z0: Math.max(...inside.map((r) => r.z0)), z1: Math.min(...inside.map((r) => r.z1)) };
+}
 
 /**
  * @description The Chess Cards table in the room, made from its card template. Children of the room, so they turn with it (Flip Board)
  * @param {{ template: Object3D, room: Group, tweens: object, requestRender: () => void, still?: () => boolean, frame?: (box: object|null, zoom?: string|null) => void }} options as createCards (cards.js), & frame: the camera frames this much of the desk
- * (an opened pile's column, tableLayout.js columnBox, or the zoomed hand card's footprint), null: it goes back (camera.js framePile); zoom: the hand card zoomed in on, null (or none) for none
- * @returns {{ set: Function, lift: Function, hover: Function, hit: Function, covers: Function, togglePile: Function, open: Function, zoom: Function, zoomed: Function, grab: Function, follow: Function, release: Function, settle: Function, dealDuel: Function, flipDuel: Function, endDuel: Function, dispose: Function }|null} the table, null when the template can't be used
+ * (an opened pile's column, tableLayout.js columnBox, or the zoomed hand card's footprint), null: it goes back (camera.js framePile); zoom: the hand card zoomed in on, null (or none) for none;
+ * inView: the desk the camera shows now (deskInView), null for the whole desk: the plaques lie inside it (ruling T23-24); camera: the live camera, null for none: plaques laid where any corner would be off
+ * screen aren't laid, & the prompt keeps its 2D buttons (ruling T23-28)
+ * @returns {{ set: Function, lift: Function, hover: Function, hit: Function, covers: Function, togglePile: Function, open: Function, zoom: Function, zoomed: Function, grab: Function, follow: Function, release: Function, settle: Function, dealDuel: Function, flipDuel: Function, endDuel: Function, showButtons: Function, relayButtons: Function, buttonCount: Function, focusButton: Function, hoverButton: Function, pressButton: Function, dispose: Function }|null} the table, null when the template can't be used
  */
-export function createCardTable({ template, room, tweens, requestRender, still = () => false, frame: frameBox = () => {} }) {
+export function createCardTable({ template, room, tweens, requestRender, still = () => false, frame: frameBox = () => {}, inView = () => null, camera = null }) {
 	if (!findParts(template)) { return null; }
 	const backMaterial = new MeshBasicMaterial({ color: CARD_BACK });
 	const greenMaterial = new MeshBasicMaterial({ color: GREEN_BACK });
@@ -47,7 +92,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		room.add(m);
 		return m;
 	});
-	const dragPlane = new Plane(new Vector3(0, 1, 0), -DRAG_Y), dragPoint = new Vector3(), deskAt = new Vector3(), roomRay = new Ray(), roomInverse = new Matrix4(); // roomRay: covers' RAY IN THE ROOM'S SPACE, WHERE RED_DECK IS
+	const dragPlane = new Plane(new Vector3(0, 1, 0), -DRAG_Y), dragPoint = new Vector3(), deskAt = new Vector3(), roomRay = new Ray(), roomInverse = new Matrix4(); // roomRay: covers' RAY IN THE ROOM'S SPACE, WHERE THE DECKS ARE
 	let drag = null, stage = null; // drag: THE CARD THE MOUSE HOLDS { c, id, from: "hand" | "pile", places, moved, desk: THE DESK UNDER THE POINTER { x, z } | null }, stage: THE CARD LET GO ON A PLACE, LYING THERE WHILE IT IS THE LIFTED ONE (tableLayout.js tableSpots)
 	let lifted = null, hovered = null, openPile = null, zoomId = null, boxKey = "null", laid = false; // openPile: THE PILE OPENED INTO A COLUMN, zoomId: THE HAND CARD THE CAMERA FRAMES (zoom), boxKey: WHAT THE CAMERA WAS LAST TOLD TO FRAME, laid: THE FIRST LAYOUT IS DONE
 
@@ -81,13 +126,6 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		room.remove(c.root);
 		if (c.texture) { c.texture.dispose(); c.faceMaterial.dispose(); }
 	}
-
-	// THE GREEN DECK: A NEW PROP, FACE DOWN, SQUARED UP SO ITS FOOTPRINT IS ONE CARD'S
-	const green = Array.from({ length: GREEN_DECK_CARDS }, function (_, i) {
-		const c = make(true, greenMaterial);
-		c.root.position.set(GREEN_DECK.x, DESK_Y + STACK_STEP + i * STACK_STEP, GREEN_DECK.z);
-		return c;
-	});
 
 	// PUTS A CARD WHERE ITS PLACE ON THE WAY (at) & ITS LIFT SAY. FACE DOWN IT'S TURNED OVER, SO IT SITS A CARD'S THICKNESS HIGHER (A DISCARD PILE'S BLOCK: ITS WHOLE THICKNESS)
 	function place(c) {
@@ -280,6 +318,97 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		document.body.append(preview);
 	}
 
+	/* ---- The brass plaque buttons (rulings T23-4 & T23-16, table UI doc "3D buttons on the table"): bevelled bars of the red deck's brass lit by the room, engraved capitals on each plaque's top,
+	brighter when hovered, a white-gold frame round the keyboard's (tableLayout.js buttonLayout) ---- */
+	const plaqueBrass = new MeshStandardMaterial(BRASS); // THE BEVEL & SIDES, SHARED
+	const plaqueFocus = new MeshBasicMaterial({ color: PLAQUE_FOCUS.color });
+	let buttons = [], buttonsKey = "[]", buttonsLabels = "[]", buttonsAsked = null, hoveredButton = null; // buttonsAsked: THE LAST showButtons' LIST, ANCHOR, CARDS UNDER & VIEW (A REPEAT LAYS NOTHING OUT)
+	let buttonsWithin = null, withinFor = null, buttonsArgs = null; // THE VIEW THE PROMPT withinFor (ITS LIST & ANCHOR) CAME UP IN: KEPT TILL ANOTHER PROMPT OR relayButtons, SO THE PLAQUES DON'T CHASE THE CAMERA. buttonsArgs: THE LAST showButtons'
+	// hoveredButton: THE HOVERED PLAQUE'S id (hoverButton), KEPT OVER A REBUILD OF THE SAME LIST (buttonsLabels: ITS ids & labels). buttons: { id, mesh, top (its top's material), texture, ring (the focus frame, a child of mesh), token }, IN ORDER
+	const RING_Y = 0.01 - PLAQUE_H / 2; // THE FOCUS FRAME: ON THE SURFACE ROUND ITS PLAQUE
+	function drawPlaque(canvas, lines) {
+		const ctx = canvas.getContext("2d"), w = canvas.width, h = canvas.height;
+		ctx.fillStyle = "#FFFFFF"; // THE MAP TIMES THE BRASS: WHITE IS PLAIN BRASS
+		ctx.fillRect(0, 0, w, h);
+		ctx.font = `bold ${Math.round(PLAQUE_TEXT * PLAQUE_PX)}px ${FONT}`; // EVERY PLAQUE'S TEXT THE SAME HEIGHT: A LONG LABEL TAKES TWO LINES (buttonLayout)
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+		lines.forEach(function (line, i) {
+			ctx.fillStyle = "#3C3C3C"; // ENGRAVED: TIMES THE BRASS, A DARK BROWN CUT
+			ctx.fillText(line, w / 2, h / 2 + (i - (lines.length - 1) / 2) * PLAQUE_LINE * PLAQUE_PX);
+		});
+	}
+	function makePlaque(p) {
+		const w = p.w - 2 * PLAQUE_BEVEL.size, d = p.d - 2 * PLAQUE_BEVEL.size, depth = PLAQUE_H - 2 * PLAQUE_BEVEL.thickness; // ITS FLAT TOP; THE BEVEL REACHES OUT TO p.w x p.d
+		const canvas = document.createElement("canvas");
+		canvas.width = Math.round(w * PLAQUE_PX);
+		canvas.height = Math.round(d * PLAQUE_PX);
+		drawPlaque(canvas, p.lines);
+		const texture = new CanvasTexture(canvas);
+		texture.colorSpace = SRGBColorSpace;
+		texture.repeat.set(1 / w, 1 / d); // THE TOP'S UVs ARE THE SHAPE'S x & y (ExtrudeGeometry): ONTO 0 .. 1. flipY AS DEFAULT: THE CANVAS'S TOP LIES AWAY FROM THE PLAYER
+		texture.offset.set(0.5, 0.5);
+		const top = new MeshStandardMaterial({ ...BRASS, map: texture });
+		const shape = new Shape().moveTo(-w / 2, -d / 2).lineTo(w / 2, -d / 2).lineTo(w / 2, d / 2).lineTo(-w / 2, d / 2);
+		const geometry = new ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: PLAQUE_BEVEL.thickness, bevelSize: PLAQUE_BEVEL.size, bevelSegments: 2 }).translate(0, 0, -depth / 2).rotateX(-Math.PI / 2); // LYING FLAT, THE SHAPE'S y AWAY FROM THE PLAYER
+		const mesh = new Mesh(geometry, [top, plaqueBrass]); // ExtrudeGeometry's GROUPS: THE TOP & BOTTOM FACES, THE SIDES & BEVEL
+		const y = restOn(p) + PLAQUE_H / 2; // ITS CENTRE
+		mesh.position.set(p.x, y, p.z);
+		mesh.userData.button = p.id;
+		const ring = new Mesh(frameGeometry(p.w + PLAQUE_FOCUS.gap * 2, p.d + PLAQUE_FOCUS.gap * 2, PLAQUE_FOCUS.width), plaqueFocus);
+		ring.position.y = RING_Y;
+		ring.visible = false;
+		mesh.add(ring);
+		room.add(mesh);
+		return { id: p.id, mesh, top, texture, ring, y, token: 0 };
+	}
+	function freeButtons() {
+		for (const b of buttons) {
+			b.token++;
+			room.remove(b.mesh);
+			b.mesh.geometry.dispose();
+			b.ring.geometry.dispose();
+			b.texture.dispose();
+			b.top.dispose();
+		}
+		buttons = [];
+	}
+	// EVERY CORNER OF EVERY PLAQUE (makePlaque: ITS BEVEL REACHES p.w x p.d, restOn(p) UP TO PLAQUE_H) PROJECTS INSIDE THE SCREEN, IN FRONT OF THE CAMERA. shortcut: NOT ITS FOCUS FRAME, WHICH CAN POKE
+	// ABOUT 4 px PAST THE SCREEN'S EDGE (REVIEW N4): COUNTING IT HERE TAKES THE PLAQUES FROM ABOUT 9% OF OPENING-VIEW PROMPTS (EVERY TWO-PAIR ONE AT 1920x1080). ADD PLAQUE_FOCUS'S REACH IF A RULING SAYS SO
+	function onScreen(laid) {
+		camera.updateMatrixWorld();
+		room.updateWorldMatrix(true, false);
+		const at = new Vector3();
+		return laid.every((p) => [-1, 1].every((sx) => [-1, 1].every((sz) => [0, PLAQUE_H].every((dy) => {
+			at.set(p.x + sx * p.w / 2, restOn(p) + dy, p.z + sz * p.d / 2).applyMatrix4(room.matrixWorld).project(camera);
+			return Math.abs(at.x) <= 1 && Math.abs(at.y) <= 1 && Math.abs(at.z) <= 1;
+		}))));
+	}
+	function layButtons(list, anchor) {
+		const under = [...cards.values(), ...duelCards.values()].map((c) => ({ x0: c.spot.x - CARD_SIZE.w / 2, x1: c.spot.x + CARD_SIZE.w / 2, z0: c.spot.z - CARD_SIZE.h / 2, z1: c.spot.z + CARD_SIZE.h / 2 }));
+		const labels = JSON.stringify([list.map((b) => [b.id, b.label]), list.length ? [anchor.x, anchor.z, anchor.side] : null]); // A PROMPT: ITS LIST AT ITS ANCHOR
+		buttonsArgs = [list, anchor];
+		if (labels !== withinFor) { withinFor = labels; buttonsWithin = list.length ? inView() : null; } // A NEW PROMPT: THE VIEW NOW
+		const asked = JSON.stringify([list, list.length ? anchor : null, under, buttonsWithin]);
+		if (asked === buttonsAsked) { return; } // THE SAME ASK: NO SEARCH (A BLOCKED DESK'S TAKES TENS OF ms)
+		buttonsAsked = asked;
+		let laid = list.length ? buttonLayout(list, anchor, [BOARD_RECT, ...DESK_AVOID, ...under], buttonsWithin) : [];
+		const off = camera !== null && !laid.blocked && !onScreen(laid); // RULING T23-28: WHATEVER THE CAMERA (deskInView's SHORTCUT, AN ORBITED VIEW), NEVER A PLAQUE OFF SCREEN
+		const blocked = Boolean(laid.blocked) || off, hidden = off || (blocked && Boolean(buttonsWithin));
+		if (hidden) { laid = []; } // NO CLEAR PLACE IN THE VIEW: NO PLAQUES, THE PROMPT KEEPS ITS 2D BUTTONS (RULING T23-27)
+		const key = JSON.stringify(laid.map((p) => [p.id, p.lines, p.x, p.z, p.w, p.d])) + (blocked ? " blocked" : ""); // WHAT'S LAID, NOT WHAT ASKED (RULING T23-18): A CARD MOVING ELSEWHERE REBUILDS NOTHING
+		if (key === buttonsKey) { return; }
+		if (blocked) { console.warn(`Chess Cards: no clear place ${off ? "on screen" : "on the desk"} for the buttons by (${anchor.x}, ${anchor.z}); ${hidden ? "the prompt keeps its 2D buttons" : "they cover something"}`); } // ONCE A REBUILD, NOT ONCE A CALL
+		const focused = labels === buttonsLabels ? buttons.find((b) => b.ring.visible)?.id : undefined; // ANOTHER PROMPT COMES UP UNFOCUSED: A HELD ENTER CAN'T PRESS ITS FIRST PLAQUE
+		buttonsKey = key;
+		freeButtons();
+		if (labels !== buttonsLabels) { hoveredButton = null; } // ANOTHER LIST OR ANCHOR (OR TAKEN AWAY): IT COMES UP UNLIT, WHATEVER ITS ids (RULING T23-20); THE SAME ONE RE-LAID KEEPS ITS HOVER
+		buttonsLabels = labels;
+		buttons = laid.map(makePlaque);
+		for (const b of buttons) { b.ring.visible = b.id === focused; b.top.color.multiplyScalar(b.id === hoveredButton ? PLAQUE_HOVER : 1); } // THE SAME IDS KEEP THEIR FOCUS & HOVER
+		requestRender();
+	}
+
 	return {
 		/**
 		 * @description Lays the table out for a view (lay)
@@ -318,6 +447,8 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		 * @returns {{ kind: "hand", id: string }|{ kind: "pile", pile: string, id: string|null }|{ kind: "duel", index: number }|null} as tableLayout.js spotHit, or index: 0..2 in the view's duel hands
 		 */
 		hit(raycaster) {
+			const plaque = raycaster.intersectObjects(buttons.map((b) => b.mesh), false)[0]; // A PLAQUE NEVER COVERS A CARD (buttonLayout), BUT ONE LAID FIRST MAY HAVE A CARD COME UNDER IT: THE PLAQUE WINS
+			if (plaque) { return { kind: "button", id: plaque.object.userData.button }; }
 			const picks = [...cards].filter(([key, c]) => spotHit(key, c.spot) && !(c.spot.hand && duelDeal));
 			const duels = [...duelCards.values()].filter((c) => c.duel.pickable);
 			const meshes = ([, c]) => (c.spot.hand || c.spot.pile ? [c.face] : [c.face, c.back]); // A DISCARD PILE'S CARDS & THE LIST'S: A FACE-DOWN ONE TOO
@@ -335,8 +466,9 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		 * @returns {boolean}
 		 */
 		covers(raycaster) {
-			return raycaster.intersectObjects([...cards.values(), ...duelCards.values(), ...leaving, ...green].flatMap((c) => [c.face, c.back]), false).length > 0
-				|| roomRay.copy(raycaster.ray).applyMatrix4(roomInverse.copy(room.matrixWorld).invert()).intersectsBox(RED_DECK); // FLIP BOARD TURNS THE ROOM
+			if (raycaster.intersectObjects([...cards.values(), ...duelCards.values(), ...leaving].flatMap((c) => [c.face, c.back]).concat(buttons.map((b) => b.mesh)), false).length > 0) { return true; }
+			roomRay.copy(raycaster.ray).applyMatrix4(roomInverse.copy(room.matrixWorld).invert()); // FLIP BOARD TURNS THE ROOM
+			return DECKS.some((box) => roomRay.intersectsBox(box));
 		},
 		/**
 		 * @description Opens a passive pile or an active spot into its column on the desk, or the discard list ("discard") beside the discard piles, & frames it, or closes the one open (the camera goes back). Either ends a zoom
@@ -501,14 +633,77 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 			if (current.view) { lay(); }
 		},
 		/**
-		 * @description Takes every card & the frame out of the room & frees what they own. The template's geometry is the room's to free
+		 * @description Lays brass plaque buttons on the baize beside a desk point, clear of every card & the board & inside the desk the camera showed when this prompt came up (tableLayout.js buttonLayout,
+		 * inView), or takes them away. When they'd lie as they do: nothing changes; another list, anchor, or cards come under them replace them (the old ones freed), the focused & hovered ids still focused & hovered
+		 * @param {{ id: string, label: string }[]} list in order (the last usually Cancel); the label as the 2D button's, drawn in capitals; [] takes them away
+		 * @param {{ x: number, z: number, side: "left"|"right"|"below" }} anchor a desk point (room space, unturned) & the side the plaques go on; any value with []
+		 * @returns {boolean} plaques are up: false with [] & when they'd cover something inside the view (ruling T23-27), so the prompt keeps its 2D buttons
+		 */
+		showButtons(list, anchor) {
+			layButtons(list, anchor);
+			return buttons.length > 0;
+		},
+		/**
+		 * @description Lays the plaques up again inside the desk the camera shows now (inView): the window was resized. Otherwise they keep the view their prompt came up in
+		 * @returns {boolean} plaques are up (showButtons)
+		 */
+		relayButtons() {
+			withinFor = null;
+			if (buttonsArgs) { layButtons(...buttonsArgs); }
+			return buttons.length > 0;
+		},
+		/**
+		 * @description How many plaque buttons are up (showButtons)
+		 * @returns {number}
+		 */
+		buttonCount() {
+			return buttons.length;
+		},
+		/**
+		 * @description The thin white-gold frame round one plaque, the keyboard's
+		 * @param {number|null} index in showButtons' list, null for none
+		 */
+		focusButton(index) {
+			buttons.forEach((b, i) => { b.ring.visible = i === index; });
+			requestRender();
+		},
+		/**
+		 * @description Brightens the brass of the plaque under the pointer, as a hovered hand card's face (hover)
+		 * @param {string|null} id the button's id, null for none
+		 */
+		hoverButton(id) {
+			hoveredButton = id;
+			for (const b of buttons) { b.top.color.setHex(BRASS.color).multiplyScalar(b.id === id ? PLAQUE_HOVER : 1); }
+			requestRender();
+		},
+		/**
+		 * @description A plaque pressed: it sinks about its own height & rises again (not under reduced motion)
+		 * @param {string} id the button's id
+		 */
+		pressButton(id) {
+			const b = buttons.find((x) => x.id === id);
+			if (!b || still()) { return; }
+			const token = ++b.token;
+			tweens.add({
+				duration: PRESS_MS,
+				update(k) { if (token === b.token) { const sink = PLAQUE_SINK * Math.sin(Math.PI * k); b.mesh.position.y = b.y - sink; b.ring.position.y = RING_Y + sink; } }, // ITS FRAME STAYS ON THE SURFACE
+				onEnd() { if (token === b.token) { b.mesh.position.y = b.y; b.ring.position.y = RING_Y; } requestRender(); },
+			});
+		},
+		/**
+		 * @description Takes every card, plaque & the frame out of the room & frees what they own. The template's geometry is the room's to free
 		 */
 		dispose() {
+			freeButtons();
+			buttonsKey = "[]";
+			buttonsAsked = withinFor = buttonsWithin = buttonsArgs = null;
+			plaqueBrass.dispose();
+			plaqueFocus.dispose();
 			if (openPile || zoomId) { frameBox(null); }
 			reader.remove();
 			lifted = null;
 			showPreview();
-			for (const c of [...cards.values(), ...green, ...duelCards.values(), ...leaving]) { if (c.outline) { room.remove(c.outline); } free(c); }
+			for (const c of [...cards.values(), ...duelCards.values(), ...leaving]) { if (c.outline) { room.remove(c.outline); } free(c); }
 			cards.clear();
 			duelCards.clear();
 			leaving.clear();

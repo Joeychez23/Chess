@@ -218,6 +218,8 @@ test("covers: both decks are table cards for the camera, the green deck & the re
 	}
 	const side = new THREE.Raycaster(new THREE.Vector3(DECK.x - 20, DECK.y - 0.3, DECK.z), new THREE.Vector3(1, 0, 0)); // LOW ACROSS THE DESK: THE RED DECK'S SIDE, UNDER ITS TOP
 	assert.equal(table.covers(side), true, "the red deck's side");
+	const greenSide = new THREE.Raycaster(new THREE.Vector3(-DECK.x - 10, DECK.y - 0.3, DECK.z), new THREE.Vector3(1, 0, 0)); // THE GREEN DECK IS BAKED TOO (TASK 23): ITS SIDE, UNDER ITS TOP, FROM THE BOARD'S SIDE (AWAY FROM THE RED DECK)
+	assert.equal(table.covers(greenSide), true, "the green deck's side");
 	table.dispose();
 });
 

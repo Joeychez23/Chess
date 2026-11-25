@@ -16,7 +16,7 @@ import { BAIZE_FOG } from "./materials.js";
 import { createRoom, turnRoom, disposeRoom } from "./room.js"; // THE LIBRARY AROUND THE BOARD & ITS CRT MONITOR
 import { pileSpots } from "./piles.js"; // WHERE THE TAKEN PIECES STAND ON THE DESK
 import { createCards } from "./cards.js"; // THE PROMOTION CARDS ON THE DESK
-import { createCardTable } from "./cardTable.js"; // A CHESS CARDS GAME'S HANDS, DECKS & BOARD EFFECTS
+import { createCardTable, deskInView } from "./cardTable.js"; // A CHESS CARDS GAME'S HANDS, DECKS & BOARD EFFECTS
 import { createTweens } from "./tween.js"; // THEIR SLIDES
 
 import { createScreen, setScreen as showOnScreen, setFace as showFace, pauseScreen, disposeScreen, setMonitorView } from "./screen.js"; // WHAT THE MONITOR SHOWS
@@ -30,8 +30,8 @@ import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"
 export { perfLoaded } from "./perf.js"; // load.js GIVES IT THE CHUNK'S DOWNLOAD TIME
 import "../../../css/board3D.css"; // #board3D, THE CONTROLS HINT & THE PERF READOUT: IN THIS CHUNK, NOT THE PLAY BUNDLE
 
-import { resize, frameDeal, unframeDeal, framePile, placeCamera, stepCamera, landTurn, sideAngle, stepZoom } from "./camera.js";
-import { createControls, onPointerDown, onPointerMove, onPointerUp, monitorIdle, monitorInput, onMonitorShow, onPointerLeave, onClick, onTouchTap, onKeyDown } from "./pointer.js";
+import { resize, frameDeal, unframeDeal, framePile, placeCamera, stepCamera, landTurn, sideAngle, stepZoom, openCardCamera } from "./camera.js";
+import { createControls, onPointerDown, onPointerMove, onPointerUp, monitorIdle, monitorInput, onMonitorShow, onPointerLeave, onClick, onTouchTap, onKeyDown, rehoverPlaque } from "./pointer.js";
 import { putDownHeld, stepAnim, finishAnims, animate } from "./motion.js";
 import { followCamera } from "./tileHover.js";
 import { stepStatuses, clearStatuses, focusStatuses } from "./statusFx/index.js"; // A CHESS CARDS PIECE'S STATUSES, AS EFFECTS OR BADGES (TASK 21)
@@ -395,6 +395,7 @@ export function unmount() {
 	cancelAnimationFrame(view.frameId);
 	document.removeEventListener("visibilitychange", onVisibility);
 	observer.disconnect();
+	clearTimeout(view.cardSettle); // A WINDOW DRAG'S PENDING OPENING-SPOT SOLVE (camera.js resize)
 	controls.dispose();
 	window.removeEventListener("orientationchange", resize);
 	container.removeEventListener("pointerdown", onPointerDown, true);
@@ -616,7 +617,7 @@ export function setTaken(captures, playerColor) {
 /* ---------------------------------------------------------------- */
 
 /**
- * @description Lays out a Chess Cards game's table (cardTable.js): both hands, the green deck, both Board Effects piles. Kept until the room has loaded; a room without its card template has no table
+ * @description Lays out a Chess Cards game's table (cardTable.js): both hands, the card duel (dealt from the room's baked green deck), both Board Effects piles. Kept until the room has loaded; a room without its card template has no table
  * @param  {[object]} state [cards.view, the player's view (gameplay/cards/store.js)]
  * @param  {[array]} legal [cards.legal]
  * @param  {[object]} opts [{ catalog: the card faces, focus: the keyboard's hand card id | null, focusPile: the keyboard's pile | null, dim: the hand card ids drawn dimmer }]
@@ -626,11 +627,12 @@ export function setCardTable(state, legal, opts = {}) {
 	view.tableArgs = [state, legal, opts];
 	const made = !view.table && Boolean(view.cardTemplate);
 	if (made) {
-		view.table = createCardTable({ template: view.cardTemplate, room: view.room, tweens: view.tweens, requestRender, still: () => REDUCE.matches, frame: (box, zoom = null) => { framePile(box, !REDUCE.matches); view.cardOptions.onTable({ kind: "zoom", id: zoom }); } }); // zoom: flow.js HEARS WHAT IS ZOOMED IN ON (ESCAPE & A PLAY END IT)
-		if (view.table) { view.table.lift(view.tableLifted); }
+		view.table = createCardTable({ template: view.cardTemplate, room: view.room, tweens: view.tweens, requestRender, still: () => REDUCE.matches, frame: (box, zoom = null) => { framePile(box, !REDUCE.matches); view.cardOptions.onTable({ kind: "zoom", id: zoom }); }, inView: () => deskInView(view.camera, view.room), camera: view.camera }); // zoom: flow.js HEARS WHAT IS ZOOMED IN ON (ESCAPE & A PLAY END IT); inView: THE PLAQUES LIE ON THE DESK IN VIEW (RULING T23-24), camera: ON SCREEN (T23-28)
+		if (view.table) { view.table.lift(view.tableLifted); openCardCamera(); } // A CHESS CARDS GAME OPENS ON ITS WHOLE HAND ONCE THE ROOM HAS ITS TABLE (camera.js cardHome), ITS LIMITS LET IT STAY THERE
 	}
 	if (view.table) { view.table.set(state, opts); }
 	if (made && view.table && view.tableDuel) { view.table.dealDuel(view.tableDuel); } // A CARD DUEL DEALT WHILE THE ROOM LOADED
+	if (made && view.table) { view.cardOptions.onTable({ kind: "table" }); } // flow.js: A PROMPT ALREADY UP LAYS ITS PLAQUES ON IT (RULING T23-23)
 }
 
 /**
@@ -694,6 +696,46 @@ export function toggleCardPile(pile) {
  */
 export function openCardPile() {
 	return view && view.table ? view.table.open() : null;
+}
+
+/**
+ * @description The window was resized & the camera has settled (camera.js resize, after a drag's settle: review N1): a new size lays the table's plaques again inside the desk now in view (ruling T23-24)
+ */
+export function relayPlaques() {
+	const due = view.relayDue;
+	view.relayDue = false;
+	if (!due || !view.table) { return; }
+	const up = view.table.buttonCount() > 0;
+	if (view.table.relayButtons() !== up) { view.cardOptions.onTable({ kind: "table" }); } // THE PLAQUES CAME BACK OR WENT (RULING T23-27): flow.js LAYS THE PROMPT AGAIN, SO ITS 2D BUTTONS HIDE OR SHOW
+}
+
+/**
+ * @description A prompt's brass plaque buttons on the table, or none (cardTable.js showButtons). Not kept for a room still loading, nor laid when they'd cover something in view (ruling T23-27): that prompt keeps its 2D buttons
+ * @param  {[array]} list [[{ id, label }], [] takes them away]
+ * @param  {[object|null]} anchor [{ x, z, side } (tableLayout.js plaqueAnchor)]
+ * @return {[boolean]} [plaques are up]
+ */
+export function showTableButtons(list, anchor) {
+	if (!view || !view.table) { return false; }
+	const up = view.table.showButtons(list, anchor);
+	rehoverPlaque(); // ANOTHER LIST COMES UP UNLIT (RULING T23-20): THE ONE UNDER A STILL MOUSE LIGHTS (REVIEW M1)
+	return up;
+}
+
+/**
+ * @description The keyboard's plaque (cardTable.js focusButton): its 2D button has the focus
+ * @param  {[number|null]} index [in showTableButtons' list, null for none]
+ */
+export function focusTableButton(index) {
+	if (view && view.table) { view.table.focusButton(index); }
+}
+
+/**
+ * @description A plaque pressed sinks & rises (cardTable.js pressButton)
+ * @param  {[string]} id
+ */
+export function pressTableButton(id) {
+	if (view && view.table) { view.table.pressButton(id); }
 }
 
 /**

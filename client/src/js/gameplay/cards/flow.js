@@ -26,7 +26,8 @@ const S = require("./select.js"); // WHAT THE TABLE LETS THE PLAYER PICK, FROM c
 const { duelSteps } = require("./duelShow.js"); // WHAT AN ANSWER SHOWS OF THE CARD DUEL
 const { boardSteps, playSteps } = require("./boardShow.js"); // WHAT AN ANSWER PLAYS ON THE BOARD (OVERWATCH'S SHOT, A TOPPLE, A HANDOVER), & THE STEP PLAYER EVERY ANSWER'S STEPS GO THROUGH
 const { boardStep3D } = require("../renderer/index.js"); // ONE BOARD STEP ON THE 3D BOARD, RESOLVING WHEN IT HAS ENDED
-const { setTable3D, onTablePick, toggleTablePile3D, tablePileOpen3D, holdTablePiece3D, dropTablePiece3D, dealDuel3D, flipDuel3D, endDuel3D } = require("../renderer/index.js"); // THE TABLE ON THE 3D BOARD
+const { setTable3D, onTablePick, toggleTablePile3D, tablePileOpen3D, holdTablePiece3D, dropTablePiece3D, dealDuel3D, flipDuel3D, endDuel3D, showTableButtons3D, focusTableButton3D, pressTableButton3D } = require("../renderer/index.js"); // THE TABLE ON THE 3D BOARD
+const { plaqueAnchor } = require("../three/tableLayout.js"); // WHERE A PROMPT'S PLAQUES LIE ON THE TABLE (PURE, NO three)
 const { rarityColor } = require("../three/cardFaces.js"); // A PROMPT'S BORDER, THE COLOUR OF THE CARD THAT ASKED
 const { forfeitGame } = require("../validate/index.js"); // THE OLDER-VERSION GAME'S WAY OUT
 
@@ -214,6 +215,8 @@ function showSteps(steps) {
 /* ---------------------------------------------------------------- */
 onTablePick((hit) => { // THE 3D BOARD'S CLICKS & TAPS, & THE MOUSE'S PRESS & RELEASE (THE DRAG)
 	if (hit.kind === "zoom") { zoomed = hit.id; return; } // THE TABLE'S ZOOM BEGAN OR ENDED (three/cardTable.js frameOpen)
+	if (hit.kind === "table") { refreshTable(); return; } // THE TABLE CAME UP (ITS ROOM LOADED), A NEW 3D BOARD WENT UP OR FLIP BOARD TURNED THE ROOM (renderer tableUp): THE PROMPT LAYS ITS PLAQUES AGAIN, OR SHOWS ITS 2D BUTTONS (RULING T23-23, REVIEW I2)
+	if (hit.kind === "button") { promptBox?.querySelector(`[data-plaque="${hit.id}"]`)?.click(); return; } // A PLAQUE CLICKED OR TAPPED: ITS 2D BUTTON IS PRESSED, THE SAME PLAY (showPrompt)
 	if (hit.kind === "release") { releaseSquare(hit.square, Boolean(hit.dragged)); return; }
 	if (hit.kind === "press") { pressSquare(hit.square); return; }
 	if (hit.kind === "grab") { return landings(hit); }
@@ -299,21 +302,33 @@ function askingCard() {
 function showPrompt(ready, glow) {
 	const live = Boolean(sel) && yourMove(), mode = live && confirm ? "skull" : null;
 	const pick = !live || mode || promoting ? [] : choosing() ? sel.actions : S.promptPlays(sel.picks.length === 0 || ready.length > 1 ? ready : [], { mouse: byMouse, picks: sel.picks.length, placed: sel.card !== null && sel.card === onPlace });
-	const key = JSON.stringify([mode, confirm, pick]);
+	const ask = { skull: mode ? confirm : null, pick, choosing: choosing() }, at = live && (mode || pick.length) ? S.plaquePrompt({ ...ask, duel: Boolean(cards.view.duel), card: sel.card, hidden: cards.hidden }) : null;
+	const key = JSON.stringify([mode, confirm, pick, at]), list = S.promptButtons(ask, cards.view, cards.catalog, lastTaken);
+	const plaques = showTableButtons3D(at ? list.map(({ id, label }) => ({ id, label })) : [], at && plaqueAnchor(at, cards.view, game.viewColor === "b")) && Boolean(at); // EVERY CALL, THE SAME PROMPT TOO (REVIEW I1, I2): A TABLE THAT CAME UP, A NEW BOARD (ITS ROOM LOADING: NONE) OR A TURNED ROOM ({ kind: "table" }). THE FOUR PROMPTS OF RULING T23-4 ON 3D; ANY OTHER, OR NO PROMPT, TAKES THEM AWAY ([])
+	promptBox?.toggleAttribute("data-plaques", plaques); // THE 2D BUTTONS ARE HIDDEN ONLY WHILE THEIR PLAQUES ARE UP (RULING T23-23). THE TITLE & ITS NOTE STAY READABLE ABOVE THE BOARD, THE PLAQUES HAVE NONE
+	if (plaques && promptBox.contains(document.activeElement)) { focusTableButton3D([...promptBox.querySelectorAll("button")].indexOf(document.activeElement)); } // PLAQUES LAID ON A NEW TABLE UNDER A FOCUSED 2D BUTTON: ITS RING (RE-REVIEW N1)
 	if (key === shownPrompt) { return; }
 	shownPrompt = key;
 	if (!promptBox) { return; }
-	if (!mode && !pick.length) { promptBox.hidden = true; promptBox.replaceChildren(); promptStart = null; return; }
+	if (!mode && !pick.length) { promptBox.hidden = true; promptBox.replaceChildren(); promptStart = null; return; } // ITS PLAQUES WENT WITH IT (at IS null)
 	const asker = askingCard(), title = document.createElement("p");
-	const button = function (text, onClick) { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.addEventListener("click", () => { endZoom(); onClick(); }); return b; }; // A CLICK ELSEWHERE ENDS A ZOOM (REVIEW M2)
+	const button = function ({ id, label }, i, onClick) { // A PLAQUE (ITS id) PRESSES THIS BUTTON & ITS FOCUS IS THE PLAQUE'S: THE KEYS & A SCREEN READER KEEP THE 2D BUTTONS, HIDDEN ON 3D (style.css)
+		const b = document.createElement("button");
+		b.type = "button";
+		b.textContent = label;
+		b.dataset.plaque = id;
+		b.addEventListener("click", () => { endZoom(); pressTableButton3D(id); onClick(); }); // A CLICK ELSEWHERE ENDS A ZOOM (REVIEW M2)
+		b.addEventListener("focus", () => focusTableButton3D(i));
+		b.addEventListener("blur", () => { if (b.isConnected) { focusTableButton3D(null); } }); // A BUTTON TAKEN AWAY: ITS PROMPT'S PLAQUES WENT WITH IT
+		return b;
+	};
 	const note = (text) => { const p = document.createElement("p"); p.textContent = text; return p; };
 	title.textContent = asker.name;
 	promptBox.style.borderColor = rarityColor(asker.rarity);
 	promptBox.setAttribute("aria-label", asker.name || "Card choice");
-	const lines = [title], play = confirm;
+	const lines = [title];
 	if (mode === "skull") { lines.push(note(`This move costs a King skull (${cards.view.players[cards.you]?.kingSkulls ?? 0} left).`)); }
-	const buttons = mode === "skull" ? [button("Play", () => send(play))] : pick.map((action) => button(S.label(action, cards.view, cards.catalog, lastTaken), () => choose(action)));
-	if (mode || !choosing()) { buttons.push(button("Cancel", cancelPick)); }
+	const buttons = list.map((b, i) => button(b, i, b.action === null ? cancelPick : mode ? () => send(b.action) : () => choose(b.action))); // Play SENDS THE KING MOVE ASKED
 	promptBox.replaceChildren(...lines, ...buttons);
 	promptBox.hidden = false;
 	promptStart = buttons[S.promptFocus(pick)];

@@ -3,6 +3,7 @@
 export const CARD_ORDER = ["q", "r", "b", "n"];
 export const CARD_SIZE = { w: 4.3, h: 6 };
 export const DECK = { x: -24.5, z: 0, y: 0.44 };
+export const GREEN_DECK = { x: 24.5, z: 0, y: 0.44 }; // THE CARD DUEL'S DECK, BAKED INTO THE ROOM AS THE RED ONE'S MIRROR (TASK 23): ITS CARDS LIE ON IT AT y
 export const CARD_Y = -0.61; // BAIZE TOP + 0.02
 
 const SPOT_X = -17.7;

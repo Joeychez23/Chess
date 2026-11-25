@@ -546,6 +546,36 @@ function promptFocus(actions) {
 }
 
 /**
+ * @description A prompt's buttons in order, for the 2D prompt & the 3D plaques alike (flow.js showPrompt): one per play (its label), or Play for a King move waiting on a King skull, & Cancel
+ * (not for a choice, it must be answered)
+ * @param  {[object]} p [{ skull: the King move waiting (flow.js confirm) | null, pick: the prompt's plays, choosing: a choice or the duel's Stop or Continue is asked }]
+ * @param  {[object]} view [cards.view]
+ * @param  {[object]} catalog [cards.catalog]
+ * @param  {[object]} taken [as label's]
+ * @return {[array]} [{ id: the plaque's, label, action: the play it sends (Play: the King move), null for Cancel }]
+ */
+function promptButtons({ skull = null, pick = [], choosing = false }, view, catalog, taken = null) {
+	const list = skull ? [{ label: "Play", action: skull }] : pick.map((action) => ({ label: label(action, view, catalog, taken), action }));
+	if (skull || !choosing) { list.push({ label: "Cancel", action: null }); }
+	return list.map((b, i) => ({ id: `b${i}`, ...b })); // NOT A HAND CARD'S id: A PLAQUE IS NEVER GRABBED AS ONE
+}
+
+/**
+ * @description Whether the 3D view shows a prompt's buttons as brass plaques on the table (ruling T23-4), & by what: the card duel's Stop or Continue & Knight or Bishop (the duel cards), a King move that
+ * costs a King skull (the king's square), a move's forms, with & without a card under fog (the moving piece's square), a lifted card's free discards, a passive's place & reroll (the card). Any other prompt keeps its 2D buttons
+ * @param  {[object]} p [{ skull, pick, choosing: as promptButtons', duel: a card duel is on, card: the lifted card's id | null, hidden: cards.hidden (fog) }]
+ * @return {[object|null]} at [{ duel: true } | { square } | { card } (tableLayout.js plaqueAnchor), null: the 2D buttons]
+ */
+function plaquePrompt({ skull = null, pick = [], choosing = false, duel = false, card = null, hidden = false }) {
+	if (skull) { return { square: skull.from }; }
+	if (choosing) { return duel ? { duel: true } : null; }
+	const [m] = pick, forms = hidden && pick.length > 1 && pick.every((a) => a.type === "move" && a.from === m.from && a.to === m.to && !a.promotion) && pick.some((a) => a.card === null) && pick.some((a) => a.card !== null); // FOG'S TWO FORMS OF ONE MOVE (pickPiece): ANY OTHER PROMPT OF MOVES KEEPS ITS 2D BOX (RULING T23-26)
+	if (forms) { return { square: m.from }; }
+	if (card !== null && pick.length && pick.every((a) => a.type === "discard" || a.type === "passive")) { return { card }; }
+	return null;
+}
+
+/**
  * @description Whether the player is asked for an answer: every legal action is a choice's option, or a card duel's Stop or Continue (step decide). The prompt's buttons are all of them,
  * with no Cancel, & nothing else is picked meanwhile
  * @param  {[array]} legal [cards.legal]
@@ -598,4 +628,4 @@ function liftedCard(sel, onPlace, read) {
 	return sel && !(read && sel.card === read) ? sel.card : onPlace;
 }
 
-module.exports = { asking, askedBy, movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, dropPlay, pileDrops, promptPlays, focusList, label, stepFocus, keyPlan, promptFocus, zooms, handRead, liftedCard, PIECE_NAMES, VALUE, CARD_MOVES };
+module.exports = { asking, askedBy, movesForCard, targetsForActive, shortcutFor, canPlace, handCards, actionsFor, dimmed, costsSkull, blindMoves, lift, pickPiece, pressPick, squaresOf, options, pick, promotionPick, dropPlay, pileDrops, promptPlays, focusList, label, stepFocus, keyPlan, promptFocus, promptButtons, plaquePrompt, zooms, handRead, liftedCard, PIECE_NAMES, VALUE, CARD_MOVES };
