@@ -44,15 +44,19 @@ for (const [name, mod] of [["warded", warded], ["frozen", frozen]]) {
 		const { opts } = setup(name);
 		const fx = mod.create(opts.mesh, opts);
 		assert.ok(opts.root.children.length > 0);
-		assert.equal(opts.squareRoot.children.length, 0);
+		// T24 J2: FROZEN'S FROST GROUND IS ON squareRoot (statusFx-T24-J2.test.js); T24 J1: SO IS WARDED'S LIGHT (statusFx-T24-J1.test.js)
 		const { made, freed } = watch(opts.root, opts.mesh.geometry);
 		assert.ok(made.size > 0);
+		// T24 J1: WARDED'S MOTE & GLINT TEXTURES ARE SHARED BY EVERY WARDED PIECE (wardedMotes.js), NEVER FREED
+		const sharedMaps = name === "warded" ? ["wardedMotes", "wardedGlints"].map((n) => opts.root.getObjectByName(n).material.map) : [];
 		let sharedFreed = false;
 		opts.mesh.geometry.dispose = () => { sharedFreed = true; };
 		fx.dispose();
 		assert.equal(opts.root.children.length, 0);
-		assert.equal(freed.size, made.size);
+		assert.equal(freed.size, made.size - sharedMaps.length);
+		sharedMaps.forEach((m) => assert.equal(freed.has(m), false, "a shared texture stays"));
 		assert.equal(sharedFreed, false, "the piece's geometry is shared: never freed here");
+		assert.equal(opts.squareRoot.children.length, 0, "the frost ground (frozen) & the light (warded) are off the square too");
 	});
 
 	test(`${name}: a see-through layer in the piece's own shape over it, refit to a new mesh on update(0)`, () => {
@@ -82,9 +86,9 @@ for (const [name, mod] of [["warded", warded], ["frozen", frozen]]) {
 	});
 
 	test(`${name}: animating only while it moves, still & not animating under opts.reduce (update(0) follows a change to it)`, () => {
-		const { opts } = setup(name);
+		const { opts } = setup(name, { fresh: true }); // A REAL GAIN: FROZEN'S FROST SPREADS (T24-R15: A LOAD STARTS SETTLED)
 		const fx = mod.create(opts.mesh, opts);
-		assert.equal(fx.animating(), name === "warded", "Warded pulses; Frozen is still until its burst");
+		assert.equal(fx.animating(), true, "Warded pulses; Frozen's frost spreads on its square (T24 S3b; its ice is still, the next test)");
 		opts.reduce = true;
 		fx.update(0);
 		assert.equal(fx.animating(), false);
@@ -169,13 +173,14 @@ test("warded: motes are round (a soft dot map, clear at the corner) & drawn at M
 	fx.dispose();
 });
 
-test("frozen: still outside its burst, even with reduce off", () => {
+test("frozen: its ice is still outside its burst, even with reduce off; frames only while the ground's frost spreads & mist settles (T24 J2)", () => {
 	const { opts } = setup("frozen");
 	const fx = frozen.create(opts.mesh, opts);
-	assert.equal(fx.animating(), false);
 	const before = JSON.stringify(opts.root.toJSON());
 	fx.update(0.1); fx.update(0.1); fx.update(0.1);
-	assert.equal(JSON.stringify(opts.root.toJSON()), before, "the mist is a still haze");
+	assert.equal(JSON.stringify(opts.root.toJSON()), before, "the ice on the piece doesn't move");
+	for (let i = 0; i < 50; i++) { fx.update(0.1); } // PAST frostGround's SPREAD_S + SETTLE_S (4.2 s)
+	assert.equal(fx.animating(), false, "still until the burst");
 	fx.burst();
 	assert.equal(fx.animating(), true);
 	fx.dispose();
@@ -246,7 +251,12 @@ test("frozen: burst returns its ms & the shards drop & fade on update; 0 under r
 	assert.equal(frozen.create(r.mesh, r.opts).burst(), 0);
 });
 
-test("warded: burst plays nothing (the plan gives Warded no ending)", () => {
+test("warded: burst plays the lose flare & returns its length plus a frame's margin (T24 J1); 0 under reduce", () => {
 	const { opts } = setup("warded");
-	assert.equal(warded.create(opts.mesh, opts).burst(), 0);
+	const fx = warded.create(opts.mesh, opts);
+	assert.equal(fx.burst(), require("../src/js/gameplay/three/statusFx/wardedFlare.js").FLARE_MS + 100);
+	assert.equal(opts.root.getObjectByName("wardedFlare").visible, true);
+	fx.dispose();
+	const r = setup("warded", { reduce: true });
+	assert.equal(warded.create(r.mesh, r.opts).burst(), 0);
 });

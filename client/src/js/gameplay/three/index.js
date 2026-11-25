@@ -37,6 +37,7 @@ import { followCamera } from "./tileHover.js";
 import { stepStatuses, clearStatuses, focusStatuses } from "./statusFx/index.js"; // A CHESS CARDS PIECE'S STATUSES, AS EFFECTS OR BADGES (TASK 21)
 export { syncStatuses, holdStatuses, pickStatuses } from "./statusFx/index.js";
 import { tileAt } from "./hoverRules.js"; // THE TILE UNDER A POINT ON THE BOARD (squareUnder)
+import { renderFrame, disposeBloom } from "./bloom.js"; // DRAWS THE FRAME, WITH SELECTIVE BLOOM ON THE STATUS EFFECTS' GLOW (TASK 24)
 
 export { isCameraGesture, setSide, resetCamera } from "./camera.js";
 export { setMonitor, enterMonitor, leaveMonitor, monitorState, focusMonitor } from "./pointer.js";
@@ -237,7 +238,7 @@ function frame(now) {
 	stepFire(now, view.renderer.domElement.height); // ITS OWN TIMER ASKS FOR ITS FRAMES (fire.js)
 	stepClock(); // SO DOES THE CLOCK'S (clock.js)
 	stepStatuses(now); // & THE STATUS EFFECTS' (statusFx/index.js)
-	view.renderer.render(view.scene, view.camera);
+	renderFrame(view);
 	if (view.textureReady) { view.markDrawn(); } // ONLY THE FIRST CALL COUNTS
 	perfFrame(now);
 	if (view.anims.size || view.cameraTurn || view.zoom || view.tweens.active()) { requestRender(); }
@@ -286,6 +287,7 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	if (view) { return; }
 	const phone = window.matchMedia("(pointer: coarse)").matches; // TOUCH-FIRST SCREEN: THE CHEAPER SCENE (NO FOG, LOWER PIXEL RATIO)
 	const renderer = new WebGLRenderer({ antialias: true, powerPreference: phone ? "low-power" : "default" });
+	renderer.transmissionResolutionScale = 0.5; // T24: A FROZEN CRUST'S REFRACTION PASS REDRAWS THE OPAQUE SCENE: AT HALF SIZE IT COSTS A QUARTER (S3a REVIEW M1)
 	const canvas = renderer.domElement;
 	canvas.style.display = "block";
 	canvas.style.width = canvas.style.height = "100%";
@@ -295,8 +297,11 @@ export function mount(container, { onContextLost: lost = () => {}, onContextRest
 	scene.background = new Color(BAIZE_FOG);
 	if (!phone) { scene.fog = new Fog(BAIZE_FOG, 50, 150); } // PAST THE BAIZE TABLE, FADE INTO THE BACKGROUND
 	const camera = new PerspectiveCamera(FOV, 1, NEAR, 1000); // PLACED BELOW (placeCamera), WHITE'S SIDE UNTIL setSide()
-	scene.add(new HemisphereLight(0xFFF4E0, 0x3A2A1A, 1.2)); // FILL: WARM SKY, DARK WOOD BOUNCE, NO SHADOW MAPS
+	const fill = new HemisphereLight(0xFFF4E0, 0x3A2A1A, 1.2); // FILL: WARM SKY, DARK WOOD BOUNCE, NO SHADOW MAPS
 	const keyLight = new DirectionalLight(0xFFFFFF, 2.2); // KEY: HIGH & TO WHITE'S LEFT
+	fill.layers.enableAll(); // ON EVERY LAYER: bloom.js'S GLOW DRAW (BLOOM_LAYER ONLY) SEES THE SAME LIGHTS, SO LIT MATERIALS DON'T RE-ACQUIRE PROGRAMS EACH BLOOMED FRAME
+	keyLight.layers.enableAll();
+	scene.add(fill);
 	keyLight.position.set(-10, 25, 15);
 	scene.add(keyLight);
 	const squaresIn = function () { // DRAWS AGAIN WHEN THE SQUARES ARRIVE (OR FAIL TO: THE BOARD IS STILL PLAYABLE), THAT FRAME IS whenDrawn()'S
@@ -377,6 +382,7 @@ export function unmount() {
 	if (!view) { return; }
 	finishAnims();
 	clearStatuses(); // BEFORE THE PIECES GO: NO BURSTS, ITS FRAME TIMER STOPS
+	disposeBloom(); // ITS COMPOSERS HOLD THIS RENDERER, SCENE & CAMERA
 	view.tweens.finish();
 	if (view.cards) { view.cards.dispose(); }
 	if (view.table) { view.table.dispose(); }

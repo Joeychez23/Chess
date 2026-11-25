@@ -13,6 +13,27 @@ const GREEN_BACK = 0x0E3B22; // THE DUEL CARDS' BACKS, AS THE BAKED GREEN DECK'S
 const GREEN_TOP = GREEN_DECK.y; // A DUEL CARD DEALT FROM (& GOING BACK TO) THE GREEN DECK LIES ON ITS TOP, AS THE PROMOTION CARDS ON THE RED ONE'S (cards.js)
 const deckBox = (d) => new Box3(new Vector3(d.x - CARD_SIZE.w / 2, DESK_Y, d.z - CARD_SIZE.h / 2), new Vector3(d.x + CARD_SIZE.w / 2, d.y, d.z + CARD_SIZE.h / 2)); // A BAKED DECK, IN THE ROOM'S SPACE: A CARD'S FOOTPRINT FROM THE DESK UP TO ITS TOP
 const DECKS = [deckBox(DECK), deckBox(GREEN_DECK)];
+// A DUEL CARD GOES TO & FROM THE GREEN DECK BY TWO POINTS, NOT STRAIGHT UNDER THE BOARD'S CORNER (TASK 20 S2 REVIEW M4) NOR THROUGH THE NEAR TAKEN PIECES (x 24.4+, z 6.7..17.1: S5 REVIEW I1, RULING T24-R12):
+// OUT OF THE DECK ALONG ITS z (0) TO DUEL_OUT, THEN ACROSS TO DUEL_WAYPOINT ON ITS ROW'S z (MIRRORED FOR CARD GUY'S ROW), THEN ALONG THE ROW. x BETWEEN THE BOARD'S FRAME (14.25 + HALF A CARD'S WIDTH)
+// & THE PILE (x 24 - A PIECE - HALF A WIDTH). A LITTLE ABOVE THE DECK'S TOP. TUNE ON SCREEN
+export const DUEL_OUT = { x: 18.6, y: GREEN_TOP + 1, z: GREEN_DECK.z };
+export const DUEL_WAYPOINT = { x: 18.6, y: GREEN_TOP + 1, z: HAND_Z };
+const RETURN_RISE = 0.06; // EACH CARD FLYING BACK TOGETHER GOES THIS MUCH HIGHER THAN THE ONE BEFORE, SO THEY DON'T MEET AT ONE HEIGHT AT THE WAYPOINTS (S5 REVIEW M2)
+/**
+ * @description Where a duel card is, k of the way between from & to: deck, DUEL_OUT, DUEL_WAYPOINT, row (dealt), the other way (sent back), each leg an equal share of k. Sent back, it skips the points it hadn't
+ * reached yet (S5 review M1: a card still on its way out goes straight back). The waypoint's z takes the side (sign) of the end that isn't the deck
+ * @param {{ x: number, y: number, z: number, yaw: number }} from
+ * @param {{ x: number, y: number, z: number, yaw: number }} to
+ * @param {number} k 0..1
+ * @param {number} [rise] added to the waypoints' height (not the ends')
+ * @returns {{ x: number, y: number, z: number, yaw: number }}
+ */
+export function duelPath(from, to, k, rise = 0) {
+	const out = { x: DUEL_OUT.x, y: DUEL_OUT.y + rise, z: DUEL_OUT.z }, w = { x: DUEL_WAYPOINT.x, y: DUEL_WAYPOINT.y + rise, z: (Math.sign(from.z + to.z) || 1) * DUEL_WAYPOINT.z }; // THE DECK LIES AT z 0: THE SUM HAS THE ROW'S SIGN
+	const behind = (p) => (Math.abs(p.z) >= DUEL_WAYPOINT.z - 1e-6 ? [w, out] : Math.abs(p.z - DUEL_OUT.z) > 1e-6 ? [out] : []); // THE POINTS BETWEEN p & THE DECK
+	const pts = [from, ...(Math.abs(to.z) > Math.abs(from.z) ? behind(to).reverse() : behind(from)), to], n = pts.length - 1, i = Math.min(n - 1, Math.floor(k * n)), j = k * n - i, [a, b] = [pts[i], pts[i + 1]];
+	return { x: lerp(a.x, b.x, j), y: lerp(a.y, b.y, j), z: lerp(a.z, b.z, j), yaw: lerp(from.yaw, to.yaw, k) };
+}
 const FLIP_LIFT = CARD_SIZE.w / 2 + 0.2; // A FLIPPING DUEL CARD TURNS ON ITS LONG AXIS: HALF ITS WIDTH UP, SO ITS EDGE CLEARS THE BAIZE
 const PICK_LIFT = 1.1; // A LIFTED (PICKED) CARD FLOATS THIS HIGH, ABOVE A HOVERED ONE. AN ABILITY CARD A CLICK OR TAP PICKED ISN'T LIFTED: flow.js NEVER SAYS IT (select.js liftedCard, TASK 21a)
 const PILE_FACE = 0.5; // THE LIFTED CARD'S PREVIEW: THIS FRACTION OF THE FACE TEXTURE'S SIZE
@@ -137,14 +158,14 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 	// THE FRAME'S HEIGHT: A HAND CARD'S JUST UNDER IT, A PILE CARD'S AT ITS OWN HEIGHT (UNDER IT IS THE DESK TOP, WHICH HIDES IT)
 	const frameY = (c) => c.spot.y - (c.spot.pile || c.spot.discard ? 0 : FRAME_DROP);
 
-	// SLIDES A CARD TO ITS SPOT (FROM THE DECK WHEN IT'S NEW), AS THE PROMOTION CARDS ARE DEALT. done: RUNS ONCE IT LANDS, UNLESS ANOTHER SLIDE OR free() CAME FIRST
-	function moveTo(c, delay, done = () => {}) {
+	// SLIDES A CARD TO ITS SPOT (FROM THE DECK WHEN IT'S NEW), AS THE PROMOTION CARDS ARE DEALT. done: RUNS ONCE IT LANDS, UNLESS ANOTHER SLIDE OR free() CAME FIRST. via: false, OR BY THE DUEL WAYPOINTS RAISED THIS MUCH (duelPath's rise)
+	function moveTo(c, delay, done = () => {}, via = false) {
 		const token = ++c.moveToken, from = { ...c.at }, to = { x: c.spot.x, y: c.spot.y, z: c.spot.z, yaw: c.spot.yaw || 0 };
 		if (still() || (from.x === to.x && from.y === to.y && from.z === to.z && from.yaw === to.yaw)) { c.at = to; c.landed = true; place(c); done(); return; }
 		c.landed = false;
 		tweens.add({
 			duration: DEAL_MS, delay,
-			update(k) { if (token !== c.moveToken) { return; } c.at = { x: lerp(from.x, to.x, k), y: lerp(from.y, to.y, k), z: lerp(from.z, to.z, k), yaw: lerp(from.yaw, to.yaw, k) }; place(c); },
+			update(k) { if (token !== c.moveToken) { return; } c.at = via !== false ? duelPath(from, to, k, via) : { x: lerp(from.x, to.x, k), y: lerp(from.y, to.y, k), z: lerp(from.z, to.z, k), yaw: lerp(from.yaw, to.yaw, k) }; place(c); },
 			onEnd() { if (token === c.moveToken) { c.landed = true; placeFrame(); requestRender(); done(); } },
 		});
 	}
@@ -296,7 +317,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 		unoutline(c);
 		leaving.add(c);
 		c.spot = { ...c.spot, x: GREEN_DECK.x, y: GREEN_TOP, z: GREEN_DECK.z };
-		moveTo(c, 0, () => { leaving.delete(c); free(c); requestRender(); });
+		moveTo(c, 0, () => { leaving.delete(c); free(c); requestRender(); }, leaving.size * RETURN_RISE); // leaving.size: THIS CARD'S PLACE AMONG THOSE FLYING BACK NOW
 	}
 
 	/* ---- The lifted card's preview: a hand card with rules text (an active, the held passive, a curse), big enough to read, beside the board while it's lifted (user ruling 2026-11-22): the keys' pick & the drop's target pick (user ruling R1, Task 21a) ---- */
@@ -596,7 +617,7 @@ export function createCardTable({ template, room, tweens, requestRender, still =
 					Object.assign(c, { duel: d, outline: null, spot: { x: d.x, y: CARD_Y, z: d.z, faceDown: !d.card }, at: { x: GREEN_DECK.x, y: GREEN_TOP, z: GREEN_DECK.z, yaw: 0 } });
 					if (d.card) { paintDuel(c); }
 					duelCards.set(d.key, c);
-					moveTo(c, (redeal ? DEAL_MS : 0) + (dealt++) * DEAL_STAGGER_MS, () => { if (c.outline) { c.outline.visible = true; } }); // A NEW ROUND'S CARDS LEAVE THE DECK ONCE THE OLD ONES ARE BACK
+					moveTo(c, (redeal ? DEAL_MS : 0) + (dealt++) * DEAL_STAGGER_MS, () => { if (c.outline) { c.outline.visible = true; } }, 0); // A NEW ROUND'S CARDS LEAVE THE DECK ONCE THE OLD ONES ARE BACK
 				}
 				if (d.won) { outline(c); } else { unoutline(c); }
 			}
