@@ -429,6 +429,12 @@ if (isMainThread) {
 		assert.ok(r.stats["x:through"] >= 5, "only " + (r.stats["x:through"] || 0) + " castles through check");
 	});
 
+	test("T21 m3: a Tremor held by each side from the start: the veiled Frozen's told-list check (x:veil-legal) is reached, not only written", (t) => {
+		const r = soak(SEEDS, { plies: 30, setup(s) { for (const c of ["w", "b"]) s.players[c].curses.push(hand.newCard(s, "tremor")); } });
+		clean(r, t);
+		assert.ok((r.stats["x:veil-legal"] || 0) + (r.stats["x:veil-dead-end"] || 0) >= 20, "the veil check ran only " + ((r.stats["x:veil-legal"] || 0) + (r.stats["x:veil-dead-end"] || 0)) + " times");
+	});
+
 	test("a held Mirage under a Fog of War (either side's, any version) and in a card duel: nothing hidden shown, the Mirage never named to its holder", (t) => {
 		const r = soak(SEEDS, {
 			plies: 40,
@@ -449,7 +455,7 @@ if (isMainThread) {
 	});
 
 	test("placed cards under a Fog of War (either side's, any version): the drops a player is told are its own placed cards, whatever the hidden pieces", (t) => {
-		const r = soak(SEEDS, {
+		const r = soak([...SEEDS, 72, 84, 108], { // ENGINE 3'S DRAW POOL (TASK 25b, ONE INSIDIOUS NULLIFICATION) LEFT SEEDS 1-48 WITH NO TOLD DROP THE GAME REFUSES; OF 1-300 ONLY 72, 84, 108, 181, 223, 230, 291 AND 295 REACH ONE
 			plies: 60,
 			setup(s, seed) {
 				fogUp(s, seed % 2 ? "w" : "b", ["fog-of-war", "fog-of-war-rare", "fog-of-war-epic"][seed % 3], 40);

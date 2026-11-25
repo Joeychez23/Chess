@@ -19,7 +19,7 @@ reset(); // THE ENGINE ENTRY REGISTERS EVERY CARD: THESE TESTS DRAW FROM ONLY TH
 
 for (const key of ["stronghold", "heavy-cavalry", "heretical-subjection", "last-stand", "opposing-finality", "swap", "conscription", "trapdoor"]) register(require("../../cards-engine/cards/active/" + key + ".js"));
 register(require("../../cards-engine/cards/active/double-time.js")); // TASK 8'S CARD, READ ONLY: A TWO-MOVE TURN FOR THE TRAPDOOR TEST
-for (const key of ["cleanse", "hexcraft", "insidious-nullification"]) register(require("../../cards-engine/cards/active/" + key + ".js")); // HAND CARDS, READ ONLY: A MARK REMOVED OR GIVEN ON TOP OF A CLAIMED ONE
+for (const key of ["cleanse", "hexcraft", "all-or-nothing"]) register(require("../../cards-engine/cards/active/" + key + ".js")); // HAND CARDS, READ ONLY: A MARK REMOVED OR GIVEN ON TOP OF A CLAIMED ONE; ALL OR NOTHING'S LOST HAND FORFEITS A PIECE (TASK 25b: INSIDIOUS NULLIFICATION'S FORFEIT IS GONE)
 register({ key: "t-pass", kind: "active", name: "t-pass", rarity: "common", text: "", targets: () => [null], play: () => {} });
 register({ key: "t-trap", kind: "active", name: "t-trap", rarity: "common", text: "", on: { move: (ctx, owner, ev, src) => ev.to === src.data.square && ev.player !== owner && ctx.capture(owner, ev.piece) } }); // A REMOVAL TRAP (TRAPDOOR BEFORE 10b): A CARD CAPTURE ON THE MOVER'S OWN TURN
 
@@ -184,239 +184,118 @@ describe("Stronghold", () => {
 });
 
 describe("Heavy Cavalry", () => {
-	// KNIGHTS c3 AND e4 A KNIGHT'S MOVE APART; PAWN e2 ON A SQUARE c3 COVERS (BLACK BISHOP g4 ATTACKS IT); BLACK ROOK e8 ATTACKS THE e4 KNIGHT
-	const FEN = "4r2k/8/8/8/4N1b1/2N5/P3P3/7K w - - 0 1";
+	// ONE CARD, ONE KNIGHT (USER RULING 2026-11-25: THE TWO-KNIGHT BASE CARD, ITS MARKED PARTNER AND ITS SWITCH ARE GONE; THIS WAS THE EPIC VERSION)
+	// ONE KNIGHT c3; PAWN e2 ON A SQUARE IT COVERS (BLACK BISHOP g4 ATTACKS IT); BISHOP e7 BY THE e8 ROOK, A SQUARE d5 COVERS
+	const ONE = "4r2k/4B3/8/8/6b1/2N5/P3P3/7K w - - 0 1";
+	// KNIGHTS c3 AND e4 (e4 IS A c3 KNIGHT SQUARE); BLACK ROOK e8 ATTACKS THE e4 KNIGHT
+	const TWO = "4r2k/8/8/8/4N1b1/2N5/P3P3/7K w - - 0 1";
+	const HC = require("../../cards-engine/cards/active/heavy-cavalry.js");
 
-	test("targets: either knight, only when the two are a knight's move apart", () => {
-		const s = game(FEN, "heavy-cavalry");
-		assert.deepEqual(actives(s).map((a) => sqOf(s, a.target.piece)).sort(), ["c3", "e4"]);
-		assert.deepEqual(actives(game("4r2k/8/8/8/3N2b1/2N5/P3P3/7K w - - 0 1", "heavy-cavalry")), []);
-		assert.deepEqual(actives(game("4r2k/8/8/8/6b1/2N5/P3P3/7K w - - 0 1", "heavy-cavalry")), []);
-	});
-
-	test("friendly pieces the enchanted knight covers are Warded, never the partner; the partner is Marked", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		assert.ok(captures(s, "b", "g4", "e2"));
-		const { state } = play(s, { piece: n });
-		assert.deepEqual(state.enchant.map((e) => [e.key, e.pieces]), [["heavy-cavalry", [n, partner]]]);
-		assert.ok(has(state, partner, "marked") && !has(state, n, "marked"));
-		assert.ok(!captures(state, "b", "g4", "e2")); // e2 IS A c3 KNIGHT SQUARE: WARDED
-		assert.ok(captures(state, "b", "e8", "e4")); // THE PARTNER IS NEVER WARDED
-	});
-
-	test("switching the enchantment to the other knight uses the turn", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		const t = pass(play(s, { piece: n }).state, "b"), e = t.enchant[0];
-		const sw = { type: "switch", enchant: e.id };
-		assert.ok(legalActions(t, "w").some((a) => a.type === "switch" && a.enchant === e.id));
-		const { state } = applyAction(t, "w", sw);
-		assert.deepEqual(state.enchant[0].pieces, [partner, n]);
-		assert.ok(has(state, n, "marked") && !has(state, partner, "marked"));
-		assert.deepEqual([state.board.turn, state.ply], ["b", t.ply + 1]);
-		assert.ok(captures(state, "b", "g4", "e2")); // e2 IS NOT AN e4 KNIGHT SQUARE
-	});
-
-	test("ends for good when the knights separate", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		const t = pass(play(s, { piece: n }).state, "b");
-		t.players.w.moves = [{ id: "c95", key: "move", piece: "m" }];
-		const { state, events } = applyAction(t, "w", { type: "move", card: "c95", from: "c3", to: "b5" });
-		assert.deepEqual(state.enchant, []);
-		assert.deepEqual(ofType(events, "enchant-ended").map((e) => e.key), ["heavy-cavalry"]);
-		assert.ok(!has(state, partner, "marked"));
-		assert.ok(captures(state, "b", "g4", "e2"));
-		assert.ok(!legalActions(pass(state, "b"), "w").some((a) => a.type === "switch"));
-	});
-
-	test("ends when the partner is captured", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3");
-		const t = play(s, { piece: n }).state;
-		t.players.b.moves = [{ id: "c96", key: "move", piece: "r" }];
-		const { state } = applyAction(t, "b", { type: "move", card: "c96", from: "e8", to: "e4" });
-		assert.deepEqual(state.enchant, []);
-	});
-
-	test("a second Heavy Cavalry offers no knight already in an entry; the partner stays Marked while it lasts", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		let t = pass(play(s, { piece: n }).state, "b");
+	test("epic, 2 skulls, no version; targets: any own knight in no entry, alone; a knight already in an entry is not offered again; none with no knight", () => {
+		assert.deepEqual([HC.rarity, HC.skulls, HC.versions], ["epic", 2, undefined]);
+		const s = game(ONE, "heavy-cavalry");
+		assert.deepEqual(actives(s).map((a) => sqOf(s, a.target.piece)), ["c3"]);
+		assert.deepEqual(actives(game("4r2k/8/8/8/6b1/8/P3P3/7K w - - 0 1", "heavy-cavalry")), []);
+		const two = game(TWO, "heavy-cavalry");
+		assert.deepEqual(actives(two).map((a) => sqOf(two, a.target.piece)).sort(), ["c3", "e4"]);
+		const t = pass(play(two, { piece: id(two, "c3") }).state, "b");
 		t.players.w.actives = [{ id: "c91", key: "heavy-cavalry" }];
-		assert.deepEqual(actives(t), []);
-		t = pass(applyAction(t, "w", { type: "switch", enchant: t.enchant[0].id }).state, "b");
-		t = pass(applyAction(t, "w", { type: "switch", enchant: t.enchant[0].id }).state, "b");
-		assert.equal(t.enchant.length, 1);
-		assert.ok(has(t, partner, "marked") && !has(t, n, "marked"));
+		assert.deepEqual(actives(t).map((a) => sqOf(t, a.target.piece)), ["e4"]);
+		const u = pass(play(t, { piece: id(t, "e4") }, "c91").state, "b");
+		u.players.w.actives = [{ id: "c92", key: "heavy-cavalry" }];
+		assert.deepEqual(actives(u), []); // BOTH KNIGHTS IN AN ENTRY
+		assert.deepEqual(u.enchant.map((e) => e.pieces.length), [1, 1]);
 	});
 
-	test("each end path alone: a move event, a capture, a turn start", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		const st = play(s, { piece: n }).state;
-		const hop = (x) => { x.board.sq[sqIndex("b5")] = x.board.sq[sqIndex("c3")]; x.board.sq[sqIndex("c3")] = null; };
-		// move ONLY
-		let ctx = makeCtx(JSON.parse(JSON.stringify(st)));
-		hop(ctx.state);
-		ctx.emit({ type: "move", player: "w", card: null, piece: n, from: "c3", to: "b5" });
-		assert.deepEqual(ctx.state.enchant, []);
-		// capture ONLY
-		ctx = makeCtx(JSON.parse(JSON.stringify(st)));
-		assert.equal(ctx.capture("b", partner), true);
-		assert.deepEqual(ctx.state.enchant, []);
-		// turn-start ONLY: SEPARATED WITH NO EVENT
-		ctx = makeCtx(JSON.parse(JSON.stringify(st)));
-		hop(ctx.state);
-		assert.equal(ctx.state.enchant.length, 1);
-		startTurn(ctx, ctx.state.board.turn);
-		assert.deepEqual(ctx.state.enchant, []);
-		assert.ok(!has(ctx.state, partner, "marked"));
+	test("the knight is enchanted and Wards the friendly non-king pieces it covers, another knight too; nothing is Marked; no switch", () => {
+		const s = game(ONE, "heavy-cavalry"), n = id(s, "c3");
+		assert.ok(captures(s, "b", "g4", "e2"));
+		const { state, events } = play(s, { piece: n });
+		assert.deepEqual(state.enchant.map((e) => [e.key, e.pieces]), [["heavy-cavalry", [n]]]);
+		assert.deepEqual([state.statuses, ofType(events, "status")], [{}, []]);
+		assert.ok(!captures(state, "b", "g4", "e2"));
+		assert.ok(!legalActions(pass(state, "b"), "w").some((a) => a.type === "switch"));
+		const two = game(TWO, "heavy-cavalry");
+		assert.ok(captures(two, "b", "e8", "e4"));
+		assert.ok(!captures(play(two, { piece: id(two, "c3") }).state, "b", "e8", "e4")); // NO PARTNER LEFT OUT: e4 IS A c3 SQUARE
 	});
 
-	test("a partner handed over ends it at once; Cleanse on the partner's Mark ends it", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		let ctx = makeCtx(play(s, { piece: n }).state);
-		ctx.state.board.sq[sqIndex("e4")].c = "b";
-		ctx.emit({ type: "handover", player: "b", piece: partner, from: "e4", to: "e4" });
-		assert.deepEqual(ctx.state.enchant, []);
-		ctx = makeCtx(play(game(FEN, "heavy-cavalry"), { piece: n }).state);
-		statuses.clear(ctx, partner, "marked");
+	test("lasts while the knight is on the board: a move keeps it (the Ward follows), a capture ends it", () => {
+		const s = game(ONE, "heavy-cavalry"), n = id(s, "c3");
+		const t = pass(play(s, { piece: n }).state, "b");
+		assert.ok(captures(t, "b", "e8", "e7"));
+		const r = chess(t, "w", "c3", "d5");
+		assert.equal(r.state.enchant.length, 1);
+		assert.ok(!captures(r.state, "b", "e8", "e7") && captures(r.state, "b", "g4", "e2"));
+		const ctx = makeCtx(r.state);
+		assert.equal(ctx.capture("b", n), true);
 		assert.deepEqual(ctx.state.enchant, []);
 		assert.deepEqual(ofType(ctx.events, "enchant-ended").map((e) => e.key), ["heavy-cavalry"]);
 	});
 
-	test("shared Marks: Heavy Cavalry never takes a Mark it didn't give (A: its knight captured; B: its switch; C: Conscription's)", () => {
-		// A, B: OF ON c3 FIRST, THEN HEAVY CAVALRY ENCHANTING b1 WITH c3 AS THE PARTNER
-		const setup = () => {
-			let s = game("1r2k3/8/8/8/8/2N5/8/1N2K3 w - - 0 1");
-			s = pass(cardPlay(s, "w", "opposing-finality", { piece: id(s, "c3") }).state, "b");
-			return cardPlay(s, "w", "heavy-cavalry", { piece: id(s, "b1") }).state;
-		};
-		let s = setup();
-		const n1 = id(s, "b1"), n2 = id(s, "c3");
-		let r = chess(s, "b", "b8", "b1");
-		assert.deepEqual(r.state.enchant.map((e) => e.key), ["opposing-finality"]);
-		assert.ok(has(r.state, n2, "marked"));
-		s = pass(setup(), "b");
-		r = applyAction(s, "w", { type: "switch", enchant: s.enchant.find((e) => e.key === "heavy-cavalry").id });
-		assert.deepEqual(r.state.enchant.map((e) => [e.key, e.pieces]), [["opposing-finality", [n2]], ["heavy-cavalry", [n2, n1]]]);
-		assert.ok(has(r.state, n2, "marked") && has(r.state, n1, "marked"));
-		assert.deepEqual(ofType(r.events, "status-ended"), []);
-		// C: A CONSCRIPTED KNIGHT (MARKED FOR GOOD) AS THE PARTNER; THE KNIGHTS SEPARATE
-		let u = game("4k3/8/8/8/8/8/3P4/1N2K3 w - - 0 1");
-		u.players.w.captured = ["n"];
-		const pc = id(u, "d2");
-		u = pass(cardPlay(u, "w", "conscription", { piece: pc, t: "n" }).state, "b");
-		u = pass(cardPlay(u, "w", "heavy-cavalry", { piece: id(u, "b1") }).state, "b");
-		r = chess(u, "w", "b1", "a3");
-		assert.deepEqual(r.state.enchant, []);
-		assert.deepEqual(r.state.statuses[pc].find((e) => e.s === "marked").left, null);
-	});
-
-	test("shared Marks: Heavy Cavalry first, then Opposing Finality on the partner: the OF stays Marked and live when Heavy Cavalry ends", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		let t = pass(play(s, { piece: n }).state, "b");
-		t = pass(cardPlay(t, "w", "opposing-finality", { piece: partner }).state, "b");
-		const r = chess(t, "w", "c3", "b5");
-		assert.deepEqual(r.state.enchant.map((e) => e.key), ["opposing-finality"]);
-		assert.ok(has(r.state, partner, "marked"));
-		assert.deepEqual(ofType(r.events, "status-ended"), []);
-	});
-
-	test("a timed Mark (Hexcraft's) on the partner is permanent while it lasts and put back with the turns it had left", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		s.statuses[partner] = [{ s: "marked", left: 2, by: "b" }];
-		let t = play(s, { piece: n }).state;
-		assert.equal(t.statuses[partner][0].left, null);
-		t = pass(pass(pass(t, "b"), "w"), "b");
-		assert.equal(t.statuses[partner][0].left, null); // IT DOESN'T RUN DOWN WHILE HEAVY CAVALRY LASTS
-		const r = chess(t, "w", "c3", "b5");
-		assert.deepEqual(r.state.enchant, []);
-		assert.deepEqual(r.state.statuses[partner].map((e) => [e.s, e.left]), [["marked", 2]]);
-	});
-
-	test("Cleanse on a timed Mark Heavy Cavalry took over ends it and leaves no Mark: nothing is put back", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		s.statuses[partner] = [{ s: "marked", left: 2, by: "b" }]; // HEXCRAFT'S
-		const t = pass(play(s, { piece: n }).state, "b");
-		const r = cardPlay(t, "w", "cleanse", { piece: partner, s: "marked" });
-		assert.deepEqual(r.state.enchant, []);
-		assert.ok(!has(r.state, partner, "marked"));
-		assert.deepEqual(ofType(r.events, "status").filter((e) => e.piece === partner), []);
-	});
-
-	test("a timed Mark given on top of the one Heavy Cavalry owns (Hexcraft's) is recorded: when the knights part it stays for its turns", () => {
-		const s = game("4k3/8/8/8/4N3/2N5/8/4K3 w - - 0 1", "heavy-cavalry"), n = id(s, "c3"), partner = id(s, "e4");
-		const hx = cardPlay(pass(play(s, { piece: n }).state, "b"), "w", "hexcraft"); // e4 IS WHITE'S MOST ADVANCED PIECE; NO CURSE IS REGISTERED HERE, SO NO CHOICE
-		assert.deepEqual(ofType(hx.events, "status").filter((e) => e.piece === partner), []); // AS BEFORE: NO EVENT
-		assert.equal(hx.state.enchant[0].data.marks[partner], 3);
-		const r = chess(pass(hx.state, "b"), "w", "c3", "b5");
-		assert.deepEqual(r.state.enchant, []);
-		assert.deepEqual(r.state.statuses[partner].map((e) => [e.s, e.left]), [["marked", 3]]);
-	});
-
-	test("ends when a knight becomes another type in place (a duel upgrade)", () => {
-		const s = game(FEN, "heavy-cavalry"), n = id(s, "c3");
-		const ctx = makeCtx(play(s, { piece: n }).state);
+	test("each end path alone: a capture, a handover, a promotion in place (a duel upgrade), a turn start (gone with no event); a move alone keeps it", () => {
+		const g = game(ONE, "heavy-cavalry"), n = id(g, "c3"), st = play(g, { piece: n }).state;
+		const copy = () => makeCtx(JSON.parse(JSON.stringify(st)));
+		let ctx = copy(); // move ONLY: IT STANDS
+		ctx.state.board.sq[sqIndex("b5")] = ctx.state.board.sq[sqIndex("c3")]; ctx.state.board.sq[sqIndex("c3")] = null;
+		ctx.emit({ type: "move", player: "w", card: null, piece: n, from: "c3", to: "b5" });
+		assert.equal(ctx.state.enchant.length, 1);
+		ctx = copy(); // capture ONLY
+		assert.equal(ctx.capture("b", n), true);
+		assert.deepEqual(ctx.state.enchant, []);
+		ctx = copy(); // handover ONLY (OPPOSING FINALITY)
+		ctx.state.board.sq[sqIndex("c3")].c = "b";
+		ctx.emit({ type: "handover", player: "b", piece: n, from: "c3", to: "c3" });
+		assert.deepEqual(ctx.state.enchant, []);
+		ctx = copy(); // promote ONLY
 		ctx.state.board.sq[sqIndex("c3")].t = "r";
 		ctx.emit({ type: "promote", player: "w", piece: n, t: "r" });
 		assert.deepEqual(ctx.state.enchant, []);
+		ctx = copy(); // turn-start ONLY: REMOVED WITH NO EVENT
+		ctx.state.board.sq[sqIndex("c3")] = null;
+		assert.equal(ctx.state.enchant.length, 1);
+		startTurn(ctx, ctx.state.board.turn);
+		assert.deepEqual(ctx.state.enchant, []);
 	});
 
-	describe("epic version (one knight)", () => {
-		// ONE KNIGHT c3; PAWN e2 ON A SQUARE IT COVERS (BLACK BISHOP g4 ATTACKS IT); BISHOP e7 BY THE e8 ROOK, A SQUARE d5 COVERS
-		const ONE = "4r2k/4B3/8/8/6b1/2N5/P3P3/7K w - - 0 1";
+	test("touches no Mark: a timed Mark (Hexcraft's) on its knight runs down as before, Opposing Finality on the same knight stays live and Marked when Heavy Cavalry ends", () => {
+		const s = game(ONE, "heavy-cavalry"), n = id(s, "c3");
+		s.statuses[n] = [{ s: "marked", left: 2, by: "b" }];
+		const plain = pass(JSON.parse(JSON.stringify(s)), "w").statuses; // THE SAME TURN WITH NO HEAVY CAVALRY
+		const r = play(s, { piece: n });
+		assert.deepEqual([r.state.statuses, ofType(r.events, "status")], [plain, []]);
+		assert.deepEqual(r.state.statuses[n], [{ s: "marked", left: 1, by: "b" }]); // NOT TAKEN OVER: IT RAN DOWN AT THE TURN'S END
+		let t;
+		const o = game("4k3/p7/8/8/8/2N5/P7/4K3 w - - 0 1"), k = id(o, "c3"); // PAWNS: NO MATERIAL DRAW
+		t = pass(cardPlay(o, "w", "opposing-finality", { piece: k }).state, "b");
+		t = pass(cardPlay(t, "w", "heavy-cavalry", { piece: k }).state, "b");
+		assert.deepEqual(t.enchant.map((e) => e.key), ["opposing-finality", "heavy-cavalry"]);
+		t.board.sq[sqIndex("c3")].t = "r"; // HEAVY CAVALRY ENDS ON A PROMOTION IN PLACE; OPPOSING FINALITY DOESN'T
+		const ctx = makeCtx(t);
+		ctx.emit({ type: "promote", player: "w", piece: k, t: "r" });
+		assert.deepEqual(ctx.state.enchant.map((e) => e.key), ["opposing-finality"]);
+		assert.ok(has(ctx.state, k, "marked"));
+		assert.deepEqual(ofType(ctx.events, "status-ended"), []);
+	});
 
-		test("targets: any own knight in no entry, alone; a knight in an epic entry is not offered to the base card", () => {
-			const s = game(ONE, "heavy-cavalry-epic");
-			assert.deepEqual(actives(s).map((a) => sqOf(s, a.target.piece)), ["c3"]);
-			assert.deepEqual(actives(game(ONE, "heavy-cavalry")), []); // THE BASE CARD STILL NEEDS TWO
-			const two = game(FEN, "heavy-cavalry-epic");
-			let t = pass(play(two, { piece: id(two, "c3") }).state, "b");
-			t.players.w.actives = [{ id: "c91", key: "heavy-cavalry-epic" }];
-			assert.deepEqual(actives(t).map((a) => sqOf(t, a.target.piece)), ["e4"]);
-			t.players.w.actives = [{ id: "c92", key: "heavy-cavalry" }];
-			assert.deepEqual(actives(t), []); // e4'S ONLY PARTNER c3 IS TAKEN
-		});
+	test("Cleanse on the knight ends it (there is no Mark to remove)", () => {
+		const s = game(ONE, "heavy-cavalry"), n = id(s, "c3");
+		const t = pass(play(s, { piece: n }).state, "b");
+		t.players.w.actives = [{ id: "c93", key: "cleanse" }];
+		const a = legalActions(t, "w").filter((x) => x.type === "active");
+		assert.deepEqual(a.map((x) => x.target.piece), [n]);
+		const r = applyAction(t, "w", a[0]);
+		assert.deepEqual(r.state.enchant, []);
+		assert.ok(captures(pass(r.state, "b"), "b", "g4", "e2") || captures(r.state, "b", "g4", "e2"));
+	});
 
-		test("the knight is enchanted and Wards the friendly non-king pieces it covers; nothing is Marked; no switch", () => {
-			const s = game(ONE, "heavy-cavalry-epic"), n = id(s, "c3");
-			assert.ok(captures(s, "b", "g4", "e2"));
-			const { state, events } = play(s, { piece: n });
-			assert.deepEqual(state.enchant.map((e) => [e.key, e.pieces]), [["heavy-cavalry-epic", [n]]]);
-			assert.deepEqual([state.statuses, ofType(events, "status")], [{}, []]);
-			assert.ok(!captures(state, "b", "g4", "e2"));
-			assert.ok(!legalActions(pass(state, "b"), "w").some((a) => a.type === "switch"));
-		});
-
-		test("lasts while the knight is on the board: a move keeps it (the Ward follows), a capture ends it", () => {
-			const s = game(ONE, "heavy-cavalry-epic"), n = id(s, "c3");
-			const t = pass(play(s, { piece: n }).state, "b");
-			assert.ok(captures(t, "b", "e8", "e7"));
-			const r = chess(t, "w", "c3", "d5");
-			assert.equal(r.state.enchant.length, 1);
-			assert.ok(!captures(r.state, "b", "e8", "e7") && captures(r.state, "b", "g4", "e2"));
-			const ctx = makeCtx(r.state);
-			assert.equal(ctx.capture("b", n), true);
-			assert.deepEqual(ctx.state.enchant, []);
-			assert.deepEqual(ofType(ctx.events, "enchant-ended").map((e) => e.key), ["heavy-cavalry-epic"]);
-		});
-
-		test("Cleanse on the knight ends it (there is no Mark to remove)", () => {
-			const s = game(ONE, "heavy-cavalry-epic"), n = id(s, "c3");
-			const t = pass(play(s, { piece: n }).state, "b");
-			t.players.w.actives = [{ id: "c93", key: "cleanse" }];
-			const a = legalActions(t, "w").filter((x) => x.type === "active");
-			assert.deepEqual(a.map((x) => x.target.piece), [n]);
-			const r = applyAction(t, "w", a[0]);
-			assert.deepEqual(r.state.enchant, []);
-			assert.ok(captures(pass(r.state, "b"), "b", "g4", "e2") || captures(r.state, "b", "g4", "e2"));
-		});
-
-		test("the rare Cleanse ends it too, with no status on the side", () => {
-			const s = game(ONE, "heavy-cavalry-epic"), n = id(s, "c3");
-			const t = pass(play(s, { piece: n }).state, "b");
-			t.players.w.actives = [{ id: "c93", key: "cleanse-rare" }];
-			const a = legalActions(t, "w").filter((x) => x.type === "active");
-			assert.equal(a.length, 1);
-			assert.deepEqual(applyAction(t, "w", a[0]).state.enchant, []);
-		});
+	test("the rare Cleanse ends it too, with no status on the side", () => {
+		const s = game(ONE, "heavy-cavalry"), n = id(s, "c3");
+		const t = pass(play(s, { piece: n }).state, "b");
+		t.players.w.actives = [{ id: "c93", key: "cleanse-rare" }];
+		const a = legalActions(t, "w").filter((x) => x.type === "active");
+		assert.equal(a.length, 1);
+		assert.deepEqual(applyAction(t, "w", a[0]).state.enchant, []);
 	});
 });
 
@@ -585,13 +464,17 @@ describe("Opposing Finality", () => {
 	const SH = require("../../cards-engine/cards/active/stronghold.js");
 	const QUEEN = "4k2r/6b1/8/8/3Q4/8/8/4K3 w - - 0 1"; // BLACK BISHOP g7 TAKES THE QUEEN; BLACK'S ONE ROOK h8
 
-	test("a forfeit (Insidious Nullification) of the piece whose timed Mark it took over pays no one: the Mark is not put back", () => {
+	test("a forfeit (All or Nothing's lost hand, epic: the piece only) of the piece whose timed Mark it took over pays no one: the Mark is not put back", () => {
 		let s = game("4k3/p7/8/8/8/2N5/P7/4K3 w - - 0 1");
 		const c3 = id(s, "c3");
 		s.statuses[c3] = [{ s: "marked", left: 2, by: "b" }];
 		s = pass(cardPlay(s, "w", "opposing-finality", { piece: c3 }).state, "b");
 		s.players.w.moves = [{ id: "m91", key: "move", piece: "m" }, { id: "m92", key: "move", piece: "p" }, { id: "m93", key: "move", piece: "p" }]; // CARDS LEFT FOR MARKED TO TAKE IF IT FIRED
-		const r = applyAction(cardPlay(s, "w", "insidious-nullification").state, "w", { type: "choice", option: c3 });
+		s = cardPlay(s, "w", "all-or-nothing-epic", { piece: c3 }).state; // EPIC: THE LOST HAND FORFEITS THE PIECE, NO CARDS (A DISCARD BELOW WOULD BE MARKED'S)
+		s.duel.hands = { w: [{ r: 2, s: "c" }, { r: 3, s: "c" }, { r: 4, s: "c" }], b: [{ r: 14, s: "c" }, { r: 13, s: "c" }, { r: 12, s: "c" }] }; // WHITE LOSES
+		const r = applyAction(applyAction(s, "w", { type: "duel", pick: 1 }).state, "b", { type: "duel", pick: 0 });
+		assert.deepEqual(ofType(r.events, "duel-result"), [{ type: "duel-result", winner: "b" }]);
+		assert.deepEqual(ofType(r.events, "capture").map((e) => [e.piece, e.player, e.by]), [[c3, "w", null]]); // A REMOVAL BY ITS OWN SIDE
 		assert.equal(sqOf(r.state, c3), null);
 		assert.deepEqual(r.state.enchant, []);
 		assert.deepEqual(ofType(r.events, "status"), []);
@@ -1008,7 +891,7 @@ describe("Trapdoor", () => {
 		};
 		assert.deepEqual(run(() => {}), ["d4", 0, true]);
 		assert.deepEqual(run((s) => { s.statuses[id(s, "h4")] = [{ s: "warded", left: null, by: "b" }]; }), ["d4", 0, true]);
-		assert.deepEqual(run((s) => { s.enchant.push({ id: "e909", key: "heavy-cavalry", owner: "b", pieces: [id(s, "c6"), id(s, "e5")], left: null, data: {} }); }), ["d4", 0, true]);
+		assert.deepEqual(run((s) => { s.enchant.push({ id: "e909", key: "heavy-cavalry", owner: "b", pieces: [id(s, "c6")], left: null, data: {} }); }), ["d4", 0, true]);
 	});
 
 	test("an existing own trap square is not offered again", () => {

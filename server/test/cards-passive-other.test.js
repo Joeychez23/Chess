@@ -1178,6 +1178,27 @@ describe("Task 11 segment 3 fix round 1", () => {
 		assert.ok(legalActions(state, "w").some((a) => a.type === "active"));
 	});
 
+	test("C11 / RA-M1: on the turn Hunger takes it does not fire (passives run before curses, so lostTurns is still 0): it waits and the turn is skipped; without the Hunger it fires", () => {
+		register(require("../../cards-engine/cards/curse/hunger.js"));
+		for (const hungry of [true, false]) {
+			const s = fresh(7);
+			s.board = fromFen("r3k3/8/8/8/3N4/8/6PP/7K b - - 0 20");
+			const n = { w: 1, b: 1 };
+			s.board.sq.forEach((p) => { if (p) p.id = p.c + n[p.c]++; });
+			s.ply = 20;
+			s.board.history = [];
+			s.players.w.moves = cardsOf(s, ["m", "m", "m", "m", "m", "m"]);
+			place(s, "four-of-a-kind", "w", 2);
+			if (hungry) s.players.w.curses.push(hand.newCard(s, "hunger", { left: 0 }));
+			s.players.b.moves = cardsOf(s, ["r", "r", "r", "r", "r", "r"]);
+			const { state, events } = applyAction(s, "b", legalActions(s, "b").find((a) => a.type === "move" && a.to === "a2")); // NO CHECK
+			assert.equal(fired(events, "four-of-a-kind"), !hungry);
+			assert.equal(waits(state, "four-of-a-kind"), hungry);
+			assert.equal(ofType(events, "turn-skipped").length, hungry ? 1 : 0);
+			assert.equal(Boolean(state.multi), !hungry);
+		}
+	});
+
 	test("M1 Patience: a capture the owner makes outside their own turn restarts the count at 0; their next capture-free turn counts", () => {
 		const st = rounds(placed(), 1).state; // ONE COUNTED TURN; BLACK TO MOVE
 		const ctx = makeCtx(st);

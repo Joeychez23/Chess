@@ -9,21 +9,22 @@ require("./helpers/env.js");
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, peek, poke, engineCalls, dataServiceWillWait } = testServer;
+const { player, peek, poke, engineCalls, dataServiceWillWait } = testServer;
 const E = require("../../cards-engine/index.js");
 const hand = require("../../cards-engine/hand.js");
 const { fromFen, sqIndex } = require("../../cards-engine/board.js");
 const bot = require("../utils/card-guy/index.js");
 
-let server;
+let server, me;
 before(async () => { server = await testServer.start(); });
 after(() => server.close());
-beforeEach(() => { testServer.reset(); process.env.CARDS_TEST_SEED = "1"; }); // ONE KNOWN DEAL, AS cardsRoutes.test.js
+beforeEach(() => { testServer.reset(); process.env.CARDS_TEST_SEED = "1"; me = player("me"); });
+const call = (method, path, options = {}) => testServer.call(method, path, options.as || options.guest || options.cookie ? options : { ...options, as: me }); // SIGNED IN AS me UNLESS TOLD: GUESTS CAN'T PLAY CHESS CARDS (#491), AS cardsRoutes.test.js // ONE KNOWN DEAL, AS cardsRoutes.test.js
 
 const stored = (gameId) => JSON.parse(peek("chess_db", gameId).cards_state.S);
 const store = (gameId, state) => poke("chess_db", gameId, { cards_state: { S: JSON.stringify(state) } });
 const version = (gameId) => peek("chess_db", gameId).cards_version.N;
-const start = (body = {}) => call("POST", "/api/chess/cards", { body: { start_color: "w", ...body } });
+const start = (body = {}) => call("POST", "/api/chess/cards", { body: { start_color: "w", replace_current: true, ...body } }); // replace_current: A SIGNED IN PLAYER HAS ONE OPEN GAME, A TEST'S SECOND GAME FORFEITS ITS FIRST
 const act = (gameId, action) => call("POST", `/api/chess/cards/${gameId}/action`, { body: { action } });
 const load = (gameId) => call("GET", `/api/chess/cards/${gameId}`);
 const turn = (gameId, options = {}) => call("POST", `/api/chess/cards/${gameId}/card-guy`, options);

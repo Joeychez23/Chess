@@ -17,7 +17,6 @@ const { CARDS, baseKey } = require("../../cards-engine/cards/index.js");
 const { readLevel, bestOf } = require("../utils/ai.js");
 const cardGuy = require("../utils/card-guy/index.js");
 const { gameOpen, isColor } = require("../utils/games.js");
-const { setGuestCookie, readGuestGame } = require("../middleware/auth.js");
 const { ifSaved, forfeit, newCardsGame: createCardsGame, saveCardsState } = require("../dataClient.js");
 const { retrieveGame, currentGame, playerInGame, notYours, notInGame, reply, aiLevel } = require("./chessController.js");
 
@@ -29,18 +28,24 @@ const cardGuyTurns = new Map(); // GAME ID -> CARD GUY'S ACTION BEING PICKED & S
 // New Game (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description Creates a card game vs Card Guy for the requester (signed in or a guest, who gets a guest_game cookie for it). Signed in players have one AI or card game open at a time:
- * while one is open this answers 409, unless replace_current forfeits it first. A guest's earlier game (the one their cookie names, card or normal) is forfeited: the cookie moves to the new game. The seed is 32 random bytes, an integer only from CARDS_TEST_SEED while NODE_ENV isn't "production" (tests, a dev server), never from the request
+ * @description Creates a card game vs Card Guy for a signed in player (a guest gets 401: Chess Cards isn't open to guests, #491). A player has one AI or card game open at a time:
+ * while one is open this answers 409, unless replace_current forfeits it first. When that forfeit fails and a re-read shows the game still open, this answers 503 & creates nothing
+ * (a forfeit refused because the game was already over goes on). The seed is 32 random bytes, an integer only from CARDS_TEST_SEED while NODE_ENV isn't "production" (tests, a dev server), never from the request
  * @param  {[object]} req.body [{ start_color ("alternate" | "random" | "w" | "b", anything else is random), ai_level (Card Guy's level, as /api/chess/game), replace_current (true = forfeit the open AI or card game) }]
- * @return {[object]} response [cardsResponse | { status: 409, game_id (the open one), message }]
+ * @return {[object]} response [cardsResponse | { status: 401, message } a guest | { status: 409, game_id (the open one), message } | { status: 503, message } the open game couldn't be closed]
  */
 async function newCardsGame(req, res) {
 	const { ai_level, start_color, replace_current } = req.body || {};
-	if (req.user) { // A GUEST ONLY EVER HAS ONE GAME: THEIR COOKIE MOVES TO THE NEW ONE
-		const current = await currentGame(true);
-		if (current && !replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "AI game already open" }); }
-		if (current) { await forfeit(current.game_id.S); } // NEW GAME FORFEITS THE OPEN ONE
-	} else if (readGuestGame(req)) { await forfeit(readGuestGame(req)); } // THEIR COOKIE'S GAME CAN'T BE REACHED AGAIN: CLOSED NOW, NOT LEFT OPEN UNTIL ITS TTL (ALREADY OVER: REFUSED, NOTHING CHANGES)
+	if (!req.user) { return res.status(401).json({ status: 401, message: "Sign in to play Chess Cards" }); } // NOTHING MADE, NO COOKIE: A GUEST'S OTHER GAME STAYS AS IT IS
+	const current = await currentGame(true);
+	if (current && !replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "AI game already open" }); }
+	if (current) { // NEW GAME FORFEITS THE OPEN ONE, & ONLY GOES ON ONCE IT'S CLOSED: TWO OPEN AI GAMES BREAK THE ONE-GAME LIMIT (RD-M5)
+		const gameId = current.game_id.S;
+		const down = (err) => { if (err.name != "DataServiceDown") { throw err; } return null; }; // A 5XX OR A TIMEOUT
+		const closed = await forfeit(gameId).catch(down); // IT MAY STILL HAVE LANDED
+		const latest = closed?.status == 200 ? null : (await retrieveGame(gameId, true).catch(down))?.game_data; // REFUSED ("ALREADY OVER") OR FAILED: WHAT'S STORED DECIDES. THE RE-READ DOWN TOO: NOT KNOWN CLOSED (F5-M2)
+		if (closed?.status != 200 && (!latest || gameOpen(latest))) { return res.status(503).json({ status: 503, message: "Your other game couldn't be closed. Try again." }); }
+	}
 
 	const color = isColor(start_color) ? start_color : "random";
 	const level = readLevel(ai_level);
@@ -49,7 +54,6 @@ async function newCardsGame(req, res) {
 	const state = newGame({ cardGuy: color == "b" ? "w" : "b", level, seed }); // THE DATA SERVICE PICKS THE SIDES: loadCardsGame SETS cardGuy FROM THE GAME ON EVERY READ
 	const response = await createCardsGame({ color, level, state: JSON.stringify(state), fen: toFen(state) });
 	if (!response.game_data) { return reply(res, { status: response.status, message: response.message }); }
-	if (response.guest_token) { setGuestCookie(res, response.guest_token); } // ONLY THIS BROWSER CAN PLAY IT, THE DATA SERVICE SIGNED IT FOR THIS GAME
 	state.cardGuy = cardGuyOf(response.game_data);
 	return res.json(cardsResponse(response.game_data, state));
 }
@@ -58,9 +62,10 @@ async function newCardsGame(req, res) {
 // Get Game (GET)
 /* ---------------------------------------------------------------- */
 /**
- * @description The card game as the requester may see it: loading the page, & a reload mid-duel or mid-choice gets it exactly as it was
+ * @description The card game as the requester may see it: loading the page, & a reload mid-duel or mid-choice gets it exactly as it was. A finished game from an older engine version
+ * opens read-only (see loadCardsGame)
  * @param  {[string]} req.params.gameId [game id]
- * @return {[object]} response [cardsResponse]
+ * @return {[object]} response [cardsResponse | olderResponse]
  */
 async function getCardsGame(req, res) {
 	const game = await loadCardsGame(req, res);
@@ -182,7 +187,8 @@ function getCardGuy(req, res) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Reads a card game for the requester (consistent, so it sees the latest save) & answers the request itself when it can't go on:
- * not their game (401 / 403), not found (404), not a card game (400), or a state from an older engine version (409, with the game_id so the page can offer to forfeit it)
+ * not their game (401 / 403), not found (404), not a card game (400), or a state from an older engine version (409, with the game_id so the page can offer to forfeit it;
+ * on GET a finished one answers 200 olderResponse instead: its result & final board, read-only)
  * @param  {[object]} req [express request, req.params.gameId]
  * @param  {[object]} res [express response]
  * @return {[object]} game [{ gameData, state }, null when it answered]
@@ -196,7 +202,10 @@ async function loadCardsGame(req, res) {
 	if (!playerInGame(req, gameData)) { notInGame(req, res); return null; }
 	if (gameData.mode?.S != "cards") { res.status(400).json({ status: 400, message: "Not a card game" }); return null; }
 	const state = JSON.parse(gameData.cards_state.S);
-	if (state.v !== ENGINE_VERSION) { res.status(409).json({ status: 409, game_id: gameData.game_id.S, message: "This game is from an older version" }); return null; } // ITS STATE MAY NOT FIT THIS ENGINE
+	if (state.v !== ENGINE_VERSION) { // ITS STATE MAY NOT FIT THIS ENGINE
+		if (req.method == "GET" && !gameOpen(gameData)) { res.json(olderResponse(gameData)); return null; } // ONLY GET /:gameId READS ONE: ACTION & CARD GUY KEEP THE 409
+		res.status(409).json({ status: 409, game_id: gameData.game_id.S, message: "This game is from an older version" }); return null;
+	}
 	state.cardGuy = cardGuyOf(gameData); // newCardsGame MADE THE STATE BEFORE THE SIDES WERE PICKED
 	return { gameData, state };
 }
@@ -247,6 +256,24 @@ function cardsResponse(gameData, state, events = []) {
 		card_guy_due: open && legalActions(state, cardGuy).length > 0,
 		result,
 		catalog: catalogOf([view, seen]),
+	};
+}
+
+/**
+ * @description A finished game from an older engine version, read-only: only what the stored game holds, the engine never reads its state (it may not fit this engine)
+ * @param  {[object]} gameData [the stored card game, closed]
+ * @return {[object]} body [{ status: 200, game_id, older: true, you: "w" | "b", fen: game_board, result: { winner: "w" | "b" | null (a draw), reason }, message }]
+ */
+function olderResponse(gameData) {
+	const winner = gameData.winner?.S;
+	return {
+		status: 200,
+		game_id: gameData.game_id.S,
+		older: true,
+		you: other(cardGuyOf(gameData)),
+		fen: gameData.game_board?.S ?? null, // NO STORED BOARD: THE RESULT STILL OPENS (F5-M4)
+		result: { winner: winner == "w" || winner == "b" ? winner : null, reason: gameData.reason?.S || null }, // THE DATA SERVICE'S "draw" IS THE ENGINE'S null
+		message: "This game is from an older version",
 	};
 }
 

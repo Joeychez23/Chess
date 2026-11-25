@@ -13,7 +13,7 @@ const { inCheck } = require("./rules.js");
 const view = require("./view.js");
 const { baseKey } = require("./cards/index.js");
 
-const ENGINE_VERSION = 2; // 2: THE KNIGHT / BISHOP CARD (A VERSION 1 GAME HOLDS KNIGHT AND BISHOP CARDS NOTHING MOVES NOW)
+const ENGINE_VERSION = 3; // 2: THE KNIGHT / BISHOP CARD (A VERSION 1 GAME HOLDS KNIGHT AND BISHOP CARDS NOTHING MOVES NOW). 3: ONE INSIDIOUS NULLIFICATION (A VERSION 2 GAME CAN HOLD insidious-nullification-rare OR ITS FORFEIT CHOICE), HUNGER LOSES A TURN, ONE ONE-KNIGHT HEAVY CAVALRY (A VERSION 2 GAME CAN HOLD heavy-cavalry-epic OR A TWO-KNIGHT ENTRY)
 const KING_SKULLS = 3; // THE KING CARD'S SKULLS AT THE START: THE ONE PLACE TO TUNE THEM
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -50,7 +50,7 @@ function newGame({ cardGuy, level, seed }) {
  */
 function applyAction(state, player, action) {
 	const key = turn.actionKey(action);
-	if (!turn.legalActions(state, player).some((a) => turn.actionKey(a) === key)) throw new IllegalAction();
+	if (!turn.isLegal(state, player, action)) throw new IllegalAction(); // ONE ACTION CHECKED, NOT EVERY LEGAL ONE BUILT (TASK 25 A3)
 	const ctx = makeCtx(JSON.parse(JSON.stringify(state)));
 	turn.act(ctx, player, JSON.parse(key));
 	const r = ctx.state.result, grace = r && r.reason === "checkmate" && r.winner === player && ctx.state.effects.find((e) => e.owner !== player && baseKey(e.card.key) === "grace");

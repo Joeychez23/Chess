@@ -36,7 +36,7 @@ export function flashLook(since, out = {}) {
  */
 export function make(pieceMesh, opts, map) {
 	if (!plane) { plane = new PlaneGeometry(1, 1); }
-	const object = new Sprite(new SpriteMaterial({ map, color: "#dfeaff", transparent: true, depthWrite: false, blending: AdditiveBlending }));
+	const object = new Sprite(new SpriteMaterial({ map, color: "#dfeaff", transparent: true, depthWrite: false, blending: AdditiveBlending, fog: false })); // fog: SEE wardedMotes.js
 	object.name = "shakenFlash";
 	const ground = new Mesh(plane, new MeshBasicMaterial({ map, color: "#a9c8f0", transparent: true, depthWrite: false, blending: AdditiveBlending }));
 	ground.name = "shakenFlashGround";

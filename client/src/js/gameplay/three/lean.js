@@ -44,6 +44,15 @@ export function boardHover(on) {
 }
 
 /**
+ * @description index.js unmount(): the board is gone, so the pointer is on no tile of it & no way back is owed (RB-M1: a remounted board starts with no tile hovered, so a later
+ * retryLean() would lean with the pointer off the board)
+ */
+export function leftBoard() {
+	clearTimeout(timer);
+	over = false;
+}
+
+/**
  * @description camera.js calls it when something that kept the camera from leaning ends (a Flip Board turn, the promotion cards, the monitor, Reset View, a framed pile):
  * with the pointer still on the board the lean is asked for again. After the camera code that called it has finished, & only then: never every frame, a camera the player moved stays theirs
  */

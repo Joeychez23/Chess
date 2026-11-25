@@ -341,6 +341,14 @@ test("R-3 wiring: a finger's tap on a square (pointer.js pickTable) & the keyboa
 	assert.match(src("index.js"), /import \{ stepStatuses, clearStatuses, focusStatuses \} from "\.\/statusFx\/index\.js";/);
 });
 
+test("T21 m4 wiring: renderer/index.js syncs the statuses to the table's view after the pieces stand, shows a pick's status text & clears it at the drop, & holds them while the board's steps play", () => {
+	const src = require("node:fs").readFileSync(path.join(__dirname, "../src/js/gameplay/renderer/index.js"), "utf8");
+	assert.match(src, /if \(table && game\.cardGame\) \{ board3D\.syncStatuses\(table\.view, statusPref\.current\(\)\); \}/);
+	assert.match(src, /board3D\.setHeld\(square \|\| null, Boolean\(dragging\)\); board3D\.pickStatuses\(square \|\| null\);/);
+	assert.match(src, /board3D\.dropHeld\(square\); board3D\.pickStatuses\(null\);/);
+	assert.match(src, /if \(table\) \{ board3D\.holdStatuses\(table\.view\); \}/);
+});
+
 test("siblings (ruling 09:19): each effect is told its piece's other shown statuses; a change is an update with update(0), an unchanged sync isn't", () => {
 	const pieces = { e2: "w:p1:p", d2: "w:p2:p" };
 	meshes(pieces);

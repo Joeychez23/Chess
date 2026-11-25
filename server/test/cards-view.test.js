@@ -219,9 +219,9 @@ test("Trapdoor's square shows only to its owner", () => {
 	assert.equal(ev[0].target.square, "e3");
 });
 
-test("the engine version is 2 (the Knight / Bishop card, Task 20c): a new game carries it, so the server answers 409 for a version 1 game (cardsRoutes.test.js)", () => {
-	assert.equal(require("../../cards-engine/index.js").ENGINE_VERSION, 2);
-	assert.equal(newGame({ cardGuy: "b", level: 1300, seed: 1 }).v, 2);
+test("the engine version is 3 (one Insidious Nullification, Hunger loses every 3rd turn, Task 25b): a new game carries it, so the server answers 409 for a version 2 game, as for a version 1 (cardsRoutes.test.js)", () => {
+	assert.equal(require("../../cards-engine/index.js").ENGINE_VERSION, 3);
+	assert.equal(newGame({ cardGuy: "b", level: 1300, seed: 1 }).v, 3);
 });
 
 test("Mirage shows as a move card to its holder, and the key mirage is nowhere in their view", () => {

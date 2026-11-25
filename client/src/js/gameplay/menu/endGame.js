@@ -11,6 +11,7 @@ const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js");
 const { confirmPress } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const { setUnavailable, setFill, stopFill, isBusy, fillThenGo } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
 const { monitorState3D } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA, THE 3D ROOM'S MONITOR (NOT gameplay/monitor: IT REQUIRES THIS FILE)
+const { reasonLine } = require("../../pages/utils/resultReasons.js"); // HOW THE GAME ENDED, SHARED WITH HOME'S FINISHED GAMES
 import { optRestartBtn, optBtn, nav, optResumeBtn, moveInFlight, optHomepageBtn, optHintBtn, optTypeMoveBtn, optEvalBarBtn, socketHandlers, optExitBtn } from "./index.js";
 import { showGameOver, optTakebackBtn, optDrawBtn } from "./offers.js";
 
@@ -19,15 +20,6 @@ export const resultReason = document.getElementById("resultReason"); // THE LINE
 export const resultAnnouncement = document.getElementById("resultAnnouncement"); // SCREEN READERS ARE TOLD THE RESULT HERE
 const optCancelRematchBtn = document.getElementById("optCancelRematch"); // MENU: CANCEL, WHILE A REMATCH REQUEST WAITS
 export const optReplayBtn = document.getElementById("optReplay"); // MENU: REPLAY, ONCE A SIGNED IN PLAYER'S GAME IS OVER
-const RESULT_REASONS = { // THE SERVER'S REASON -> THE LINE UNDER THE RESULT. A FORFEIT IS ALREADY IN THE TITLE
-	"checkmate": "by Checkmate",
-	"stalemate": "by Stalemate",
-	"insufficient material": "by insufficient material",
-	"fifty-move rule": "by the fifty-move rule",
-	"threefold repetition": "by threefold repetition",
-	"agreement": "by agreement",
-	"timeout": "on time",
-};
 let rematchWaiting = false; // TIMER WHILE THE REMATCH REQUEST WAITS ON THE OPPONENT'S PRESS
 let rematchOpponent = null; // THE NAME THE REQUEST IS WAITING FOR
 let replaceOpen = false; // CHESS CARDS' RESTART: TRUE ONCE THE PLAYER WAS TOLD IT FORFEITS THEIR OTHER OPEN GAME (THE SERVER'S 409)
@@ -58,7 +50,7 @@ export async function handleRestart(e) {
 		optBtn.style.display = "flex";
 		game.refresh = true;
 		console.log(restartResponse?.message || "Restart failed: no answer from the server");
-		showStatus("action", "A new game couldn't be started. Try again.", MESSAGE_TIME);
+		showStatus("action", restartResponse?.status === 503 && restartResponse.message ? restartResponse.message : "A new game couldn't be started. Try again.", MESSAGE_TIME); // A 503 SAYS WHY ITSELF: THIS GAME, STILL OPEN ON THE SERVER, COULDN'T BE CLOSED (chessController.js restartGame), OR THE SERVER IS BUSY
 		return;
 	}
 	setRestartLoading(0.5);
@@ -81,6 +73,12 @@ async function restartCards() {
 		setRestartLoading(false);
 		optRestartBtn.innerHTML = "Forfeit & restart"; // AFTER setRestartLoading, IT PUTS BACK "Restart"
 		showStatus("action", "This forfeits your other open game. Press Restart again to start a new one.", MESSAGE_TIME);
+		return;
+	}
+	if (response?.status === 503 && replaceOpen) { // replace_current'S FORFEIT FAILED, NOTHING WAS MADE: RESTART STAYS AS IT WAS, THE NEXT PRESS TRIES AGAIN. WITH NO REPLACE ASKED A 503 IS THE SERVER'S OWN (THE DATA SERVICE DOWN): THE PLAIN FAILURE BELOW (F10-m1)
+		setRestartLoading(false);
+		optRestartBtn.innerHTML = "Forfeit & restart"; // ONLY replace_current GETS A 503, replaceOpen IS STILL TRUE
+		showStatus("action", "Your other game couldn't be closed. Try again.", MESSAGE_TIME);
 		return;
 	}
 	if (response?.status !== 200 || !response.game_id) { // NOT STARTED, THIS GAME STAYS (THE MENU STAYS OPEN)
@@ -151,13 +149,13 @@ export function setRestartLoading(load) {
  */
 async function handleForfeit() {
 	if (!confirmPress(optRestartBtn)) { return; } // FIRST PRESS ASKS
-	if (game.ai && (game.aiTurn || moveInFlight())) { return showStatus("action", "Wait for the AI's move to finish.", MESSAGE_TIME); }
+	if (game.ai && ((game.aiTurn && !game.cardGame) || moveInFlight())) { return showStatus("action", "Wait for the AI's move to finish.", MESSAGE_TIME); }
 	if (game.ai) { clearTimeout(game.aiTimer); }
 	setFill(optRestartBtn);
 	const forfeitResponse = await forfeitGame(game.GAME_URL, game.GAME_ID);
 	if (forfeitResponse?.state == "CLOSED") { return showGameOver(forfeitResponse); }
 	if (!game.gameOver) { stopFill(optRestartBtn); } // showGameOver ALREADY TOOK IT OFF, THE BUTTON MAY BE BUSY WITH A REMATCH
-	if (game.ai && !game.gameOver && chessInst.turn() != game.playerColor) { // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE
+	if (game.ai && !game.cardGame && !game.gameOver && chessInst.turn() != game.playerColor) { // THE TIMER STOPPED ABOVE WOULD HAVE ASKED FOR THE AI'S MOVE. CARD GUY'S TURN IS flow.js'S, NOTHING HERE WOULD CLEAR aiTurn (RD-M3)
 		game.aiTurn = true;
 		game.refresh = true;
 	}
@@ -271,7 +269,7 @@ export function showResult(result) {
 	else if (result?.winner == 'w') { resultDisplay.innerText = "White Wins!" }
 	else if (result?.winner == 'b') { resultDisplay.innerText = "Black Wins!" }
 	else { resultDisplay.innerText = "Draw" }
-	resultReason.innerText = RESULT_REASONS[result?.reason] || "";
+	resultReason.innerText = reasonLine(result?.reason);
 	resultReason.hidden = !resultReason.innerText;
 }
 

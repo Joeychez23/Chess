@@ -101,7 +101,7 @@ test("Card Guy's free discard, at every level: the active when it has no play, e
 	for (const level of [600, 1300, 2400]) {
 		const s = newGame({ cardGuy: "w", level, seed: 3 }); // WHITE TO MOVE AT THE START: ROOK & QUEEN CARDS HAVE NO MOVE, PAWN & KNIGHT / BISHOP CARDS DO
 		const card = (piece) => hand.newCard(s, "move", { piece });
-		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")]; // NO KNIGHT IT CAN SEND YET: NO PLAY (UNCOMMON: CLEANSE AND RARE+ ARE KEPT, RULING R1)
+		s.players.w.actives = [hand.newCard(s, "last-stand")]; // NO PLAY AT THE START (UNCOMMON: CLEANSE AND RARE+ ARE KEPT, RULING R1; WAS HEAVY CAVALRY, NOW EPIC AND PLAYABLE ON ANY KNIGHT, TASK 25b)
 		s.players.w.moves = [card("p"), card("r"), card("q"), card("m")];
 		const dead = s.players.w.actives[0].id, turn = (st) => cardGuyTurn(playerView(st, "w"), level, opts());
 		assert.deepEqual(await turn(s), { type: "discard", cards: [dead] }, level + ": the dead active");
@@ -111,7 +111,7 @@ test("Card Guy's free discard, at every level: the active when it has no play, e
 		assert.deepEqual(await turn(next), { type: "discard", cards: [s.players.w.moves[2].id] }, level + ": then the second, which draws 1 back");
 		s.players.w.moves.splice(2, 1); // ONE DEAD MOVE CARD: IT GOES TOO, REMEMBERED UNTIL ITS PAIR
 		assert.deepEqual(await turn(s), { type: "discard", cards: [s.players.w.moves[1].id] }, level + ": one dead card");
-		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")];
+		s.players.w.actives = [hand.newCard(s, "last-stand")];
 		s.discarded = "w"; // USED THIS TURN
 		assert.notEqual((await turn(s)).type, "discard", level + ": used");
 	}
@@ -137,7 +137,7 @@ test("Card Guy's dead move card is the first in hand order (the draw-back is ran
 	assert.deepEqual(await turn(), { type: "discard", cards: [ids[0]] });
 });
 
-test("Card Guy never rerolls its passive (user ruling 2026-11-22)", async () => {
+test("with fewer than 3 passives waiting Card Guy never rerolls its passive (user ruling 2026-11-22; with 3 waiting ruling 7(b) rerolls, card-guy-T25-F3.test.js)", async () => {
 	for (const key of PASSIVE_KEYS.filter((k) => ["common", "uncommon"].includes(CARDS[k].rarity))) { // THE RARITIES IT THROWS A DEAD ACTIVE OUT AT
 		const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
 		s.players.w.moves = ["p", "m"].map((piece) => hand.newCard(s, "move", { piece })); // BOTH HAVE A MOVE: NO PAIR TO DISCARD
@@ -736,15 +736,20 @@ test("Card Guy keeps a dead rare, epic or legendary active, and Cleanse; a dead 
 		assert.ok(!legalActions(s, "w").some((a) => a.type === "active"), key + " has a play at the start");
 		return (await cardGuyTurn(playerView(s, "w"), 1300, opts())).type;
 	};
-	for (const key of ["heavy-cavalry", "last-stand"]) assert.equal(await turn(key), "discard", key); // UNCOMMON
+	for (const key of ["last-stand"]) assert.equal(await turn(key), "discard", key); // UNCOMMON (HEAVY CAVALRY WAS THE OTHER: EPIC NOW, TASK 25b; NO OTHER COMMON OR UNCOMMON ACTIVE IS DEAD AT THIS START)
 	for (const key of ["cleanse", "cleanse-rare", "conscription"]) assert.notEqual(await turn(key), "discard", key); // CLEANSE (COMMON), RARE, LEGENDARY
+	for (const sq of ["b1", "g1"]) s.board.sq[engine.board.sqIndex(sq)] = null; // NO KNIGHT: HEAVY CAVALRY (EPIC) IS DEAD, AND KEPT
+	s.players.w.actives = [hand.newCard(s, "heavy-cavalry")];
+	assert.ok(!legalActions(s, "w").some((a) => a.type === "active"), "heavy-cavalry has a play with no knight");
+	const r = await cardGuyTurn(playerView(s, "w"), 1300, opts());
+	assert.ok(r.type !== "discard" || !r.cards.includes(s.players.w.actives[0].id), "heavy-cavalry thrown out: " + JSON.stringify(r)); // A DEAD MOVE CARD MAY GO (THE m CARD, NO KNIGHT NOW), NEVER THE EPIC
 });
 
 test("an active that can pay Leech or Shackles isn't dead: Card Guy doesn't throw it out for nothing", async () => {
 	for (const key of ["shackles", "leech"]) {
 		const s = newGame({ cardGuy: "w", level: 1300, seed: 3 });
 		s.players.w.moves = ["p", "m"].map((piece) => hand.newCard(s, "move", { piece }));
-		s.players.w.actives = [hand.newCard(s, "heavy-cavalry")]; // NO PLAY AT THE START
+		s.players.w.actives = [hand.newCard(s, "last-stand")]; // NO PLAY AT THE START
 		s.players.w.curses = [hand.newCard(s, key)];
 		const active = s.players.w.actives[0].id;
 		assert.ok(legalActions(s, "w").some((a) => a.type === "clear" && a.discard === active));

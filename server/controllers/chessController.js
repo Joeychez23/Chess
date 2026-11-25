@@ -37,6 +37,20 @@ const CONFLICT = /^(Board changed|Game is already over|Game lists changed|Invite
  * @param  {[boolean]} consistent [true = sees every finished save]
  * @return {[object]} response [the data service's { status, game_data, message }]
  */
+/**
+ * @description Forfeits an open game for a new one to take its place, and says whether it is known closed now: the forfeit answered 200, or (refused as already over, or failed: a 5xx,
+ * a timeout that may still have landed) a fresh read shows it closed. A read that fails too: not known, false
+ * @param  {[string]} gameId
+ * @return {[boolean]} closed
+ */
+async function closedNow(gameId) {
+	const down = (err) => { if (err.name != "DataServiceDown") { throw err; } return null; };
+	const closed = await forfeit(gameId).catch(down);
+	if (closed?.status == 200) { return true; }
+	const latest = (await retrieveGame(gameId, true).catch(down))?.game_data;
+	return Boolean(latest) && !gameOpen(latest);
+}
+
 async function retrieveGame(gameId, consistent) {
 	const response = await readGame(gameId, consistent);
 	if (response.timed_out) { tellTimeout(response.game_data); }
@@ -163,7 +177,7 @@ async function newGame(req, res) {
 
 	const current = await currentGame(true); // ONE AI GAME AT A TIME (GUESTS ONLY EVER HAVE ONE, IT'S OVERWRITTEN)
 	if (current && !replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "AI game already open" }); }
-	if (current) { await forfeit(current.game_id.S); } // NEW GAME FORFEITS THE OPEN ONE
+	if (current && !(await closedNow(current.game_id.S))) { return res.status(503).json({ status: 503, message: "Your other game couldn't be closed. Try again." }); } // NEW GAME FORFEITS THE OPEN ONE, & ONLY GOES ON ONCE IT'S KNOWN CLOSED: TWO OPEN AI GAMES BREAK THE ONE-GAME LIMIT (RD-M5, AS cardsController.js newCardsGame)
 
 	const response = await newAiGame({ color: params.color, level, start_fen: params.fen }); // THE DATA SERVICE PICKS THE SIDES (RANDOM FLIPS A COIN) & MAKES THE ID
 	return reply(res, gameResponse(response));
@@ -236,7 +250,7 @@ async function restartGame(req, res) {
 		return reply(res, gameResponse(response));
 	}
 
-	if (gameOpen(gameData)) { await forfeit(gameData.game_id.S); } // RESTARTING MID GAME FORFEITS IT
+	if (gameOpen(gameData) && !(await closedNow(gameData.game_id.S))) { return res.status(503).json({ status: 503, message: "This game couldn't be closed. Try again." }); } // RESTARTING MID GAME FORFEITS IT, & ONLY GOES ON ONCE IT'S KNOWN CLOSED (RD-M5)
 	response = await newAiGame({ color: params.color, level, start_fen: params.fen }); // CREATE NEW GAME, RANDOM DRAWS AGAIN
 	return reply(res, gameResponse(response));
 }

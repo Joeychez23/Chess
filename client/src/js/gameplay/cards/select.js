@@ -483,7 +483,7 @@ function label(action, view, catalog, taken = null) {
 				return name ? `Your ${name} card` : "The card taken from you";
 			}
 			if (view.pending && isCard(view.pending.card, "all-or-nothing") && PIECE_NAMES[o]) { return PIECE_NAMES[o]; } // THE DUEL'S FIRST WIN: KNIGHT OR BISHOP
-			return pieceAt(o) || (catalog[o] && catalog[o].name) || cardName(o) || (o[0] === "?" ? "A hidden card" : o);
+			return pieceAt(o) || (catalog[o] && catalog[o].name) || cardName(o) || (o[0] === "?" ? (view.pending && isCard(view.pending.card, "opposing-finality") ? "A hidden piece" : "A hidden card") : o); // "?n": A SLOT FOR SOMETHING THE FOG OR A HIDDEN HAND KEEPS FROM THE PLAYER (OPPOSING FINALITY'S ARE PIECES, T25-I1)
 		}
 		case "active": {
 			if (!t) { return "Play it"; }

@@ -101,8 +101,13 @@ export function renderFrame(view) {
 		finalComposer.setSize(size.x, size.y);
 		built.last = { w: size.x, h: size.y, pr };
 	}
-	bloomComposer.render(0);
-	finalComposer.render(0);
+	const info = renderer.info; // EVERY renderer.render RESETS ITS COUNTS: KEPT OVER THE WHOLE FRAME HERE, OR perf.js WOULD READ THE LAST PASS'S ONE TRIANGLE (T24 M2)
+	info.autoReset = false;
+	info.reset();
+	try {
+		bloomComposer.render(0);
+		finalComposer.render(0);
+	} finally { info.autoReset = true; }
 }
 
 // THE GLOW PASS, INTO THE BLOOM COMPOSER'S TARGET: FIRST THE SCENE'S DEPTH (THE CAMERA'S OWN LAYERS, COLOUR WRITES LOCKED OFF), THEN THE BLOOM LAYER

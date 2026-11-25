@@ -1,14 +1,14 @@
 /*
  *  hunger.js  --  chess cards engine
- *	Curse: no capture within 2 turns; a random pawn of yours is removed. Clear: capture a piece.
+ *	Curse: no capture within 2 turns; you lose every 3rd turn. Clear: capture a piece.
  *
  */
 
-const statuses = require("../../statuses.js");
+const { inCheck } = require("../../rules.js");
 
 module.exports = {
 	key: "hunger", kind: "curse", name: "Hunger", rarity: "rare",
-	text: "No capture within 2 turns → a random pawn of yours is removed. Clear: capture a piece.",
+	text: "No capture within 2 turns → you lose your 3rd turn, and every 3rd turn after it. Not while you are in check with no King skull. Clear: capture a piece.",
 	/**
 	 * @description left: the holder's turns still to pass before it comes due.
 	 */
@@ -23,16 +23,14 @@ module.exports = {
 			return true;
 		},
 		/**
-		 * @description At each start of its holder's turn one of the 2 turns passes (left counts down); at the start of the 3rd it comes due: a random pawn of theirs (state.rng) is removed (a removal, as a forfeit: Marked cleared first so it pays no one, then ctx.capture by its own side), and it stays, due again 2 turns later. Fires when a pawn goes; with none left nothing happens.
+		 * @description At each start of its holder's turn one of the 2 turns passes (left counts down); at the start of the 3rd it comes due: that turn is lost (ctx.skipTurn: turn.startTurn skips it right after this event, or, in check, voids the loss for a King skull), in check with no King skull, or with the King card gone, no turn is taken (the king would be taken: user ruling C8) and nothing fires; and it stays, due again every 3rd turn (user ruling 2026-11-25: was a random pawn removed). Fires.
 		 */
 		"turn-start"(ctx, owner, ev, src) {
 			if (ev.player !== owner || --src.card.left >= 0) return false;
-			src.card.left = 1; // THIS TURN IS THE FIRST OF THE NEXT 2: ITS COUNTDOWN ALREADY RAN
-			const sq = ctx.state.board.sq, pawns = sq.filter((q) => q && q.c === owner && q.t === "p");
-			if (!pawns.length) return false;
-			const id = ctx.rng.pick(pawns).id;
-			statuses.clear(ctx, id, "marked");
-			ctx.capture(owner, id);
+			src.card.left = 2; // THE NEXT 2 TURNS ARE PLAYED, THE 3RD IS LOST AGAIN
+			const p = ctx.state.players[owner];
+			if (inCheck(ctx.state, owner) && !(p.king && p.kingSkulls > 0)) return false; // NO SKULL TO VOID THE LOSS: THE KING WOULD BE TAKEN, SO NO TURN IS TAKEN (USER RULING C8, 2026-11-25)
+			ctx.skipTurn(owner, 1);
 			return true;
 		},
 	},

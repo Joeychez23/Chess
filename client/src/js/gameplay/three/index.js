@@ -34,6 +34,7 @@ import { resize, frameDeal, unframeDeal, framePile, placeCamera, stepCamera, lan
 import { createControls, onPointerDown, onPointerMove, onPointerUp, monitorIdle, monitorInput, onMonitorShow, onPointerLeave, onClick, onTouchTap, onKeyDown, rehoverPlaque } from "./pointer.js";
 import { putDownHeld, stepAnim, finishAnims, animate } from "./motion.js";
 import { followCamera } from "./tileHover.js";
+import { leftBoard } from "./lean.js"; // AUTO LEAN FORGETS THE POINTER WAS ON THIS BOARD (unmount)
 import { stepStatuses, clearStatuses, focusStatuses } from "./statusFx/index.js"; // A CHESS CARDS PIECE'S STATUSES, AS EFFECTS OR BADGES (TASK 21)
 export { syncStatuses, holdStatuses, pickStatuses } from "./statusFx/index.js";
 import { tileAt } from "./hoverRules.js"; // THE TILE UNDER A POINT ON THE BOARD (squareUnder)
@@ -380,6 +381,7 @@ export function whenDrawn() {
  */
 export function unmount() {
 	if (!view) { return; }
+	leftBoard();
 	finishAnims();
 	clearStatuses(); // BEFORE THE PIECES GO: NO BURSTS, ITS FRAME TIMER STOPS
 	disposeBloom(); // ITS COMPOSERS HOLD THIS RENDERER, SCENE & CAMERA

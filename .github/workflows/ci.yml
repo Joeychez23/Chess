@@ -1,4 +1,4 @@
-# Runs the server tests, the data service tests, the client build, ESLint and npm audit on every pull request and on pushes to main.
+# Runs the server tests, the data service tests, the client tests, the client build, ESLint and npm audit on every pull request and on pushes to main.
 # npm ci installs the exact versions in the committed package-lock.json files.
 # Actions are pinned to commit SHAs (the tag is in the trailing comment); Dependabot (.github/dependabot.yml) keeps them current.
 
@@ -64,6 +64,19 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run build
+
+  client-tests:
+    name: Client tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:client # node --test, NO BROWSER: THE TESTS LOAD THE CLIENT MODULES & THE CARD ENGINE (cards-engine/, NO DEPENDENCIES OF ITS OWN)
 
   lint:
     name: ESLint

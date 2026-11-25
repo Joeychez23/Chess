@@ -180,7 +180,7 @@ export function animateMove(from, to, promotion, taken) {
  * @description One of a Chess Cards answer's board steps (gameplay/cards/boardShow.js boardSteps), resolving when it has ended: a move slides or hops as a drawn one does (animateMove: its own
  * capture, the one taken named, castling's rook, a promotion), a swap slides the pieces on a & b to each other's square together without turning (Swap: neither is taken), a take sinks the
  * piece on its square as it fades out (as a piece with no square leaves on a restart, glideHome), out slides the piece on from to to without turning (piece: a hidden one is put on from first)
- * & back slides it home again (piece: then it's removed), a topple tips the piece on its square over onto its side toward its nearer side of the board (Hunger's pawn, a forfeit), it lies there
+ * & back slides it home again (piece: then it's removed), a topple tips the piece on its square over onto its side toward its nearer side of the board (a forfeit: All or Nothing's lost hand), it lies there
  * a moment, then leaves as a take does, a handover slides the piece on from to to without turning & it turns to its new colour c as it lands (Opposing Finality; one already c's is another piece
  * than the one handed over: it stays). Nothing there, or a board that can't draw: at once. A new kind of step is one more case here
  * @param  {[object]} step [{ op: "move", from, to, taken, promotion } | { op: "swap", a, b } | { op: "take" | "topple", square } | { op: "out" | "back", from, to, piece } | { op: "handover", from, to, c }]

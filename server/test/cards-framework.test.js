@@ -1119,8 +1119,8 @@ function freshEngine(fn) {
 
 // THE CATALOG (docs: chess-cards-catalog.md): EVERY CARD'S KIND AND RARITY, AND EVERY VERSION KEY'S RARITY
 const CATALOG = {
-	active: { "all-or-nothing": "rare", cleanse: "common", conscription: "legendary", "double-time": "rare", "fog-of-war": "uncommon", foresight: "common", "heavy-cavalry": "uncommon",
-		"heretical-subjection": "rare", hexcraft: "uncommon", "insidious-nullification": "common", "last-stand": "uncommon", mulligan: "uncommon", "opposing-finality": "rare",
+	active: { "all-or-nothing": "rare", cleanse: "common", conscription: "legendary", "double-time": "rare", "fog-of-war": "uncommon", foresight: "common", "heavy-cavalry": "epic",
+		"heretical-subjection": "rare", hexcraft: "uncommon", "insidious-nullification": "rare", "last-stand": "uncommon", mulligan: "uncommon", "opposing-finality": "rare",
 		pickpocket: "common", stronghold: "rare", swap: "rare", trapdoor: "uncommon" },
 	passive: { "interdicted-foresight": "common", "peasant-immunity": "common", "unjust-retribution": "rare", "last-rites": "uncommon", "escape-artist": "uncommon", veto: "rare",
 		reinforcements: "uncommon", retaliation: "uncommon", "bleeding-hand": "uncommon", hex: "uncommon", spite: "common", underdog: "rare", grace: "legendary", patience: "common",
@@ -1129,8 +1129,8 @@ const CATALOG = {
 	curse: { "dead-weight": "uncommon", "traitors-mark": "common", rust: "uncommon", tremor: "common", debt: "uncommon", shackles: "common", mirage: "uncommon", leech: "rare",
 		"hollow-crown": "epic", hunger: "rare", pact: "uncommon" },
 	versions: { "double-time-legendary": "legendary", "all-or-nothing-epic": "epic", "all-or-nothing-legendary": "legendary", "hexcraft-legendary": "legendary", "fog-of-war-rare": "rare",
-		"fog-of-war-epic": "epic", "pickpocket-uncommon": "uncommon", "pickpocket-epic": "epic", "foresight-rare": "rare", "foresight-epic": "epic", "insidious-nullification-rare": "rare",
-		"cleanse-rare": "rare", "swap-epic": "epic", "heavy-cavalry-epic": "epic", "stronghold-common": "common", "interdicted-foresight-rare": "rare", "bad-omen-epic": "epic" },
+		"fog-of-war-epic": "epic", "pickpocket-uncommon": "uncommon", "pickpocket-epic": "epic", "foresight-rare": "rare", "foresight-epic": "epic",
+		"cleanse-rare": "rare", "swap-epic": "epic", "stronghold-common": "common", "interdicted-foresight-rare": "rare", "bad-omen-epic": "epic" },
 };
 test("the registry holds 17 actives, 23 passives and 11 curses, each with key, kind, name, text and (actives, passives) rarity", () => {
 	freshEngine((engine, { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, CURSE_KEYS }) => {

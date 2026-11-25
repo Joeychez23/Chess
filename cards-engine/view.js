@@ -109,7 +109,7 @@ function playerView(state, player) {
 }
 
 /**
- * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): all of them as they are when that action ended the game (state.result); else under a Fog of War no event names a piece hidden after the action or a fogged piece taken in it (the id is removed wherever it stands: piece, by, any card field); a hidden piece's move is { type, player } alone and any other event about it is left out (a ranged shot's capture is about the piece shot: its from, the hidden shooter's square, stays, user ruling 2026-11-23); a piece that came out of the fog loses its from; the fogged side's captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }, except one under a fake of player's (a sight entry's data.fake: Interdicted Foresight), which carries that fake, as real sight would carry the card; player's own Mirage reads as a move card (its curse-given is left out: it shows only once it has taken over a held move card at a refill: that card's id and type), except in its curse-cleared and curse-fired (it is gone then); the other player sees it as it is; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?"; a veiled status event (Tremor's Frozen, given or ended) is left out for its piece's owner, and a status event's player (the caster) is removed for a player who is neither the piece's owner nor the caster (#493).
+ * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): all of them as they are when that action ended the game (state.result); else under a Fog of War no event names a piece hidden after the action or a fogged piece taken in it (the id is removed wherever it stands: piece, by, any card field); a hidden piece's move is { type, player } alone and any other event about it is left out (a ranged shot's capture is about the piece shot: its from, the hidden shooter's square, stays, user ruling 2026-11-23); a piece that came out of the fog loses its from (its colour read as it was at that event: a piece handed over later in the action is still the giver's), a handover to player of a piece that stood hidden before the action loses its from, and a fogged piece removed by its own side (a forfeit: All or Nothing's lost hand) from the fogged half loses its sq; the fogged side's captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }, except one under a fake of player's (a sight entry's data.fake: Interdicted Foresight), which carries that fake, as real sight would carry the card; player's own Mirage reads as a move card (its curse-given is left out: it shows only once it has taken over a held move card at a refill: that card's id and type), except in its curse-cleared and curse-fired (it is gone then); the other player sees it as it is; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?"; a veiled status event (Tremor's Frozen, given or ended) is left out for its piece's owner, and a status event's player (the caster) is removed for a player who is neither the piece's owner nor the caster (#493).
  */
 function playerEvents(state, events, player) {
 	if (state.result) return copy(events); // THE ACTION THAT ENDED THE GAME IS TOLD IN FULL (USER RULING 2026-11-21 03:12)
@@ -118,11 +118,14 @@ function playerEvents(state, events, player) {
 		const q = state.board.sq.find((x) => x && x.id === ev.piece), cap = events.find((e) => e.type === "capture" && e.piece === ev.piece && e.c);
 		return ev.c || (q ? q.c : cap && cap.c);
 	};
+	const handedAfter = (ev, k) => events.find((e, j) => j >= k && e.type === "handover" && e.piece === ev.piece); // HANDED OVER AT OR AFTER EVENT k: THE GIVER'S UNTIL THEN
+	const colorAt = (ev, k) => { const h = handedAfter(ev, k); return h ? other(h.player) : colorOf(ev); }; // THE COLOUR WHEN EVENT k HAPPENED, NOT AFTER THE ACTION (TASK 25 A2)
+	const startSq = (ev, k) => (events.find((e, j) => j < k && e.type === "move" && e.piece === ev.piece) || ev).from; // WHERE THE PIECE STOOD BEFORE THE ACTION
 	const gone = fog ? events.filter((e) => e.type === "capture" && colorOf(e) === opp).map((e) => e.piece) : []; // TAKEN IN THIS ACTION: OFF THE BOARD, STILL NOT NAMED
 	const hid = fog ? hiddenIds(state, opp) : [];
 	const fakes = state.enchant.filter((e) => e.owner === player && e.data && e.data.fake && isSight(e)).flatMap((e) => e.data.fake); // KEPT AFTER resight DROPS A GONE CARD'S FAKE
-	return copy(events).map((ev) => scrub(see(ev), hid.concat(gone))).filter(Boolean);
-	function see(ev) {
+	return copy(events).map((ev, k) => scrub(see(ev, k), hid.concat(gone))).filter(Boolean);
+	function see(ev, k) {
 		const c = ev.card && typeof ev.card === "object" ? ev.card : null;
 		if (c) { delete c.denied; delete c.stopping; } // AS IN THE VIEW: THIS BOOKKEEPING NAMES A FOGGED PAWN
 		if (c && baseKey(c.key) === "mirage" && (ev.type === "curse-given" ? other(ev.player) : ev.player) === player) { // player HOLDS IT (A curse-given NAMES THE GIVER)
@@ -140,7 +143,9 @@ function playerEvents(state, events, player) {
 			if (ev.type !== "move") return null;
 			return { type: "move", player: ev.player };
 		}
-		if (fog && ev.type === "move" && colorOf(ev) === opp && onHalf(board.sqIndex(ev.from), opp)) delete ev.from; // IT CAME OUT OF THE FOG: WHERE IT STOOD STAYS HIDDEN
+		if (fog && ev.type === "move" && colorAt(ev, k) === opp && onHalf(board.sqIndex(ev.from), opp)) delete ev.from; // IT CAME OUT OF THE FOG (OR WAS HANDED OVER OUT OF IT): WHERE IT STOOD STAYS HIDDEN
+		if (fog && ev.type === "handover" && ev.player === player && onHalf(board.sqIndex(startSq(ev, k)), opp)) delete ev.from; // A FOGGED PIECE HANDED TO player: ITS SQUARE BEFORE STAYS HIDDEN
+		if (fog && ev.type === "capture" && ev.player === opp && ev.c === opp && ev.sq && onHalf(board.sqIndex(ev.sq), opp)) delete ev.sq; // A FOGGED PIECE REMOVED BY ITS OWN SIDE (A FORFEIT: ALL OR NOTHING'S LOST HAND): ITS SQUARE STAYS HIDDEN
 		if (fog && (ev.type === "capture" || ev.type === "promote") && colorOf(ev) === opp) ev.t = "?";
 		if (ev.player !== opp) return ev;
 		if ((ev.type === "draw" || ev.type === "discard") && c && !shownTo(state, player, c)) {
@@ -221,14 +226,32 @@ function toFen(stateOrView) {
 	return board.toFen(stateOrView.board);
 }
 
+const BLIND_CARDS = ["trapdoor", "swap", "all-or-nothing"]; // UNDER THE OPPONENT'S FOG: TOLD AS IF THE HIDDEN PIECES WERE NOT THERE, REFUSED ON PLAY (USER RULING, TASK 25 B2)
+
 /**
- * @description The legal actions player is told: all of them, but under the opponent's Fog of War none that would show where a hidden piece stands: no move, no action with a move in it (Last Stand) and none naming a hidden piece; and every drop of player's own placed cards is told, also one that would put a king in check, which applyAction refuses (as a blind move). None that is legal only because of a veiled status (Tremor's Frozen) on player's own piece, which playerView leaves out for them: Cleanse's { piece, s } on it, the rare Cleanse with nothing else to clear (#493, ruling 2026-11-23 09:28 I1 (a)); what the status takes away (the pawn's moves, its Swap target) stays away, the accepted tell. Unless that would leave player no told action at all: then they are told (ruling 10:08 N1). The rules don't change: applyAction still takes any legal action.
+ * @description The legal actions player is told: all of them, but under the opponent's Fog of War none that would show where a hidden piece stands: no move, no action with a move in it (Last Stand) and none naming a hidden piece's id (a square under a SQUARE_KEYS field never counts as one: Trapdoor's b1..b8); Trapdoor, Swap and All or Nothing (any version) are told as they would be legal with the hidden pieces off the board (Task 25 B2), so the list never depends on where they stand, and applyAction refuses the ones the hidden pieces rule out; and every drop of player's own placed cards is told, also one that would put a king in check, which applyAction refuses (as a blind move). None that is legal only because of a veiled status (Tremor's Frozen) on player's own piece, which playerView leaves out for them: Cleanse's { piece, s } on it, the rare Cleanse with nothing else to clear (#493, ruling 2026-11-23 09:28 I1 (a)); what the status takes away (the pawn's moves, its Swap target) stays away, the accepted tell. Unless that would leave player no told action at all: then they are told (ruling 10:08 N1). The rules don't change: applyAction still takes any legal action.
  */
 function playerLegal(state, player) {
-	const turn = require("./turn.js"); // LAZY: turn.js LOADS THE CARDS, WHICH LOAD THIS FILE'S NEIGHBOURS
 	const fog = fogged(state, other(player), player), ids = fog ? hiddenIds(state, other(player)) : [];
+	const real = tellable(state, player, fog, ids);
+	const blind = fog ? state.players[player].actives.filter((c) => BLIND_CARDS.includes(baseKey(c.key))).map((c) => c.id) : [];
+	if (!blind.length) return real;
+	const open = copy(state); // THE BOARD AS player SEES IT: THE HIDDEN PIECES GONE
+	open.board.sq = open.board.sq.map((p) => (p && ids.includes(p.id) ? null : p));
+	Object.assign(open.players[player], { moves: [], actives: open.players[player].actives.filter((c) => blind.includes(c.id)) }); // ONLY THESE CARDS' TRIALS RUN TWICE (CARD GUY'S TIME)
+	const mine = (a) => a.type === "active" && blind.includes(a.card);
+	const out = real.filter((a) => !mine(a)).concat(tellable(open, player, fog, ids).filter(mine));
+	return out.length ? out : real;
+}
+
+/**
+ * @description playerLegal's list for one state (the real one, or the one with the hidden pieces off the board): the legal actions less, under the fog (fog true, ids the hidden pieces), the moves and those naming a hidden id, less the ones only a veiled status makes legal.
+ */
+function tellable(state, player, fog, ids) {
+	const turn = require("./turn.js"); // LAZY: turn.js LOADS THE CARDS, WHICH LOAD THIS FILE'S NEIGHBOURS
 	const all = turn.legalActions(state, player, fog); // UNDER THE FOG EVERY DROP OF THE PLAYER'S OWN PLACED CARDS: LEAVING OUT THE ONE THAT GIVES CHECK WOULD TELL WHERE A HIDDEN KING STANDS (RULING 2026-11-22)
-	const told = fog ? all.filter((a) => !JSON.stringify(a).includes('"move"') && !ids.some((id) => JSON.stringify(a).includes('"' + id + '"'))) : all;
+	const names = (a) => JSON.stringify(a, (k, v) => (SQUARE_KEYS.includes(k) ? undefined : v)); // A SQUARE b1..b8 IS NOT A BLACK PIECE'S ID
+	const told = fog ? all.filter((a) => { const j = names(a); return !j.includes('"move"') && !ids.some((id) => j.includes('"' + id + '"')); }) : all;
 	const veiled = Object.keys(state.statuses || {}).filter((id) => state.statuses[id].some((e) => e.veiled) && state.board.sq.some((q) => q && q.id === id && q.c === player));
 	if (!veiled.length) return told;
 	const open = copy(state); // THE STATE AS player'S VIEW HAS IT: AN ACTION NOT LEGAL THERE NAMES OR NEEDS THE VEILED STATUS

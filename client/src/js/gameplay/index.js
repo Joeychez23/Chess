@@ -37,7 +37,7 @@ const { loadMoveList, addMoveListListeners } = require("./movelist/index.js"); /
 const { addMoveBoxListeners } = require("./movebox/index.js"); // THE BOX FOR TYPED MOVES
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js"); // THE EVALUATION BAR
 const { startMonitor } = require("./monitor/index.js"); // THE 3D ROOM'S MONITOR: ITS DATA, ACTIONS & HIDE RULES
-const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D, setFace } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
+const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D, setFace, can3D } = require("./renderer/index.js"); // PICKS THE 2D CANVAS OR THE 3D BOARD, THE ONLY PLACE THAT KNOWS WHICH IS ON
 export { setView, currentView, VIEWS } from "./renderer/index.js"; // SWITCHES MID-GAME (THE 3D BOARD IS DOWNLOADED THE FIRST TIME, ITS OWN "three" CHUNK)
 const main = document.querySelector("#main"); // THE CANVAS IS ADDED HERE
 const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
@@ -258,13 +258,17 @@ function fadeInOn3D() {
 		if (document.hidden) { document.addEventListener("visibilitychange", startTimer, { once: true }); return; }
 		timer = setTimeout(function () {
 			if (!holdFade) { return; }
+			if (game.cardGame) { showStatus("view", "The 3D board is still loading."); return release(); } // A CARD GAME HAS NO 2D TABLE (HANDS, PILES, PROMPTS): IT WAITS FOR 3D, THE PAGE SHOWN MEANWHILE (RD-I2, RULING C6)
 			showStatus("view", "3D board took too long to load. Showing 2D.", MESSAGE_TIME);
 			showView(VIEWS.TWO_D); // AFTER THE 3D SWITCH STILL GOING: A BOARD THAT COMES UP LATE IS TAKEN DOWN BEFORE IT'S SEEN
 			release(); // NOTHING ON 3D YET: THE 2D CANVAS IS THE BOARD THAT'S DRAWN
 		}, FADE_WAIT_MS);
 	}
 	startTimer();
-	showView(VIEWS.THREE_D).then((on) => on === VIEWS.THREE_D ? whenDrawn3D() : null).then(release, release);
+	showView(VIEWS.THREE_D).then(function (on) {
+		if (on !== VIEWS.THREE_D && game.cardGame && !can3D()) { showStatus("view", "Chess Cards needs 3D, which this device can't show."); } // A TOUCH-FIRST DEVICE (HOME'S START IS OFF THERE TOO): SAID, NOT A BOARD THAT CAN'T BE PLAYED. ANY OTHER FAILURE (NO WebGL, A DOWNLOAD) KEEPS THE RENDERER'S OWN LINE
+		return on === VIEWS.THREE_D ? whenDrawn3D().then(function () { if (game.cardGame) { clearStatus("view"); } }) : null; // DRAWN: THE "STILL LOADING" LINE GOES
+	}).then(release, release);
 }
 
 /**

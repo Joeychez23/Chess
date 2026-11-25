@@ -18,7 +18,7 @@
 const { game, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE BOARD THAT'S DRAWN
 const { toFen, sqIndex, sqName } = require("../../../../../cards-engine/board.js"); // THE VIEW'S BOARD AS A FEN, THE ENGINE'S OWN (NO OTHER PART OF THE ENGINE IS LOADED)
 const { cards, takeResponse } = require("./store.js"); // THE CARD ROUTES' LAST ANSWER
-const { sendAction, cardGuyTurn, getCardGuy } = require("./api.js"); // REQUESTS TO THE CARD ROUTES (/api/chess/cards)
+const { sendAction, cardGuyTurn, getCardGuy, getCardsGame } = require("./api.js"); // REQUESTS TO THE CARD ROUTES (/api/chess/cards)
 const { showBot } = require("../bots/say.js"); // CARD GUY'S NAME BESIDE THE BOARD
 const { showGameOver } = require("../menu/offers.js"); // THE GAME OVER SCREEN
 const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
@@ -65,9 +65,22 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @description Starts a card game from GET /cards/:gameId: the player's side, the board, Card Guy's name, the menu without what a card game can't use (play.html data-chess-only),
  * the result when it's already over & Card Guy's actions when it owes one (a reload while it was due asks again, the server plays it once)
  * @param  {[object]} response [cardsResponse]
- * @return {[boolean]} loaded [false: no game in the answer (not found, not theirs, from an older version, no answer), the message says so]
+ * @return {[boolean]} loaded [false: no game in the answer (not found, not theirs, an open game from an older version, no answer), the message says so. A finished game from an older version (older, result, fen) opens read-only: true]
  */
 export function startCards(response) {
+	if (!response?.view && response?.older && response.result) { // A FINISHED GAME FROM AN OLDER VERSION: ITS SIDES, ITS LAST BOARD & ITS RESULT, NO TABLE, NO FORFEIT, NO CARD GUY (CONTRACT c)
+		game.response = response;
+		game.playerColor = response.you;
+		game.viewColor = response.you;
+		game.opponentColor = response.you === "w" ? "b" : "w";
+		game.ai = true;
+		game.opposingMove = true;
+		document.querySelectorAll("[data-chess-only]").forEach((item) => { item.hidden = true; });
+		if (response.fen) { chessInst.load(response.fen, { skipValidation: true }); } // NO STORED BOARD (cardsController.js olderResponse SENDS null): THE RESULT ALONE
+		game.refresh = true;
+		showGameOver(response.result, true);
+		return true;
+	}
 	if (!response?.view) {
 		console.log(response?.message || "The card game didn't load");
 		if (response?.status === 409 && response.game_id) { offerForfeit(response.game_id); return false; } // A STATE FROM AN OLDER ENGINE VERSION: IT CAN'T GO ON
@@ -93,21 +106,32 @@ export function startCards(response) {
 /* ---------------------------------------------------------------- */
 /**
  * @description Plays one of the player's legal actions: sends it, shows the answer, then Card Guy's actions while it owes one. A refused action (409: not legal now, the game is over,
- * or stale: true, another save landed first) carries the game as it is now, so the board is drawn again from it
+ * or stale: true, another save landed first) carries the game as it is now, so the board is drawn again from it. No answer: the game is read again (it may have been saved) & goes on from that;
+ * a final refusal with no view (an older version, gone, not theirs) stops with its message (refused). An answer that throws while shown still goes on to Card Guy
  * @param  {[object]} action [one of cards.legal]
  * @return {[array]} events [the action's events, [] when it didn't go through]
  */
 export async function act(action, again = false) {
-	const response = await sendAction(game.GAME_URL, game.GAME_ID, action);
+	let response = await sendAction(game.GAME_URL, game.GAME_ID, action);
 	if (!response?.view) {
 		console.log(response?.message || "The action didn't go through: no answer from the server");
-		showStatus("action", "That didn't go through. Try again.", MESSAGE_TIME);
-		return [];
+		if (refused(response)) { return []; }
+		const was = JSON.stringify(cards.view);
+		response = await getCardsGame(game.GAME_URL, game.GAME_ID); // THE ANSWER MAY BE LOST AFTER THE SERVER SAVED THE PLAY: THE GAME AS IT IS NOW, READ ONLY, SO A CARD GUY OWED IS STILL ASKED (RD-M2)
+		if (!response?.view || JSON.stringify(response.view) === was) { showStatus("action", "That didn't go through. Try again.", MESSAGE_TIME); } // NOT WHEN THE GAME MOVED ON: THE PLAY WAS SAVED, ONLY ITS ANSWER WAS LOST (F6-M3)
+		if (!response?.view) { refused(response); return []; }
+		action = null; // THE RE-READ ANSWERS NO ACTION: NO EVENTS, NOTHING TO SEND AGAIN
 	}
 	if (response.status === 409 && !response.stale && !response.result) { showStatus("action", cards.hidden ? "That move isn't allowed. The fog hides why." : "That play isn't allowed now.", MESSAGE_TIME); } // NOT LEGAL: UNDER FOG A BLIND MOVE THE SERVER REFUSED
-	const events = show(response, action);
+	let events = [];
+	try { events = show(response, action); }
+	catch (err) { // THE ANSWER IS KEPT (takeResponse RAN): CARD GUY IS STILL ASKED BELOW WHEN HE'S OWED (RD-I1)
+		console.warn("The answer couldn't be shown", err);
+		showStatus("action", "That play couldn't be shown. Reload the page if the board looks wrong.", MESSAGE_TIME);
+		redraw();
+	}
 	if (showing || cards.result) { endZoom(); } // ITS STEPS NEVER PLAY WHILE THE CAMERA FRAMES A HAND CARD (REVIEW M2); A STEPLESS ANSWER LEAVES A CARD BEING READ ALONE (RE-REVIEW R8)
-	if (response.stale && !again && action.type === "duel" && Number.isInteger(action.pick) && cards.legal.some((a) => a.type === "duel" && a.pick === action.pick)) { return act(action, true); } // CARD GUY'S PICK WAS SAVED FIRST: THE PLAYER'S, STILL LEGAL, IS SENT ONCE MORE, WITH NO MESSAGE (M3)
+	if (response.stale && !again && action?.type === "duel" && Number.isInteger(action.pick) && cards.legal.some((a) => a.type === "duel" && a.pick === action.pick)) { return act(action, true); } // CARD GUY'S PICK WAS SAVED FIRST: THE PLAYER'S, STILL LEGAL, IS SENT ONCE MORE, WITH NO MESSAGE (M3)
 	await stepShow; // ITS DUEL CARDS FLIP (ITS BOARD STEPS PLAY) BEFORE CARD GUY'S NEXT ACTION OR THE RESULT
 	if (cards.result) { showGameOver(cards.result); }
 	else if (cards.cardGuyDue) { playCardGuy(); }
@@ -130,19 +154,40 @@ function playCardGuy() {
 			const response = await cardGuyTurn(game.GAME_URL, game.GAME_ID);
 			if (!response?.view) {
 				console.log(response?.message || "Card Guy's turn: no answer from the server");
+				if (refused(response, true)) { break; } // ASKING AGAIN WOULD GET THE SAME (RD-M1)
 				showStatus("ai", "Card Guy isn't answering. Trying again…");
 				await wait(RETRY_WAIT);
 				continue;
 			}
 			clearStatus("ai");
 			keyboard = false; // A PROMPT CARD GUY'S PLAY RAISES DOESN'T TAKE THE FOCUS: AN ENTER MEANT FOR SOMETHING ELSE WOULD ANSWER IT
-			show(response);
-			if (showing || cards.result) { endZoom(); } // AS IN act: CARD GUY'S STEPLESS ANSWERS DON'T CLOSE A CARD READ ON HIS TURN (RE-REVIEW R8)
-			await stepShow;
+			try {
+				show(response);
+				if (showing || cards.result) { endZoom(); } // AS IN act: CARD GUY'S STEPLESS ANSWERS DON'T CLOSE A CARD READ ON HIS TURN (RE-REVIEW R8)
+				await stepShow;
+			} catch (err) { // THE ANSWER IS KEPT (takeResponse RAN): THE LOOP GOES ON FROM IT, NOT STOPPED FOR GOOD (RD-I1)
+				console.warn("Card Guy's answer couldn't be shown", err);
+				showStatus("ai", "Card Guy's play couldn't be shown. Reload the page if the board looks wrong.", MESSAGE_TIME); // NO "TRYING AGAIN": THE TURN MAY HAVE COME BACK, THE LOOP THEN ENDS
+				redraw();
+				await wait(RETRY_WAIT);
+			}
 		}
 		if (cards.result) { showGameOver(cards.result); } // DOES NOTHING WHEN IT'S ALREADY SHOWN
 	})().finally(function () { cardGuyLoop = null; });
 	return cardGuyLoop;
+}
+
+/**
+ * @description An answer with no view that asking again would only repeat (RD-M1): a game from an older version (409 with its game_id) offers its forfeit, as startCards does;
+ * a game gone or not theirs (404, 403, a 409 without game_id) says it couldn't be loaded. No answer, a 5xx or anything else is not final: the caller tries again
+ * @param  {[object|undefined]} response [a card route's answer without a view]
+ * @return {[boolean]} final [true: the message is shown, stop asking]
+ */
+function refused(response, loop = false) {
+	if (![401, 403, 404, 409, ...(loop ? [400] : [])].includes(response?.status)) { return false; } // 401: STILL SIGNED OUT AFTER THE REQUEST'S OWN SESSION RE-UP. loop: /card-guy's 400 TOO (AN ACTION'S 400 IS ONE BAD PLAY, NOT THE GAME: USER RULING 2026-11-25, F6-M2)
+	if (response.status === 409 && response.game_id) { offerForfeit(response.game_id); return true; }
+	showStatus("server", "The game couldn't be loaded. Reload the page to try again.");
+	return true;
 }
 
 /* ---------------------------------------------------------------- */
@@ -166,6 +211,7 @@ function show(response, action = null) {
 	if (!(prev && prev.duel) && cards.view.duel) { keyFocus = null; } // A DUEL STARTS: A HAND STOP ISN'T CARRIED ONTO ITS CARDS (M7)
 	lastPlayed = events.filter((e) => e && e.type === "card-played" && e.card && e.card.key).map((e) => e.card).pop() || lastPlayed;
 	lastTaken = events.filter((e) => e && e.type === "card-taken" && e.from === cards.you && e.card && typeof e.card === "object").map((e) => e.card).pop() || lastTaken;
+	events.filter((e) => e && e.type === "turn-skipped").forEach((e) => showStatus("action", e.player === cards.you ? "You lose this turn." : "Card Guy loses this turn.", MESSAGE_TIME)); // A LOST TURN (HUNGER, DOUBLE TIME, UNJUST RETRIBUTION) IS TOLD, ONCE: EACH ANSWER IS SHOWN ONCE & A RE-READ HAS NO EVENTS (RA-I1)
 	sel = null; // THE GAME MOVED ON: A PICK IN PROGRESS STARTS AGAIN
 	dragFrom = null; // A PRESS STILL DOWN (A PLAY THE KEYS MADE MEANWHILE): ITS PIECE GOES DOWN WITH THE PICK (hover), ITS RELEASE MAY NEVER COME
 	squareFocus = null;
@@ -175,6 +221,11 @@ function show(response, action = null) {
 	loadBoard(cards.view);
 	refreshTable();
 	return events;
+}
+
+// AN ANSWER'S show THREW PART WAY: THE BOARD & THE TABLE ONCE MORE FROM THE VIEW IT LEFT, SO A TURN THAT CAME BACK ISN'T PLAYED ON A STALE BOARD (F6-M1). STILL THROWING: THE RELOAD HINT STANDS
+function redraw() {
+	try { loadBoard(cards.view); refreshTable(); } catch (err) { console.warn("The board couldn't be drawn again", err); }
 }
 
 // THE RENDERER DRAWS chessInst: LOADED WITH THE VIEW'S PIECES, UNCHECKED. A "?" PIECE (NEVER SENT SINCE FOG HIDES WHOLE PIECES) PRINTS AS "?", WHICH chess.js SKIPS
@@ -228,6 +279,7 @@ onTablePick((hit) => { // THE 3D BOARD'S CLICKS & TAPS, & THE MOUSE'S PRESS & RE
 		byMouse = false;
 		return offerDrops(hit.pile, hit.id);
 	}
+	if (hit.kind === "desk") { if (yourMove() && promoting) { cancelPick(); } return; } // THE BARE DESK TAPPED WHILE THE PROMOTION CARDS ARE OUT (three/pointer.js pickTable, #485): THEY GO BACK, AS A SQUARE'S TAP
 	keyboard = false;
 	byMouse = !hit.touch;
 	if (hit.kind === "hand") { return clickCard(hit.id); } // true: AN ABILITY CARD, THE CAMERA ZOOMS IN ON IT (three/pointer.js pickTable)

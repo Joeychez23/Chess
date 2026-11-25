@@ -6,16 +6,27 @@ import { hoverTile } from "./tileHover.js";
 import { hoverOn, cameraFree } from "./hoverRules.js";
 import { MIN_DISTANCE, MAX_DISTANCE, MAX_TILT, BOARD_SIZE, DRAG_PX, isDrag } from "./constants.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { MOUSE, TOUCH } from "three";
+import { MOUSE, TOUCH, Matrix4, Plane, Ray, Vector3 } from "three";
 import { dismissHint } from "./hint.js";
 import { redrawScreen } from "./screen.js";
 import { uvToGrid, isTap } from "./monitor/monitor.js";
-import { CARD_ORDER } from "./cardLayout.js";
+import { CARD_ORDER, CARD_SIZE, CARD_Y, cardSpots } from "./cardLayout.js";
 import { tapStatuses } from "./statusFx/index.js"; // A TAPPED PIECE'S STATUSES, NAMED (RULING R-3)
 
 let tableDrag = false; // THIS PRESS DRAGGED A CHESS CARDS GAME'S PIECE (releaseTable) OR CARD (releaseCard): ITS CLICK ISN'T A TAP
 let cardHeld = false; // THE MOUSE IS DOWN ON A CHESS CARDS GAME'S CARD THAT CAN BE DRAGGED (cardTable.js grab): "moving" ONCE IT FOLLOWS THE POINTER
 let plaqueLit = null; // THE PROMPT PLAQUE THE MOUSE LAST LIT (cardTable.js hoverButton), SO A MOVE OVER THE SAME ONE DRAWS NOTHING NEW
+
+/**
+ * @description The dead zone round the dealt promotion cards, in card widths past each card's edge: a tap there is swallowed, one past it cancels the promotion (issue #485)
+ */
+export const PROMOTION_DEAD_ZONE = 0.25; // ABOUT 1 UNIT, A MOUSE'S WOBBLE AT THE OPENING CAMERA. THE GAPS BETWEEN THE CARDS (0.5) ARE INSIDE IT
+/**
+ * @description The dead zone round the dealt promotion cards for a finger or a pen, in card widths (Task 25 B3): a fingertip lands less precisely than a mouse
+ */
+export const PROMOTION_DEAD_ZONE_TOUCH = 0.5;
+const PROMOTION_SPOTS = cardSpots();
+const BAIZE = new Plane(new Vector3(0, 1, 0), -CARD_Y), roomRay = new Ray(), roomInverse = new Matrix4(), roomPoint = new Vector3(); // THE CARDS' PLANE IN THE ROOM'S OWN UNITS
 
 // LIGHTS THE PLAQUE UNDER THE MOUSE (null: NONE)
 function hoverPlaque(id) {
@@ -56,6 +67,7 @@ export function createControls(camera, canvas) {
 		setRoomSide(view.side);
 		setLabels(view.side);
 		if (view.pointerType === "touch") { startGesture(); } // ONLY TWO FINGERS START THE CONTROLS: A CAMERA GESTURE AT ONCE, NO PIECE INPUT UNTIL EVERY FINGER IS UP
+		if (controls.state === -1) { view.leanMoved = true; } // OrbitControls' _STATE.NONE: NO BUTTON OR FINGER STARTED THIS, A WHEEL OR TRACKPAD ZOOM DID (onMouseWheel). camera.js leanBack READS IT
 	});
 	controls.addEventListener("change", function () {
 		requestRender();
@@ -73,6 +85,7 @@ export function createControls(camera, canvas) {
 // THE CONTROLS OWN THE POINTER FROM HERE. THE FIRST CAMERA MOVE ALSO DISMISSES THE CONTROLS HINT
 function startGesture() {
 	view.cameraGesture = true;
+	view.leanMoved = true; // THE PLAYER REALLY MOVED THE CAMERA: camera.js leanBack LEAVES IT WHERE THEY PUT IT (CONTRACT b)
 	dismissHint();
 }
 
@@ -224,7 +237,7 @@ function hoverGlass(e) {
  */
 export function hoverBoard(e) {
 	const free = Boolean(e) && !view.cameraGesture; // ONLY THEN ARE THE RAYS WORTH CASTING
-	const on = hoverOn({ pointer: Boolean(e), gesture: view.cameraGesture, covered: free && (Boolean(glassHit(e)) || Boolean(tableAt(e)) || cardAt(e) !== null) });
+	const on = hoverOn({ pointer: Boolean(e), gesture: view.cameraGesture, covered: free && (!view.cardOptions.tableOn() || Boolean(glassHit(e)) || Boolean(tableAt(e)) || cardAt(e) !== null) }); // tableOn FALSE: A CARD GAME'S MENU IS OPEN, THE CLICK IS THE PAGE'S (pickTable), SO NO TILE LIGHTS (20e C M4)
 	hoverTile(on ? e : null);
 }
 
@@ -305,6 +318,27 @@ function togglePile(pile) {
 	view.cardOptions.onTable({ kind: "pile", pile: view.table.open(), id: null });
 }
 
+/**
+ * @description Whether a point on the baize is on a dealt promotion card or within the dead zone of one (the cards lie at cardSpots(), CARD_SIZE.w along x)
+ * @param  {[object|null]} point [{ x, z } in the room's own units, null when the tap's ray missed the baize's plane]
+ * @param  {[number]} zone [the dead zone in card widths: PROMOTION_DEAD_ZONE (the mouse's, the default) or PROMOTION_DEAD_ZONE_TOUCH]
+ * @return {[boolean]}
+ */
+export function inPromotionDeadZone(point, zone = PROMOTION_DEAD_ZONE) {
+	if (!point) { return false; }
+	const margin = zone * CARD_SIZE.w;
+	return PROMOTION_SPOTS.some((s) => Math.abs(point.x - s.x) <= CARD_SIZE.w / 2 + margin && Math.abs(point.z - s.z) <= CARD_SIZE.h / 2 + margin);
+}
+
+// THE POINT ON THE BAIZE UNDER A POINTER EVENT, IN THE ROOM'S OWN UNITS: THE CARDS TURN WITH IT. null OFF THE PLANE
+function baizePoint(e) {
+	const rect = view.renderer.domElement.getBoundingClientRect();
+	pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+	raycaster.setFromCamera(pointer, view.camera);
+	roomInverse.copy(view.room.matrixWorld).invert();
+	return roomRay.copy(raycaster.ray).applyMatrix4(roomInverse).intersectPlane(BAIZE, roomPoint);
+}
+
 // A CHESS CARDS GAME'S TAP: A PILE OPENS OR CLOSES, A HAND CARD OR A SQUARE GOES TO cardOptions.onTable (gameplay/cards/flow.js). NOT ON THE GLASS: THAT'S THE MONITOR'S, NOR WHILE cardOptions.tableOn() IS FALSE
 function pickTable(e, stop) {
 	if (!view.table || !view.cardOptions.tableOn() || view.cameraGesture || tableDrag || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType) || glassHit(e)) { return false; } // THE MENU OPEN: THE PAGE'S CLICK-AWAY CLOSES IT, NOTHING IS PLAYED
@@ -325,7 +359,12 @@ function pickTable(e, stop) {
 		view.table.zoom(null);
 		return true;
 	}
-	if (!hit) { return false; }
+	if (!hit) { // THE PROMOTION CARDS OUT (pickCard MISSED THEM): A TAP ON THE BARE DESK CANCELS IT, ONE JUST OFF A CARD IS SWALLOWED (ISSUE #485)
+		if (!view.cards || !view.cards.dealt() || !monitorIdle()) { return false; }
+		if (stop) { e.stopPropagation(); }
+		if (!inPromotionDeadZone(baizePoint(e), view.pointerType === "mouse" ? PROMOTION_DEAD_ZONE : PROMOTION_DEAD_ZONE_TOUCH)) { view.cardOptions.onTable({ kind: "desk" }); }
+		return true;
+	}
 	if (stop) { e.stopPropagation(); }
 	if (hit.kind === "square" && view.pointerType !== "mouse") { tapStatuses(hit.square); } // TOUCH HAS NO HOVER: A TAP NAMES ANY PIECE'S STATUSES, AND STILL PICKS BELOW (THE MOUSE HAS ITS HOVER)
 	if (hit.kind === "pile") { // A FINGER'S TAP ON A CARD OF THE OPENED PILE: flow.js OFFERS ITS DROP BUTTON WHEN THE GAME LISTS ONE (true), ELSE THE PILE CLOSES AS FOR THE MOUSE, WHICH DRAGS THE CARD

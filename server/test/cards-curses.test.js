@@ -222,6 +222,21 @@ describe("Tremor", () => {
 		assert.ok(ofType(playerEvents(open, octx.events, "b"), "status").length === 1 && !JSON.stringify(playerEvents(open, octx.events, "b")).includes("veiled"));
 	});
 
+	test("T25-M1: a second Tremor on a pawn whose Frozen is veiled keeps it veiled: the pawn's owner and the opponent still see nothing", () => {
+		const s = game("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"), ctx = makeCtx(s), id = at(s, "a2").id;
+		s.enchant.push({ id: "e990", key: "fog-of-war", owner: "w", pieces: [], left: null, data: {} });
+		const draw = () => CARDS.tremor.on.draw(ctx, "w", { type: "draw", player: "w", card: moveCard(s, "p") }, { owner: "w", card: curse(s, "w", "tremor") });
+		assert.ok(draw());
+		s.statuses[id].find((e) => e.s === "frozen").left = 1; // TWO TURNS ON
+		const n = ctx.events.length;
+		assert.ok(draw());
+		assert.deepEqual(s.statuses[id].filter((e) => e.s === "frozen").map((e) => [e.left, e.veiled]), [[3, true]]);
+		for (const c of ["w", "b"]) {
+			assert.ok(!(id in playerView(s, c).statuses), "shown to " + c);
+			assert.equal(ofType(playerEvents(s, ctx.events.slice(n), c), "status").length, 0, "told to " + c);
+		}
+	});
+
 	test("under its holder's Fog of War a Frozen already on a hidden pawn is hidden with it, and one given a pawn off the fogged half is told", () => {
 		const s = game("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"), ctx = makeCtx(s), id = at(s, "a2").id;
 		s.enchant.push({ id: "e990", key: "fog-of-war", owner: "w", pieces: [], left: null, data: {} });
@@ -600,6 +615,20 @@ describe("Mirage", () => {
 		assert.ok(hits <= tries * 0.35, hits + " of " + tries); // CHANCE IS 1 IN 6
 	});
 
+	test("D9 (hand.js refill): when an entered Mirage trades ids with a move card, the opponent's real Foresight entry (data.ids) follows the card, not the id", () => {
+		let traded = 0;
+		for (let seed = 1; seed <= 12; seed++) {
+			const s = fresh(seed), m = curse(s, "w", "mirage", { piece: "p" }), ctx = makeCtx(s);
+			const sight = { id: "e990", key: "foresight", owner: "b", pieces: [], left: 1, data: { ids: [m.id] } };
+			s.enchant.push(sight);
+			hand.refill(ctx, "w");
+			const now = s.players.w.curses.find((c) => c.key === "mirage");
+			if (now.id !== m.id) traded++;
+			assert.deepEqual(sight.data.ids, [now.id], "seed " + seed);
+		}
+		assert.ok(traded >= 3, "traded only " + traded);
+	});
+
 	test("Mulligan with an entered Mirage: the holder's view and events are those of the same hand with a real card in its place", () => {
 		for (let seed = 1; seed <= 8; seed++) {
 			const a = fresh(seed), mul = hand.newCard(a, "mulligan");
@@ -745,16 +774,6 @@ describe("Mirage", () => {
 		assert.ok(!ofType(q.events, "curse-cleared").length && w.id);
 	});
 
-	test("Insidious Nullification counts an entered Mirage's type, not a waiting one", () => {
-		const s = game("4k3/8/8/8/8/8/8/1N2K3 w - - 0 1"), ins = hand.newCard(s, "insidious-nullification");
-		Object.assign(s.players.w, { moves: [], actives: [ins] });
-		makeCtx(s).giveCurse("w", "mirage", "b");
-		assert.ok(!legalActions(s, "w").some((a) => a.type === "active"));
-		s.players.w.curses = [];
-		curse(s, "w", "mirage", { piece: "m" });
-		assert.ok(legalActions(s, "w").some((a) => a.type === "active"));
-	});
-
 	test("Cleanse never offers or clears a Mirage, entered or waiting", () => {
 		const s = fresh(), cl = hand.newCard(s, "cleanse");
 		s.players.w.actives = [cl];
@@ -770,58 +789,110 @@ const seg3 = () => {
 	for (const k of ["escape-artist", "bleeding-hand"]) register(require("../../cards-engine/cards/passive/" + k + ".js"));
 };
 const place = (s, key, owner) => { const c = hand.newCard(s, key); s.effects.push({ id: c.id, owner, card: c, placedAt: s.ply }); return c; };
-const pawns = (s, color) => s.board.sq.filter((q) => q && q.c === color && q.t === "p").length;
 
 describe("Hunger", () => {
 	before(seg3);
 
-	test("is rare; no capture within 2 of its holder's turns: a random pawn of theirs is removed (a removal: player === c, by null); it stays and comes due again 2 turns later", () => {
+	test("is rare; turns 1 and 2 of its holder's are played, the 3rd is lost (turn-skipped, the hand refilled as on any lost turn), it stays, turns 4 and 5 are played, the 6th is lost; no pawn is removed, no capture comes from it (user ruling 2026-11-25)", () => {
 		assert.equal(CARDS.hunger.rarity, "rare");
 		const s = fresh(2), h = makeCtx(s).giveCurse("b", "hunger", "w"); // SEED 2: SEED 1'S HANDS REACH A TURN WITH NO MOVE CARD TO PLAY (THE DRAW'S WEIGHTS OF 2026-11-22)
-		let r = untilTurn(s, "b", 2);
-		assert.equal(pawns(r.state, "b"), 8);
-		assert.ok(!ofType(r.events, "curse-fired").length);
-		r = untilTurn(r.state, "b", 1);
-		const [gone] = ofType(r.events, "capture").filter((e) => e.c === "b");
-		assert.deepEqual([gone.player, gone.t, gone.by], ["b", "p", null]);
-		assert.equal(pawns(r.state, "b"), 7);
-		assert.deepEqual(r.state.players.b.curses.map((c) => c.id), [h.id]); // IT STAYS
+		assert.equal(h.left, 2);
+		const lost = (r) => ofType(r.events, "turn-skipped").filter((e) => e.player === "b").length;
+		const step = (r) => { const n = untilTurn(r.state, "b", 1); assert.ok(!ofType(n.events, "capture").some((e) => e.player === "b" && e.c === "b")); return n; }; // NO REMOVAL BY ITS OWN SIDE (WHITE'S FIRST MOVES MAY TAKE A PAWN)
+		let r = step({ state: s, events: [] });
+		assert.equal(lost(r), 0);
+		r = step(r);
+		assert.deepEqual([lost(r), ofType(r.events, "curse-fired").length, r.state.board.turn], [0, 0, "b"]); // TURN 2 PLAYED
+		r.state.players.b.moves = r.state.players.b.moves.slice(0, 2); // A SHORT HAND: THE LOST TURN'S endTurn REFILLS IT
+		r = step(r);
+		assert.deepEqual([lost(r), r.state.board.turn, r.state.players.b.lostTurns], [1, "w", 0]); // TURN 3 LOST
 		assert.deepEqual(ofType(r.events, "curse-fired").map((e) => e.card.key), ["hunger"]);
-		r = untilTurn(r.state, "b", 1);
-		assert.equal(pawns(r.state, "b"), 7);
-		r = untilTurn(r.state, "b", 1);
-		assert.equal(pawns(r.state, "b"), 6);
-		const picked = new Set();
-		for (const seed of [2, 3, 4, 7, 8, 9, 10, 11, 12, 13, 15, 16]) { // THE PAWN IS PICKED BY state.rng. SEEDS WHOSE HANDS ALWAYS HOLD A MOVE (untilTurn PLAYS MOVES ONLY; 1, 5, 6 & 14 DON'T WITH THE DRAW'S WEIGHTS OF 2026-11-22)
-			const t = fresh(seed);
-			makeCtx(t).giveCurse("b", "hunger", "w");
-			picked.add(ofType(untilTurn(t, "b", 3).events, "capture").find((e) => e.c === "b").piece);
+		assert.equal(r.state.players.b.moves.length, hand.MOVES + hand.big(r.state, "b"));
+		assert.deepEqual(r.state.players.b.curses.map((c) => [c.id, c.left]), [[h.id, 2]]); // IT STAYS, DUE AGAIN ON THE 3RD TURN FROM HERE
+		for (const n of [4, 5]) {
+			r = step(r);
+			assert.deepEqual([lost(r), r.state.board.turn], [0, "b"], "turn " + n + " played");
 		}
-		assert.ok(picked.size > 1);
+		r = step(r);
+		assert.deepEqual([lost(r), r.state.board.turn], [1, "w"]); // TURN 6 LOST
+		assert.deepEqual(r.state.players.b.curses.map((c) => [c.id, c.left]), [[h.id, 2]]);
 	});
 
-	test("cleared when its holder captures; not by the opponent capturing, not by a removal; with no pawn left nothing is removed", () => {
+	test("in check with a King skull the lost turn is void: the skull is spent and the turn played; it is due again on the 3rd turn after", () => {
+		const s = game("4k3/8/8/8/8/8/8/R3K3 w - - 0 1");
+		s.players.w.moves = [moveCard(s, "r")];
+		s.players.b.moves = [];
+		const h = curse(s, "b", "hunger", { left: 0 });
+		const r = applyAction(s, "w", { type: "move", card: s.players.w.moves[0].id, from: "a1", to: "a8" });
+		assert.deepEqual(ofType(r.events, "turn-skipped"), []);
+		assert.deepEqual(ofType(r.events, "king-skull"), [{ type: "king-skull", player: "b", left: s.players.b.kingSkulls - 1, why: "lost-turn" }]);
+		assert.deepEqual(ofType(r.events, "curse-fired").map((e) => e.card.key), ["hunger"]);
+		assert.deepEqual([r.state.board.turn, r.state.players.b.lostTurns, r.state.players.b.curses.map((c) => [c.id, c.left])], ["b", 0, [[h.id, 2]]]);
+	});
+
+	test("C8 (user ruling 2026-11-25): in check with no King skull left, or with the King card gone, it takes no turn (the king would be taken): nothing fires, the turn is played, it is due again on the 3rd turn after", () => {
+		for (const gone of [{ kingSkulls: 0 }, { king: false }]) {
+			const s = game("4k3/1r6/8/8/8/8/8/R3K3 w - - 0 1");
+			s.players.w.moves = [moveCard(s, "r")];
+			s.players.b.moves = [moveCard(s, "r")]; // Rb8 ANSWERS THE CHECK (NO KING CARD, NO KING MOVE)
+			Object.assign(s.players.b, gone);
+			const h = curse(s, "b", "hunger", { left: 0 });
+			const r = applyAction(s, "w", { type: "move", card: s.players.w.moves[0].id, from: "a1", to: "a8" });
+			assert.deepEqual([ofType(r.events, "turn-skipped"), ofType(r.events, "king-skull"), ofType(r.events, "curse-fired")], [[], [], []], JSON.stringify(gone));
+			assert.deepEqual([r.state.result, r.state.board.turn, r.state.players.b.lostTurns, r.state.players.b.curses.map((c) => [c.id, c.left])], [null, "b", 0, [[h.id, 2]]]);
+		}
+	});
+
+	test("with Double Time's own lost turn also owed, both are lost (lostTurns adds)", () => {
+		const s = game("4k3/p7/P7/8/8/8/8/4K3 w - - 0 1"); // BLOCKED PAWNS: ONLY THE KINGS MOVE, NO CHECK, NO CAPTURE
+		Object.assign(s.players.w, { moves: [], actives: [], passive: null });
+		Object.assign(s.players.b, { moves: [], actives: [], passive: null });
+		curse(s, "b", "hunger", { left: 0 });
+		makeCtx(s).skipTurn("b", 1); // DOUBLE TIME'S DEBUFF (double-time.js play)
+		let r = applyAction(s, "w", firstMove(s, "w"));
+		assert.deepEqual([ofType(r.events, "turn-skipped").length, r.state.board.turn, r.state.players.b.lostTurns], [1, "w", 1]);
+		r = applyAction(r.state, "w", firstMove(r.state, "w"));
+		assert.deepEqual([ofType(r.events, "turn-skipped").length, r.state.board.turn, r.state.players.b.lostTurns], [1, "w", 0]); // THE SECOND ONE
+		r = applyAction(r.state, "w", firstMove(r.state, "w"));
+		assert.deepEqual([ofType(r.events, "turn-skipped").length, r.state.board.turn], [0, "b"]); // HUNGER'S COUNT RAN ON BOTH LOST TURNS: 2 → 1 → 0, THIS ONE IS PLAYED
+	});
+
+	test("cleared when its holder captures, before and after a lost turn; not by the opponent capturing, not by a removal; with no pawn left the turn is still lost and nothing is removed", () => {
 		const s = game("4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1");
 		s.players.w.moves = [moveCard(s, "p")];
-		const h = curse(s, "w", "hunger", { left: 3 });
+		const h = curse(s, "w", "hunger", { left: 2 });
 		const r = applyAction(s, "w", { type: "move", card: s.players.w.moves[0].id, from: "e4", to: "d5" });
 		assert.deepEqual(r.state.players.w.curses, []);
 		assert.deepEqual(ofType(r.events, "curse-cleared"), [{ type: "curse-cleared", player: "w", card: h }]);
 		const t = game("4k3/8/8/3p4/4P3/8/8/4K3 b - - 0 1");
 		t.players.b.moves = [moveCard(t, "p")];
-		curse(t, "w", "hunger", { left: 3 });
+		curse(t, "w", "hunger", { left: 2 });
 		assert.equal(applyAction(t, "b", { type: "move", card: t.players.b.moves[0].id, from: "d5", to: "e4" }).state.players.w.curses.length, 1);
 		const u = game("4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1"), ctx = makeCtx(u);
-		curse(u, "w", "hunger", { left: 3 });
+		curse(u, "w", "hunger", { left: 2 });
 		ctx.capture("w", at(u, "e4").id);
 		assert.equal(u.players.w.curses.length, 1);
 		assert.deepEqual(clears(game("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), "w"), []); // NO CLEAR ACTION: ONLY A CAPTURE PAYS IT
+		// AFTER A LOST TURN: STILL PAID BY THE NEXT CAPTURE
+		const a = game("4k3/8/8/3p4/4P3/8/8/4K3 b - - 0 1");
+		Object.assign(a.players.b, { moves: [], actives: [], passive: null }); // KING MOVES ONLY: d5 STAYS TO BE TAKEN
+		const ha = curse(a, "w", "hunger", { left: 0 });
+		let l = applyAction(a, "b", firstMove(a, "b"));
+		assert.deepEqual([ofType(l.events, "turn-skipped").map((e) => e.player), l.state.board.turn], [["w"], "b"]);
+		l.state.players.b.moves = [];
+		l = applyAction(l.state, "b", firstMove(l.state, "b"));
+		assert.deepEqual([ofType(l.events, "turn-skipped"), l.state.board.turn], [[], "w"]);
+		l.state.players.w.moves = [moveCard(l.state, "p")];
+		const paid = applyAction(l.state, "w", { type: "move", card: l.state.players.w.moves[0].id, from: "e4", to: "d5" });
+		assert.deepEqual([paid.state.players.w.curses, ofType(paid.events, "curse-cleared").map((e) => e.card.id)], [[], [ha.id]]);
+		// NO PAWN: THE TURN IS LOST ALL THE SAME, NOTHING REMOVED
 		const v = game("4k3/8/8/8/8/8/8/R3K3 b - - 0 1");
 		v.players.b.moves = [];
 		curse(v, "w", "hunger", { left: 0 });
 		const q = applyAction(v, "b", firstMove(v, "b"));
 		assert.equal(at(q.state, "a1").t, "r");
 		assert.ok(!ofType(q.events, "capture").length);
+		assert.deepEqual(ofType(q.events, "turn-skipped").map((e) => e.player), ["w"]);
 	});
 });
 

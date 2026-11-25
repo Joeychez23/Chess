@@ -9,8 +9,7 @@ const { register, reset } = require("../../cards-engine/cards/index.js");
 reset();
 register(require("../../cards-engine/cards/passive/overwatch.js"));
 register(require("../../cards-engine/cards/active/swap.js"));
-register(require("../../cards-engine/cards/curse/hunger.js"));
-register(require("../../cards-engine/cards/active/insidious-nullification.js"));
+register(require("../../cards-engine/cards/active/all-or-nothing.js")); // A FORFEIT BY ITS OWN SIDE (TASK 25b: HUNGER REMOVES NO PAWN, INSIDIOUS NULLIFICATION FORFEITS NONE)
 register(require("../../cards-engine/cards/active/opposing-finality.js"));
 
 const json = (x) => JSON.parse(JSON.stringify(x));
@@ -142,34 +141,16 @@ function answer(s, player, action) {
 }
 const pieceOn = (s, square) => s.board.sq.find((p, i) => p && sqName(i) === square).id;
 
-test("boardSteps: Hunger coming due topples the pawn it removes, after the move before it: the player's in Card Guy's answer, Card Guy's in the player's; under his Fog of War his hidden pawn plays nothing", () => {
-	const due = (fen, holder, fog = null) => {
-		const s = game(fen, null, fog);
-		s.players[holder].curses = [{ id: "c700", key: "hunger", left: 0 }];
-		s.players[holder === "w" ? "b" : "w"].moves = [{ id: "t1", key: "move", piece: "p" }];
-		return s;
-	};
-	assert.deepEqual(answer(due("4k3/7p/8/8/8/8/P7/7K b - - 5 1", "w"), "b", { type: "move", card: "t1", from: "h7", to: "h6" }), [
-		{ op: "move", from: "h7", to: "h6" },
-		{ op: "topple", square: "a2" },
-		SET,
-	]);
-	assert.deepEqual(answer(due("4k3/7p/8/8/8/8/P7/7K w - - 5 1", "b"), "w", { type: "move", card: "t1", from: "a2", to: "a3" }), [
-		{ op: "move", from: "a2", to: "a3" },
-		{ op: "topple", square: "h7" },
-		SET,
-	]);
-	assert.deepEqual(answer(due("4k3/7p/8/8/8/8/P7/7K w - - 5 1", "b", "b"), "w", { type: "move", card: "t1", from: "a2", to: "a3" }), [], "h7 hidden: no topple, and nothing else the drawn move can't show");
-});
-
-test("boardSteps: Insidious Nullification's forfeit topples the piece chosen, the player's and Card Guy's", () => {
+test("boardSteps: a forfeit (All or Nothing's lost hand) topples the piece being promoted, the player's and Card Guy's", () => {
 	for (const player of ["w", "b"]) {
 		const s = game(player === "w" ? "4k3/8/8/8/8/8/P7/7K w - - 5 1" : "4k3/7p/8/8/8/8/8/7K b - - 5 1", null);
-		s.players[player].moves = [{ id: "t1", key: "move", piece: "p" }];
-		s.players[player].actives = [{ id: "c900", key: "insidious-nullification" }];
-		const played = json(applyAction(s, player, legalActions(s, player).find((a) => a.type === "active" && a.card === "c900")).state);
 		const square = player === "w" ? "a2" : "h7";
-		assert.deepEqual(answer(played, player, { type: "choice", option: pieceOn(played, square) }), [{ op: "topple", square }, SET], `${player}'s forfeit`);
+		s.players[player].actives = [{ id: "c900", key: "all-or-nothing-epic" }]; // EPIC: THE PIECE ONLY, NO CARDS
+		const played = json(applyAction(s, player, { type: "active", card: "c900", target: { piece: pieceOn(s, square) } }).state);
+		const low = [2, 3, 4].map((r) => ({ r, s: "c" })), high = [14, 13, 12].map((r) => ({ r, s: "c" }));
+		played.duel.hands = player === "w" ? { w: low, b: high } : { w: high, b: low }; // THE PLAYER LOSES
+		const picked = json(applyAction(played, player, { type: "duel", pick: 1 }).state);
+		assert.deepEqual(answer(picked, player === "w" ? "b" : "w", { type: "duel", pick: 0 }), [{ op: "topple", square }, SET], `${player}'s forfeit`);
 	}
 });
 
@@ -238,4 +219,13 @@ test("boardSteps: a removal right after a move is a topple, never that move's ow
 	const prev = emptyView({ e2: { c: "w", t: "p", id: "p1" }, h7: { c: "b", t: "p", id: "p2" } });
 	const events = [{ type: "move", player: "w", piece: "p1", from: "e2", to: "e4" }, { type: "capture", player: "b", piece: "p2", t: "p", c: "b", by: null, sq: "h7" }];
 	assert.deepEqual(boardSteps(prev, emptyView({}), events), [{ op: "move", from: "e2", to: "e4" }, { op: "topple", square: "h7" }, SET]);
+});
+
+test("D19: a fogged forfeit told without its square (view.js drops sq under the fog) topples nothing & is no capture of the move before it: alone no steps, after a move only the move", () => {
+	const prev = emptyView({ e2: { c: "w", t: "p", id: "p1" } }); // THE FORFEITED PIECE IS HIDDEN: NOT ON THE VIEWER'S BOARD
+	const forfeit = { type: "capture", player: "b", piece: "p2", t: "?", c: "b", by: null };
+	assert.deepEqual(boardSteps(prev, emptyView({ e2: { c: "w", t: "p", id: "p1" } }), [forfeit]), []);
+	const steps = boardSteps(prev, emptyView({}), [{ type: "move", player: "w", piece: "p1", from: "e2", to: "e4" }, forfeit]);
+	assert.ok(!steps.some((s) => s.op === "topple"), JSON.stringify(steps));
+	assert.ok(steps.every((s) => !s.taken), JSON.stringify(steps));
 });
