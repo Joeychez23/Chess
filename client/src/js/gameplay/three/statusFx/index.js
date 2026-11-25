@@ -8,6 +8,8 @@ import * as shaken from "./shaken.js";
 import * as marked from "./marked.js";
 import * as hex from "./hex.js";
 import * as badges from "./badges.js";
+import * as sigils from "./sigils.js";
+import * as trapdoor from "./trapdoor.js";
 import { REDUCE } from "../constants.js";
 
 /**
@@ -32,8 +34,9 @@ import { REDUCE } from "../constants.js";
  */
 export const MODULES = {
 	warded, frozen, shaken, marked, hexed: hex,
-	// TASK 22, A NEW STATUS NEEDS ALL THREE: ITS MODULE HERE (sigils, trapdoor: EACH IMPORTED FROM ITS OWN FILE ABOVE), ITS ROW IN STATUSES BELOW (statusList SHOWS NO OTHER) & ITS
-	// [FILL, RING] IN badges.js COLORS (ELSE A WHITE BADGE). TRAPDOOR IS A SQUARE'S, NOT A PIECE'S: statusList ONLY READS view.statuses OF PIECES, SO IT NEEDS ITS OWN ENTRY (squareRoot, NO PIECE)
+	// TASK 22: THE ENCHANTMENTS' RINGS (statusList ADDS THEM FROM view.enchant, RINGS BELOW HOLDS THEIR TEXT) & THE TRAPDOOR (A SQUARE'S, NOT A PIECE'S: NO MESH, ALL IN squareRoot,
+	// THE SAME IN EITHER MODE). A NEW STATUS STILL NEEDS ITS MODULE HERE, ITS ROW IN STATUSES BELOW (statusList SHOWS NO OTHER) & ITS [FILL, RING] IN badges.js COLORS (ELSE A WHITE BADGE)
+	"heavy-cavalry": sigils, "heretical-subjection": sigils, "opposing-finality": sigils, trapdoor,
 };
 
 // THE HOVER TEXT: NO CLIENT FILE DESCRIBES A STATUS (THE CATALOG DESCRIBES CARDS), SO A FIXED TABLE FROM THE ENGINE'S RULES (cards-engine/rules.js, turn.js, ctx.js capture)
@@ -44,18 +47,88 @@ const STATUSES = {
 	marked: ["Marked", "whoever captures it draws a move card, and its owner discards 2 random cards."],
 	hexed: ["Hexed", "no card can move it."],
 };
+// THE RINGS' HOVER TEXT (T22-3), SHORTENED FROM THE CARDS' TEXT (cards-engine/cards/active/*.js: THE CLIENT DOESN'T LOAD THE CATALOG)
+const RINGS = {
+	"heavy-cavalry": ["Heavy Cavalry", "the friendly pieces this knight could move to are Warded, except the king & its partner knight, if any."], // THE EPIC HAS NO PARTNER: ITS OTHER KNIGHT IS WARDED
+	"heretical-subjection": ["Heretical Subjection", "moves without a card, like a bishop or like a king."],
+	"opposing-finality": ["Opposing Finality", "if it's captured, the opponent hands its owner a piece one stage below it."],
+};
+const TEXT = { ...STATUSES, ...RINGS };
 const FX_FPS = 30; // FRAMES ASKED FOR WHILE AN EFFECT ANIMATES (THE BOARD ONLY DRAWS ON DEMAND)
 const MAX_DT = 0.1; // SECONDS: THE FIRST FRAME AFTER A HIDDEN TAB OR AN IDLE SPELL DOESN'T JUMP AN EFFECT AHEAD
-const FIELDS = ["left", "by", "square", "slot", "slots", "siblings"]; // A CHANGE TO ONE IS AN UPDATE, NOT A RE-CREATE (COMPARED AS STRINGS: siblings IS A NEW LIST EACH SYNC)
+const FIELDS = ["left", "by", "square", "slot", "slots", "siblings", "ringSlot", "ringSlots"]; // A CHANGE TO ONE IS AN UPDATE, NOT A RE-CREATE (COMPARED AS STRINGS: siblings IS A NEW LIST EACH SYNC)
 
 const live = new Map(); // "pieceId:status" -> { fx, opts, mode }
 const ending = new Set(); // BURSTING: { fx, opts, until (ms, performance.now's clock) }
 let shown = new Map(); // SQUARE -> THE STATUSES SHOWN THERE AT THE LAST SYNC, FOR THE HOVER TEXT
 let timer = null, lastNow = null, hoverSquare = null, pickSquare = null, pointSquare = null, focusSquare = null, hoverBox = null; // pointSquare: THE LATEST TAPPED OR KEYBOARD-FOCUSED SQUARE (RULING R-3)
 let stale = null, pending = null; // stale: THE VIEW THE BOARD'S STEPS MOVED PAST (holdStatuses), pending: THE LAST SYNC PUT OFF, [cardsView, mode]
+let last = null; // THE LAST VIEW SYNCED, FOR A TRAPDOOR'S SPRING (springSquare)
 
 const squareName = (i) => "abcdefgh"[i % 8] + (8 - Math.floor(i / 8)); // 0 = a8, THE ENGINE'S ORDER (cards-engine/board.js sqName)
 const idOf = (key) => key.slice(0, key.lastIndexOf(":"));
+const baseOf = (key) => key.replace(/-epic$/, ""); // A VERSION'S KEY TO ITS CARD'S (cards-engine/cards/index.js baseKey)
+const cut = (e) => e.pieces.length !== (e.key === "heavy-cavalry" ? 2 : 1); // A HEAVY CAVALRY THE FOG CUT A KNIGHT FROM (view.js scrub): THE BASE'S LEFT ONE CAN'T BE TOLD, THE EPIC'S HAS NONE (pieces [] WOULD READ AS a8), SO NO RING & NO WARD
+const KNIGHT = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
+const knightSquares = (i) => KNIGHT.map(([dr, df]) => [(i >> 3) + dr, (i & 7) + df]).filter(([r, f]) => r >= 0 && r < 8 && f >= 0 && f < 8).map(([r, f]) => r * 8 + f);
+
+/**
+ * @description The enchantment rings a view shows (ruling T22-3), by piece id, in view.enchant's order: Heavy Cavalry (either version) on its enchanted knight (pieces[0]), Heretical
+ * Subjection on each of its bishops still its owner's bishop (one handed over loses it: the engine stops moving it), Opposing Finality on its piece; only on the view's board (fog)
+ * @param  {[object]} cardsView [the server's view: board.sq, enchant]
+ * @return {[Map]} pieceId -> [{ s, left }]
+ */
+export function ringList(cardsView) {
+	const rings = new Map(), sq = cardsView.board.sq, at = (id) => sq.find((p) => p && p.id === id);
+	const add = (id, s, left) => rings.set(id, [...(rings.get(id) || []), { s, left: left ?? null }]);
+	for (const e of cardsView.enchant || []) {
+		const s = baseOf(e.key);
+		if ((s === "heavy-cavalry" && !cut(e)) || s === "opposing-finality") { if (at(e.pieces[0])) { add(e.pieces[0], s, e.left); } }
+		else if (s === "heretical-subjection") { e.pieces.forEach((id) => { const p = at(id); if (p && p.c === e.owner && p.t === "b") { add(id, s, e.left); } }); }
+	}
+	return rings;
+}
+
+/**
+ * @description The pieces Heavy Cavalry wards in a view (ruling T22-2, the engine's canCapture rule): the owner's non-king pieces on the squares the enchanted knight could move to,
+ * never the partner, while both knights are the owner's, on the board & a knight's move apart (the epic version has no partner)
+ * @param  {[object]} cardsView [the server's view: board.sq, enchant]
+ * @return {[Set]} piece ids
+ */
+export function wardIds(cardsView) {
+	const ids = new Set(), sq = cardsView.board.sq;
+	for (const e of cardsView.enchant || []) {
+		if (baseOf(e.key) !== "heavy-cavalry" || cut(e)) { continue; }
+		const at = e.pieces.map((id) => sq.findIndex((p) => p && p.id === id));
+		if (!at.every((i) => i >= 0 && sq[i].c === e.owner && sq[i].t === "n") || (at.length > 1 && !knightSquares(at[0]).includes(at[1]))) { continue; }
+		for (const i of knightSquares(at[0])) { const p = sq[i]; if (p && p.c === e.owner && p.t !== "k" && p.id !== e.pieces[1]) { ids.add(p.id); } }
+	}
+	return ids;
+}
+
+/**
+ * @description Where a Trapdoor sprang between two synced views (ruling T22-1), null for none: a trapdoor entry the last view had is gone while the game is on (both views: a finished
+ * one shows every trap's square). Its owner knows the square (the old entry's data.square): a spring left an enemy piece Frozen on it (a drop ends the trap too, cards-engine turn.js
+ * drop). The other player's trap has no square in the view, so it's the square of the viewer's piece newly Frozen.
+ * shortcut: one spring a sync & the first newly Frozen piece; two at once would need the engine's event, fine while a trap is the only thing freezing on a move.
+ * A long slide (3+ squares) can outlast Card Guy's 500 ms wait, so two answers merge into one sync (pending keeps the newest): a trap played & sprung inside that window
+ * shows no snap (its statuses still do). Upgrade by diffing each view as it arrives & carrying the square in pending, if that's ever seen in play
+ * @param  {[object|null]} was [the last view synced]
+ * @param  {[object|null]} now [the view syncing]
+ * @return {[string|null]} "d5"
+ */
+export function springSquare(was, now) {
+	if (!was || !now || was.result || now.result) { return null; }
+	const traps = (v) => (v.enchant || []).filter((e) => baseOf(e.key) === "trapdoor"), still = traps(now).map((e) => e.id), gone = traps(was).filter((e) => !still.includes(e.id));
+	const frozen = (v, id) => ((v.statuses || {})[id] || []).some((e) => e.s === "frozen");
+	for (const e of gone.filter((e) => e.data && e.data.square)) {
+		const p = now.board.sq[rowOf(e.data.square) * 8 + fileOf(e.data.square)];
+		if (p && p.c !== e.owner && frozen(now, p.id)) { return e.data.square; }
+	}
+	if (!gone.some((e) => !(e.data && e.data.square))) { return null; } // ONLY THE OWNER'S OWN TRAPS ENDED, NONE SPRANG: NOT THE OTHER PLAYER'S EITHER
+	const i = now.board.sq.findIndex((p) => p && p.c === now.you && frozen(now, p.id) && !frozen(was, p.id));
+	return i < 0 ? null : squareName(i);
+}
 
 /**
  * @description The statuses a view shows, by "pieceId:status": a known status on a piece on the view's board (fog: a hidden piece isn't there), a veiled one unless the viewer
@@ -64,13 +137,19 @@ const idOf = (key) => key.slice(0, key.lastIndexOf(":"));
  * @return {[object]} { want: Map key -> { id, s, left, by, square, slot, slots, siblings }, onBoard: Set of piece ids }
  */
 export function statusList(cardsView) {
-	const want = new Map(), onBoard = new Set(), all = cardsView.statuses || {};
+	const want = new Map(), onBoard = new Set(), all = cardsView.statuses || {}, rings = ringList(cardsView), ward = wardIds(cardsView);
 	cardsView.board.sq.forEach(function (p, i) {
 		if (!p) { return; }
 		onBoard.add(p.id);
 		const list = (all[p.id] || []).filter((e) => STATUSES[e.s] && !(e.veiled && p.c === cardsView.you && !cardsView.result)); // A BACKUP OF THE SERVER'S STRIP (RULING R-1): IT SENDS THE REST
-		list.forEach((e, slot) => want.set(`${p.id}:${e.s}`, { id: p.id, s: e.s, left: e.left ?? null, by: e.by, square: squareName(i), slot, slots: list.length, siblings: list.filter((o) => o !== e).map((o) => o.s) }));
+		if (ward.has(p.id) && !list.some((e) => e.s === "warded")) { list.push({ s: "warded", left: null }); } // HEAVY CAVALRY'S WARD (T22-2): ONE AURA & ONE LINE WITH A REAL warded
+		const ring = rings.get(p.id) || [];
+		ring.forEach((r, ringSlot) => list.push({ ...r, ringSlot, ringSlots: ring.length })); // T22-5: CONCENTRIC, 0 THE INNER
+		list.forEach((e, slot) => want.set(`${p.id}:${e.s}`, { id: p.id, s: e.s, left: e.left ?? null, by: e.by, square: squareName(i), slot, slots: list.length, siblings: list.filter((o) => o !== e).map((o) => o.s), ringSlot: e.ringSlot, ringSlots: e.ringSlots }));
 	});
+	for (const e of cardsView.enchant || []) { // THE OPEN TRAP: ONLY ITS OWNER'S VIEW (A FINISHED GAME'S TOO) HAS ITS SQUARE
+		if (baseOf(e.key) === "trapdoor" && e.data && e.data.square) { want.set(`trapdoor:${e.id}`, { id: "trapdoor", s: "trapdoor", left: null, square: e.data.square }); }
+	}
 	return { want, onBoard };
 }
 
@@ -103,14 +182,14 @@ function onMesh(opts, mesh) {
 	mesh.userData.disposeStatuses = () => dropMesh(mesh); // pieces.js disposePiece: THE EFFECTS GO WITH THEIR PIECE
 }
 
-function make(key, w, mode, mesh) {
-	const root = new Group(), squareRoot = new Group();
+function make(key, w, mode) {
+	const root = new Group(), squareRoot = new Group(), trap = w.s === "trapdoor", mesh = trap ? null : view.pieces.get(w.square);
 	root.name = squareRoot.name = "statusFx";
 	const opts = { ...w, mode, mesh, root, squareRoot, reduce: REDUCE.matches };
-	onMesh(opts, mesh);
+	if (!trap) { onMesh(opts, mesh); } // THE TRAP IS THE SQUARE'S: NO PIECE, ALL IN squareRoot, THE SAME IN EITHER MODE
 	atSquare(squareRoot, w.square);
 	view.scene.add(squareRoot);
-	live.set(key, { fx: (mode === "badges" ? badges : MODULES[w.s]).create(mesh, opts), opts, mode });
+	live.set(key, { fx: (mode === "badges" && !trap ? badges : MODULES[w.s]).create(mesh, opts), opts, mode });
 }
 
 function free(l) {
@@ -172,23 +251,27 @@ export function syncStatuses(cardsView, mode) {
 	stale = null;
 	mode = mode === "badges" ? "badges" : "effects";
 	const { want, onBoard } = cardsView ? statusList(cardsView) : { want: new Map(), onBoard: new Set() };
-	for (const [key, w] of want) { if (!view.pieces.get(w.square)) { want.delete(key); onBoard.delete(w.id); } }
+	for (const [key, w] of want) { if (w.s !== "trapdoor" && !view.pieces.get(w.square)) { want.delete(key); onBoard.delete(w.id); } }
+	const sprang = springSquare(last, cardsView);
+	last = cardsView;
 	const plan = diffStatuses(live, want, mode, onBoard);
-	plan.end.forEach(({ key, burst }) => end(key, burst));
-	plan.swap.forEach((key) => { free(live.get(key)); live.delete(key); make(key, want.get(key), mode, view.pieces.get(want.get(key).square)); });
-	plan.create.forEach((key) => make(key, want.get(key), mode, view.pieces.get(want.get(key).square)));
+	plan.end.forEach(({ key, burst }) => end(key, burst)); // THE OPEN TRAP ENDS WITHOUT ONE ("trapdoor" IS NO PIECE ON THE BOARD)
+	if (sprang) { make("sprung", { s: "trapdoor", square: sprang, left: null, sprung: true }, "effects"); end("sprung", true); } // T22-1: BOTH PLAYERS SEE THE SNAP; ONE burst(), THEN stepStatuses PLAYS & FREES IT
+	plan.swap.forEach((key) => { free(live.get(key)); live.delete(key); make(key, want.get(key), mode); });
+	plan.create.forEach((key) => make(key, want.get(key), mode));
 	for (const key of plan.update) {
 		const l = live.get(key), moved = l.opts.square !== want.get(key).square;
 		Object.assign(l.opts, want.get(key));
 		if (moved) { atSquare(l.opts.squareRoot, l.opts.square); }
 	}
 	for (const [key, l] of live) {
+		if (l.opts.s === "trapdoor") { continue; } // A SQUARE'S: A PIECE STANDING THERE ISN'T ITS MESH
 		const mesh = view.pieces.get(l.opts.square);
 		if (mesh !== l.opts.mesh) { onMesh(l.opts, mesh); plan.update.push(key); }
 	}
 	new Set(plan.update).forEach((key) => live.get(key).fx.update(0));
 	shown = new Map();
-	for (const w of want.values()) { shown.set(w.square, [...(shown.get(w.square) || []), w]); }
+	for (const w of want.values()) { if (w.s !== "trapdoor") { shown.set(w.square, [...(shown.get(w.square) || []), w]); } }
 	showText();
 	pump();
 	requestRender();
@@ -219,7 +302,7 @@ export function clearStatuses() {
 	ending.clear();
 	shown = new Map();
 	pump();
-	hoverSquare = pickSquare = pointSquare = focusSquare = stale = pending = null;
+	hoverSquare = pickSquare = pointSquare = focusSquare = stale = pending = last = null;
 	if (hoverBox) { hoverBox.remove(); hoverBox = null; }
 }
 
@@ -237,7 +320,7 @@ export function liveStatuses() {
  * @return {[string]}
  */
 export function statusText(square) {
-	return (shown.get(square) || []).map((w) => `${STATUSES[w.s][0]}${w.left === null ? "" : ` (${w.left} turn${w.left === 1 ? "" : "s"} left)`}: ${STATUSES[w.s][1]}`).join("\n");
+	return (shown.get(square) || []).map((w) => `${TEXT[w.s][0]}${w.left === null ? "" : ` (${w.left} turn${w.left === 1 ? "" : "s"} left)`}: ${TEXT[w.s][1]}`).join("\n");
 }
 
 /**

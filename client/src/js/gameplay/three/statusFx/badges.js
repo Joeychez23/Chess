@@ -3,7 +3,8 @@
 import { Sprite, SpriteMaterial, CanvasTexture, SRGBColorSpace } from "three";
 import { CELL_SIZE } from "../constants.js";
 
-const COLORS = { warded: ["#e8c04a", "#7a5a10"], frozen: ["#bfe8ff", "#2b7fb8"], shaken: ["#b9cde4", "#2c5a94"], marked: ["#e04848", "#6e1010"], hexed: ["#7ee05a", "#2f6b1c"] }; // [FILL, RING]
+const COLORS = { warded: ["#e8c04a", "#7a5a10"], frozen: ["#bfe8ff", "#2b7fb8"], shaken: ["#b9cde4", "#2c5a94"], marked: ["#e04848", "#6e1010"], hexed: ["#7ee05a", "#2f6b1c"],
+	"heavy-cavalry": ["#d78c3c", "#8c5014"], "heretical-subjection": ["#a56ee6", "#5a2896"], "opposing-finality": ["#46c8be", "#146e6e"] }; // [FILL, RING]: THE RINGS' BRONZE, VIOLET & TEAL (sigils.js PAL body & halo)
 const PX = 64; // THE BADGE'S CANVAS SIDE
 const BADGE = CELL_SIZE * 0.3; // ITS SIZE ON THE BOARD (WORLD UNITS)
 const GAP = 1.15; // BADGES SIDE BY SIDE, IN BADGE WIDTHS FROM ONE'S MIDDLE TO THE NEXT'S
