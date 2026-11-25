@@ -60,7 +60,7 @@ function shownTo(state, viewer, card) {
 }
 
 /**
- * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus spot (their active spot: played cards, public), pile { n, top } (their discard pile: top is the card, { down: true } for one player was never shown, null when empty), kept (their remembered move card of the free discard: { down: true } unless face up, null when none; never gone, the passives that left this turn) and hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id, a fake under a card shown for real left out), so a field not listed stays hidden; no enchantment's data.ids or data.fake (sight bookkeeping); Phalanx's denied and Peasant Immunity's stopping only on player's own passives, and not under the opponent's Fog of War (they tell a hidden piece is a pawn); no seen field on player's own side (it would tell the fakes apart); an entered Mirage in player's own hand as a move card of its fake type, a waiting one (given, not yet entered at a refill) nowhere; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half are not in the view at all (their squares null, board.hidden = how many, and every field holding one of their ids removed: statuses, enchantment pieces and data, card fields, choice options), its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both); a finished game (state.result) hides no piece, shows the opponent's whole hand (the real cards, no fakes), their pile's top and remembered card, and a Trapdoor's square. Player's own pile top comes without its down mark. piled: the last cards to join either discard pile, newest first, { player, card }: the opponent's marked down is { down: true } (no id, key or piece) until the game is over, player's own come without the mark. View.you = player.
+ * @description The state as player may see it: no rng; the opponent's Player rebuilt from OPEN_FIELDS plus spot (their active spot: played cards, public), pile { n, top } (their discard pile: top is the card, { down: true } for one player was never shown, null when empty), kept (their remembered move card of the free discard: { down: true } unless face up, null when none; never gone, the passives that left this turn) and hand { count, shown } (count = every card held but the King card; shown = the cards player may see plus Interdicted Foresight's fakes, by id, a fake under a card shown for real left out), so a field not listed stays hidden; no enchantment's data.ids or data.fake (sight bookkeeping); Phalanx's denied and Peasant Immunity's stopping only on player's own passives, and not under the opponent's Fog of War (they tell a hidden piece is a pawn); no seen field on player's own side (it would tell the fakes apart); an entered Mirage in player's own hand as a move card of its fake type, a waiting one (given, not yet entered at a refill) nowhere; Trapdoor's square only for its owner; the current pending choice in full only to its player (the other sees { player, kind }), queued choices to nobody; under the opponent's Fog of War its pieces on its half are not in the view at all (their squares null, board.hidden = how many, and every field holding one of their ids removed: statuses, enchantment pieces and data, card fields, choice options), its captured list all "?", its castling rights and en passant square removed, and the history [] and half 0 (their castling and en passant tokens and the reset counter name fogged pieces; the state keeps both); a finished game (state.result) hides no piece, shows the opponent's whole hand (the real cards, no fakes), their pile's top and remembered card, and a Trapdoor's square. Player's own pile top comes without its down mark. piled: the last cards to join either discard pile, newest first, { player, card }: the opponent's marked down is { down: true } (no id, key or piece) until the game is over, player's own come without the mark. While the game is on, a veiled status (Tremor's Frozen) is left out for its piece's owner and a status's by (its caster) shows only to the piece's owner and the caster (#493). View.you = player.
  */
 function playerView(state, player) {
 	const v = copy(state), opp = other(player), me = v.players[player], o = v.players[opp], seen = state.players[player].seen;
@@ -82,6 +82,12 @@ function playerView(state, player) {
 	for (const e of v.enchant) if (e.data && isSight(e)) { delete e.data.ids; delete e.data.fake; } // WHICH CARDS A SIGHT SHOWS, AND WHICH ARE FAKE (sight.js), STAY HIDDEN
 	const fog = !state.result && fogged(state, opp, player); // A FINISHED GAME HIDES NOTHING (USER RULING 2026-11-21)
 	for (const e of v.effects) if (fog || e.owner !== player) { delete e.card.denied; delete e.card.stopping; } // PHALANX'S AND PEASANT IMMUNITY'S BOOKKEEPING READS TRUE PIECE TYPES (A FOGGED "?" PAWN): player'S OWN STAYS WHILE NO FOG HIDES A PIECE (fromView NEEDS IT TO PLAY AS THE REAL GAME)
+	if (!state.result) for (const [id, list] of Object.entries(v.statuses || {})) { // #493 (RULING 2026-11-23 08:33); A FINISHED GAME HIDES NOTHING
+		const q = state.board.sq.find((x) => x && x.id === id), mine = list.filter((e) => !(e.veiled && q && q.c === player)); // TREMOR'S FROZEN NEVER REACHES ITS PAWN'S OWNER
+		for (const e of mine) if (e.by !== player && !(q && q.c === player)) delete e.by; // THE CASTER SHOWS ONLY TO THE OWNER AND THE CASTER
+		if (mine.length) v.statuses[id] = mine;
+		else delete v.statuses[id];
+	}
 	if (v.duel) duel.hide(v.duel); // NO DECK, NO FACE-DOWN CARD, FOR EITHER PLAYER
 	if (v.pending) { // THE CURRENT CHOICE ONLY: QUEUED ONES (next) SHOW TO NOBODY UNTIL THEY ARE CURRENT
 		const { next, ...cur } = v.pending;
@@ -103,7 +109,7 @@ function playerView(state, player) {
 }
 
 /**
- * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): all of them as they are when that action ended the game (state.result); else under a Fog of War no event names a piece hidden after the action or a fogged piece taken in it (the id is removed wherever it stands: piece, by, any card field); a hidden piece's move is { type, player } alone and any other event about it is left out (a ranged shot's capture is about the piece shot: its from, the hidden shooter's square, stays, user ruling 2026-11-23); a piece that came out of the fog loses its from; the fogged side's captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }, except one under a fake of player's (a sight entry's data.fake: Interdicted Foresight), which carries that fake, as real sight would carry the card; player's own Mirage reads as a move card (its curse-given is left out: it shows only once it has taken over a held move card at a refill: that card's id and type), except in its curse-cleared and curse-fired (it is gone then); the other player sees it as it is; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?".
+ * @description The events of one action as player may see them, given state = the state after the action (inputs unchanged): all of them as they are when that action ended the game (state.result); else under a Fog of War no event names a piece hidden after the action or a fogged piece taken in it (the id is removed wherever it stands: piece, by, any card field); a hidden piece's move is { type, player } alone and any other event about it is left out (a ranged shot's capture is about the piece shot: its from, the hidden shooter's square, stays, user ruling 2026-11-23); a piece that came out of the fog loses its from; the fogged side's captures and promotions are masked, on the open half too (deliberately more than the view hides: never less); the opponent's draws and discards of cards player can't see become { type, player }, except one under a fake of player's (a sight entry's data.fake: Interdicted Foresight), which carries that fake, as real sight would carry the card; player's own Mirage reads as a move card (its curse-given is left out: it shows only once it has taken over a held move card at a refill: that card's id and type), except in its curse-cleared and curse-fired (it is gone then); the other player sees it as it is; a Trapdoor placement by the opponent loses its square; under the opponent's fog its moves lose the spent card and castle flag, and captures and promotions of its pieces t "?"; a veiled status event (Tremor's Frozen, given or ended) is left out for its piece's owner, and a status event's player (the caster) is removed for a player who is neither the piece's owner nor the caster (#493).
  */
 function playerEvents(state, events, player) {
 	if (state.result) return copy(events); // THE ACTION THAT ENDED THE GAME IS TOLD IN FULL (USER RULING 2026-11-21 03:12)
@@ -123,11 +129,13 @@ function playerEvents(state, events, player) {
 			if (ev.type === "curse-given") return null;
 			if (ev.type !== "curse-cleared" && ev.type !== "curse-fired") ev.card = disguise(c);
 		}
-		if (ev.veiled) { // TREMOR'S FROZEN (GIVEN OR ENDED) ON A PAWN STILL FOGGED: NOT TOLD
+		if (ev.veiled) { // TREMOR'S FROZEN (GIVEN OR ENDED): NEVER TOLD ITS PAWN'S OWNER (RULING 2026-11-23 08:33, #493), NOR ANYONE WHILE THE PAWN IS FOGGED
+			if (colorOf(ev) === player) return null;
 			const i = state.board.sq.findIndex((q) => q && q.id === ev.piece);
 			if (fog && i >= 0 && state.board.sq[i].c === opp && onHalf(i, opp)) return null;
 			delete ev.veiled;
 		}
+		if (ev.type === "status" && ev.player !== player && colorOf(ev) !== player) delete ev.player; // ITS player IS THE CASTER (statuses.give): TOLD ONLY THE OWNER AND THE CASTER (#493)
 		if (hid.includes(ev.piece)) { // A PIECE HIDDEN NOW: ITS MOVE IS TOLD BARE, ANYTHING ELSE ABOUT IT NOT AT ALL
 			if (ev.type !== "move") return null;
 			return { type: "move", player: ev.player };
@@ -214,14 +222,23 @@ function toFen(stateOrView) {
 }
 
 /**
- * @description The legal actions player is told: all of them, but under the opponent's Fog of War none that would show where a hidden piece stands: no move, no action with a move in it (Last Stand) and none naming a hidden piece; and every drop of player's own placed cards is told, also one that would put a king in check, which applyAction refuses (as a blind move). The rules don't change: applyAction still takes any legal action.
+ * @description The legal actions player is told: all of them, but under the opponent's Fog of War none that would show where a hidden piece stands: no move, no action with a move in it (Last Stand) and none naming a hidden piece; and every drop of player's own placed cards is told, also one that would put a king in check, which applyAction refuses (as a blind move). None that is legal only because of a veiled status (Tremor's Frozen) on player's own piece, which playerView leaves out for them: Cleanse's { piece, s } on it, the rare Cleanse with nothing else to clear (#493, ruling 2026-11-23 09:28 I1 (a)); what the status takes away (the pawn's moves, its Swap target) stays away, the accepted tell. Unless that would leave player no told action at all: then they are told (ruling 10:08 N1). The rules don't change: applyAction still takes any legal action.
  */
 function playerLegal(state, player) {
 	const turn = require("./turn.js"); // LAZY: turn.js LOADS THE CARDS, WHICH LOAD THIS FILE'S NEIGHBOURS
-	if (!fogged(state, other(player), player)) return turn.legalActions(state, player);
-	const all = turn.legalActions(state, player, true); // EVERY DROP OF THE PLAYER'S OWN PLACED CARDS: LEAVING OUT THE ONE THAT GIVES CHECK WOULD TELL WHERE A HIDDEN KING STANDS (RULING 2026-11-22)
-	const ids = hiddenIds(state, other(player));
-	return all.filter((a) => !JSON.stringify(a).includes('"move"') && !ids.some((id) => JSON.stringify(a).includes('"' + id + '"')));
+	const fog = fogged(state, other(player), player), ids = fog ? hiddenIds(state, other(player)) : [];
+	const all = turn.legalActions(state, player, fog); // UNDER THE FOG EVERY DROP OF THE PLAYER'S OWN PLACED CARDS: LEAVING OUT THE ONE THAT GIVES CHECK WOULD TELL WHERE A HIDDEN KING STANDS (RULING 2026-11-22)
+	const told = fog ? all.filter((a) => !JSON.stringify(a).includes('"move"') && !ids.some((id) => JSON.stringify(a).includes('"' + id + '"'))) : all;
+	const veiled = Object.keys(state.statuses || {}).filter((id) => state.statuses[id].some((e) => e.veiled) && state.board.sq.some((q) => q && q.id === id && q.c === player));
+	if (!veiled.length) return told;
+	const open = copy(state); // THE STATE AS player'S VIEW HAS IT: AN ACTION NOT LEGAL THERE NAMES OR NEEDS THE VEILED STATUS
+	for (const id of veiled) {
+		open.statuses[id] = open.statuses[id].filter((e) => !e.veiled);
+		if (!open.statuses[id].length) delete open.statuses[id];
+	}
+	const keys = new Set(turn.legalActions(open, player, fog).map(turn.actionKey));
+	const kept = told.filter((a) => keys.has(turn.actionKey(a)));
+	return kept.length ? kept : told; // RULING 2026-11-23 10:08 N1: HIDING THEM WOULD LEAVE NO LEGAL ACTION AT ALL AND HANG THE GAME, SO THE RARE DEAD END TELLS THEM
 }
 
 module.exports = { playerView, playerEvents, fromView, toFen, shownTo, playerLegal, fogged };

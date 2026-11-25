@@ -11,6 +11,7 @@ import { dismissHint } from "./hint.js";
 import { redrawScreen } from "./screen.js";
 import { uvToGrid, isTap } from "./monitor/monitor.js";
 import { CARD_ORDER } from "./cardLayout.js";
+import { tapStatuses } from "./statusFx/index.js"; // A TAPPED PIECE'S STATUSES, NAMED (RULING R-3)
 
 let tableDrag = false; // THIS PRESS DRAGGED A CHESS CARDS GAME'S PIECE (releaseTable) OR CARD (releaseCard): ITS CLICK ISN'T A TAP
 let cardHeld = false; // THE MOUSE IS DOWN ON A CHESS CARDS GAME'S CARD THAT CAN BE DRAGGED (cardTable.js grab): "moving" ONCE IT FOLLOWS THE POINTER
@@ -302,6 +303,7 @@ function pickTable(e, stop) {
 	}
 	if (!hit) { return false; }
 	if (stop) { e.stopPropagation(); }
+	if (hit.kind === "square" && view.pointerType !== "mouse") { tapStatuses(hit.square); } // TOUCH HAS NO HOVER: A TAP NAMES ANY PIECE'S STATUSES, AND STILL PICKS BELOW (THE MOUSE HAS ITS HOVER)
 	if (hit.kind === "pile") { // A FINGER'S TAP ON A CARD OF THE OPENED PILE: flow.js OFFERS ITS DROP BUTTON WHEN THE GAME LISTS ONE (true), ELSE THE PILE CLOSES AS FOR THE MOUSE, WHICH DRAGS THE CARD
 		if (!(view.pointerType !== "mouse" && hit.id && hit.pile === view.table.open() && view.cardOptions.onTable({ kind: "pile", pile: hit.pile, id: hit.id }))) { togglePile(hit.pile); }
 	}

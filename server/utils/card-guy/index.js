@@ -69,28 +69,48 @@ function decided(state, me) {
 }
 
 /**
+ * @description His own pawns with a move the real game refused this turn that no fogged piece explains (it is legal on the board with the fogged pieces left off): a veiled Frozen,
+ * Tremor's, which his view leaves out (#493). Frozen in each guess (frozen), so their other moves are never tried & no fitted guess looks for a fogged piece to explain them (ruling R-5)
+ * shortcut: a check or pin by a fogged piece refuses such a push too, so that pawn sits out the rest of the turn; upgrade if fogged checks show it costing games
+ * @return {[array]} piece ids
+ */
+function veiledPawns(view, refused, seed) {
+	if (!view.board.hidden || !refused.length) { return []; }
+	const keys = new Set(engine.legalActions(engine.fromView({ ...view, board: { ...view.board, hidden: 0 } }, seed), view.you).map(engine.actionKey));
+	const pawns = refused.filter((key) => keys.has(key)).map((key) => JSON.parse(key)).filter((a) => a.type === "move").map((a) => view.board.sq[engine.board.sqIndex(a.from)]);
+	return [...new Set(pawns.filter((q) => q && q.c === view.you && q.t === "p").map((q) => q.id))];
+}
+
+function frozen(sim, ids) {
+	const statuses = sim.statuses || (sim.statuses = {});
+	for (const id of ids) { if (!(statuses[id] || []).some((e) => e.s === "frozen")) { statuses[id] = [...(statuses[id] || []), { s: "frozen", left: 3, veiled: true }]; } }
+	return sim;
+}
+
+/**
  * @description The state Card Guy simulates on, one with an action the real game hasn't refused. Under the visitor's Fog of War the state is a guess (the fogged pieces are put
  * somewhere), so from the turn's third refusal (FIT_FROM) a guess is looked for (FITS tries) in which every refused action is illegal too, the closest when none is; when every action of a guess was refused another is made, and after the last one the board as Card Guy sees it, the fogged pieces left off: nothing guessed stands in a move's way there
- * @return {[object]} { sim, base: the seed sim was made from, bare: true for the board with the fogged pieces left off (no chess position: the engine isn't asked) }
+ * @return {[object]} { sim, base: the seed sim was made from, bare: true for the board with the fogged pieces left off (no chess position: the engine isn't asked), veiled: veiledPawns' }
  */
 function simulate(view, seed, refused, told) {
 	if (!Number.isFinite(seed)) { throw new TypeError("Card Guy's seed must be a finite number"); } // undefined OR THE GAME'S HEX SEED WOULD BECOME 0: ONE GUESS & ONE SET OF DICE EVERY TURN
+	const veiled = veiledPawns(view, refused, seed), guess = (v, s) => frozen(engine.fromView(v, s), veiled);
 	const left = (sim) => allowed(sim, view.you, refused, told).length > 0;
 	const fit = !!view.board.hidden && refused.length >= FIT_FROM; // SO MANY REFUSALS PROVE THE GUESS WRONG (A CHECK IT MISSED OR MADE UP), NOT ONE PIECE IN THE WAY: LOOK FOR A GUESS THEY AGREE WITH, NOT THE SAME ONE LESS A MOVE
 	const misses = (sim) => { const keys = new Set(engine.legalActions(sim, view.you).map(engine.actionKey)); return refused.filter((key) => keys.has(key)).length; }; // REFUSED ACTIONS THE GUESS STILL CALLS LEGAL
 	let best = null;
 	for (let n = 0; n < (fit ? FITS : GUESSES); n++) {
-		const base = seedAt(seed, n * (SAMPLES + 1)), sim = engine.fromView(view, base);
+		const base = seedAt(seed, n * (SAMPLES + 1)), sim = guess(view, base);
 		if (left(sim)) {
 			const miss = fit ? 2 * misses(sim) + (inCheck(sim, view.you) ? 1 : 0) : 0; // A GUESS OFTEN CHECKS CARD GUY, THE GAME SELDOM: OF TWO THAT AGREE, THE ONE WITH NO CHECK
-			if (!miss) { return { sim, base }; }
+			if (!miss) { return { sim, base, veiled }; }
 			if ((n < GUESSES || miss < 2) && (!best || miss < best.miss)) { best = { sim, base, miss }; } // NONE AGREES WITHOUT A CHECK: ONE THAT AGREES WITH A CHECK, ELSE THE CLOSEST OF THE FIRST GUESSES (PAST THEM ONLY ONE THAT AGREES)
 		}
 		if (!view.board.hidden) { break; } // NOTHING IS GUESSED ON THE BOARD: ANOTHER GUESS HAS THE SAME ACTIONS
 	}
-	if (best) { return { sim: best.sim, base: best.base }; }
-	const sim = view.board.hidden ? engine.fromView({ ...view, board: { ...view.board, hidden: 0 } }, seed) : null;
-	if (sim && left(sim)) { return { sim, base: seed, bare: true }; }
+	if (best) { return { sim: best.sim, base: best.base, veiled }; }
+	const sim = view.board.hidden ? guess({ ...view, board: { ...view.board, hidden: 0 } }, seed) : null;
+	if (sim && left(sim)) { return { sim, base: seed, bare: true, veiled }; }
 	throw new Error("Card Guy has no action to take");
 }
 
@@ -105,7 +125,7 @@ function simulate(view, seed, refused, told) {
  */
 async function scoreTurn(view, { evaluate, bestOf, seed, refused = [], legal }, world = simulate(view, seed, refused, toldOf(view, legal))) {
 	const told = toldOf(view, legal);
-	const me = view.you, sign = me === "w" ? 1 : -1, { sim, base, bare } = world, raw = engine.toFen(sim), now = bare ? null : chessFen(raw); // now: THE BOARD AS IT STANDS, null WHEN THE ENGINE ISN'T ASKED ABOUT IT
+	const me = view.you, sign = me === "w" ? 1 : -1, { sim, base, bare, veiled = [] } = world, raw = engine.toFen(sim), now = bare ? null : chessFen(raw); // now: THE BOARD AS IT STANDS, null WHEN THE ENGINE ISN'T ASKED ABOUT IT
 	let alarmed = false;
 	const engineDown = (err) => {
 		if (!alarmed) { console.log(`STOCKFISH FAILED, js-chess-engine PLAYS INSTEAD: ${err.message}`); } // THE LINE MUST START WITH THIS: AN ALARM MATCHES IT (terraform/modules/monitoring). ONE LINE A TURN. CARD GUY PLAYS BY ITS STATIC & CARD SCORES
@@ -123,7 +143,7 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [], legal }, 
 
 	// EACH CANDIDATE'S OUTCOMES: { fen, card, fixed } PER STATE IT WAS TRIED ON. ONE, UNLESS A SECOND GUESS ENDS DIFFERENTLY (A CHANCE OUTCOME: THEN ALL THE SAMPLES)
 	const samples = [{ state: sim, fen: raw }]; // THE GUESSED STATES & THEIR BOARDS, EACH MADE ONCE
-	const sample = (k) => samples[k] || (samples[k] = ((state) => ({ state, fen: engine.toFen(state) }))(engine.fromView(view, seedAt(base, k))));
+	const sample = (k) => samples[k] || (samples[k] = ((state) => ({ state, fen: engine.toFen(state) }))(frozen(engine.fromView(view, seedAt(base, k)), veiled)));
 	const tryOn = (state, action) => {
 		try {
 			const { state: after, events } = engine.applyAction(state, me, action);

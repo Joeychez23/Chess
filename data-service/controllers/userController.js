@@ -36,14 +36,22 @@ async function getMe(req, res) {
 // Save Settings (POST)
 /* ---------------------------------------------------------------- */
 /**
- * @description The requester's Default start settings (the settings page). All three must be real values, the chess server defaults bad ones before this
- * @param  {[object]} req.body [{ ai_level (600 - 3200 in steps of 100), ai_color, friend_color ("w" | "b" | "random") }]
+ * @description The requester's settings (the settings page): Default start settings & how statuses show. Each field is optional, at least one is sent,
+ * every one sent must be a real value (the chess server defaults bad ones before this). Only the sent fields change, the rest stay (updateUserSettings)
+ * @param  {[object]} req.body [{ ai_level (600 - 3200 in steps of 100), ai_color, friend_color ("w" | "b" | "random"), status_display ("effects" | "badges") }]
  * @return {[object]} response [updateUserSettings' { status, user_data, message }]
  */
+const SETTING_CHECKS = {
+	ai_level: (value) => !!readAiLevel(value),
+	ai_color: isColor,
+	friend_color: isColor,
+	status_display: (value) => value === "effects" || value === "badges"
+};
 async function saveSettings(req, res) {
-	const { ai_level, ai_color, friend_color } = req.body || {};
-	if (ai_level === undefined || !readAiLevel(ai_level) || !isColor(ai_color) || !isColor(friend_color)) { return refuse(req, res, 400, "Invalid settings"); }
-	return res.json(withoutSession(await updateUserSettings(req.player.id, { ai_level, ai_color, friend_color })));
+	const settings = req.body || {};
+	const fields = Object.keys(settings);
+	if (!fields.length || fields.some((field) => !Object.hasOwn(SETTING_CHECKS, field) || settings[field] == null || !SETTING_CHECKS[field](settings[field]))) { return refuse(req, res, 400, "Invalid settings"); } // OWN NAMES ONLY (NOT "constructor"); A NULL WOULD QUIETLY RESET A STORED FIELD NOW THAT SAVES MERGE
+	return res.json(withoutSession(await updateUserSettings(req.player.id, settings)));
 }
 
 /**

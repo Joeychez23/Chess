@@ -7,15 +7,17 @@
 
 const router = require('express').Router()
 const { requireAuth } = require('../../middleware/auth.js')
-const { limitPlayerSearch, limitFriends, limitAccountDeletes } = require('../../middleware/rateLimit.js')
-const { getUser, saveSettings, saveUsername, searchPlayers, getFriends, friendAction, deleteUserData } = require('../../controllers/userController.js')
+const { limitPlayerSearch, limitFriends, limitAccountDeletes, limitStatusDisplay, limitSettings } = require('../../middleware/rateLimit.js')
+const { getUser, saveSettings, checkStatusDisplay, saveStatusDisplay, saveUsername, searchPlayers, getFriends, friendAction, deleteUserData } = require('../../controllers/userController.js')
 
 
 router.route('/').get(requireAuth, getUser);    // /api/user -> SIGNED-IN USER & THEIR USERNAME (401 WHEN SIGNED OUT / EXPIRED)
 
 router.route('/').delete(requireAuth, limitAccountDeletes, deleteUserData);    // /api/user -> DELETE MY ACCOUNT (SETTINGS PAGE): DELETES THE AUTH0 LOGIN, LEAVES EVERY GAME, THEN DELETES THE user_db ROW & FREES THE USERNAME. 429 WHEN A LIMIT IS HIT
 
-router.route('/settings').put(requireAuth, saveSettings);    // /api/user/settings -> DEFAULT START SETTINGS (SETTINGS PAGE), HOME'S DROPDOWNS START ON THEM
+router.route('/settings').put(requireAuth, limitSettings, saveSettings);    // /api/user/settings -> DEFAULT START SETTINGS (SETTINGS PAGE), HOME'S DROPDOWNS START ON THEM. 429 WHEN A LIMIT IS HIT
+
+router.route('/settings/status-display').put(requireAuth, checkStatusDisplay, limitStatusDisplay, saveStatusDisplay);    // /api/user/settings/status-display -> STATUS DISPLAY (SETTINGS PAGE, A CARD GAME'S MENU): "effects" | "badges". 400 SPENDS NO TOKEN. 429 WHEN A LIMIT IS HIT (ONE EVERY 5 MINUTES)
 
 router.route('/username').put(requireAuth, saveUsername);    // /api/user/username -> USERNAME (SETTINGS PAGE), WHAT FRIENDS SEE. 409 WHEN SOMEONE HAS IT
 

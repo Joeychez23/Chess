@@ -260,4 +260,5 @@ export function setOpacity(mesh, opacity) {
 export function disposePiece(mesh) {
 	mesh.getObjectByName("shadow").material.dispose();
 	freeFadeMaterials(mesh);
+	mesh.userData.disposeStatuses?.(); // ITS STATUS EFFECTS GO WITH IT (statusFx/index.js SETS THIS)
 }

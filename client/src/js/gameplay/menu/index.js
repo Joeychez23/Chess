@@ -24,6 +24,7 @@ const { createNav, placeBefore } = require("../../pages/utils/nav.js"); // OPENS
 const { setUnavailable, setFill, stopFill } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
 const { setView, currentView, resetCamera, onViewChange, can3D, VIEWS } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA, THE 3D ROOM'S MONITOR (NOT gameplay/monitor: IT REQUIRES THIS FILE)
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
+const statusPref = require("../cards/statusPref.js"); // CHESS CARDS: A PIECE'S STATUSES AS EFFECTS OR BADGES
 import { showGameOver, handleDrawEvent, handleTakebackEvent } from "./offers.js";
 import { setAutoLean } from "../three/lean.js"; // NO three.js IN IT: STAYS IN THIS BUNDLE, THE 3D CHUNK USES THE SAME MODULE
 import { loadRematch, showOpponentLeft } from "./endGame.js";
@@ -37,6 +38,7 @@ const optSoundBtn = document.getElementById("optSound"); // MENU: SOUND ON / OFF
 const optViewBtn = document.getElementById("optView"); // MENU: VIEW 3D / 2D
 const optResetViewBtn = document.getElementById("optResetView"); // MENU: RESET VIEW, ONLY ON 3D
 const optAutoLeanBtn = document.getElementById("optAutoLean"); // MENU: AUTO LEAN ON / OFF, ONLY ON 3D
+const optStatusDisplayBtn = document.getElementById("optStatusDisplay"); // MENU: STATUS DISPLAY EFFECTS / BADGES, ONLY IN CARD GAMES
 export const optRestartBtn = document.getElementById("optRestart"); // MENU: FORFEIT, THEN RESTART (AI GAMES) OR REMATCH (FRIEND GAMES)
 export const optHomepageBtn = document.getElementById("optHome"); // MENU: HOMEPAGE
 export const optExitBtn = document.getElementById("optExit"); // MENU: LOGOUT (SIGNED IN) / LOGIN/SIGNUP (GUESTS)
@@ -214,6 +216,25 @@ function handleAutoLean(e) {
 // THE PLAYER'S SAVED AUTO LEAN, OFF BY DEFAULT. HERE, NOT IN gameplay/index.js WITH THE OTHER OPTIONS: THAT FILE WASN'T TASK 20E C2'S TO EDIT
 try { showAutoLean(localStorage.getItem(AUTO_LEAN_KEY) === "on"); } catch { showAutoLean(false); } // STORAGE BLOCKED (PRIVATE MODE)
 optAutoLeanBtn.addEventListener("click", handleAutoLean);
+
+/**
+ * @description Shows the Status Display item (card games, pages/play/index.js after statusPref.init) & its words, which say the mode that's on
+ */
+export function showStatusDisplay() {
+	optStatusDisplayBtn.parentElement.hidden = false;
+	optStatusDisplayBtn.innerText = statusPref.current() === "badges" ? "Status Display: Badges" : "Status Display: Effects";
+}
+
+/**
+ * @description Switches the status display between effects & badges, it applies at once & statusPref saves it, the menu stays open
+ */
+function handleStatusDisplay(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	statusPref.set(statusPref.current() === "effects" ? "badges" : "effects"); // FROM current(), NOT THE BUTTON'S WORDS (innerText COMES BACK IN CAPITALS, THE AUTO LEAN BUG)
+	showStatusDisplay();
+}
+optStatusDisplayBtn.addEventListener("click", handleStatusDisplay);
 
 /**
  * @description Puts the 3D camera back at its default for the player's side, the menu stays open
