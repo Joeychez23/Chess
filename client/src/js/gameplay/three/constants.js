@@ -44,6 +44,7 @@ export const ZOOM_MS = 400; // HOW LONG THE CAMERA TAKES TO GO UP TO THE MONITOR
 export const NEAR = 0.1; // THE CAMERA'S NEAR PLANE ON THE DESK...
 export const GLASS_CLEAR = 4; // ...& AT THE MONITOR, THIS FAR IN FRONT OF THE GLASS: A NARROW VIEW BACKS THE CAMERA ACROSS THE BOARD, & THE PIECES IN BETWEEN WOULD HIDE THE GLASS
 export const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)"); // THE ZOOM CUTS STRAIGHT THERE (monitor.js ASKS reduce())
+export const BLOOM_LAYER = 1; // T24: MESHES ON THIS LAYER GLOW (bloom.js); STATUS EFFECTS ENABLE IT UNLESS opts.cheap
 export const NO_MONITOR = { handlers: {}, announce() {}, onChange() {} }; // mount()'S monitor OPTION WHEN THE CALLER GIVES NONE
 export const LABEL = "Chess board, 3D. To play with the keyboard, press / and type a move."; // THE CANVAS'S ACCESSIBLE NAME (role img)
 

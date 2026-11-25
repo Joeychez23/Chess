@@ -1,20 +1,28 @@
 // Status effect: Shaken (can't capture). One lightning cage per turn left over the piece's head (one for a permanent Shaken, ruling Q2), steel blue (#b9cde4 bolts over a #2c5a94 glow),
 // each cage's core the "Bolt through ring" glyph (art/Glyphs/simple/shaken-core-picks.html, design N1, its brush engine rebuilt here). A bolt strikes about every second; the piece never
-// moves & there is no aura. A turn passing bursts the last cage, as does the status ending (burst). The contract & opts are statusFx/index.js's (see its @description)
-import { Group, Sprite, SpriteMaterial, CanvasTexture, SRGBColorSpace, LineSegments, LineBasicMaterial, BufferGeometry, Float32BufferAttribute, AdditiveBlending } from "three";
-import { CELL_SIZE } from "../constants.js";
+// moves & there is no aura. T24: each strike forks (shorter-lived side branches), the bolts glow (a white core, a steel-blue halo, BLOOM_LAYER unless opts.cheap) & the cages read from the opening camera. A turn passing bursts the last cage, as does the status ending (burst). The contract & opts are statusFx/index.js's (see its @description)
+import { Group, Sprite, SpriteMaterial, CanvasTexture, SRGBColorSpace, LineSegments, LineBasicMaterial, Points, PointsMaterial, BufferGeometry, Float32BufferAttribute, AdditiveBlending } from "three";
+import { CELL_SIZE, BLOOM_LAYER } from "../constants.js";
 import { skullMap } from "./marked.js";
+import { dotTexture, pointSize } from "./warded.js";
+import * as shakenFlash from "./shakenFlash.js"; // A CYCLE (IT IMPORTS OUR CONSTANTS): ONLY USED AT RUN TIME
 
 export const STRIKE = 1; // SECONDS BETWEEN BOLT STRIKES (THE CAGES TAKE TURNS)
 export const FLASH = 0.25; // SECONDS A STRIKE'S FLASH TAKES TO FADE
 export const BURST = 0.45; // SECONDS A BURSTING CAGE PLAYS: IT SWELLS & FADES
-const CAGE = CELL_SIZE * 0.32; // A CAGE'S HEIGHT ON THE BOARD (WORLD UNITS)
-const GAP = 1.05; // CAGES SIDE BY SIDE, IN CAGE SIZES FROM ONE'S MIDDLE TO THE NEXT'S
-const OVER = 0.1; // HOW FAR OVER THE PIECE'S TOP (PIECE UNITS)
-const REST = 0.4; // THE BOLTS' OPACITY BETWEEN STRIKES
+export const CAGE = CELL_SIZE * 0.44; // A CAGE'S HEIGHT ON THE BOARD (WORLD UNITS) AT 1-2 CAGES: ABOUT 32 PX FROM THE CHESS CARDS OPENING CAMERA ON A 1440x900 WINDOW (WAS 0.32, ABOUT 24 PX)
+export const GAP = 0.9; // CAGES SIDE BY SIDE, IN CAGE SIZES FROM ONE'S MIDDLE TO THE NEXT'S
+export const OVER = 0.1; // HOW FAR OVER THE PIECE'S TOP (PIECE UNITS)
+const ROW = CELL_SIZE * 0.95, WIDE = 1.12; // A ROW'S WIDTH AT MOST (RULING T24-R10); A CAGE'S WIDTH IN CAGE SIZES (BARS BOW OUT 0.48 EITHER SIDE, HALO DOTS 0.08 MORE)
+const REST = 0.55; // THE BOLTS' OPACITY BETWEEN STRIKES (WAS 0.4: TOO FAINT FROM THE OPENING CAMERA)
 const PX = 128; // THE GLYPH'S CANVAS SIDE
 const MAX = 3; // CAGES DRAWN AT MOST (RULING R15): A LONGER SHAKEN SHOWS 3, THE HOVER TEXT HAS THE NUMBER
 const BARS = 4, STEPS = 5; // A CAGE'S BOLTS & THE JAGGED STEPS IN EACH: 40 LINE VERTICES A CAGE
+export const MAIN_VERTS = BARS * STEPS * 2;
+export const FORKS = 4, FORK_VERTS = 2 * 2; // SIDE BRANCHES A STRIKE THROWS OFF, 2 JAGGED STEPS EACH: SAME GEOMETRY & DRAW AS THE BARS, SHOWN BY ITS DRAW RANGE
+export const FORK_S = 0.12; // SECONDS A STRIKE'S FORKS LAST (UNDER FLASH: THEY FLICKER OUT FIRST)
+const FORK_DIM = 0.5; // A FORK'S VERTEX COLOUR AGAINST THE BAR'S 1: LINE WIDTH IS ALWAYS 1 PX IN WebGL, SO "THINNER" IS DIMMER
+const CORE = "#eef4ff", HALO = "#3d6fae", HALO_SIZE = 0.16; // A NEAR-WHITE CORE LINE; A STEEL-BLUE HALO OF SOFT DOTS ON ITS JOINTS (CAGE UNITS ACROSS)
 const PAL = { halo: "rgba(44,90,148,", body: "rgba(95,135,195,", core: "rgba(185,205,228,", spark: "rgba(200,220,245," }; // #2c5a94 GLOW, #b9cde4 CORE
 
 /**
@@ -30,6 +38,25 @@ export const cageCount = (left) => (left === null || left === undefined ? 1 : Ma
  * @return {[number]} 0..1
  */
 export const flash = (t) => Math.max(0, 1 - t / FLASH);
+
+/**
+ * @description How many forks a cage draws t seconds after its strike: all FORKS until FORK_S, half (rounded up) when cheap, then none
+ * @param  {[number]} t
+ * @param  {[boolean]} cheap [opts.cheap]
+ * @return {[number]}
+ */
+/**
+ * @description The cage row's layout for n cages: a cage's size (world units) & cage i's x off the row's middle (world units). CAGE until n cages would pass ROW, then smaller so they fit (ruling T24-R10)
+ * @param  {[number]} n
+ * @param  {[number]} i
+ * @return {[object]} { size, x }
+ */
+export function cageLayout(n, i = 0) {
+	const size = Math.min(CAGE, ROW / (Math.max(0, n - 1) * GAP + WIDE));
+	return { size, x: (i - (n - 1) / 2) * GAP * size };
+}
+
+export const forks = (t, cheap) => (t < FORK_S ? (cheap ? Math.ceil(FORKS / 2) : FORKS) : 0);
 
 /**
  * @description A bursting cage's look t seconds in: it swells to 1.8 times its size & fades out by BURST
@@ -133,10 +160,15 @@ function drawGlyph(x, S) {
 	stroke(x, S / 560, front, 2.2, true);
 	dots(x, front, 18, 6, 0.4, 1.8);
 	cut(x, () => { for (let i = 0; i < 90; i++) { x.globalAlpha = rnd(0.2, 0.7); x.beginPath(); x.arc(rnd(-120, 120), rnd(-120, 120), rnd(0.6, 2.6), 0, Math.PI * 2); x.fill(); } });
+	// A DARK SOFT DISC BEHIND IT ALL, SO THE BLUE READS ON THE LIGHT SQUARES TOO (THE OPENING CAMERA IS FAR BACK)
+	x.globalCompositeOperation = "destination-over";
+	x.fillStyle = "rgba(6,12,24,0.13)"; // 6 STACKED DISCS: ABOUT 0.57 DARK AT THE MIDDLE, FADING OUT TO r 120
+	for (let r = 120; r >= 45; r -= 15) { x.beginPath(); x.arc(0, 0, r, 0, Math.PI * 2); x.fill(); }
+	x.globalCompositeOperation = "source-over";
 }
 
-// THE GLYPH TEXTURE, ONE FOR EVERY SHAKEN EFFECT (HERETICAL SUBJECTION SHAKES UP TO 16 PIECES IN ONE SYNC): PAINTED FOR THE FIRST USER, FREED WITH THE LAST
-let glyph = null, users = 0;
+// THE GLYPH TEXTURE & THE HALO'S DOT, ONE EACH FOR EVERY SHAKEN EFFECT (HERETICAL SUBJECTION SHAKES UP TO 16 PIECES IN ONE SYNC): MADE FOR THE FIRST USER, FREED WITH THE LAST
+let glyph = null, dot = null, users = 0;
 function useGlyph() {
 	if (!users++) {
 		const canvas = document.createElement("canvas");
@@ -144,11 +176,12 @@ function useGlyph() {
 		drawGlyph(canvas.getContext("2d"), PX);
 		glyph = new CanvasTexture(canvas);
 		glyph.colorSpace = SRGBColorSpace;
+		dot = dotTexture();
 	}
 	return glyph;
 }
 function dropGlyph() {
-	if (!--users) { glyph.dispose(); glyph = null; }
+	if (!--users) { glyph.dispose(); dot.dispose(); glyph = dot = null; }
 }
 
 // A CAGE'S BOLTS: BARS JAGGED STRANDS FROM ITS TOP TO ITS BOTTOM, BOWED OUT ROUND THE CORE (CAGE UNITS: 1 HIGH, CENTRED). REDRAWN ON EACH STRIKE SO THE LIGHTNING MOVES
@@ -164,21 +197,49 @@ function boltPoints(out) {
 			prev = p;
 		}
 	}
+	// FORKS: EACH FROM A RANDOM INNER JOINT OF A BAR, OUT & DOWN IN 2 SHORT JAGGED STEPS
+	for (let f = 0; f < FORKS; f++) {
+		const j = (Math.floor(rnd(0, BARS)) * STEPS + Math.floor(rnd(1, STEPS))) * 6 - 3; // THE END OF A BAR'S STEP 1..STEPS-1
+		let prev = [out[j], out[j + 1], out[j + 2]];
+		const a = Math.atan2(prev[2], prev[0]) + rnd(-0.6, 0.6);
+		for (let i = 0; i < 2; i++) {
+			const p = [prev[0] + Math.cos(a) * rnd(0.06, 0.12), prev[1] - rnd(0.04, 0.1), prev[2] + Math.sin(a) * rnd(0.06, 0.12)];
+			out.set(prev, o); out.set(p, o + 3); o += 6;
+			prev = p;
+		}
+	}
 	return out;
 }
+const VERTS = MAIN_VERTS + FORKS * FORK_VERTS;
+const COLORS = Float32Array.from({ length: VERTS * 3 }, (_, i) => (i < MAIN_VERTS * 3 ? 1 : FORK_DIM)); // COPIED INTO EACH CAGE: THREE MAY HOLD THE ARRAY
+// THE HALO'S DOTS, EACH JOINT ONCE (A LineSegments JOINT IS 2 VERTICES & ALL BARS SHARE THE TOP & BOTTOM): THE TOP, EACH BAR'S INNER JOINTS, THE BOTTOM, THEN EACH FORK'S 2 ENDS
+const HALO_INDEX = [0];
+for (let b = 0; b < BARS; b++) { for (let s = 0; s < STEPS - 1; s++) { HALO_INDEX.push((b * STEPS + s) * 2 + 1); } }
+HALO_INDEX.push(STEPS * 2 - 1);
+const HALO_MAIN = HALO_INDEX.length;
+for (let f = 0; f < FORKS; f++) { HALO_INDEX.push(MAIN_VERTS + f * FORK_VERTS + 1, MAIN_VERTS + f * FORK_VERTS + 3); }
 
 function makeCage(texture) {
 	const group = new Group();
 	const core = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
 	core.scale.setScalar(0.8);
 	const geometry = new BufferGeometry();
-	geometry.setAttribute("position", new Float32BufferAttribute(boltPoints(new Float32Array(BARS * STEPS * 6)), 3));
-	const bolts = new LineSegments(geometry, new LineBasicMaterial({ color: "#b9cde4", transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending }));
+	geometry.setAttribute("position", new Float32BufferAttribute(boltPoints(new Float32Array(VERTS * 3)), 3));
+	geometry.setAttribute("color", new Float32BufferAttribute(COLORS.slice(), 3));
+	geometry.setDrawRange(0, MAIN_VERTS);
+	const bolts = new LineSegments(geometry, new LineBasicMaterial({ color: CORE, vertexColors: true, transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending }));
 	bolts.name = "bolts";
-	group.add(core, bolts);
-	return { group, core, bolts, t: 0 };
+	const dots = new BufferGeometry(); // ITS OWN INDEX (COPIED PER CAGE, FREED WITH IT) OVER THE BOLTS' POSITIONS
+	dots.setAttribute("position", geometry.attributes.position);
+	dots.setIndex(HALO_INDEX.slice());
+	dots.setDrawRange(0, HALO_MAIN);
+	const halo = new Points(dots, new PointsMaterial({ color: HALO, map: dot, transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending }));
+	halo.name = "halo";
+	group.add(core, halo, bolts);
+	return { group, core, bolts, halo, t: 0 };
 }
-function freeCage(c) { c.group.removeFromParent(); c.core.material.dispose(); c.bolts.geometry.dispose(); c.bolts.material.dispose(); }
+const glowOn = (o, on) => (on ? o.layers.enable(BLOOM_LAYER) : o.layers.disable(BLOOM_LAYER)); // LAYER 0 STAYS: IT STILL DRAWS NORMALLY
+function freeCage(c) { c.group.removeFromParent(); c.core.material.dispose(); c.bolts.geometry.dispose(); c.halo.geometry.dispose(); c.bolts.material.dispose(); c.halo.material.dispose(); }
 
 /**
  * @description Shaken's cages, in a row in opts.root over the piece's head (they follow its lift, drag & drop). The row follows opts.left; a cage it loses bursts (none under opts.reduce),
@@ -193,7 +254,16 @@ export function create(pieceMesh, opts) {
 	row.name = "shakenCages";
 	opts.root.add(row);
 	const cages = [], dying = [];
-	let clock = 0, since = FLASH, striking = 0, ended = false, skull = null; // ended: burst() WAS CALLED, opts.left STAYS AT ITS LAST VALUE. skull: MADE ON FIRST NEED
+	let fl = shakenFlash.make(pieceMesh, opts, dot); // THE STRIKE FLASH: STRUCK FROM OUR STRIKE BRANCH BELOW (ONE CLOCK), GONE ON burst()
+	opts.root.add(fl.object);
+	opts.squareRoot.add(fl.ground);
+	let clock = 0, since = FLASH, striking = 0, ended = false, skull = null, slots = 0, dotSize = 0; // ended: burst() WAS CALLED, opts.left STAYS AT ITS LAST VALUE. skull: MADE ON FIRST NEED. slots: THE ROW'S LAID-OUT COUNT
+	function glow(c) { // HOISTED, NOT A CLOSURE PER FRAME. UNDER CHEAP THE HALO IS HIDDEN (RULING T24-R9)
+		glowOn(c.bolts, !opts.cheap);
+		glowOn(c.halo, !opts.cheap);
+		c.halo.visible = !opts.cheap;
+		c.halo.material.size = dotSize;
+	}
 
 	function lose(c) {
 		if (opts.reduce) { freeCage(c); } else { c.t = 0; dying.push(c); }
@@ -203,14 +273,20 @@ export function create(pieceMesh, opts) {
 		let grew = false;
 		while (cages.length > n) { lose(cages.pop()); }
 		while (cages.length < n) { const c = makeCage(texture); row.add(c.group); cages.push(c); grew = true; }
-		for (const c of [...dying]) {
+		for (let k = dying.length - 1; k >= 0; k--) {
+			const c = dying[k];
 			c.t += dt;
-			if (opts.reduce || c.t >= BURST) { dying.splice(dying.indexOf(c), 1); freeCage(c); }
+			if (opts.reduce || c.t >= BURST) { dying.splice(k, 1); freeCage(c); }
 		}
-		const box = opts.mesh.geometry && opts.mesh.geometry.boundingBox, size = CAGE / (opts.mesh.scale.y || 1); // THE ROOT IS IN PIECE UNITS
+		if (grew || !dying.length) { // THE ROW CLOSES UP (& RESIZES) ONCE A LOST CAGE HAS BURST
+			slots = cages.length;
+			for (let i = 0; i < slots; i++) { cages[i].group.position.set((i - (slots - 1) / 2) * GAP, 0, 0); }
+		}
+		const box = opts.mesh.geometry && opts.mesh.geometry.boundingBox, size = cageLayout(slots).size / (opts.mesh.scale.y || 1); // THE ROOT IS IN PIECE UNITS
+		dotSize = pointSize(HALO_SIZE * size, opts.mesh);
 		row.scale.setScalar(size);
 		row.position.set(0, (box ? box.max.y : 1) + OVER + size / 2, 0);
-		if (grew || !dying.length) { cages.forEach((c, i) => c.group.position.set((i - (cages.length - 1) / 2) * GAP, 0, 0)); } // THE ROW CLOSES UP ONCE A LOST CAGE HAS BURST
+		if (fl) { fl.update(dt); }
 		if (!opts.reduce && cages.length) {
 			clock += dt;
 			since += dt;
@@ -221,21 +297,29 @@ export function create(pieceMesh, opts) {
 				const pos = cages[striking].bolts.geometry.attributes.position;
 				boltPoints(pos.array);
 				pos.needsUpdate = true;
+				if (fl) { fl.strike(striking, slots); } // THE CAGE AS THE ROW LAYS IT OUT (slots, NOT cages.length, WHILE A LOST CAGE BURSTS)
 			}
 		}
 		const fade = opts.mesh.userData.opacity ?? 1, f = opts.reduce ? 0 : flash(since);
 		const marked = opts.siblings.includes("marked"), centre = cages[Math.floor((cages.length - 1) / 2)];
 		if (marked && !skull) { skull = skullMap(); }
-		cages.forEach((c, i) => {
-			const lit = i === striking % cages.length ? f : 0;
-			c.bolts.material.opacity = (REST + (1 - REST) * lit) * fade;
+		const forked = opts.reduce ? 0 : forks(since, opts.cheap);
+		for (let i = 0; i < cages.length; i++) {
+			const c = cages[i], lit = i === striking % cages.length ? f : 0, shown = lit ? forked : 0;
+			glow(c);
+			c.bolts.geometry.setDrawRange(0, MAIN_VERTS + shown * FORK_VERTS);
+			c.halo.geometry.setDrawRange(0, HALO_MAIN + shown * 2);
+			c.bolts.material.opacity = c.halo.material.opacity = (REST + (1 - REST) * lit) * fade;
 			c.core.material.opacity = (0.85 + 0.15 * lit) * fade;
 			c.core.material.map = marked && c === centre ? skull : texture;
-		});
+		}
 		for (const c of dying) {
+			glow(c);
 			const look = burstLook(c.t);
 			c.group.scale.setScalar(look.scale);
-			c.bolts.material.opacity = look.opacity * fade;
+			c.bolts.geometry.setDrawRange(0, MAIN_VERTS);
+			c.halo.geometry.setDrawRange(0, HALO_MAIN);
+			c.bolts.material.opacity = c.halo.material.opacity = look.opacity * fade;
 			c.core.material.opacity = look.opacity * fade;
 			c.core.material.map = texture; // A BURSTING CAGE IS SHAKEN'S OWN: MARKED'S SKULL FLOATS AGAIN ONCE SHAKEN ENDS
 		}
@@ -245,6 +329,7 @@ export function create(pieceMesh, opts) {
 		update,
 		burst() {
 			ended = true;
+			if (fl) { fl.dispose(); fl = null; } // NO FLASH OVER BURSTING CAGES
 			if (opts.reduce) { return 0; }
 			while (cages.length) { lose(cages.pop()); }
 			return BURST * 1000;
@@ -254,6 +339,7 @@ export function create(pieceMesh, opts) {
 			[...cages, ...dying].forEach(freeCage);
 			cages.length = dying.length = 0;
 			row.removeFromParent();
+			if (fl) { fl.dispose(); fl = null; }
 			dropGlyph();
 			if (skull) { skull.dispose(); }
 		},

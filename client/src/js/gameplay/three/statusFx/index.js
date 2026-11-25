@@ -11,6 +11,7 @@ import * as badges from "./badges.js";
 import * as sigils from "./sigils.js";
 import * as trapdoor from "./trapdoor.js";
 import { REDUCE } from "../constants.js";
+import { setBloom } from "../bloom.js";
 
 /**
  * @description The effect module of each status, for the "effects" mode. Every module exports create(pieceMesh, opts) -> { update(dt), burst(), animating(), dispose() }:
@@ -21,7 +22,10 @@ import { REDUCE } from "../constants.js";
  *   missing when the server strips it), square (the view's square, "e4"), mode ("effects"), slot & slots (this status's place among the piece's shown statuses: 0..slots-1),
  *   siblings (the names of the piece's other shown statuses, ["marked"]: for looks that share the piece, ruling 09:19's skull in Shaken's cage, Task 22's sigils),
  *   mesh (the piece's mesh now: syncFromBoard can hand the piece another one, the frame then moves opts.root onto it), root, squareRoot,
- *   reduce (true under prefers-reduced-motion: draw a still look, no loop; it can change while live, update(0) follows) }
+ *   reduce (true under prefers-reduced-motion: draw a still look, no loop; it can change while live, update(0) follows),
+ *   cheap (Task 24: true on a phone or once the frame rate collapses: no BLOOM_LAYER, half the motes/particles/bolts; it can turn on while live, update(0) follows),
+ *   fresh (Task 24: true when the status appeared after this mount's first sync on a piece the last sync showed, read it in create only (false after): false on a first sync, a remount,
+ *   a mode switch, a mesh swap's re-create, a piece out of the fog or a veil lifting (ruling T24-R14) }
  * - update(dt): on every frame drawn while the effect is live (dt in seconds, at most 0.1; 0 on a change: left, square, slot, by, siblings, mesh or reduce). Animate from it
  * - animating(): true while the effect needs frames to move (a pulse, a spin, a fade in). Asked after each sync & each frame: while one says true (& reduce is off) the frame asks for
  *   frames at about FX_FPS; once all say false the board draws only on demand & update is next called on some other frame (a sync, the camera). A still effect returns false.
@@ -64,6 +68,13 @@ let shown = new Map(); // SQUARE -> THE STATUSES SHOWN THERE AT THE LAST SYNC, F
 let timer = null, lastNow = null, hoverSquare = null, pickSquare = null, pointSquare = null, focusSquare = null, hoverBox = null; // pointSquare: THE LATEST TAPPED OR KEYBOARD-FOCUSED SQUARE (RULING R-3)
 let stale = null, pending = null; // stale: THE VIEW THE BOARD'S STEPS MOVED PAST (holdStatuses), pending: THE LAST SYNC PUT OFF, [cardsView, mode]
 let last = null; // THE LAST VIEW SYNCED, FOR A TRAPDOOR'S SPRING (springSquare)
+let seen = null; // THE KEYS THE LAST SYNC'S VIEW HAD (BEFORE THE NO-MESH CUT), null: NO SYNC YET THIS MOUNT. A KEY NOT IN IT IS opts.fresh (T24 J4)
+let seenOn = null; // THE LAST SYNC'S PIECES: id -> true WHEN ITS VEILED STATUSES WERE HIDDEN (THE VIEWER'S OWN, GAME ON). RULING T24-R14: NO GAIN OUT OF THE FOG OR A LIFTED VEIL
+export const SLOW_MS = 50; // A MEDIAN FRAME SLOWER THAN THIS (UNDER 20 FPS WHILE THE FRAME ASKS FOR FX_FPS) IS A COLLAPSE
+const WINDOW_MS = 2000; // HOW LONG A COLLAPSE MUST LAST
+const MIN_GAPS = 8, MAX_GAP_MS = 1000; // A WINDOW DECIDES FROM AT LEAST 8 GAPS; A GAP OVER 1 s IS A HIDDEN TAB OR A STALL, NOT A FRAME RATE
+const gaps = new Float64Array(512); // THE WINDOW'S FRAME GAPS, PREALLOCATED: NO PER-FRAME ALLOCATION
+let cheap = null, gapCount = 0, gapStart = null; // cheap: null UNTIL THE FIRST STATUS OF A MOUNT DECIDES IT
 
 const squareName = (i) => "abcdefgh"[i % 8] + (8 - Math.floor(i / 8)); // 0 = a8, THE ENGINE'S ORDER (cards-engine/board.js sqName)
 const idOf = (key) => key.slice(0, key.lastIndexOf(":"));
@@ -174,6 +185,37 @@ export function diffStatuses(was, want, mode, onBoard) {
 	return plan;
 }
 
+/**
+ * @description Whether the effects use their cheap look (Task 24): on the phone profile, or when the median frame of a timed window is slower than SLOW_MS
+ * @param  {[object]} o [{ coarse: (pointer: coarse) matches, frameMs: the median frame in ms, null/undefined: not timed }]
+ * @return {[boolean]}
+ */
+export function decideCheap({ coarse, frameMs }) {
+	return Boolean(coarse) || (frameMs != null && frameMs > SLOW_MS);
+}
+
+// THE SWITCH CHANGED (OR WAS FIRST DECIDED): EVERY STATUS HEARS IT IN PLACE, THE BLOOM FOLLOWS
+function setCheap(on) {
+	if (on === cheap) { return; }
+	cheap = on;
+	for (const l of live.values()) { l.opts.cheap = on; l.fx.update(0); }
+	for (const e of ending) { e.opts.cheap = on; }
+	setBloom(!on);
+}
+
+// ONE FRAME GAP WHILE THE EFFECTS ASK FOR FRAMES; A WINDOW OF 2 s & 8 GAPS (OR A FULL BUFFER) DECIDES. ONLY EVER TURNS IT ON: BACK OFF ONLY ON THE NEXT MOUNT (NO FLIP-FLOPPING)
+function timeFrame(gap, now) {
+	if (cheap) { return; }
+	if (gap > MAX_GAP_MS) { gapCount = 0; gapStart = null; return; } // A HIDDEN TAB OR STALL: START A FRESH WINDOW, SO A FEW JANKY FRAMES ON RETURN CAN'T DECIDE IT (RE-REVIEW N1)
+	if (gapStart === null) { gapStart = now; }
+	gaps[gapCount++] = gap;
+	if ((now - gapStart < WINDOW_MS || gapCount < MIN_GAPS) && gapCount < gaps.length) { return; }
+	const sorted = gaps.subarray(0, gapCount).sort();
+	setCheap(decideCheap({ coarse: false, frameMs: sorted[gapCount >> 1] }));
+	gapCount = 0;
+	gapStart = null;
+}
+
 function atSquare(root, square) { root.position.set(center(fileOf(square)), 0, center(rowOf(square))); }
 
 function onMesh(opts, mesh) {
@@ -182,14 +224,16 @@ function onMesh(opts, mesh) {
 	mesh.userData.disposeStatuses = () => dropMesh(mesh); // pieces.js disposePiece: THE EFFECTS GO WITH THEIR PIECE
 }
 
-function make(key, w, mode) {
+function make(key, w, mode, fresh = false) {
 	const root = new Group(), squareRoot = new Group(), trap = w.s === "trapdoor", mesh = trap ? null : view.pieces.get(w.square);
 	root.name = squareRoot.name = "statusFx";
-	const opts = { ...w, mode, mesh, root, squareRoot, reduce: REDUCE.matches };
+	if (cheap === null) { setCheap(decideCheap({ coarse: window.matchMedia("(pointer: coarse)").matches })); } // ONCE A MOUNT, AS three/index.js mount's phone
+	const opts = { ...w, mode, mesh, root, squareRoot, reduce: REDUCE.matches, cheap, fresh };
 	if (!trap) { onMesh(opts, mesh); } // THE TRAP IS THE SQUARE'S: NO PIECE, ALL IN squareRoot, THE SAME IN EITHER MODE
 	atSquare(squareRoot, w.square);
 	view.scene.add(squareRoot);
 	live.set(key, { fx: (mode === "badges" && !trap ? badges : MODULES[w.s]).create(mesh, opts), opts, mode });
+	opts.fresh = false; // AT create ONLY: NEVER SEEN BY update OR THE ENDING COPY
 }
 
 function free(l) {
@@ -214,8 +258,8 @@ function dropMesh(mesh) {
 // FRAMES WHILE AN EFFECT ANIMATES OR A BURST PLAYS, NONE UNDER REDUCED MOTION (AS fire.js & clock.js). BADGES ARE STILL: THEY'RE REDRAWN ON A SYNC
 function pump() {
 	const need = !REDUCE.matches && (ending.size > 0 || [...live.values()].some((l) => l.fx.animating?.()));
-	if (need && !timer) { timer = setInterval(requestRender, 1000 / FX_FPS); }
-	else if (!need && timer) { clearInterval(timer); timer = null; lastNow = null; }
+	if (need && !timer) { timer = setInterval(requestRender, 1000 / FX_FPS); lastNow = null; } // THE ON-DEMAND IDLE BEFORE IT IS NO FRAME GAP
+	else if (!need && timer) { clearInterval(timer); timer = null; lastNow = null; gapCount = 0; gapStart = null; } // THE WINDOW COUNTS ONLY WHILE THE EFFECTS ANIMATE
 }
 
 // REDUCED MOTION TURNED ON OR OFF: EVERY EFFECT HEARS IT, A PLAYING BURST ENDS, THE FRAMES FOLLOW
@@ -251,6 +295,13 @@ export function syncStatuses(cardsView, mode) {
 	stale = null;
 	mode = mode === "badges" ? "badges" : "effects";
 	const { want, onBoard } = cardsView ? statusList(cardsView) : { want: new Map(), onBoard: new Set() };
+	const was = seen, wasOn = seenOn, veiled = (w) => ((cardsView.statuses || {})[w.id] || []).some((e) => e.s === w.s && e.veiled);
+	const prev = last, wasCut = (e) => (prev.enchant || []).some((o) => o.id === e.id && baseOf(o.key) === "heavy-cavalry" && cut(o));
+	const wardSeen = (w) => w.s !== "warded" || ((cardsView.statuses || {})[w.id] || []).some((e) => e.s === "warded") // R16: A WARD ONLY HEAVY CAVALRY GIVES NEEDS AN ENCHANT THE FOG DIDN'T CUT LAST SYNC
+		|| (cardsView.enchant || []).some((e) => baseOf(e.key) === "heavy-cavalry" && !wasCut(e) && wardIds({ ...cardsView, enchant: [e] }).has(w.id));
+	const fresh = (key, w) => was !== null && !was.has(key) && wasOn.has(w.id) && !(wasOn.get(w.id) && veiled(w)) && wardSeen(w); // R14: ITS PIECE WAS SHOWN, ITS VEIL DIDN'T HIDE IT
+	seen = cardsView ? new Set(want.keys()) : null; // A NULL VIEW: THE NEXT VIEW IS A FIRST SYNC AGAIN
+	seenOn = cardsView ? new Map(cardsView.board.sq.filter(Boolean).map((p) => [p.id, p.c === cardsView.you && !cardsView.result])) : null;
 	for (const [key, w] of want) { if (w.s !== "trapdoor" && !view.pieces.get(w.square)) { want.delete(key); onBoard.delete(w.id); } }
 	const sprang = springSquare(last, cardsView);
 	last = cardsView;
@@ -258,7 +309,7 @@ export function syncStatuses(cardsView, mode) {
 	plan.end.forEach(({ key, burst }) => end(key, burst)); // THE OPEN TRAP ENDS WITHOUT ONE ("trapdoor" IS NO PIECE ON THE BOARD)
 	if (sprang) { make("sprung", { s: "trapdoor", square: sprang, left: null, sprung: true }, "effects"); end("sprung", true); } // T22-1: BOTH PLAYERS SEE THE SNAP; ONE burst(), THEN stepStatuses PLAYS & FREES IT
 	plan.swap.forEach((key) => { free(live.get(key)); live.delete(key); make(key, want.get(key), mode); });
-	plan.create.forEach((key) => make(key, want.get(key), mode));
+	plan.create.forEach((key) => make(key, want.get(key), mode, fresh(key, want.get(key)))); // A SWAP, A MESH SWAP'S RE-CREATE, A FIRST SYNC, A FOG OR VEIL REVEAL: NOT FRESH
 	for (const key of plan.update) {
 		const l = live.get(key), moved = l.opts.square !== want.get(key).square;
 		Object.assign(l.opts, want.get(key));
@@ -284,6 +335,7 @@ export function syncStatuses(cardsView, mode) {
 export function stepStatuses(now) {
 	if (pending && !view.anims.size) { syncStatuses(...pending); }
 	const dt = lastNow === null ? 0 : Math.min(MAX_DT, Math.max(0, now - lastNow) / 1000);
+	if (timer && lastNow !== null) { timeFrame(now - lastNow, now); } // ONLY WHILE THE EFFECTS ASK FOR FRAMES: ON DEMAND, A GAP IS IDLE TIME, NOT A SLOW FRAME
 	lastNow = now;
 	for (const l of live.values()) { l.fx.update(dt); }
 	for (const e of ending) {
@@ -302,7 +354,8 @@ export function clearStatuses() {
 	ending.clear();
 	shown = new Map();
 	pump();
-	hoverSquare = pickSquare = pointSquare = focusSquare = stale = pending = last = null;
+	hoverSquare = pickSquare = pointSquare = focusSquare = stale = pending = last = cheap = gapStart = seen = seenOn = null; // cheap: THE NEXT MOUNT DECIDES AGAIN
+	gapCount = 0;
 	if (hoverBox) { hoverBox.remove(); hoverBox = null; }
 }
 
