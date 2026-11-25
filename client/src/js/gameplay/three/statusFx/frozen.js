@@ -116,7 +116,7 @@ export function radiusAt(pos, y, band) {
 /**
  * @description The Frozen crust on one piece (statusFx/index.js calls it)
  * @param  {[Mesh]} pieceMesh [unused: opts.mesh is the current one]
- * @param  {[object]} opts [statusFx/index.js: { s, id, left, by, square, mode, slot, slots, mesh, root, squareRoot, reduce, cheap }, updated in place (update(0) follows a change to cheap)]
+ * @param  {[object]} opts [statusFx/index.js: { s, id, left, by, square, mode, slot, slots, mesh, root, squareRoot, reduce, cheap, fresh }, updated in place (update(0) follows a change to cheap)]
  * @return {[object]} { update(dt), burst(), animating(), dispose() }
  */
 export function create(pieceMesh, opts) {
@@ -187,11 +187,11 @@ export function create(pieceMesh, opts) {
 		rime.material.opacity = RIME_ALPHA * f.a * fade;
 		mist.material.opacity = MIST_ALPHA * f.a * fade;
 		shardMat.opacity = SHARD_ALPHA * f.a * fade;
-		shards.children.forEach(function (s, i) {
-			const up = i % 2, angle = (i / SHARDS) * 2 * Math.PI + 0.4, r = (up ? rHi : rLo) * 1.02 * (1 + 0.6 * f.out), y = (up ? yHi : yLo) * (1 - f.drop), j = up ? f.jolt : -f.jolt;
+		for (let i = 0; i < shards.children.length; i++) { // A LOOP, NOT A CLOSURE A FRAME (T24 M4)
+			const s = shards.children[i], up = i % 2, angle = (i / SHARDS) * 2 * Math.PI + 0.4, r = (up ? rHi : rLo) * 1.02 * (1 + 0.6 * f.out), y = (up ? yHi : yLo) * (1 - f.drop), j = up ? f.jolt : -f.jolt;
 			s.position.set(Math.cos(angle) * r, y, Math.sin(angle) * r);
 			s.rotation.set(j, -angle, -0.9 - 1.6 * f.out + j); // POINTING OUT & UP FROM THE CRUST, JOLTING AS IT CRACKS, TUMBLING AS IT FALLS
-		});
+		}
 	}
 	update(0);
 	showCounts();

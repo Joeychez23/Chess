@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { boardHover, setAutoLean, setLeanCamera, retryLean, leanSpot, LEAN_TILT, LEAN_BACK_MS } = require("../src/js/gameplay/three/lean.js");
+const { boardHover, leftBoard, setAutoLean, setLeanCamera, retryLean, leanSpot, LEAN_TILT, LEAN_BACK_MS } = require("../src/js/gameplay/three/lean.js");
 
 const calls = [];
 let dragging = false; // camera.js'S back() ANSWERS false WHILE A PIECE IS DRAGGED
@@ -133,4 +133,21 @@ test("the lean spot from a turned camera keeps its angle & backs off just enough
 		const edge = Math.max(...corners.flatMap((c) => [Math.abs(c.x), Math.abs(c.y)]));
 		assert.ok(Math.abs(edge - 1) < 1e-6, `at ${turn} degrees, ${aspect}: the outermost corner is on the screen's edge, got ${edge}`);
 	}
+});
+
+test("RB-M1: the board unmounted (leftBoard) forgets the pointer was on it: a later retryLean doesn't lean, & no way back is asked of the old camera", (t) => {
+	fresh(t);
+	setAutoLean(true);
+	boardHover(true);
+	boardHover(false); // A WAY BACK IS WAITING
+	boardHover(true);
+	calls.length = 0;
+	leftBoard();
+	retryLean();
+	t.mock.timers.tick(LEAN_BACK_MS * 3);
+	assert.deepEqual(calls, []);
+	boardHover(true); // THE NEW BOARD'S FIRST HOVER LEANS AS EVER
+	assert.deepEqual(calls, ["lean"]);
+	boardHover(false);
+	t.mock.timers.tick(LEAN_BACK_MS);
 });

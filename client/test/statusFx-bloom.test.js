@@ -99,12 +99,12 @@ function fakeRenderer() {
 	const color = { mask: true, locked: false, setMask(m) { if (!this.locked) { this.mask = m; } }, setLocked(l) { this.locked = l; }, setClear: noop, reset: noop };
 	let target = null;
 	const renderer = {
-		log, autoClear: true, outputColorSpace: SRGBColorSpace, toneMapping: NoToneMapping, toneMappingExposure: 1,
+		log, autoClear: true, info: { autoReset: true, resets: 0, reset() { this.resets++; } }, outputColorSpace: SRGBColorSpace, toneMapping: NoToneMapping, toneMappingExposure: 1,
 		state: { buffers: { color, depth: any, stencil: any } },
 		getSize: (v) => v.set(800, 600), getPixelRatio: () => 1,
 		getClearColor: (c) => c.set(0), getClearAlpha: () => 1, setClearColor: noop, setClearAlpha: noop,
 		getRenderTarget: () => target, setRenderTarget: (t) => { target = t; }, clear: noop,
-		render: (scene, camera) => log.push({ scene, material: scene.material, target, mask: camera.layers.mask, colorMask: color.mask, background: scene.background, fog: scene.fog })
+		render: (scene, camera) => log.push({ scene, material: scene.material, target, autoReset: renderer.info.autoReset, mask: camera.layers.mask, colorMask: color.mask, background: scene.background, fog: scene.fog })
 	};
 	return new Proxy(renderer, { get: (o, k) => (k in o ? o[k] : noop) });
 }
@@ -139,6 +139,7 @@ test("bloom route: the scene's depth first (own layers, colour off, fog kept), t
 	assert.equal(scene.fog, fog);
 	assert.equal(renderer.state.buffers.color.locked, false);
 	assert.equal(renderer.autoClear, true);
+	assert.deepEqual([renderer.log.every((d) => d.autoReset === false), renderer.info.resets, renderer.info.autoReset], [true, 1, true]); // T24 M2: THE DRAW COUNTS RUN OVER THE WHOLE FRAME (perf.js READS THEM), RESET ONCE AT ITS START
 	bloom.disposeBloom();
 });
 

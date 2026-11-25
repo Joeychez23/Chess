@@ -73,9 +73,9 @@ const TRAP = (square) => ({ id: "e4", key: "trapdoor", owner: "b", pieces: [], l
 
 // ---- THE RING LIST (T22-3) ----
 
-test("ringList: Heavy Cavalry on the enchanted knight only (either version), Heretical Subjection on each bishop with its turns left, Opposing Finality on its piece", () => {
+test("ringList: Heavy Cavalry on its one enchanted knight, Heretical Subjection on each bishop with its turns left, Opposing Finality on its piece", () => {
 	const pieces = { e4: "w:n1:n", f6: "w:n2:n", c1: "w:b1:b", f1: "w:b2:b", d2: "w:q1:q", a7: "b:n9:n" };
-	const rings = fx.ringList(cardsView(pieces, {}, [HC(["n1", "n2"]), HS(["b1", "b2"], 2), OF("q1"), { ...HC(["n9"], "heavy-cavalry-epic"), owner: "b" }]));
+	const rings = fx.ringList(cardsView(pieces, {}, [HC(["n1"]), HS(["b1", "b2"], 2), OF("q1"), { ...HC(["n9"]), owner: "b" }]));
 	assert.deepEqual(Object.fromEntries(rings), {
 		n1: [{ s: "heavy-cavalry", left: null }],
 		b1: [{ s: "heretical-subjection", left: 2 }],
@@ -83,11 +83,11 @@ test("ringList: Heavy Cavalry on the enchanted knight only (either version), Her
 		q1: [{ s: "opposing-finality", left: null }],
 		n9: [{ s: "heavy-cavalry", left: null }],
 	});
-	assert.ok(!rings.has("n2"), "never on the partner");
+	assert.ok(!rings.has("n2"), "never on another knight");
 });
 
-test("ringList: a piece the fog hides (not on the view's board) has no ring; a base Heavy Cavalry the fog cut to one piece has none (which knight is left can't be told)", () => {
-	const rings = fx.ringList(cardsView({ c1: "w:b1:b" }, {}, [HS(["b1", "b2"]), OF("q1"), HC(["n2"])]));
+test("ringList: a piece the fog hides (not on the view's board) has no ring; a Heavy Cavalry the fog cut its knight from (pieces []) has none", () => {
+	const rings = fx.ringList(cardsView({ c1: "w:b1:b" }, {}, [HS(["b1", "b2"]), OF("q1"), HC(["n2"]), { ...HC([]), id: "e9" }]));
 	assert.deepEqual(Object.fromEntries(rings), { b1: [{ s: "heretical-subjection", left: 2 }] });
 });
 
@@ -99,23 +99,20 @@ test("ringList: a subjected bishop handed over (still in pieces, now the other c
 
 // ---- HEAVY CAVALRY'S WARD (T22-2) ----
 
-test("wardIds: the owner's non-king pieces on the enchanted knight's squares, never the partner, the king or an enemy; none once the knights are apart", () => {
+test("wardIds: the owner's non-king pieces on the enchanted knight's squares, another knight too, never the king or an enemy; the ward follows the knight", () => {
 	const pieces = { e4: "w:n1:n", f6: "w:n2:n", d6: "w:p1:p", c5: "w:k1:k", g3: "w:r1:r", c3: "b:p9:p", e5: "w:p2:p" };
-	assert.deepEqual([...fx.wardIds(cardsView(pieces, {}, [HC(["n1", "n2"])]))].sort(), ["p1", "r1"]);
-	const { f6, ...rest } = pieces, apart = { ...rest, h8: "w:n2:n" };
-	assert.equal(fx.wardIds(cardsView(apart, {}, [HC(["n1", "n2"])])).size, 0, "the knights a knight's move apart no more");
-	assert.equal(fx.wardIds(cardsView({ e4: "w:n1:n", d6: "w:p1:p" }, {}, [HC(["n1", "n2"])])).size, 0, "a base entry cut to one knight (fog): no ward");
+	assert.deepEqual([...fx.wardIds(cardsView(pieces, {}, [HC(["n1"])]))].sort(), ["n2", "p1", "r1"], "no partner to leave out: the other knight is warded");
+	const { e4, ...rest } = pieces;
+	assert.deepEqual([...fx.wardIds(cardsView({ ...rest, h5: "w:n1:n" }, {}, [HC(["n1"])]))].sort(), ["n2", "r1"], "moved to h5: f6 and g3 its squares now, d6 no more");
 });
 
-test("wardIds: the epic version needs no partner; a knight handed over wards nothing", () => {
-	const pieces = { e4: "w:n1:n", f6: "w:n2:n", d6: "w:p1:p" };
-	assert.deepEqual([...fx.wardIds(cardsView(pieces, {}, [HC(["n1"], "heavy-cavalry-epic")]))].sort(), ["n2", "p1"], "no partner to leave out: the other knight is warded");
-	assert.equal(fx.wardIds(cardsView({ e4: "b:n1:n", d6: "w:p1:p" }, {}, [HC(["n1"], "heavy-cavalry-epic")])).size, 0);
+test("wardIds: a knight handed over wards nothing", () => {
+	assert.equal(fx.wardIds(cardsView({ e4: "b:n1:n", d6: "w:p1:p" }, {}, [HC(["n1"])])).size, 0);
 });
 
 test("statusList: the ward is a Warded entry; with a real warded the piece gets one (the real one's turns left)", () => {
 	const pieces = { e4: "w:n1:n", f6: "w:n2:n", d6: "w:p1:p", g3: "w:r1:r" };
-	const { want } = fx.statusList(cardsView(pieces, { r1: [{ s: "warded", left: 2, by: "w" }] }, [HC(["n1", "n2"])]));
+	const { want } = fx.statusList(cardsView(pieces, { r1: [{ s: "warded", left: 2, by: "w" }] }, [HC(["n1"])]));
 	assert.equal(want.get("p1:warded").left, null);
 	assert.equal(want.get("r1:warded").left, 2);
 	assert.equal([...want.keys()].filter((k) => k.startsWith("r1:")).length, 1, "one aura, one line");
@@ -133,15 +130,15 @@ function engineState(pieces, enchant, turn = "w") {
 	return st;
 }
 
-test("I1: an epic Heavy Cavalry whose knight the fog hides (the engine's view: pieces []) shows no ring & wards nothing (not a8's knight squares, b6 & c7)", () => {
+test("I1: a Heavy Cavalry whose knight the fog hides (the engine's view: pieces []) shows no ring & wards nothing (not a8's knight squares, b6 & c7)", () => {
 	const st = engineState({ e1: "w:w1:k", e8: "b:b1:k", e3: "w:w2:n", b6: "w:w3:p", c7: "w:w4:r", h8: "b:b2:r" },
-		[{ id: "e1", key: "fog-of-war", owner: "w", pieces: [], left: 3, data: {} }, { id: "e2", key: "heavy-cavalry-epic", owner: "w", pieces: ["w2"], left: null, data: {} }]);
+		[{ id: "e1", key: "fog-of-war", owner: "w", pieces: [], left: 3, data: {} }, { id: "e2", key: "heavy-cavalry", owner: "w", pieces: ["w2"], left: null, data: {} }]);
 	const v = engine.playerView(st, "b");
-	assert.deepEqual(v.enchant.find((e) => e.key === "heavy-cavalry-epic").pieces, [], "the engine cut the hidden knight");
+	assert.deepEqual(v.enchant.find((e) => e.key === "heavy-cavalry").pieces, [], "the engine cut the hidden knight");
 	assert.equal(fx.wardIds(v).size, 0);
 	assert.equal(fx.ringList(v).size, 0);
 	assert.ok(![...fx.statusList(v).want.keys()].some((k) => k.endsWith(":warded")));
-	assert.equal(fx.wardIds(cardsView({ b6: "w:p1:p", c7: "w:r1:r" }, {}, [HC([], "heavy-cavalry-epic")])).size, 0, "the same with a hand-made view");
+	assert.equal(fx.wardIds(cardsView({ b6: "w:p1:p", c7: "w:r1:r" }, {}, [HC([])])).size, 0, "the same with a hand-made view");
 });
 
 test("I2: the owner dropping its Trapdoor (the engine's drop) with its own piece, or an enemy piece not Frozen, on the square: no snap", () => {
@@ -177,12 +174,12 @@ test("M2: no snap when the last view was a finished game (every trap's square sh
 	assert.equal(fx.springSquare(was, now), null);
 });
 
-test("M1: Heavy Cavalry's hover line leaves out the king, & the other knight only as a partner (the epic wards it): 'except', not 'but'", () => {
+test("M1: Heavy Cavalry's hover line leaves out the king only (no partner: it wards the other knight): 'except', not 'but'", () => {
 	const pieces = { e4: "w:n1:n", f6: "w:n2:n" };
 	meshes(pieces);
-	fx.syncStatuses(cardsView(pieces, {}, [HC(["n1"], "heavy-cavalry-epic")]), "effects");
-	assert.match(fx.statusText("f6"), /^Warded/, "the epic wards the other knight");
-	assert.match(fx.statusText("e4"), /^Heavy Cavalry: .+, except the king & its partner knight, if any\.$/);
+	fx.syncStatuses(cardsView(pieces, {}, [HC(["n1"])]), "effects");
+	assert.match(fx.statusText("f6"), /^Warded/, "it wards the other knight");
+	assert.match(fx.statusText("e4"), /^Heavy Cavalry: .+, except the king\.$/);
 });
 
 // ---- THE RINGS IN THE FRAME ----
@@ -214,35 +211,35 @@ test("syncStatuses: the inner ring ending moves the outer to ring slot 0 with up
 	assert.ok(calls.some((c) => c[0] === "update" && c[1] === "heretical-subjection") && dts.includes(0));
 });
 
-test("syncStatuses: Heavy Cavalry's ward is drawn with the warded module, appears & goes as the knights part, and a real warded with it is one effect", () => {
-	const pieces = { e4: "w:n1:n", f6: "w:n2:n", d6: "w:p1:p" }, v = meshes(pieces);
-	fx.syncStatuses(cardsView(pieces, { p1: [{ s: "warded", left: 1, by: "w" }] }, [HC(["n1", "n2"])]), "effects");
+test("syncStatuses: Heavy Cavalry's ward is drawn with the warded module, appears & goes as its knight moves, and a real warded with it is one effect", () => {
+	const pieces = { e4: "w:n1:n", d6: "w:p1:p" }, v = meshes(pieces);
+	fx.syncStatuses(cardsView(pieces, { p1: [{ s: "warded", left: 1, by: "w" }] }, [HC(["n1"])]), "effects");
 	assert.deepEqual(made().filter((c) => c[1] === "warded"), [["create", "warded", "d6"]], "one aura");
-	fx.syncStatuses(cardsView(pieces, {}, [HC(["n1", "n2"])]), "effects"); // THE REAL ONE ENDS, THE WARD GOES ON: NO BURST, NO RE-CREATE
+	fx.syncStatuses(cardsView(pieces, {}, [HC(["n1"])]), "effects"); // THE REAL ONE ENDS, THE WARD GOES ON: NO BURST, NO RE-CREATE
 	assert.deepEqual(made().filter((c) => c[1] === "warded"), [["create", "warded", "d6"]]);
 	assert.equal(live("p1:warded").opts.left, null);
-	const knight = v.pieces.get("f6");
-	v.pieces.delete("f6");
+	const knight = v.pieces.get("e4");
+	v.pieces.delete("e4");
 	v.pieces.set("h8", knight);
-	fx.syncStatuses(cardsView({ e4: "w:n1:n", h8: "w:n2:n", d6: "w:p1:p" }, {}, [HC(["n1", "n2"])]), "effects");
-	assert.deepEqual(made().filter((c) => c[1] === "warded").slice(1), [["burst", "warded"], ["dispose", "warded"]], "apart: the ward ends");
+	fx.syncStatuses(cardsView({ h8: "w:n1:n", d6: "w:p1:p" }, {}, [HC(["n1"])]), "effects");
+	assert.deepEqual(made().filter((c) => c[1] === "warded").slice(1), [["burst", "warded"], ["dispose", "warded"]], "d6 no longer its square: the ward ends");
 });
 
 test("hover text: statuses, then the ward, then each ring by name with its turns left, in the piece's order; a Warded line once", () => {
 	const pieces = { e4: "w:n1:n", f6: "w:n2:n", d6: "w:b1:b" };
 	meshes(pieces);
-	fx.syncStatuses(cardsView(pieces, { b1: [{ s: "warded", left: 2, by: "w" }, { s: "shaken", left: 1, by: "b" }] }, [HC(["n1", "n2"]), HS(["b1"], 2)]), "badges");
+	fx.syncStatuses(cardsView(pieces, { b1: [{ s: "warded", left: 2, by: "w" }, { s: "shaken", left: 1, by: "b" }] }, [HC(["n1"]), HS(["b1"], 2)]), "badges");
 	assert.match(fx.statusText("d6"), /^Warded \(2 turns left\): .+\nShaken \(1 turn left\): .+\nHeretical Subjection \(2 turns left\): .+\.$/);
 	assert.match(fx.statusText("e4"), /^Heavy Cavalry: .+\.$/);
-	assert.equal(fx.statusText("f6"), "", "the partner: no ring, no ward (its Mark is a real status the server sends)");
+	assert.match(fx.statusText("f6"), /^Warded: [^\n]+$/, "the other knight: the ward alone, no ring");
 });
 
 test("badges mode: each ring is a badge in its colour, the ward is the Warded badge", () => {
 	const pieces = { e4: "w:n1:n", f6: "w:n2:n", d6: "w:p1:p", c1: "w:b1:b", h1: "w:q1:q" }; // q1 OFF THE KNIGHT'S SQUARES
 	meshes(pieces);
 	Object.assign(fx.MODULES, REAL);
-	fx.syncStatuses(cardsView(pieces, {}, [HC(["n1", "n2"]), HS(["b1"]), OF("q1")]), "badges");
-	assert.deepEqual(fx.liveStatuses().map((e) => [e.key, e.mode]).sort(), [["b1:heretical-subjection", "badges"], ["n1:heavy-cavalry", "badges"], ["p1:warded", "badges"], ["q1:opposing-finality", "badges"]]);
+	fx.syncStatuses(cardsView(pieces, {}, [HC(["n1"]), HS(["b1"]), OF("q1")]), "badges");
+	assert.deepEqual(fx.liveStatuses().map((e) => [e.key, e.mode]).sort(), [["b1:heretical-subjection", "badges"], ["n1:heavy-cavalry", "badges"], ["n2:warded", "badges"], ["p1:warded", "badges"], ["q1:opposing-finality", "badges"]]);
 	for (const c of ["#d78c3c", "#a56ee6", "#46c8be", "#e8c04a"]) { assert.ok(fills.includes(c), `${c} in ${fills}`); }
 });
 

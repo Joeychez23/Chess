@@ -34,11 +34,11 @@ function barKey(a) {
 }
 
 /**
- * @description The legal moves a card may make for color: no Hexed piece; in a two-move turn that must use different pieces, no piece already moved.
+ * @description The legal moves a card may make for color: no Hexed piece; in a two-move turn that must use different pieces, no piece already moved. also(mv), when given, narrows them further (isLegal).
  */
-function cardMoves(state, color) {
+function cardMoves(state, color, also) {
 	const m = state.multi;
-	return legalMoves(state, color, (mv) => !statuses.has(state, mv.piece, "hexed") && !(m && m.differ && m.moved.includes(mv.piece)));
+	return legalMoves(state, color, (mv) => !statuses.has(state, mv.piece, "hexed") && !(m && m.differ && m.moved.includes(mv.piece)) && (!also || also(mv)));
 }
 
 /**
@@ -65,15 +65,15 @@ function spendSkull(ctx, player, why) {
 }
 
 /**
- * @description Move actions for color: one per move card per legal move of its piece type (cardMoves), the cards by id, an entered Mirage among them as the move card it shows (not in check: playing it moves nothing; its act resolves it), and the King card's moves (kingMoves).
+ * @description Move actions for color: one per move card per legal move of its piece type (cardMoves), the cards by id, an entered Mirage among them as the move card it shows (not in check: playing it moves nothing; its act resolves it), and the King card's moves (kingMoves). only (isLegal): just the ones with only's card and from.
  */
-function moveActions(state, color) {
-	const p = state.players[color], moves = cardMoves(state, color);
+function moveActions(state, color, only) {
+	const p = state.players[color], moves = cardMoves(state, color, only && ((mv) => mv.from === only.from));
 	const out = [], add = (card, mv) => out.push(mv.promotion
 		? { type: "move", card, from: mv.from, to: mv.to, promotion: mv.promotion } : { type: "move", card, from: mv.from, to: mv.to });
-	const checked = inCheck(state, color), cards = hand.moveCards(p).filter((c) => c.key === "move" || !checked); // BY ID, THE ORDER ITS HOLDER SEES, SO A MIRAGE'S PLACE GIVES NOTHING AWAY
+	const checked = inCheck(state, color), cards = hand.moveCards(p).filter((c) => (c.key === "move" || !checked) && (!only || c.id === only.card)); // BY ID, THE ORDER ITS HOLDER SEES, SO A MIRAGE'S PLACE GIVES NOTHING AWAY
 	for (const c of cards) for (const mv of moves) if (hand.fits(c.piece, mv.t)) add(c.id, mv);
-	for (const mv of kingMoves(state, color, moves)) add("king", mv);
+	if (!only || only.card === "king") for (const mv of kingMoves(state, color, moves)) add("king", mv); // NARROWED TO THE KING'S from, moves STILL HOLDS EVERY FREE KING MOVE
 	return out;
 }
 
@@ -90,15 +90,16 @@ function playActive(ctx, color, a) {
 }
 
 /**
- * @description Active actions for color: one per target the card offers ([null] = no target), each tried on a copy and dropped when its play leaves color's king in check (so in check, only those that end it). Limit: the copy rolls the real rng, so for an active with a random outcome legalActions would show whether its roll leaves the king in check. No active playable in check may have a random outcome, and no active's random outcome may expose its own king. Card handlers (on, play, rules) also run inside these trials, so a test that counts handler calls through a closure counts the trials too.
+ * @description Active actions for color (only, for isLegal: just that action, tried alone): one per target the card offers ([null] = no target), each tried on a copy and dropped when its play leaves color's king in check (so in check, only those that end it). Limit: the copy rolls the real rng, so for an active with a random outcome legalActions would show whether its roll leaves the king in check. No active playable in check may have a random outcome, and no active's random outcome may expose its own king. Card handlers (on, play, rules) also run inside these trials, so a test that counts handler calls through a closure counts the trials too.
  */
-function activeActions(state, color) {
+function activeActions(state, color, only) {
 	const out = [];
 	for (const c of state.players[color].actives) {
 		const def = CARDS[c.key];
-		if (!def || !def.targets) continue;
+		if (!def || !def.targets || (only && c.id !== only.card)) continue;
 		for (const target of def.targets(state, color)) {
 			const a = target === null ? { type: "active", card: c.id } : { type: "active", card: c.id, target };
+			if (only && actionKey(a) !== actionKey(only)) continue; // NO TRIAL FOR ANOTHER TARGET
 			const ctx = makeCtx(JSON.parse(JSON.stringify(state)));
 			ctx.trial = true; // A LEGALITY TRIAL: HIDDEN EFFECTS (TRAPDOOR) DON'T FIRE, SO THE LIST CAN'T REVEAL THEM
 			playActive(ctx, color, a);
@@ -121,6 +122,26 @@ function legalActions(state, player, blind) {
 	if (pend.player !== player) return [];
 	const opts = (pend.options || []).map((option) => ({ type: "choice", option })), left = opts.filter((a) => actionKey(a) !== state.barred); // NO options: REBUILT FROM THE OTHER PLAYER'S VIEW
 	return left.length ? left : opts; // A BARRED OPTION (GRACE) IS LEFT OUT WHILE ANOTHER REMAINS: A CHOICE MUST BE ANSWERED
+}
+
+/**
+ * @description True exactly when legalActions(state, player) holds action (by actionKey), building only action.type's actions, narrowed by its card (and a move's from) where the builders allow: applyAction's check. Outside the turn (a choice pending, a duel open, the game over, not player's turn) it asks legalActions, which is cheap there. Relies on every card's rules.actions treating the list one action at a time (adding actions, or dropping ones by their own shape), as all do now: a rule that looked at the whole list would need the full one here. Pure.
+ */
+function isLegal(state, player, action) {
+	if (!action || typeof action !== "object" || state.result || state.pending || state.duel || player !== state.board.turn) {
+		const key = actionKey(action);
+		return legalActions(state, player).some((a) => actionKey(a) === key);
+	}
+	const p = state.players[player], multi = !!(state.multi && state.multi.player === player), open = !multi || state.multi.mulled, checked = inCheck(state, player);
+	let out = [];
+	if (action.type === "move") out = moveActions(state, player, action);
+	else if (action.type === "active" && !multi) out = activeActions(state, player, action);
+	else if (action.type === "passive" && !multi && !checked) {
+		const def = p.passive && CARDS[p.passive.key];
+		if (p.passive && !(def && def.canPlace && !def.canPlace(state, player))) out = [{ type: "passive" }];
+	} else if (action.type === "discard" && !checked && open) out = freeDiscards(state, player);
+	else if (action.type === "drop" && open) out = drops(state, player, false, action.card);
+	return finish(state, player, out, multi, actionKey(action)).length > 0; // A CARD-DEFINED TYPE BUILDS NOTHING: ONLY THE RULES ADD IT
 }
 
 /**
@@ -167,7 +188,7 @@ function addedMoveOk(state, player, a) {
  */
 function turnActions(state, player, blind) {
 	if (state.result || player !== state.board.turn) return [];
-	let out = [...moveActions(state, player)];
+	const out = [...moveActions(state, player)];
 	const p = state.players[player], multi = !!(state.multi && state.multi.player === player), checked = inCheck(state, player);
 	if (!multi) {
 		out.push(...activeActions(state, player));
@@ -178,13 +199,20 @@ function turnActions(state, player, blind) {
 	}
 	if (!checked && (!multi || state.multi.mulled)) out.push(...freeDiscards(state, player)); // BEFORE THE PLAY: NONE IN A TWO-MOVE TURN, BUT AFTER MULLIGAN (USER RULINGS 2026-11-21)
 	if (!multi || state.multi.mulled) out.push(...drops(state, player, blind)); // AS THE FREE DISCARD: BEFORE THE PLAY, SO ALSO BEFORE MULLIGAN'S ONE MOVE (RULING R5, 2026-11-22)
+	return finish(state, player, out, multi);
+}
+
+/**
+ * @description turnActions' last step on the actions it built (out): the cards' rules.actions, the check of what they added, the barred action left out. want (isLegal): keep only actions with that actionKey, before the checks, so no other added action is tried.
+ */
+function finish(state, player, out, multi, want) {
 	const built = new Set(out.map(actionKey));
 	for (const [r, src] of rulesInPlay(state)) if (r.actions) out = r.actions(state, player, out, src);
 	const survives = (a) => { const ctx = makeCtx(JSON.parse(JSON.stringify(state))); ctx.trial = true; cardAct(ctx, player, a); return !inCheck(ctx.state, player); };
 	const ok = (a) => !!a && typeof a === "object" && (built.has(actionKey(a))
 		|| (a.type === "move" ? addedMoveOk(state, player, a) && (!routed(state, player, a) || survives(a))
 			: !BUILT_IN.includes(a.type) && !multi && !!sourceOf(state, player, a) && survives(a))); // AN ADDED active, passive, discard OR drop IS DROPPED
-	return out.filter((a) => ok(a) && (!state.barred || (actionKey(a) !== state.barred && barKey(a) !== state.barred))); // THE EXACT KEY, OR A MOVE'S SHAPE (barKey)
+	return out.filter((a) => (want === undefined || actionKey(a) === want) && ok(a) && (!state.barred || (actionKey(a) !== state.barred && barKey(a) !== state.barred))); // THE EXACT KEY, OR A MOVE'S SHAPE (barKey)
 }
 
 /**
@@ -208,10 +236,11 @@ function inEffect(state, color) {
 }
 
 /**
- * @description The drops for player, { type: "drop", card: <card id> }: each of player's own waiting passives (by placedAt), then each of player's actives in effect (inEffect: one with a live enchantment). Free, any number a turn, not the free discard. One that, tried on a copy, would put either king in check is left out (ending a Stronghold whose piece faces the enemy king would let the next move take it); blind keeps those in, for view.playerLegal only. Never the other player's card, a curse or a status: a harmful effect on the player is none of their placed cards.
+ * @description The drops for player (only: just the card with that id, for isLegal), { type: "drop", card: <card id> }: each of player's own waiting passives (by placedAt), then each of player's actives in effect (inEffect: one with a live enchantment). Free, any number a turn, not the free discard. One that, tried on a copy, would put either king in check is left out (ending a Stronghold whose piece faces the enemy king would let the next move take it); blind keeps those in, for view.playerLegal only. Never the other player's card, a curse or a status: a harmful effect on the player is none of their placed cards.
  */
-function drops(state, player, blind) {
-	const ids = [...state.effects.filter((e) => e.owner === player).sort((x, y) => x.placedAt - y.placedAt).map((e) => e.id), ...inEffect(state, player).filter((x) => x[1]).map((x) => x[0].id)];
+function drops(state, player, blind, only) {
+	const ids = [...state.effects.filter((e) => e.owner === player).sort((x, y) => x.placedAt - y.placedAt).map((e) => e.id), ...inEffect(state, player).filter((x) => x[1]).map((x) => x[0].id)]
+		.filter((id) => only === undefined || id === only);
 	const checks = (s) => ["w", "b"].filter((c) => inCheck(s, c)), was = ids.length ? checks(state) : [];
 	return ids.map((card) => ({ type: "drop", card })).filter((a) => {
 		if (blind) return true; // THE LIST TOLD UNDER THE OTHER PLAYER'S FOG (view.playerLegal): A CHECK WOULD SHOW WHERE A HIDDEN PIECE STANDS, applyAction REFUSES THE DROP INSTEAD
@@ -483,7 +512,7 @@ function startTurn(ctx, color) {
 		}
 	}
 	if (s.ply >= 2 && !p.passive && ctx.rng.next() < PASSIVE_CHANCE) hand.drawCard(ctx, color, "passive");
-	if (s.multi && s.multi.player === color && !s.multi.moved.length && !turnActions(s, color).some((a) => a.type === "move")) s.multi = null; // A TURN-START EFFECT (DEBT AND HUNGER, FOR TWO) TOOK A JUST-STARTED TWO-MOVE TURN'S ONLY MOVE: A NORMAL TURN, SO THE ACTIVES ARE OFFERED (FOUR OF A KIND STAYS SPENT, ITS DEBUFF DROPPED)
+	if (s.multi && s.multi.player === color && !s.multi.moved.length && !turnActions(s, color).some((a) => a.type === "move")) s.multi = null; // A TURN-START EFFECT (DEBT, FOR ONE) TOOK A JUST-STARTED TWO-MOVE TURN'S ONLY MOVE: A NORMAL TURN, SO THE ACTIVES ARE OFFERED (FOUR OF A KIND STAYS SPENT, ITS DEBUFF DROPPED)
 	if (noAction(ctx, color)) return;
 	if (ctx.resetHalf) s.board.half = 0; // A CARD CAPTURED AT THE START OF THE TURN
 	const draw = boardDraw(s.board); // CARD MATE AND STALEMATE ARE DECIDED ABOVE, FROM THE HAND
@@ -508,4 +537,4 @@ function noAction(ctx, color) {
 	return true;
 }
 
-module.exports = { PASSIVE_CHANCE, PASSIVES, actionKey, barKey, legalActions, act, endTurn, startTurn, noAction };
+module.exports = { PASSIVE_CHANCE, PASSIVES, actionKey, barKey, legalActions, isLegal, act, endTurn, startTurn, noAction };

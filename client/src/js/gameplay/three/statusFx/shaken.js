@@ -40,12 +40,6 @@ export const cageCount = (left) => (left === null || left === undefined ? 1 : Ma
 export const flash = (t) => Math.max(0, 1 - t / FLASH);
 
 /**
- * @description How many forks a cage draws t seconds after its strike: all FORKS until FORK_S, half (rounded up) when cheap, then none
- * @param  {[number]} t
- * @param  {[boolean]} cheap [opts.cheap]
- * @return {[number]}
- */
-/**
  * @description The cage row's layout for n cages: a cage's size (world units) & cage i's x off the row's middle (world units). CAGE until n cages would pass ROW, then smaller so they fit (ruling T24-R10)
  * @param  {[number]} n
  * @param  {[number]} i
@@ -56,6 +50,12 @@ export function cageLayout(n, i = 0) {
 	return { size, x: (i - (n - 1) / 2) * GAP * size };
 }
 
+/**
+ * @description How many forks a cage draws t seconds after its strike: all FORKS until FORK_S, half (rounded up) when cheap, then none
+ * @param  {[number]} t
+ * @param  {[boolean]} cheap [opts.cheap]
+ * @return {[number]}
+ */
 export const forks = (t, cheap) => (t < FORK_S ? (cheap ? Math.ceil(FORKS / 2) : FORKS) : 0);
 
 /**
@@ -227,13 +227,13 @@ function makeCage(texture) {
 	geometry.setAttribute("position", new Float32BufferAttribute(boltPoints(new Float32Array(VERTS * 3)), 3));
 	geometry.setAttribute("color", new Float32BufferAttribute(COLORS.slice(), 3));
 	geometry.setDrawRange(0, MAIN_VERTS);
-	const bolts = new LineSegments(geometry, new LineBasicMaterial({ color: CORE, vertexColors: true, transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending }));
+	const bolts = new LineSegments(geometry, new LineBasicMaterial({ color: CORE, vertexColors: true, transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending, fog: false })); // fog: SEE wardedMotes.js
 	bolts.name = "bolts";
 	const dots = new BufferGeometry(); // ITS OWN INDEX (COPIED PER CAGE, FREED WITH IT) OVER THE BOLTS' POSITIONS
 	dots.setAttribute("position", geometry.attributes.position);
 	dots.setIndex(HALO_INDEX.slice());
 	dots.setDrawRange(0, HALO_MAIN);
-	const halo = new Points(dots, new PointsMaterial({ color: HALO, map: dot, transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending }));
+	const halo = new Points(dots, new PointsMaterial({ color: HALO, map: dot, transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending, fog: false }));
 	halo.name = "halo";
 	group.add(core, halo, bolts);
 	return { group, core, bolts, halo, t: 0 };
@@ -245,7 +245,7 @@ function freeCage(c) { c.group.removeFromParent(); c.core.material.dispose(); c.
  * @description Shaken's cages, in a row in opts.root over the piece's head (they follow its lift, drag & drop). The row follows opts.left; a cage it loses bursts (none under opts.reduce),
  * the others keep their places until it's gone. While the piece is also Marked (opts.siblings), the centre cage's core is Marked's skull (ruling 09:19; of two, the left one)
  * @param  {[Mesh]} pieceMesh [unused: opts.mesh is the current one]
- * @param  {[object]} opts [statusFx/index.js's: { s, id, left, by, square, mode, slot, slots, mesh, root, squareRoot, reduce }, updated in place]
+ * @param  {[object]} opts [statusFx/index.js's: { s, id, left, by, square, mode, slot, slots, mesh, root, squareRoot, reduce, cheap, fresh }, updated in place]
  * @return {[object]} { update(dt), burst(), animating(), dispose() }
  */
 export function create(pieceMesh, opts) {
@@ -268,6 +268,7 @@ export function create(pieceMesh, opts) {
 	function lose(c) {
 		if (opts.reduce) { freeCage(c); } else { c.t = 0; dying.push(c); }
 	}
+	let laid = -1, laidSize = 0; // THE CAGE COUNT THE ROW WAS LAST LAID OUT FOR & ITS CAGE SIZE
 	function update(dt) {
 		const n = ended ? 0 : cageCount(opts.left);
 		let grew = false;
@@ -282,7 +283,7 @@ export function create(pieceMesh, opts) {
 			slots = cages.length;
 			for (let i = 0; i < slots; i++) { cages[i].group.position.set((i - (slots - 1) / 2) * GAP, 0, 0); }
 		}
-		const box = opts.mesh.geometry && opts.mesh.geometry.boundingBox, size = cageLayout(slots).size / (opts.mesh.scale.y || 1); // THE ROOT IS IN PIECE UNITS
+		const box = opts.mesh.geometry && opts.mesh.geometry.boundingBox, size = (slots === laid ? laidSize : (laidSize = cageLayout(laid = slots).size)) / (opts.mesh.scale.y || 1); // THE ROOT IS IN PIECE UNITS. THE LAYOUT ONLY WHEN THE ROW'S CAGE COUNT CHANGES, NOT AN OBJECT A FRAME (T24 M4)
 		dotSize = pointSize(HALO_SIZE * size, opts.mesh);
 		row.scale.setScalar(size);
 		row.position.set(0, (box ? box.max.y : 1) + OVER + size / 2, 0);

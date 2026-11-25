@@ -24,7 +24,7 @@ const cleanable = (state, player) => state.players[player].curses.filter((c) => 
 /**
  * @description player's one-knight Heavy Cavalry entries: no Mark to remove, so Cleanse ends them itself.
  */
-const lone = (state, player) => state.enchant.filter((e) => e.key === "heavy-cavalry-epic" && e.owner === player);
+const lone = (state, player) => state.enchant.filter((e) => e.key === "heavy-cavalry" && e.owner === player);
 
 module.exports = {
 	key: "cleanse", kind: "active", name: "Cleanse", skulls: 0, rarity: "common",

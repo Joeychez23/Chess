@@ -9,17 +9,19 @@ require("./helpers/env.js");
 const { test, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
-const { call, player, peek, poke, engineCalls, dataServiceWillWait, dataServiceWillStall } = testServer;
+const { player, peek, poke, engineCalls, dataServiceWillWait, dataServiceWillStall, dataServiceWillAnswer } = testServer;
 const { timeouts } = require("../dataClient.js");
 const E = require("../../cards-engine/index.js");
 const hand = require("../../cards-engine/hand.js");
 const { fromFen, sqIndex } = require("../../cards-engine/board.js");
 const { AI_MOVE_LIMITS } = require("../middleware/rateLimit.js");
 
-let server;
+let server, me;
 before(async () => { server = await testServer.start(); });
 after(() => server.close());
-beforeEach(() => { testServer.reset(); process.env.CARDS_TEST_SEED = "1"; }); // ONE KNOWN DEAL: A RANDOM ONE NOW AND THEN HAS NO FIRST MOVE, OR A CARD GUY CARD THAT ANSWERS A MATE
+beforeEach(() => { testServer.reset(); process.env.CARDS_TEST_SEED = "1"; me = player("me"); }); // ONE KNOWN DEAL: A RANDOM ONE NOW AND THEN HAS NO FIRST MOVE, OR A CARD GUY CARD THAT ANSWERS A MATE
+
+const call = (method, path, options = {}) => testServer.call(method, path, options.as || options.guest || options.cookie ? options : { ...options, as: me }); // SIGNED IN AS me UNLESS TOLD: GUESTS CAN'T PLAY CHESS CARDS (#491)
 
 const stored = (gameId) => JSON.parse(peek("chess_db", gameId).cards_state.S);
 const store = (gameId, state) => poke("chess_db", gameId, { cards_state: { S: JSON.stringify(state) } });
@@ -43,7 +45,7 @@ function expected(state, color, events = []) {
 
 const pick = (response) => ({ mode: response.mode, you: response.you, view: response.view, legal: response.legal, legal_hidden: response.legal_hidden, events: response.events, card_guy_due: response.card_guy_due, result: response.result });
 
-test("a guest starts a card game and gets a view without hidden information", async () => {
+test("a signed in player starts a card game and gets a view without hidden information", async () => {
 	const created = await start();
 	assert.equal(created.http, 200);
 	assert.equal(created.status, 200);
@@ -61,11 +63,11 @@ test("a guest starts a card game and gets a view without hidden information", as
 	assert.ok(created.legal.length > 0);
 	assert.equal(created.card_guy_due, false);
 
-	const again = await load(created.game_id); // THE COOKIE: ONLY THIS BROWSER PLAYS IT
+	const again = await load(created.game_id);
 	assert.equal(again.http, 200);
 	assert.deepEqual(pick(again), pick(created));
 
-	const black = await start({ start_color: "b", ai_level: 1600 }, { guest: "second" });
+	const black = await start({ start_color: "b", ai_level: 1600 }, { as: player("second") });
 	assert.equal(black.you, "b");
 	assert.equal(black.ai_level, 1600);
 	assert.equal(black.view.cardGuy, "w");
@@ -136,10 +138,10 @@ test("the same action sent twice: the second gets 409 with stale: true", async (
 	assert.equal(version(created.game_id), "2");
 });
 
-test("a state from an older engine version is refused with 409", async () => {
+for (const old of [E.ENGINE_VERSION - 1, 1]) test("a state from an older engine version (" + old + ") is refused with 409", async () => { // 1: THE FIRST RELEASE'S GAMES, DIRECTLY (D10)
 	const created = await start();
 	const before = stored(created.game_id);
-	store(created.game_id, { ...before, v: E.ENGINE_VERSION - 1 });
+	store(created.game_id, { ...before, v: old });
 
 	const refused = await act(created.game_id, firstMove(before, "w"));
 	assert.equal(refused.http, 409);
@@ -147,6 +149,26 @@ test("a state from an older engine version is refused with 409", async () => {
 	assert.equal(refused.view, undefined);
 	assert.equal(refused.game_id, created.game_id); // THE PAGE CAN OFFER TO FORFEIT IT
 	assert.equal((await load(created.game_id)).http, 409);
+	assert.equal((await call("POST", `/api/chess/cards/${created.game_id}/card-guy`)).http, 409);
+	assert.equal(version(created.game_id), "1");
+});
+
+for (const old of [E.ENGINE_VERSION - 1, 1]) test("a FINISHED game from an older engine version (" + old + ") opens read-only: its result and stored board, no view; action and card-guy still 409 (RE-I1, ruling C1)", async () => {
+	const created = await start();
+	const before = stored(created.game_id), action = firstMove(before, "w");
+	assert.equal((await call("POST", `/api/chess/game/${created.game_id}/forfeit`)).http, 200);
+	store(created.game_id, { ...before, v: old, board: "NOT A BOARD THIS ENGINE READS" }); // THE ENGINE'S VIEW MUST NOT RUN ON IT
+	const fen = peek("chess_db", created.game_id).game_board.S;
+
+	const { http, retry_after, ...body } = await load(created.game_id);
+	assert.equal(http, 200);
+	assert.deepEqual(body, { status: 200, game_id: created.game_id, older: true, you: "w", fen, result: { winner: "b", reason: "forfeit" }, message: "This game is from an older version" });
+	const refused = await act(created.game_id, action);
+	assert.deepEqual([refused.http, refused.message, refused.view], [409, "This game is from an older version", undefined]);
+	assert.equal((await call("POST", `/api/chess/cards/${created.game_id}/card-guy`)).http, 409);
+
+	poke("chess_db", created.game_id, { winner: { S: "draw" }, reason: { S: "fifty" } }); // THE DATA SERVICE'S DRAW IS "draw", A RESPONSE'S IS null
+	assert.deepEqual((await load(created.game_id)).result, { winner: null, reason: "fifty" });
 	assert.equal(version(created.game_id), "1");
 });
 
@@ -226,6 +248,7 @@ test("forfeit closes a card game; the next GET has result forfeit and no legal a
 });
 
 test("no response body contains the seed, cards_state or a hidden Card Guy card key", async () => {
+	process.env.CARDS_TEST_SEED = "3"; // ENGINE 3 (TASK 25b): SEED 1 NOW DEALS BOTH SIDES THE SAME ACTIVE, SO CARD GUY HIDES NO KEY OF HIS OWN; SEED 3 DEALS HIM HEAVY CAVALRY
 	const alice = player("alice");
 	const created = await start({}, { as: alice });
 	const gameId = created.game_id;
@@ -254,7 +277,7 @@ test("the seed is random hex, an integer only from CARDS_TEST_SEED, never from t
 	const random = await start({ seed: 5 });
 	assert.notDeepEqual(stored(random.game_id).rng.key.slice(1), [0, 0, 0, 0, 0, 0, 0]); // A HEX SEED FILLS EVERY WORD
 	process.env.CARDS_TEST_SEED = "7";
-	const fixed = await start({ seed: 5 }, { guest: "second" });
+	const fixed = await start({ seed: 5 }, { as: player("second") });
 	assert.deepEqual(stored(fixed.game_id), E.newGame({ cardGuy: "b", level: 1300, seed: 7 })); // THE SAME GAME AS THE ENGINE MAKES FROM 7
 });
 
@@ -266,12 +289,12 @@ test("CARDS_TEST_SEED deals one known game anywhere but production (a dev server
 	try {
 		for (const env of ["test", "development", undefined]) {
 			if (env === undefined) { delete process.env.NODE_ENV; } else { process.env.NODE_ENV = env; }
-			const first = await start({}, { guest: env + "-1" }), second = await start({}, { guest: env + "-2" });
+			const first = await start({}, { as: player(env + "-1") }), second = await start({}, { as: player(env + "-2") });
 			assert.deepEqual(opening(stored(first.game_id)), seven, String(env));
 			assert.deepEqual(opening(stored(second.game_id)), seven, String(env));
 		}
 		process.env.NODE_ENV = "production";
-		const live = await start({}, { guest: "live" });
+		const live = await start({}, { as: player("live") });
 		assert.equal(live.http, 200);
 		assert.notDeepEqual(opening(stored(live.game_id)), seven);
 	} finally { process.env.NODE_ENV = "test"; }
@@ -288,7 +311,7 @@ test("CARDS_TEST_SEED is ignored in production, and when it isn't a whole number
 	} finally { process.env.NODE_ENV = "test"; }
 	for (const [i, bad] of ["seven", "4294967296", "1.5"].entries()) { // NOT A WHOLE NUMBER THE ENGINE TAKES (0 .. 2^32 - 1)
 		process.env.CARDS_TEST_SEED = bad;
-		const odd = await start({}, { guest: "odd" + i });
+		const odd = await start({}, { as: player("odd" + i) });
 		assert.equal(odd.http, 200, bad); // NOT A 500 FROM A SEED THE ENGINE REFUSES
 		assert.notDeepEqual(stored(odd.game_id).rng.key.slice(1), [0, 0, 0, 0, 0, 0, 0]);
 	}
@@ -298,7 +321,7 @@ test("CARDS_TEST_SEED is ignored in production, and when it isn't a whole number
  * @description A stored card game on this FEN (pieces numbered in board order), White holding these move cards; returns { gameId, state }
  */
 async function position(fen, pieces, change = () => {}) {
-	const created = await start(), state = stored(created.game_id), n = { w: 1, b: 1 };
+	const created = await start({ replace_current: true }), state = stored(created.game_id), n = { w: 1, b: 1 }; // A TEST MAY SET UP SEVERAL: me HAS ONE OPEN AT A TIME
 	state.board = fromFen(fen);
 	state.board.sq.forEach((q) => { if (q) q.id = q.c + n[q.c]++; });
 	Object.assign(state.players.w, { moves: pieces.map((piece) => hand.newCard(state, "move", { piece })), actives: [], passive: null });
@@ -464,7 +487,7 @@ test("reloading mid-duel returns the duel exactly as it was", async () => {
 test("card actions & Card Guy's turns take from the AI move limits", async () => {
 	const created = await start();
 	const action = firstMove(stored(created.game_id), "w");
-	for (let i = 0; i < AI_MOVE_LIMITS.aiMoveSession.burst; i++) { await call("POST", `/api/chess/cards/${created.game_id}/card-guy`); }
+	await Promise.all(Array.from({ length: AI_MOVE_LIMITS.aiMoveSession.burst }, () => call("POST", `/api/chess/cards/${created.game_id}/card-guy`))); // AT ONCE: A SIGNED IN REQUEST IS SLOWER, ONE BY ONE THE BUCKET REFILLS A TOKEN
 	const limited = await act(created.game_id, action);
 	assert.equal(limited.http, 429);
 	assert.ok(limited.retry_after);
@@ -556,13 +579,13 @@ test("under Card Guy's Fog of War the response has no hidden piece and no move l
 });
 
 test("only Card Guy's Fog of War, in any version, holds game_board: the player's own fog doesn't", async () => {
-	const run = async (key, owner, guest) => {
-		const created = await start({}, { guest });
+	const run = async (key, owner, name) => {
+		const guest = player(name), created = await start({}, { as: guest });
 		const state = stored(created.game_id);
 		state.enchant.push({ id: "e1", key, owner, pieces: [], left: 3, data: {} });
 		store(created.game_id, state);
 		const board = peek("chess_db", created.game_id).game_board.S;
-		assert.equal((await act(created.game_id, firstMove(state, "w"), { guest })).http, 200);
+		assert.equal((await act(created.game_id, firstMove(state, "w"), { as: guest })).http, 200);
 		const now = peek("chess_db", created.game_id).game_board.S;
 		assert.notEqual(E.toFen(stored(created.game_id)), board); // THE MOVE CHANGED THE BOARD
 		return now === board;
@@ -573,22 +596,56 @@ test("only Card Guy's Fog of War, in any version, holds game_board: the player's
 });
 
 
-test("a guest's new card game forfeits the game their cookie named (card or normal), an earlier one already over is left as it ended", async () => {
-	const first = await start({}, { guest: "again" });
-	const second = await start({}, { guest: "again" });
-	assert.equal(second.http, 200);
-	assert.notEqual(second.game_id, first.game_id);
-	assert.equal(peek("chess_db", first.game_id).reason.S, "forfeit"); // NOT LEFT OPEN UNTIL ITS TTL
-	assert.equal(peek("chess_db", first.game_id).winner.S, first.you == "w" ? "b" : "w");
-	assert.equal(peek("chess_db", second.game_id).reason, undefined);
-	assert.equal((await load(second.game_id, { guest: "again" })).http, 200);
-	assert.equal((await call("POST", `/api/chess/game/${second.game_id}/forfeit`, { guest: "again" })).http, 200);
-	const third = await start({}, { guest: "again" }); // THE COOKIE'S GAME IS OVER ALREADY: THE REFUSED FORFEIT STOPS NOTHING
-	assert.equal(third.http, 200);
-	assert.equal(peek("chess_db", third.game_id).reason, undefined);
+test("a guest can't start a card game: 401, nothing created, no cookie, their other game untouched (B1, #491)", async () => {
 	const chess = await call("POST", "/api/chess/game", { body: { start_color: "w" }, guest: "mixed" });
-	assert.equal((await start({}, { guest: "mixed" })).http, 200);
-	assert.equal(peek("chess_db", chess.game_id).reason.S, "forfeit");
+	assert.equal(chess.http, 200);
+	dataServiceWillAnswer("/games/cards", 400, "a create reached the data service"); // LEFT FOR THE NEXT CREATE IF THE GUEST'S NEVER ASKED
+	const { http, retry_after, ...body } = await start({}, { guest: "mixed" });
+	assert.equal(http, 401);
+	assert.deepEqual(body, { status: 401, message: "Sign in to play Chess Cards" });
+	assert.equal(peek("chess_db", chess.game_id).state.S, "OPEN");
+	assert.equal((await call("GET", `/api/chess/game/${chess.game_id}`, { guest: "mixed" })).http, 200); // THE COOKIE STILL NAMES IT: NONE WAS SET
+	const bare = await testServer.send("POST", "/api/chess/cards", {}, { headers: { Origin: new URL(require("../config.js").clientUrl).origin, "Content-Type": "application/json" }, body: "{}" });
+	assert.deepEqual([bare.http, bare.cookies.guest_game], [401, undefined]);
+	assert.equal((await start()).message, "a create reached the data service"); // THE QUEUED ANSWER WAS STILL WAITING: NO GUEST CREATE ASKED
+});
+
+test("replace_current whose forfeit fails answers 503 and creates nothing; a forfeit refused because the game was already over goes on (RD-M5, ruling C7)", async () => {
+	const old = await start();
+	dataServiceWillAnswer(`/games/${old.game_id}/forfeit`, 503, "Service unavailable"); // THE FORFEIT FAILS ONCE, THE GAME STAYS OPEN
+	dataServiceWillAnswer("/games/cards", 400, "a create reached the data service");
+	const { http, retry_after, ...body } = await start({ replace_current: true });
+	assert.equal(http, 503);
+	assert.deepEqual(body, { status: 503, message: "Your other game couldn't be closed. Try again." });
+	assert.equal(peek("chess_db", old.game_id).state.S, "OPEN");
+	const home = await call("GET", "/api/chess/user/me");
+	assert.deepEqual(home.open_game_list.map((g) => g.game_id), [old.game_id]); // STILL THE ONE OPEN AI GAME
+	assert.equal((await start({}, { as: player("other") })).message, "a create reached the data service"); // NO CREATE WAS ASKED
+
+	dataServiceWillAnswer(`/games/${old.game_id}/forfeit`, 403, "Player is not in this game"); // A REFUSAL THAT ISN'T "ALREADY OVER": THE RE-READ SHOWS IT OPEN
+	assert.equal((await start({ replace_current: true })).http, 503);
+	assert.equal(peek("chess_db", old.game_id).state.S, "OPEN");
+
+	dataServiceWillAnswer(`/games/${old.game_id}/forfeit`, 503, "Service unavailable"); // F5-M1: THE FORFEIT FAILS & THE RE-READ SHOWS NO GAME AT ALL (REFUSED): NOT KNOWN CLOSED, SO NOTHING IS MADE
+	dataServiceWillAnswer(`/games/${old.game_id}`, 403, "Player is not in this game");
+	assert.equal((await start({ replace_current: true })).http, 503);
+	assert.equal(peek("chess_db", old.game_id).state.S, "OPEN");
+	assert.equal((await call("GET", "/api/chess/user/me")).ai_game_id, old.game_id); // F5-M3: THE PLAYER'S OPEN AI GAME IS STILL THE OLD ONE
+
+	dataServiceWillAnswer(`/games/${old.game_id}/forfeit`, 503, "Service unavailable"); // F5-M2: THE RE-READ IS DOWN TOO: STILL THIS ROUTE'S OWN LINE, NOTHING MADE
+	dataServiceWillAnswer(`/games/${old.game_id}`, 503, "Service unavailable");
+	const down = await start({ replace_current: true });
+	assert.deepEqual([down.http, down.message], [503, "Your other game couldn't be closed. Try again."]);
+	assert.equal(peek("chess_db", old.game_id).state.S, "OPEN");
+
+	dataServiceWillStall(`/games/${old.game_id}/forfeit`); // THE FORFEIT LANDS, ITS ANSWER TIMES OUT: THE RE-READ SHOWS IT CLOSED, NOT A FAILURE
+	const saved = timeouts.POST;
+	timeouts.POST = 300;
+	let fresh;
+	try { fresh = await start({ replace_current: true }); } finally { timeouts.POST = saved; }
+	assert.equal(fresh.http, 200);
+	assert.notEqual(fresh.game_id, old.game_id);
+	assert.equal(peek("chess_db", old.game_id).reason.S, "forfeit");
 });
 
 test("a stored state that can't be read answers 500 with the server's own message, and nothing of the state", async (t) => {
@@ -599,6 +656,33 @@ test("a stored state that can't be read answers 500 with the server's own messag
 	assert.equal(broken.http, 500);
 	assert.equal(broken.error, "Something went wrong on our side.");
 	assert.ok(!JSON.stringify(broken).includes("board") && !("view" in broken));
-	assert.ok(logged.mock.callCount() >= 1); // THE HANDLER LOGS THE ERROR (logServerErrors LOGS THE 500 TOO)
+	assert.ok(logged.mock.calls.some((c) => c.arguments[0] instanceof Error)); // serverError.js LOGS THE ERROR ITSELF (logServerErrors LOGS THE 500 TOO, AS TEXT: RE-M1)
 	assert.equal((await act(created.game_id, { type: "discard", cards: ["c1", "c2"] })).http, 500);
+});
+
+test("Play AI over an open card game whose forfeit fails answers 503 and creates nothing (RD-M5's other direction, user ruling 2026-11-25)", async () => {
+	const old = await start();
+	dataServiceWillAnswer(`/games/${old.game_id}/forfeit`, 503, "Service unavailable");
+	const { http, retry_after, ...body } = await call("POST", "/api/chess/game", { body: { start_color: "w", replace_current: true } });
+	assert.equal(http, 503);
+	assert.deepEqual(body, { status: 503, message: "Your other game couldn't be closed. Try again." });
+	assert.equal(peek("chess_db", old.game_id).state.S, "OPEN");
+	assert.equal((await call("GET", "/api/chess/user/me")).ai_game_id, old.game_id);
+	const next = await call("POST", "/api/chess/game", { body: { start_color: "w", replace_current: true } }); // THE FORFEIT WORKS NOW
+	assert.equal(next.http, 200);
+	assert.equal(peek("chess_db", old.game_id).state.S, "CLOSED");
+});
+
+test("Restart of an open Play AI game whose forfeit fails answers 503 and creates nothing (closing M2, RD-M5 again)", async () => {
+	const old = await call("POST", "/api/chess/game", { body: { start_color: "w", ai_level: 4 } });
+	dataServiceWillAnswer(`/games/${old.game_id}/forfeit`, 503, "Service unavailable");
+	const { http, retry_after, ...body } = await call("POST", `/api/chess/game/${old.game_id}/restart`);
+	assert.equal(http, 503);
+	assert.deepEqual(body, { status: 503, message: "This game couldn't be closed. Try again." });
+	assert.equal(peek("chess_db", old.game_id).state.S, "OPEN");
+	assert.equal((await call("GET", "/api/chess/user/me")).ai_game_id, old.game_id);
+	const next = await call("POST", `/api/chess/game/${old.game_id}/restart`); // THE FORFEIT WORKS NOW
+	assert.equal(next.http, 200);
+	assert.notEqual(next.game_id, old.game_id);
+	assert.equal(peek("chess_db", old.game_id).state.S, "CLOSED");
 });

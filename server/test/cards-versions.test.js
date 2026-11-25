@@ -100,8 +100,8 @@ test("a version of Grace takes back a mating move like the base card", () => {
 
 test("every built card has the catalog's rarity", () => {
 	const want = {
-		active: { "all-or-nothing": "rare", cleanse: "common", conscription: "legendary", "double-time": "rare", "fog-of-war": "uncommon", foresight: "common", "heavy-cavalry": "uncommon",
-			"heretical-subjection": "rare", hexcraft: "uncommon", "insidious-nullification": "common", "last-stand": "uncommon", mulligan: "uncommon", "opposing-finality": "rare",
+		active: { "all-or-nothing": "rare", cleanse: "common", conscription: "legendary", "double-time": "rare", "fog-of-war": "uncommon", foresight: "common", "heavy-cavalry": "epic",
+			"heretical-subjection": "rare", hexcraft: "uncommon", "insidious-nullification": "rare", "last-stand": "uncommon", mulligan: "uncommon", "opposing-finality": "rare",
 			pickpocket: "common", stronghold: "rare", swap: "rare", trapdoor: "uncommon" },
 		passive: { "bad-omen": "rare", "bleeding-hand": "uncommon", bounty: "common", "escape-artist": "uncommon", grace: "legendary", hex: "uncommon", "last-rites": "uncommon",
 			overwatch: "legendary", reinforcements: "uncommon", retaliation: "uncommon", spite: "common", "unjust-retribution": "rare",

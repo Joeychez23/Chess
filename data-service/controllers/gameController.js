@@ -26,7 +26,7 @@ const ECO = /^[A-E][0-9]{2}$/;
 const OPENING_NAME_LENGTH = 150; // THE LONGEST IN THE DATA SET IS 99
 const NAME_LENGTH = 50; // AN INVITE'S SCREENNAME FROM AUTH0 (USERNAMES ARE 3 - 20)
 const CARDS_STATE_BYTES = 300000; // A CARD GAME'S ENGINE STATE (JSON) IN UTF-8 BYTES, UNDER DYNAMODB'S 400 KB ITEM LIMIT. index.js CARDS_BODY_LIMIT IS SET FROM IT
-const CARDS_FEN = /^[pnbrqkPNBRQK1-8\/]{1,90} [wb] /; // A SAVE'S BOARD: FEN SHAPED, NOT validateFen (A KING CAN BE GONE AFTER A KING CAPTURE)
+const CARDS_FEN = /^[pnbrqkPNBRQK1-8/]{1,90} [wb] /; // A SAVE'S BOARD: FEN SHAPED, NOT validateFen (A KING CAN BE GONE AFTER A KING CAPTURE)
 const CARDS_FEN_LENGTH = 100;
 const CARDS_WINNERS = ["w", "b", "draw"];
 const CARDS_REASONS = { checkmate: false, king: false, skips: false, stalemate: true, repetition: true, fifty: true, material: true }; // THE CARD ENGINE'S RESULT REASONS, true = A DRAW

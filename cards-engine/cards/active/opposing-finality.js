@@ -11,6 +11,7 @@ const { inCheck, hooksFor } = require("../../rules.js");
 
 const KEY = "opposing-finality";
 const STAGE = { p: 0, n: 1, b: 1, r: 2, q: 3 };
+const ASK = { q: "q", r: "r", n: "p", b: "p", p: "p" }; // THE TYPE THE PENDING KEEPS: offer ASKS THE SAME STAGE, AND A FOGGED KNIGHT MUST NOT READ AS ONE
 const HOME = { n: [1, 6], b: [2, 5], r: [0, 7] }; // START FILES ON THE BACK RANK
 const other = (c) => (c === "w" ? "b" : "w");
 const dark = (i) => ((i >> 3) + (i & 7)) & 1;
@@ -66,6 +67,15 @@ function offer(state, owner, t, turn) {
 }
 
 /**
+ * @description The ids of the other side's pieces hidden from viewer by that side's Fog of War (any version): its pieces on its own half, as view.js hiddenIds; [] with no such fog.
+ */
+function hiddenFrom(state, viewer) {
+	const { fogged } = require("../../view.js"); // LAZY: view.js REQUIRES THE REGISTRY, WHICH WILL REQUIRE THIS FILE
+	const c = other(viewer);
+	return fogged(state, c, viewer) ? state.board.sq.filter((p, i) => p && p.c === c && (c === "w" ? i >= 32 : i < 32)).map((p) => p.id) : [];
+}
+
+/**
  * @description The piece with this id changes to owner's colour (same id, statuses kept) and moves to its landing square; castling rights its squares hold go, an en passant square behind it goes, a pawn moved resets the half-move counter; a handover event { player: owner, piece, from, to }.
  */
 function handOver(ctx, owner, id) {
@@ -110,14 +120,17 @@ module.exports = {
 	},
 	on: {
 		/**
-		 * @description Its piece captured by the other side (by a move or a card): the hand-over, at once when one piece qualifies, else through the chooser's choice; nothing when the giver has only the king. Fires either way; a removal by its own side just ends it.
+		 * @description Its piece captured by the other side (by a move or a card): the hand-over, at once when one piece qualifies, else through the chooser's choice; nothing when the giver has only the king. The choice's options: the ids of the offered pieces the chooser sees, then "?1".."?k", one per offered piece the giver's Fog of War hides from them (an id would tell where it stands; with none listed the choice could not be answered, T25-I1); the pending keeps t, a type offer asks the same stage for (a knight or bishop kept as a pawn: the captured type may be fogged), never a hidden id. Fires either way; a removal by its own side just ends it.
 		 */
 		capture(ctx, owner, ev, src) {
 			if (ev.piece !== src.pieces[0] || ev.c !== src.owner) return false;
 			if (ev.player === ev.c) return true; // A REMOVAL BY ITS OWN SIDE (A FORFEIT, A LOST DUEL) IS NOT A CAPTURE: IT JUST ENDS
 			const { pieces, chooser } = offer(ctx.state, owner, ev.t, ctx.turn);
 			if (pieces.length === 1) handOver(ctx, owner, pieces[0].id);
-			else if (pieces.length) ctx.ask(chooser, KEY, pieces.map((p) => p.id), { card: KEY, owner });
+			else if (pieces.length) {
+				const hid = hiddenFrom(ctx.state, chooser), seen = pieces.filter((p) => !hid.includes(p.id)).map((p) => p.id);
+				ctx.ask(chooser, KEY, [...seen, ...Array.from({ length: pieces.length - seen.length }, (_, i) => "?" + (i + 1))], { card: KEY, owner, t: ASK[ev.t] });
+			}
 			return true;
 		},
 		move: turned,
@@ -134,8 +147,12 @@ module.exports = {
 	},
 	choice: {
 		/**
-		 * @description The chosen piece (an id) is handed to pending.owner.
+		 * @description The chosen piece (an id) is handed to pending.owner. A slot ("?n") hands over a uniform random pick (state.rng) among the pieces offered now (offer for pending.t) and not listed by id; none left: nothing.
 		 */
-		resolve(ctx, pending, option) { handOver(ctx, pending.owner, option); },
+		resolve(ctx, pending, option) {
+			if (option[0] !== "?") return handOver(ctx, pending.owner, option);
+			const left = offer(ctx.state, pending.owner, pending.t, ctx.turn).pieces.filter((p) => !pending.options.includes(p.id));
+			if (left.length) handOver(ctx, pending.owner, ctx.rng.pick(left).id);
+		},
 	},
 };

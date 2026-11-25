@@ -9,14 +9,14 @@
 const { sqIndex } = require("../../../../../cards-engine/board.js"); // THE ENGINE'S OWN SQUARE INDEX (a8 = 0), AS flow.js READS THE VIEW'S BOARD
 
 const shot = (e) => e.type === "capture" && typeof e.from === "string" && typeof e.sq === "string"; // A CARD'S RANGED SHOT: THE CAPTURE EVENT NAMES THE SHOOTER'S SQUARE (OVERWATCH)
-const removal = (e) => e.type === "capture" && e.player === e.c && typeof e.sq === "string"; // A CARD REMOVES A PIECE FOR ITS OWN SIDE (HUNGER, A FORFEIT): NEVER A TAKE BY THE OPPONENT
+const removal = (e) => e.type === "capture" && e.player === e.c && typeof e.sq === "string"; // A CARD REMOVES A PIECE FOR ITS OWN SIDE (A FORFEIT: ALL OR NOTHING'S LOST HAND): NEVER A TAKE BY THE OPPONENT
 
 /**
  * @description The board's steps for an answer, in the order of its events, when it has one the drawn move can't show (Overwatch's shot, a removal, a handover): each move (from & to: a move out
  * of the fog has no from, nothing of it was on the board) slides or hops, its own capture named (taken: the square the event says, en passant the pawn's, so nothing is guessed from the board), a
  * promotion on arrival; Swap's two move events (back to back, trading squares) are one swap, neither piece taken; a shot takes the piece on its square, then the shooter goes out to that square &
  * back to its own (piece: a shooter not in the previous view, hidden by a Fog of War, shows for the shot, user ruling 2026-11-23, & is gone after unless the answer's view shows it; the shooter is
- * always a bishop); a removal by the piece's own side (Hunger's pawn, Insidious Nullification's forfeit) topples it, unless the previous view hides it (a Fog of War: it plays nothing, controller
+ * always a bishop); a removal by the piece's own side (a forfeit: All or Nothing's lost hand) topples it, unless the previous view hides it (a Fog of War: it plays nothing, controller
  * ruling 2026-11-23); Opposing Finality's handover slides the piece to its square on the receiving side in its new colour (c); then the answer's view on the board & the table (set). Nothing
  * otherwise, also on a load (no previous view): the answer takes the drawn move's path. A lost duel's removal is the duel's answer (duelShow.js), never asked here. A new kind of step is one
  * more case here & in three/motion.js playBoardStep

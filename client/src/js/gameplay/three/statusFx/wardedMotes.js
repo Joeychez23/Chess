@@ -117,7 +117,7 @@ function cloud(count, map, sizes) {
 	geometry.setAttribute("position", new Float32BufferAttribute(new Float32Array(count * 3), 3));
 	geometry.setAttribute("color", new Float32BufferAttribute(new Float32Array(count * 3), 3));
 	geometry.setAttribute("aSize", new Float32BufferAttribute(sizes, 1));
-	const material = new PointsMaterial({ map, vertexColors: true, transparent: true, blending: AdditiveBlending, depthWrite: false });
+	const material = new PointsMaterial({ map, vertexColors: true, transparent: true, blending: AdditiveBlending, depthWrite: false, fog: false }); // fog: false ON EVERY GLOW MATERIAL: bloom.js DRAWS THE GLOWS WITH scene.fog OFF, A FOGGED ONE WOULD RE-ACQUIRE ITS PROGRAM TWICE A FRAME (T24 M1)
 	material.onBeforeCompile = sizePatch; // ONE FUNCTION, SO EVERY PIECE SHARES ONE PROGRAM
 	const points = new Points(geometry, material);
 	points.frustumCulled = false; // ITS BOUNDS WOULD NEED A RECOMPUTE EVERY FRAME

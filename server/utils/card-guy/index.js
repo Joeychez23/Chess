@@ -194,7 +194,7 @@ async function scoreTurn(view, { evaluate, bestOf, seed, refused = [], legal }, 
 
 /**
  * @description Card Guy's free discard, at every level (user ruling 2026-11-21), decided before the search: scored, a 2-for-1 always loses to a move. The active when it has no play this turn (not even paying a curse's clear) and is common or uncommon and not Cleanse (user ruling R1),
- * else a move card with no move this turn, the first in hand order (Task 20e: one card at a time; the engine remembers it until the next one, which draws 1 back at random), else none. Never the passive's reroll
+ * else a move card with no move this turn, the first in hand order (Task 20e: one card at a time; the engine remembers it until the next one, which draws 1 back at random), else none. Never the passive's reroll (passiveSwap's, decided before this)
  * @param  {[array]} actions [the legal actions on Card Guy's guess]
  * @param  {[object]} p [Card Guy's player in that guess: its actives and move cards]
  * @return {[object]} a discard action, or null
@@ -215,23 +215,29 @@ const material = (state, me) => state.board.sq.reduce((sum, q) => sum + (q ? (q.
 
 /**
  * @description Card Guy's rule for his waiting passives (Task 20e), decided before the search, from his view alone: with 3 waiting and one in hand of a higher rarity than the weakest waiting one (ties: the oldest), the drop of that one;
- * then, the drop made (view: a passive of his left this turn, fewer than 3 wait), placing the one in hand. Only when the placing is legal (not in check). Otherwise null: he keeps what he has (candidates never places a fourth over the oldest) and drops nothing else
+ * then, the drop made (view: a passive of his left this turn, fewer than 3 wait), placing the one in hand. Only when the placing is legal (not in check). With 3 waiting and the one in hand no rarer than the weakest, its reroll (the free discard of the held passive, ruling 7(b)),
+ * only while the engine offers it (another passive to draw, the turn's free discard unused) and the list he is told holds it; it is decided before freeDiscard, so it wins over a dead card's discard. Otherwise null: he keeps what he has (candidates never places a fourth over the oldest) and drops nothing else
  * @param  {[array]} actions [the legal actions on Card Guy's guess]
  * @param  {[object]} view [playerView(state, cardGuy)]
- * @param  {[array]} legal [engine.playerLegal(state, cardGuy), when the caller has it: the placing must be on it]
- * @return {[object]} a drop or the passive's placing, or null
+ * @param  {[array]} legal [engine.playerLegal(state, cardGuy), when the caller has it: the placing and the reroll must be on it]
+ * @return {[object]} a drop, the passive's placing or its reroll, or null
  */
 function passiveSwap(actions, view, legal) {
-	const p = view.players[view.you], place = actions.find((a) => a.type === "passive");
-	if (!p.passive || !place || (legal && !legal.some((a) => a.type === "passive"))) { return null; } // THE LIST HE IS TOLD NAMES NO PIECE FOR THE PLACING, SO IT HOLDS UNDER A FOG TOO: CHECKED BY A FOGGED PIECE, A DROP WOULD LOSE A CARD FOR NOTHING
+	const p = view.players[view.you], place = actions.find((a) => a.type === "passive"), told = (a) => !legal || legal.some((b) => engine.actionKey(b) === engine.actionKey(a)); // THE LIST HE IS TOLD NAMES NO PIECE FOR THE PLACING OR THE REROLL, SO IT HOLDS UNDER A FOG TOO
+	if (!p.passive) { return null; }
 	const mine = view.effects.filter((e) => e.owner === view.you).sort((x, y) => x.placedAt - y.placedAt), rank = (card) => Object.keys(RARITY_WEIGHTS).indexOf(CARDS[card.key].rarity); // RARITY_WEIGHTS LISTS THE TIERS FROM COMMON UP
-	if (mine.length < PASSIVES) { return (p.gone || []).length ? place : null; } // HE NEVER REROLLS: A PASSIVE THAT LEFT THIS TURN IS THE ONE HE DROPPED FOR THIS ONE
-	const weakest = mine.reduce((w, e) => (rank(e.card) < rank(w.card) ? e : w)); // BY AGE: THE OLDEST OF A TIE STAYS THE PICK
-	return (rank(p.passive) > rank(weakest.card) && actions.find((a) => a.type === "drop" && a.card === weakest.id)) || null;
+	const weakest = mine.length >= PASSIVES ? mine.reduce((w, e) => (rank(e.card) < rank(w.card) ? e : w)) : null; // BY AGE: THE OLDEST OF A TIE STAYS THE PICK
+	if (weakest && rank(p.passive) <= rank(weakest.card)) { // IT WOULD NEVER BE PLACED AND A HELD PASSIVE STOPS THE TURN-START DRAW: REROLL IT (RULING 7(b))
+		const reroll = actions.find((a) => a.type === "discard" && a.cards.length === 1 && a.cards[0] === p.passive.id);
+		return reroll && told(reroll) ? reroll : null;
+	}
+	if (!place || (legal && !legal.some((a) => a.type === "passive"))) { return null; } // CHECKED BY A FOGGED PIECE, A DROP WOULD LOSE A CARD FOR NOTHING
+	if (!weakest) { return (p.gone || []).length ? place : null; } // FEWER THAN 3 WAIT: A PASSIVE THAT LEFT THIS TURN IS THE ONE HE DROPPED FOR THIS ONE
+	return actions.find((a) => a.type === "drop" && a.card === weakest.id) || null;
 }
 
 /**
- * @description One action for whatever Card Guy owes now: the waiting passives' swap (passiveSwap; skipped for the search's pick when that mates or wins material), the free discard (freeDiscard), a turn action, the next move of a two-move turn, a choice, a card duel pick (random: every card is face down) or
+ * @description One action for whatever Card Guy owes now: the waiting passives' swap (passiveSwap; skipped for the search's pick when that mates or wins material), the free discard (freeDiscard), a turn action, the next move of a two-move turn, a choice (an Opposing Finality slot "?n", a piece the fog hides: one at random when only slots are left, else the scored pick among the pieces he sees), a card duel pick (random: every card is face down) or
  * a duel's stop or go on. Callers call it again while Card Guy still owes something. The action is legal on Card Guy's guess of the game; under the visitor's Fog of War
  * the real game can still refuse it: call again with its key added to refused. With legal (no fog up) only an action on that list is returned: the view shows an entered Mirage
  * in Card Guy's own hand as a move card, as to any holder, and only the list says it has no move in check
@@ -250,6 +256,11 @@ async function cardGuyTurn(view, level, { evaluate, bestOf, seed, refused = [], 
 		if (actions[0].pick !== undefined) { return engine.rng.pick(random, actions); }
 		const stop = !(duelValue(sim, me, sim.duel.card, sim.duel.piece) > 0); // GO ON ONLY WHEN THE NEXT HAND IS WORTH ITS RISK
 		return actions.find((a) => a.stop === stop) || actions[0];
+	}
+	const slots = actions.filter((a) => a.type === "choice" && /^\?\d+$/.test(a.option)).map(engine.actionKey); // OPPOSING FINALITY'S PIECES HIDDEN BY THE FOG (CONTRACT a): HIS GUESS HOLDS NO SUCH PIECE TO PLAY ONE OUT ON
+	if (slots.length) {
+		if (slots.length === actions.length) { return engine.rng.pick(random, actions); } // NOTHING TELLS THEM APART
+		return pick(await scoreTurn(view, { evaluate, bestOf, seed, refused: [...refused, ...slots], legal }, world), level, rng); // THE PIECES HE SEES ARE SCORED; A KNOWN ONE OVER AN UNKNOWN
 	}
 	const swap = passiveSwap(actions, view, legal);
 	if (swap && swap.type === "drop") { // THE SWAP COSTS THE TURN: NOT WHEN THE SEARCH'S MOVE MATES OR WINS MATERIAL (RULING R2, 2026-11-22)

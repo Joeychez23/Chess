@@ -85,6 +85,19 @@ describe("cheap switch", () => {
 		assert.deepEqual(globalThis.__bloom, [false]);
 	});
 
+	test("T24 M5: a burst still playing (an ending effect) hears the switch too: its opts.cheap turns true in place", () => {
+		for (const s of Object.keys(fx.MODULES)) { fx.MODULES[s] = { create: () => ({ update() {}, burst: () => 20000, animating: () => true, dispose() {} }) }; }
+		const v = setup();
+		fx.syncStatuses(v, "effects");
+		const gone = fx.liveStatuses().find((l) => l.opts.id === "p2").opts;
+		fx.syncStatuses({ ...v, statuses: { p1: v.statuses.p1 } }, "effects"); // p2'S FROZEN ENDS: ITS BURST PLAYS ON
+		assert.equal(fx.liveStatuses().length, 1);
+		assert.equal(gone.cheap, false);
+		frames(frames(0, 33, 3000), 80, 4500);
+		assert.deepEqual(cheaps(), [true]);
+		assert.equal(gone.cheap, true);
+	});
+
 	test("fast frames keep it off; a frame rate collapse over 2 s turns it on in place, with update(0), once", () => {
 		fx.syncStatuses(setup(), "effects");
 		const before = fx.liveStatuses().map((l) => l.opts);
@@ -309,7 +322,7 @@ describe("opts.fresh", () => {
 
 	// RE-REVIEW 1, RULING T24-R16: A WARD THAT COMES ONLY FROM HEAVY CAVALRY IS FRESH ONLY IF ITS ENCHANT WASN'T CUT (FOG) IN THE LAST SYNCED VIEW
 	const C3 = 42, A1 = 56; // c3 WARDS e2; a1 DOESN'T
-	function hcView({ c = "w", you = "w", knightAt = C3, show = true, key = "heavy-cavalry-epic", enchant = true, result } = {}) {
+	function hcView({ c = "w", you = "w", knightAt = C3, show = true, key = "heavy-cavalry", enchant = true, result } = {}) {
 		const sq = Array(64).fill(null);
 		sq[52] = { id: "p1", c, t: "p" }; // e2, SHOWN THROUGHOUT
 		if (show) { sq[knightAt] = { id: "k1", c, t: "n" }; }

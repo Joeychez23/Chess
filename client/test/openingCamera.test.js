@@ -83,11 +83,12 @@ function checkSpot(spot, w, h, fov, angle) {
 for (const fov of FOVS) {
 	for (const [name, w, h, pinned] of SIZES) {
 		for (const angle of [0, Math.PI]) {
+			const pin = pinned === null ? fov === SMALL_FOV : pinned; // T25-M3: THE DESKTOP & NARROW ROWS ARE PINNED AT FOV 30 & NOT AT FOV 45 (THE HAND IS HELD CLOSER), EACH BRANCH NOW REQUIRED
 			const where = pinned === null ? "pinned where the hand allows, else the camera as close as it can come" : pinned ? `the bottom on the desk at z ${BOTTOM_Z} ± ${TOLERANCE}` : "the camera as close as the hand, the desk's edge & the room allow";
 			test(`opening camera, fov ${fov}, ${name}, ${angle ? "black" : "white"}: every card of a 10 & a 12 card hand in view, ${where}, the board in view & clear of the preview`, () => {
 				const spot = openingCamera({ fov, width: w, height: h, angle });
 				const { widest, tallest, bottom } = checkSpot(spot, w, h, fov, angle); // AT FOV 30 THESE TWO PORTRAIT SIZES TAKE A SHALLOWER TILT (T23-11): 40 DEGREES WOULD NEED A CAMERA PAST THE CEILING
-				if (pinned || (pinned === null && Math.abs(bottom - BOTTOM_Z) <= TOLERANCE)) { assert.ok(Math.abs(bottom - BOTTOM_Z) <= TOLERANCE, `bottom at ${bottom}`); assert.equal(spot.tilt, OPENING_TILT, "at OPENING_TILT"); return; }
+				if (pin) { assert.ok(Math.abs(bottom - BOTTOM_Z) <= TOLERANCE, `bottom at ${bottom}`); assert.equal(spot.tilt, OPENING_TILT, "at OPENING_TILT"); return; }
 				// RULING T23-7: THE PIN DROPPED, THE CAMERA AS CLOSE AS IT CAN COME: THE HAND'S OUTER CORNER AT THE FIT'S SIDE, ITS NEAR EDGE AT THE FIT'S BOTTOM OR THE VIEW'S BOTTOM AT THE DESK'S EDGE (ANY CLOSER BREAKS ONE)
 				assert.ok(widest >= FIT_NDC - 0.01 || tallest >= FIT_NDC - 0.01 || bottom >= DESK_EDGE - 0.1, `the hand's outer corner at ${widest.toFixed(3)}, its near edge at ${tallest.toFixed(3)}, the bottom at ${bottom.toFixed(2)}: the camera could come closer`);
 				assert.ok(Math.abs(bottom - BOTTOM_Z) > TOLERANCE, "the pin let go");

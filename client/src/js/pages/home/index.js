@@ -18,6 +18,7 @@ const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, searchPlayers, acceptInvite, getFriends } = require("../../gameplay/validate/index.js");
 const { newCardsGame } = require("../../gameplay/cards/api.js"); // CHESS CARDS: A NEW GAME VS CARD GUY
 const { hasWebGL } = require("../../gameplay/three/load.js"); // CHESS CARDS IS 3D ONLY
+const { reasonLine } = require("../utils/resultReasons.js"); // A FINISHED GAME'S REASON AS THE RESULT SCREEN SAYS IT
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
 const { timeLeftText } = require("../utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT ON YOUR GAMES
@@ -99,7 +100,7 @@ preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OP
 startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
 optNewCardsBtn.addEventListener("click", handleNewCardsGame);
-if (!hasWebGL()) { optNewCardsBtn.disabled = true; cardsNote.innerText = "Chess Cards needs 3D, which this device can't show."; } // A CARD GAME IS 3D ONLY
+if (cardsBlocked()) { optNewCardsBtn.disabled = true; cardsNote.innerText = "Chess Cards needs 3D, which this device can't show."; } // A CARD GAME IS 3D ONLY
 muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE USERNAME FIELD
 multiEmailInput.addEventListener("input", handlePlayerSearch);
 createChallengeBtn.addEventListener("click", handleCreateChallenge);
@@ -267,7 +268,7 @@ function listFinishedGames(gameData, levels) {
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
 		const opponent = opponentText(game, levels);
-		const reason = game.reason ? ` // ${game.reason[0].toUpperCase()}${game.reason.slice(1)}` : "";
+		const reason = reasonText(game.reason);
 		gameLink.href = game.mode === "cards" ? `/play/${encodeURIComponent(game.game_id)}` : `/replay/${encodeURIComponent(game.game_id)}`; // STEP THROUGH IT (#78). A CARD GAME OPENS ON ITS FINAL BOARD, THE REPLAY DOESN'T KNOW THE CARDS
 		gameLink.innerHTML = `<span class="label"></span><span class="spec gameInfo"></span>`;
 		gameLink.querySelector(".label").innerText = game.winner == "draw" ? "Draw" : game.winner == game.player_color ? "Won" : "Lost";
@@ -278,6 +279,16 @@ function listFinishedGames(gameData, levels) {
 	finishedList.replaceChildren(...rows); // SAME AS listGames (#240)
 	noFinished.hidden = games.length > 0;
 	if (!games.length) { noFinished.innerText = "No finished games yet. They show up here when a game ends."; }
+}
+
+/**
+ * @description A finished game's reason after its color: the result screen's line ("by taking the King" -> " // By taking the King"), or the raw word when there is no line (a forfeit)
+ * @param  {[string]} reason [the stored reason or null]
+ * @return {[string]} text [" // ..." or ""]
+ */
+function reasonText(reason) {
+	const text = reasonLine(reason) || reason;
+	return text ? ` // ${text[0].toUpperCase()}${text.slice(1)}` : "";
 }
 
 
@@ -320,6 +331,7 @@ async function handleNewSoloGame(e) {
 	soloNote.innerText = "";
 	const response = await newAiGame(CHESS_URL, undefined, aiColorSelect.value, aiLevelSelect.value, confirmNewGame, aiFenInput.value); // CREATE NEW GAME AT THE PICKED LEVEL, COLOR & POSITION (THE SERVER MAKES THE ID)
 	if (response?.status == 400 || response?.status == 429) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, OR TOO MANY NEW GAMES: NOTHING WAS FORFEITED
+	if (response?.status == 503) { stopLoading(); return soloNote.innerText = confirmNewGame ? "Your other game couldn't be closed. Try again." : "A new game couldn't be started. Try again."; } // THE FORFEIT FAILED: NOTHING WAS CREATED (AS handleNewCardsGame)
 	if (response?.status == 409) { // AN AI GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
 		stopLoading();
 		soloNote.innerText = "You already have an AI game open";
@@ -335,7 +347,7 @@ async function handleNewSoloGame(e) {
 /* ---------------------------------------------------------------- */
 /**
  * @description New Chess Cards game vs Card Guy at the picked level & color, then opens it (Restart keeps both). The same flow as Play AI: while an AI or card game is open
- * the first press says it'll be forfeited, the second starts the new game, & one opened since (another tab) is shown instead. Off without WebGL (it's 3D only)
+ * the first press says it'll be forfeited, the second starts the new game, & one opened since (another tab) is shown instead. Off where 3D isn't available (cardsBlocked). A 503 (the open game couldn't be forfeited) creates nothing & says so
  */
 async function handleNewCardsGame(e) {
 	e.preventDefault();
@@ -349,6 +361,7 @@ async function handleNewCardsGame(e) {
 	cardsNote.innerText = "";
 	const response = await newCardsGame(CHESS_URL, cardsColorSelect.value, cardsLevelSelect.value, confirmNewCards); // THE SERVER MAKES THE ID & PICKS THE SIDES
 	if (response?.status === 400 || response?.status === 429) { stopLoading(); return cardsNote.innerText = response.message; } // TOO MANY NEW GAMES: NOTHING WAS FORFEITED
+	if (response?.status === 503) { stopLoading(); return cardsNote.innerText = confirmNewCards ? "Your other game couldn't be closed. Try again." : "A new game couldn't be started. Try again."; } // THE FORFEIT FAILED: NOTHING WAS CREATED, PRESS AGAIN. WITH NO REPLACE ASKED IT'S THE SERVER'S OWN 503 (THE DATA SERVICE DOWN, F10-m1)
 	if (response?.status === 409) { // AN AI OR CARD GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
 		stopLoading();
 		cardsNote.innerText = "You already have an AI or Chess Cards game open";
@@ -356,6 +369,14 @@ async function handleNewCardsGame(e) {
 	}
 	if (response?.status !== 200) { stopLoading(); return console.log(response); }
 	goToPage(`/play/${response.game_id}`); // ONCE THE IMAGES ARE IN, THE PLAY PAGE OPENS IT BY ITS MODE
+}
+
+/**
+ * @description Chess Cards is 3D only: off with no WebGL, & on a touch-first device, where the play page has no 3D (the renderer's can3D() uses the same media query; the renderer stays out of Home's bundle)
+ * @return {[boolean]} blocked
+ */
+function cardsBlocked() {
+	return !hasWebGL() || window.matchMedia("(pointer: coarse)").matches;
 }
 
 

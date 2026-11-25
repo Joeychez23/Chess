@@ -53,7 +53,7 @@ const STATUSES = {
 };
 // THE RINGS' HOVER TEXT (T22-3), SHORTENED FROM THE CARDS' TEXT (cards-engine/cards/active/*.js: THE CLIENT DOESN'T LOAD THE CATALOG)
 const RINGS = {
-	"heavy-cavalry": ["Heavy Cavalry", "the friendly pieces this knight could move to are Warded, except the king & its partner knight, if any."], // THE EPIC HAS NO PARTNER: ITS OTHER KNIGHT IS WARDED
+	"heavy-cavalry": ["Heavy Cavalry", "the friendly pieces this knight could move to are Warded, except the king."], // ONE KNIGHT, NO PARTNER (THE TWO-KNIGHT CARD WAS REMOVED 2026-11-25): ITS OTHER KNIGHT IS WARDED
 	"heretical-subjection": ["Heretical Subjection", "moves without a card, like a bishop or like a king."],
 	"opposing-finality": ["Opposing Finality", "if it's captured, the opponent hands its owner a piece one stage below it."],
 };
@@ -79,7 +79,7 @@ let cheap = null, gapCount = 0, gapStart = null; // cheap: null UNTIL THE FIRST 
 const squareName = (i) => "abcdefgh"[i % 8] + (8 - Math.floor(i / 8)); // 0 = a8, THE ENGINE'S ORDER (cards-engine/board.js sqName)
 const idOf = (key) => key.slice(0, key.lastIndexOf(":"));
 const baseOf = (key) => key.replace(/-epic$/, ""); // A VERSION'S KEY TO ITS CARD'S (cards-engine/cards/index.js baseKey)
-const cut = (e) => e.pieces.length !== (e.key === "heavy-cavalry" ? 2 : 1); // A HEAVY CAVALRY THE FOG CUT A KNIGHT FROM (view.js scrub): THE BASE'S LEFT ONE CAN'T BE TOLD, THE EPIC'S HAS NONE (pieces [] WOULD READ AS a8), SO NO RING & NO WARD
+const cut = (e) => e.pieces.length !== 1; // A HEAVY CAVALRY THE FOG CUT ITS KNIGHT FROM (view.js scrub): IT HAS NONE (pieces [] WOULD READ AS a8), SO NO RING & NO WARD
 const KNIGHT = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
 const knightSquares = (i) => KNIGHT.map(([dr, df]) => [(i >> 3) + dr, (i & 7) + df]).filter(([r, f]) => r >= 0 && r < 8 && f >= 0 && f < 8).map(([r, f]) => r * 8 + f);
 

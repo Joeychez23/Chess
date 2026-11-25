@@ -62,7 +62,7 @@ export function make(pieceMesh, opts) {
 
 	function build() { // ON THE FIRST play: MOST WARDED PIECES NEVER FLARE
 		shared();
-		const add = { transparent: true, blending: AdditiveBlending, depthWrite: false };
+		const add = { transparent: true, blending: AdditiveBlending, depthWrite: false, fog: false }; // fog: SEE wardedMotes.js
 		ringMesh = new Mesh(ring, new MeshBasicMaterial({ color: 0xffd76a, side: DoubleSide, ...add }));
 		glowMesh = new Mesh(glow, new MeshBasicMaterial({ color: 0xfff0b8, side: BackSide, ...add }));
 		pts = new BufferGeometry();

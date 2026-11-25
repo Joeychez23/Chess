@@ -156,7 +156,7 @@ function moveDealCamera(to, animate, done) {
 		duration: ZOOM_MS,
 		update(k) {
 			if (view.dealEase !== ease) { return; } // A NEWER MOVE TOOK OVER
-			if (to.lean && k < 1 && view.cameraGesture) { view.dealEase = null; view.leanHome = null; return; } // THE PLAYER TOOK THE CAMERA MID LEAN: IT STAYS WHERE THEY PUT IT
+			if (to.lean && k < 1 && (view.cameraGesture || view.leanMoved)) { view.dealEase = null; view.leanHome = null; return; } // THE PLAYER TOOK THE CAMERA MID LEAN (A DRAG, OR A WHEEL: leanMoved WITHOUT cameraGesture, F8-M1): IT STAYS WHERE THEY PUT IT
 			if (k === 1) { // EXACTLY THERE, NOT A ROUNDING ERROR OFF IT: THE WAY BACK LANDS WHERE THE PLAYER HAD IT
 				camera.position.copy(to.position);
 				controls.target.copy(to.target);
@@ -302,8 +302,6 @@ function reframe() {
 // Auto Lean
 /* ---------------------------------------------------------------- */
 
-const LEAN_MOVED = 0.01; // THE CAMERA THIS FAR FROM WHERE THE LEAN PUT IT WAS MOVED BY HAND
-
 // THE POINTER WENT ONTO THE BOARD (lean.js, THE MENU'S OPTION ON): THE CAMERA GLIDES TO leanSpot(), REMEMBERING WHERE THE PLAYER HAD IT (view.leanHome).
 // NOTHING WHILE THE PLAYER MOVES THE CAMERA, AT THE MONITOR, DURING A FLIP BOARD TURN, WHILE THE PROMOTION CARDS ARE OUT OR A DEAL OR AN OPENED PILE IS FRAMED (view.dealHome:
 // THE FRAME WINS). WHERE ONE OF THOSE ENDS retryLean() ASKS AGAIN, FOR A POINTER STILL ON THE BOARD (lean.js)
@@ -314,6 +312,7 @@ function leanIn() {
 	const { camera, controls } = view;
 	const from = home || { position: camera.position.clone(), target: controls.target.clone() }; // BACK ON THE BOARD MID WAY BACK: THE SAME HOME
 	from.back = false; // back: ON ITS WAY HOME (leanBack)
+	view.leanMoved = false; // pointer.js SETS IT WHEN THE PLAYER REALLY MOVES THE CAMERA FROM HERE ON (A DRAG, TWO FINGERS, A WHEEL ZOOM)
 	from.spot = leanSpot({ home: from, fov: camera.fov, aspect: camera.aspect, board: BOARD_SIZE, min: controls.minDistance, max: controls.maxDistance });
 	view.leanHome = from;
 	moveDealCamera({ position: from.spot.position, target: from.spot.target, near: NEAR, lean: true }, !REDUCE.matches, () => {});
@@ -325,7 +324,7 @@ function leanBack(animate) {
 	const home = view && view.leanHome;
 	if (!home || !monitorIdle()) { return; }
 	if (home.back) { if (!animate) { landDealEase(); } return; } // ALREADY ON ITS WAY
-	if (!view.dealEase && view.camera.position.distanceTo(home.spot.position) > LEAN_MOVED) { view.leanHome = null; return; }
+	if (!view.dealEase && view.leanMoved) { view.leanHome = null; return; } // A REAL GESTURE, NOT A CLICK'S 1 px WOBBLE OF PAN (RB-I1)
 	const v = view;
 	home.back = true;
 	moveDealCamera({ position: home.position, target: home.target, near: NEAR, lean: true }, animate, () => { v.leanHome = null; });
