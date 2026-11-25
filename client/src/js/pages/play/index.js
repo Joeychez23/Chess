@@ -17,7 +17,9 @@ require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MOD
 const { renderCanvas, VIEWS } = require("../../gameplay/index.js");
 const { startReplay } = require("../../gameplay/replay/index.js"); // /replay/:gameId: STEPS THROUGH THE FINISHED GAME
 const { preloadImages } = require("../../gameplay/images/index.js");
-const { validate, newAiGame, getRatings } = require("../../gameplay/validate/index.js");
+const { validate, newAiGame, getRatings, getUserGameData } = require("../../gameplay/validate/index.js");
+const statusPref = require("../../gameplay/cards/statusPref.js"); // CHESS CARDS: A PIECE'S STATUSES AS EFFECTS OR BADGES
+const { showStatusDisplay } = require("../../gameplay/menu/index.js"); // ITS MENU ITEM, CARD GAMES ONLY
 const { InternalAuth } = require("../../auth/index.js");
 const { startNav, startLogoutButtons, showTable, showPage } = require("../utils/index.js");
 
@@ -66,6 +68,11 @@ window.addEventListener("load", async function () {
 		if (!response.ai) { showRatings(gameId); } // NOT AWAITED, THE GAME DOESN'T WAIT FOR IT
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: gameId, PLAYER_ID: playerId }
 		if (response.mode === "cards" && !replay) { Object.assign(playerData, { CARD_GAME: { startColor: response.start_params?.color }, VIEW: VIEWS.THREE_D }); } // CHESS CARDS: 3D ONLY, cards/flow.js PLAYS IT. GUESTS CAN'T START ONE (NO BOX ON THEIR PAGE), THEIR SAVED ID IS ALWAYS A CHESS GAME'S
+		if (playerData.CARD_GAME) { // THE STATUS DISPLAY IS SEEDED BEFORE THE BOARD DRAWS ANY STATUS. NO ANSWER: "effects"
+			const userData = await getUserGameData(CHESS_URL, playerId); // GET /api/chess/user/:userId: settings.status_display
+			statusPref.init({ signedIn: true, saved: userData?.settings?.status_display });
+			showStatusDisplay();
+		}
 	} else {
 		const guestId = await newGuestGame(guestGameId()); // A GUEST'S PLAYER ID IS THEIR GAME ID
 		if (!guestId) { return gameNotFound(); } // NO SAVED ID & THE SERVER COULDN'T MAKE A GAME

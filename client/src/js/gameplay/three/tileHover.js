@@ -6,6 +6,7 @@ import { updateShadow, setOpacity } from "./pieces.js";
 import { boardHover } from "./lean.js"; // AUTO LEAN (SEGMENT C2) IS TOLD WHEN THE POINTER COMES ONTO THE TILES & GOES OFF THEM
 import { CELL_SIZE, LIFT_HEIGHT, REDUCE } from "./constants.js";
 import { REST_MS, FADE_OPACITY, canAct, fadeList, fadeMs } from "./hoverRules.js";
+import { hoverStatuses } from "./statusFx/index.js"; // THE HOVERED PIECE'S STATUSES, NAMED (TASK 21)
 
 const HOVER_LIFT = LIFT_HEIGHT * 0.4; // THE HOVERED PIECE'S LIFT: A PICKED PIECE'S (liftHeld), SMALLER
 const BOX = [0.42, 0.5]; // THE BOX'S INNER & OUTER EDGE, HALF A SIDE IN SQUARES FROM THE CENTER (THE FOCUS RING'S SHAPE, ON THE TILE'S EDGE)
@@ -38,6 +39,7 @@ export function hoverTile(e) {
 		if (Boolean(tile) !== Boolean(h.tile)) { boardHover(Boolean(tile)); } // ONLY ON A CHANGE
 		setDown(h);
 		h.tile = tile;
+		hoverStatuses(tile);
 		h.rested = false;
 		h.box.visible = Boolean(tile);
 		if (tile) { h.box.position.set(center(fileOf(tile)), BOX_Y, center(rowOf(tile))); }

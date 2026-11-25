@@ -134,6 +134,18 @@ function checkView(s, viewer, secret = []) {
 	}
 	for (const m of mine) assert.ok(v.players[viewer].moves.some((c) => c.id === m.id && c.key === "move" && c.piece === m.piece), "mirage not a move card");
 	for (const m of o.curses.filter(isMirage)) assert.ok(shown.some((c) => c.id === m.id && isMirage(c)), "giver can't see mirage");
+	if (s.result) assert.deepEqual(v.statuses, s.statuses, "a finished game hides a status"); // RULING 2026-11-23 09:28 M1: THE VEILED FROZEN TOO, AS THE FOG LIFTS
+	else for (const [id, list] of Object.entries(s.statuses || {})) { // #493 (RULINGS 2026-11-23 08:33, 09:28 M2): A VEILED STATUS NEVER TO ITS PIECE'S OWNER (ITS COLOUR NOW); by ONLY TO THE OWNER AND THE CASTER; EVERY OTHER STATUS AND left TO BOTH
+		const q = s.board.sq.find((x) => x && x.id === id), got = (v.statuses || {})[id] || [];
+		if (boardFog(s, opp) && hiddenIds(s, opp).includes(id)) continue; // FOG'S OWN RULE: THE PIECE IS NOT IN THE VIEW
+		for (const e of list) {
+			const g = got.find((x) => x.s === e.s);
+			if (e.veiled && q && q.c === viewer) { assert.ok(!g, "a veiled " + e.s + " on " + id + " shown to its owner"); continue; }
+			assert.ok(g, "status " + e.s + " on " + id + " missing");
+			assert.equal(g.left, e.left, "status " + e.s + " on " + id + ": left");
+			assert.equal(g.by, (q && q.c === viewer) || e.by === viewer ? e.by : undefined, "status " + e.s + " on " + id + ": by");
+		}
+	}
 	return v;
 }
 
@@ -150,6 +162,7 @@ function checkEvents(next, events, viewer, v) {
 	events = events.filter((e) => !(e.type === "curse-given" && isMirage(e.card) && e.player === opp)); // LEFT OUT FOR ITS HOLDER: IT SHOWS WHEN IT ENTERS AT A REFILL
 	const hid = boardFog(next, opp) ? hiddenIds(next, opp) : [], taken = hid.length || boardFog(next, opp) ? events.filter((e) => e.type === "capture" && e.c === opp).map((e) => e.piece) : [];
 	events = events.filter((e) => !(hid.includes(e.piece) && e.type !== "move")); // ABOUT A PIECE HIDDEN NOW: NOT TOLD (ITS MOVE IS, BARE)
+	events = events.filter((e) => !(e.veiled && next.board.sq.some((q) => q && q.id === e.piece && q.c === viewer))); // A VEILED FROZEN: NEVER TOLD ITS PAWN'S OWNER (#493)
 	assert.equal(ev.length, events.length);
 	for (const id of hid.concat(taken)) assert.ok(!flat.includes(quoted(id)), "hidden piece id " + id + " in events");
 	assert.ok(!json.includes("\"rng\""), "seed in events");
@@ -161,7 +174,7 @@ function checkEvents(next, events, viewer, v) {
 	for (const k of open) allowed.add(k);
 	const fakes = next.enchant.filter((e) => e.owner === viewer && e.data && e.data.fake).flatMap((e) => e.data.fake);
 	for (const f of fakes) allowed.add(f.key); // A FAKE'S KEY MAY HAPPEN TO BE ANOTHER HIDDEN CARD'S REAL ONE
-	const colorOf = (e) => e.c || (next.board.sq.find((q) => q && q.id === e.piece) || {}).c; // A PIECE HANDED OVER KEEPS ITS ID
+	const colorOf = (e) => e.c || (next.board.sq.find((q) => q && q.id === e.piece) || events.find((x) => x.type === "capture" && x.piece === e.piece) || {}).c; // A PIECE HANDED OVER KEEPS ITS ID; ONE TAKEN IN THIS ACTION: ITS CAPTURE'S c (AS view.js colorOf)
 	events.forEach((e, i) => {
 		const c = card(e);
 		if (masked(e)) {
@@ -176,7 +189,24 @@ function checkEvents(next, events, viewer, v) {
 		if (fog && e.type === "move" && e.player === opp) assert.ok(!("card" in ev[i]) && !("castle" in ev[i]), "fogged move card");
 		if (hid.includes(e.piece)) assert.deepEqual(ev[i], { type: "move", player: e.player }, "a hidden piece's move is told bare");
 		if (fog && (e.type === "capture" || e.type === "promote") && colorOf(e) === opp) assert.equal(ev[i].t, "?", "fogged " + e.type);
+		if (e.type === "status") assert.equal(ev[i].player, e.player === viewer || colorOf(e) === viewer ? e.player : undefined, "a status event's caster (#493: told only the owner and the caster)");
+		if (e.type === "status-ended") assert.equal(ev[i].player, e.player, "a status-ended event's owner");
 	});
+}
+
+/**
+ * @description playerLegal and a veiled status (#493; rulings 2026-11-23 09:28 I1 (a), 10:08 N1 and N2): the owner (the piece's colour now) is told only actions the rules allow, and none that is legal only because of the veil (not legal once the veiled entries are gone), unless every told action is one (hiding them would leave no legal action at all: they are told).
+ */
+function checkLegal(s, viewer, hit) {
+	const mine = Object.keys(s.statuses || {}).filter((id) => s.statuses[id].some((e) => e.veiled) && s.board.sq.some((q) => q && q.id === id && q.c === viewer));
+	if (!mine.length) return;
+	const fog = boardFog(s, other(viewer)), open = JSON.parse(JSON.stringify(s)), told = playerLegal(s, viewer);
+	for (const id of mine) { open.statuses[id] = open.statuses[id].filter((e) => !e.veiled); if (!open.statuses[id].length) delete open.statuses[id]; }
+	const real = new Set(legalActions(s, viewer, fog).map(actionKey)), ok = new Set(legalActions(open, viewer, fog).map(actionKey));
+	assert.ok(told.every((a) => real.has(actionKey(a))), "told an action the rules don't allow");
+	const only = told.filter((a) => !ok.has(actionKey(a)));
+	hit(only.length ? "x:veil-dead-end" : "x:veil-legal");
+	assert.ok(!only.length || only.length === told.length, "told " + actionKey(only[0] || {}) + ", legal only because of a veiled status on " + mine.join());
 }
 
 /**
@@ -307,6 +337,7 @@ function play(seed, stats, { setup, plies = PLIES, note } = {}) {
 					if (hid) { secret[c].push(e.card.id); hit("x:secret-" + e.type); }
 				}
 				checkEvents(state, events, c, checkView(state, c, secret[c]));
+				checkLegal(state, c, hit);
 			}
 			if (!s.pending && !s.duel) { checkDiscard(s, color, acts, a, state, events, hit); checkDrop(s, color, acts, a, state, events); }
 			if (note) note(state, events, hit);

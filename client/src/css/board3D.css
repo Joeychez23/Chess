@@ -127,6 +127,24 @@ body.replay #board3D { /* THE REPLAY BAR'S STRIP AT THE BOTTOM (css/style.css --
 	pointer-events: none;
 }
 
+/* CHESS CARDS: THE HOVERED PIECE'S STATUSES, A LINE EACH (three/statusFx/index.js hoverStatuses). ON THE RIGHT, CLEAR OF THE CARD PREVIEW ON THE LEFT. CLICKS GO THROUGH */
+.statusHover {
+	position: fixed;
+	right: 16px;
+	top: 50%;
+	z-index: 20;
+	max-width: min(260px, 40vw);
+	transform: translateY(-50%);
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: rgba(16, 16, 20, 0.88);
+	color: #f2f2f2;
+	font: 14px/1.4 sans-serif;
+	white-space: pre-line;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+	pointer-events: none;
+}
+
 /* ---------------------------------------------------------------- */
 /* 3D Tile Hover (gameplay/three/tileHover.js) */
 /* ---------------------------------------------------------------- */

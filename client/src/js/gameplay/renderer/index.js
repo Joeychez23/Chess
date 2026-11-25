@@ -22,6 +22,8 @@ const { reportError } = require("../../pages/utils/reportErrors.js"); // THE BRO
 const { pickable } = require("../three/hoverRules.js"); // THE PIECES THE PLAYER CAN PICK UP (THE 3D HOVER'S FADE). NO three.js IN IT
 const { capturesAt } = require("../captures/index.js"); // THE PIECES TAKEN TO REACH A POSITION
 const { Chess } = require("chess.js");
+const statusPref = require("../cards/statusPref.js"); // HOW A CHESS CARDS PIECE'S STATUSES SHOW: EFFECTS OR BADGES (three/statusFx)
+statusPref.onChange(() => { game.refresh = true; requestFrame(); }); // THE NEXT FRAME SWAPS THEM (drawBoard). init() CALLS NO LISTENER: drawBoard READS current()
 const scratch = new Chess(); // ONLY stepBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
 
 export const VIEWS = { TWO_D: "2d", THREE_D: "3d" };
@@ -87,6 +89,7 @@ export function drawBoard() {
 	board3D.setPickable(table ? table.opts.pickable || null : pickable3D(fen)); // A CHESS CARDS GAME'S ARE flow.js'S
 	const held = tableHeld || heldPiece(); // A CHESS CARDS GAME'S HELD PIECE IS flow.js'S (holdTablePiece3D): heldPiece() HAS NONE THERE
 	board3D.setHeld(held && held.square, held && held.dragging); // AFTER THE MOVE: A DROPPED PIECE SLIDES FROM WHERE IT WAS LET GO
+	if (table && game.cardGame) { board3D.syncStatuses(table.view, statusPref.current()); } // AFTER THE PIECES STAND AS THE VIEW SAYS: THE TABLE'S VIEW IS THE ONE ON THE BOARD (flow.js loadBoard & refreshTable LAND IT TOGETHER)
 }
 
 // THE SQUARES THE PLAYER CAN PICK A PIECE UP FROM IN A NORMAL GAME, null WHILE THEY CAN'T ACT: THE 3D HOVER ONLY FADES COVERING PIECES FOR THOSE (USER RULING R1, TASK 20E).
@@ -344,7 +347,7 @@ export function onTablePick(handler) {
  */
 export function holdTablePiece3D(square, dragging) {
 	tableHeld = square ? { square, dragging: Boolean(dragging) } : null;
-	if (board3D) { board3D.setHeld(square || null, Boolean(dragging)); }
+	if (board3D) { board3D.setHeld(square || null, Boolean(dragging)); board3D.pickStatuses(square || null); } // EVERY PICK (KEYS, TAP, CLICK) COMES THROUGH HERE: ITS STATUS TEXT SHOWS (RULING R4)
 }
 
 /**
@@ -353,7 +356,7 @@ export function holdTablePiece3D(square, dragging) {
  */
 export function dropTablePiece3D(square) {
 	tableHeld = null;
-	if (board3D) { board3D.dropHeld(square); }
+	if (board3D) { board3D.dropHeld(square); board3D.pickStatuses(null); }
 }
 
 /**
@@ -404,6 +407,7 @@ export function endDuel3D() {
  */
 export function boardStep3D(step) {
 	if (!board3D || game.reduceMotion) { return Promise.resolve(); }
+	if (table) { board3D.holdStatuses(table.view); } // ITS PIECES MOVE PAST THE TABLE'S VIEW: drawBoard DOESN'T SYNC THE STATUSES TO IT UNTIL THE set LANDS THE ANSWER'S (statusFx)
 	const done = board3D.playBoardStep(step);
 	if (step.op === "move") { shownTaken = null; syncTaken3D(); } // THE MOVE'S OWN TAKEN PIECE LEAVES AS A DRAWN MOVE'S DOES (drawBoard)
 	return done;

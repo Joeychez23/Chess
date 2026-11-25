@@ -202,21 +202,20 @@ describe("Traitor's Mark", () => {
 });
 
 describe("Tremor", () => {
-	test("under its holder's Fog of War the Frozen it gives a fogged pawn, and its given and ended events, stay hidden from the opponent; the holder sees them", () => {
+	test("under its holder's Fog of War the Frozen it gives a fogged pawn, and its given and ended events, stay hidden from the opponent; the holder (the pawn's owner) never sees them (#493)", () => {
 		const s = game("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"), ctx = makeCtx(s);
 		s.enchant.push({ id: "e990", key: "fog-of-war", owner: "w", pieces: [], left: null, data: {} });
 		const t = curse(s, "w", "tremor"), id = at(s, "a2").id;
 		assert.ok(CARDS.tremor.on.draw(ctx, "w", { type: "draw", player: "w", card: moveCard(s, "p") }, { owner: "w", card: t }));
 		assert.ok(s.statuses[id].some((e) => e.s === "frozen" && e.veiled));
 		assert.ok(!(id in playerView(s, "b").statuses), "shown under the fog");
-		assert.ok(playerView(s, "w").statuses[id]);
+		assert.ok(!(id in playerView(s, "w").statuses), "shown to its owner");
 		assert.equal(ofType(playerEvents(s, ctx.events, "b"), "status").length, 0);
-		const mine = ofType(playerEvents(s, ctx.events, "w"), "status");
-		assert.ok(mine.length === 1 && !("veiled" in mine[0]));
+		assert.equal(ofType(playerEvents(s, ctx.events, "w"), "status").length, 0);
 		const n = ctx.events.length;
 		require("../../cards-engine/statuses.js").clear(ctx, id, "frozen");
 		assert.equal(ofType(playerEvents(s, ctx.events.slice(n), "b"), "status-ended").length, 0);
-		assert.equal(ofType(playerEvents(s, ctx.events.slice(n), "w"), "status-ended").length, 1);
+		assert.equal(ofType(playerEvents(s, ctx.events.slice(n), "w"), "status-ended").length, 0);
 		const open = game("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"), octx = makeCtx(open), ot = curse(open, "w", "tremor"); // NO FOG: SHOWN AS BEFORE
 		CARDS.tremor.on.draw(octx, "w", { type: "draw", player: "w", card: moveCard(open, "p") }, { owner: "w", card: ot });
 		assert.ok(playerView(open, "b").statuses[at(open, "a2").id]);

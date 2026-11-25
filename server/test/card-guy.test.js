@@ -58,8 +58,10 @@ function position(fen, { cardGuy: v = fen.split(" ")[1], level = 2400, seed = 1 
  */
 async function ask(s, c, o) {
 	const refused = [];
+	const veiled = s.board.sq.map((q, i) => (q && q.c === c && (s.statuses[q.id] || []).some((e) => e.veiled) ? [q.id, engine.board.sqName(i)] : null)).filter(Boolean);
+	const aboutVeiled = (a) => veiled.some(([id, sq]) => JSON.stringify(a).includes("\"" + id + "\"") || JSON.stringify(a).includes("\"from\":\"" + sq + "\"")); // HIS OWN VEILED FROZEN IS NOT IN HIS VIEW (#493): HIS REBUILT STATE MAY MOVE THAT PAWN OR NAME IT (SWAP); ONLY THOSE ARE LET THROUGH
 	if (!hasFog(s, other(c)) && !s.players[c].curses.some((k) => k.key.startsWith("mirage"))) { // CARD GUY'S REBUILT STATE LISTS ONLY WHAT THE REAL GAME ALLOWS (THE legal FILTER BELOW WOULD HIDE A WRONG ONE)
-		const wrong = legalActions(engine.fromView(playerView(s, c), 7), c).find((a) => !isLegal(s, c, a));
+		const wrong = legalActions(engine.fromView(playerView(s, c), 7), c).find((a) => !isLegal(s, c, a) && !aboutVeiled(a));
 		assert.ok(!wrong, "the rebuilt state lists an illegal action with no fog up: " + JSON.stringify(wrong));
 	}
 	for (;;) {
@@ -451,6 +453,32 @@ test("refusals under the player's Fog of War correct Card Guy's guess of the fog
 	for (const [seed, most] of [[1, 8], [67, 8], [66, 6]]) { // 18 REFUSALS IN ONE TURN (A FOGGED BISHOP'S CHECK, EVERY OTHER MOVE TRIED FIRST) AND, BEFORE THE DRAWS OF TASK 20e, 12. SINCE THOSE DRAWS GAMES 1 AND 67 PASS WITHOUT THE FITTED GUESS (simulate's fit): GAME 66 PINS IT, 4 WITH IT AND 8 WITHOUT (FINAL REVIEW F-M1)
 		const { worst } = await underFog([seed]);
 		assert.ok(worst <= most, "game " + seed + ": " + worst + " refusals in one turn"); // 8: cardsController MAX_REFUSALS
+	}
+});
+
+test("his own veiled Frozen pawn under the player's Fog of War (#493, ruling R-5): one refused move of it that no fogged piece explains and he tries none of its other moves that turn", async () => {
+	for (const seed of [1, 2, 3, 4, 5]) {
+		let s = newGame({ cardGuy: "b", level: 1300, seed });
+		s.board = fromFen("4k3/pp6/8/8/8/8/1p4P1/4K2R b - - 0 1"); // HIS b2 PAWN PROMOTES: UP TO 12 MOVES, EACH REFUSED IN TURN WITHOUT THE FIX
+		fogUp(s, "w");
+		const pawn = s.board.sq[engine.board.sqIndex("b2")].id;
+		s.statuses[pawn] = [{ s: "frozen", left: 3, by: "w", veiled: true }];
+		assert.equal(playerView(s, "b").statuses[pawn], undefined);
+		let calls = 0;
+		const evaluate = async (fen) => { calls++; return material(fen); };
+		const pushes = [];
+		for (let k = 0; k < 6 && s.board.turn === "b" && !s.result; k++) { // THE WHOLE TURN: HIS FREE DISCARDS, THEN THE MOVE
+			const refused = [];
+			let action;
+			while (!isLegal(s, "b", (action = await cardGuyTurn(playerView(s, "b"), s.level, opts({ seed, evaluate, refused, legal: engine.playerLegal(s, "b") }))))) {
+				assert.ok(refused.length < 12, "12 refusals in one think");
+				refused.push(actionKey(action));
+				if (action.from === "b2" && action.to[0] === "b") { pushes.push(action.to + (action.promotion || "")); }
+			}
+			s = applyAction(s, "b", action).state;
+		}
+		assert.ok(pushes.length <= 1, `seed ${seed}: the veiled pawn's pushes refused ${pushes.join(", ")}`); // A CAPTURE OF A GUESSED PIECE IS THE FOG'S, NOT COUNTED
+		assert.ok(calls <= 21, `seed ${seed}: ${calls} evaluations in the turn`); // MEASURED 2026-11-23: 28, 8, 28, 35, 35 WITHOUT THE FIX (3-4 PUSHES REFUSED), 14, 8, 21, 14, 15 WITH IT
 	}
 });
 

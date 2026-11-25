@@ -92,10 +92,21 @@ describe("POST /users/me/settings", () => {
 
 	test("a bad value, a missing one or an extra field changes nothing", async () => {
 		await call("POST", "/users/me/settings", { as: alice, body: SETTINGS });
-		for (const body of [{ ...SETTINGS, ai_level: 9 }, { ...SETTINGS, ai_level: "5" }, { ...SETTINGS, ai_color: "red" }, { ai_level: 5, ai_color: "w" }, { ...SETTINGS, user_id: "bob" }, { ...SETTINGS, rating: 3000 }]) {
+		for (const body of [{ ...SETTINGS, ai_level: 9 }, { ...SETTINGS, ai_level: "5" }, { ...SETTINGS, ai_color: "red" }, { friend_color: "red" }, { ...SETTINGS, user_id: "bob" }, { ...SETTINGS, rating: 3000 }, { status_display: "nope" }, { ...SETTINGS, status_display: "nope" }, { ai_level: null }, { ai_color: null }, {}]) {
 			await refused(["alice", "bob"], "POST", "/users/me/settings", { as: alice, body }, 400);
 		}
 		await refused(["guest1"], "POST", "/users/me/settings", { guest: "guest1", body: SETTINGS }, 403);
+	});
+
+	test("saving one box keeps the other's stored settings", async () => {
+		await call("POST", "/users/me/settings", { as: alice, body: SETTINGS });
+		assert.equal((await call("POST", "/users/me/settings", { as: alice, body: { status_display: "badges" } })).status, 200);
+		assert.deepEqual(JSON.parse(peek("user_db", "alice").settings.S), { ...SETTINGS, status_display: "badges" });
+		await call("POST", "/users/me/settings", { as: alice, body: { ...SETTINGS, ai_level: 7 } });
+		assert.deepEqual(JSON.parse(peek("user_db", "alice").settings.S), { ...SETTINGS, ai_level: 7, status_display: "badges" });
+		await new DynamoDB({}).putItem({ TableName: "user_db", Item: { ...peek("user_db", "alice"), settings: { S: "not json" } } }); // BAD STORED SETTINGS COUNT AS NONE
+		await call("POST", "/users/me/settings", { as: alice, body: { status_display: "effects" } });
+		assert.deepEqual(JSON.parse(peek("user_db", "alice").settings.S), { status_display: "effects" });
 	});
 });
 

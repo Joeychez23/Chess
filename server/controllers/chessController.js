@@ -1082,12 +1082,15 @@ function readStartParams(body, fen) {
 
 /**
  * @description The settings a request saves (the settings page's Default start settings)
- * @param  {[object]} body [req.body, { ai_level, ai_color, friend_color }]
- * @return {[object]} settings [{ ai_level (600 - 3200 in steps of 100, anything else is the default level), ai_color, friend_color ("alternate" | "random" | "w" | "b", anything else is Alternate) }]
+ * @param  {[object]} body [req.body, { ai_level, ai_color, friend_color, status_display }]
+ * @return {[object]} settings [{ ai_level (600 - 3200 in steps of 100, anything else is the default level), ai_color, friend_color ("alternate" | "random" | "w" | "b", anything else is Alternate),
+ * status_display ("effects" | "badges", anything else is Effects) }]
  */
 function readSettings(body) {
-	return { ai_level: readLevel(body?.ai_level), ai_color: readColor(body?.ai_color), friend_color: readColor(body?.friend_color) };
+	return { ai_level: readLevel(body?.ai_level), ai_color: readColor(body?.ai_color), friend_color: readColor(body?.friend_color), status_display: isStatusDisplay(body?.status_display) ? body.status_display : "effects" };
 }
+
+function isStatusDisplay(value) { return value === "effects" || value === "badges"; } // HOW A CARD GAME DRAWS STATUSES: EFFECTS ON THE PIECES OR BADGES
 
 /**
  * @description A player's saved settings, Home's dropdowns start on them
@@ -1206,4 +1209,4 @@ function userPlayerId(user) {
 }
 
 
-module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, userPlayerId, httpStatus, retrieveGame, currentGame, playerInGame, notYours, notInGame, reply, aiLevel };
+module.exports = { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, getUserGames, getRatings, leaveAllGames, readSettings, isStatusDisplay, userPlayerId, httpStatus, retrieveGame, currentGame, playerInGame, notYours, notInGame, reply, aiLevel };

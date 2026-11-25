@@ -42,7 +42,7 @@ describe("default start settings", () => {
 		assert.deepEqual(saved.settings, { ai_level: 2200, ai_color: "b", friend_color: "w" });
 
 		const home = await call("GET", "/api/chess/user/alice", { as: alice });
-		assert.deepEqual(home.settings, { ai_level: 2200, ai_color: "b", friend_color: "w" });
+		assert.deepEqual(home.settings, { ai_level: 2200, ai_color: "b", friend_color: "w", status_display: "effects" });
 		assert.equal(home.games_finished, 0);
 	});
 
@@ -154,6 +154,6 @@ describe("delete my data", () => {
 		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
 		assert.equal(game.status, 200);
 		const home = await call("GET", "/api/chess/user/alice", { as: alice });
-		assert.deepEqual(home.settings, { ai_level: 1300, ai_color: "alternate", friend_color: "alternate" }); // THE OLD SETTINGS WENT WITH THE ROW
+		assert.deepEqual(home.settings, { ai_level: 1300, ai_color: "alternate", friend_color: "alternate", status_display: "effects" }); // THE OLD SETTINGS WENT WITH THE ROW
 	});
 });

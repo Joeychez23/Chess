@@ -34,6 +34,8 @@ import { resize, frameDeal, unframeDeal, framePile, placeCamera, stepCamera, lan
 import { createControls, onPointerDown, onPointerMove, onPointerUp, monitorIdle, monitorInput, onMonitorShow, onPointerLeave, onClick, onTouchTap, onKeyDown } from "./pointer.js";
 import { putDownHeld, stepAnim, finishAnims, animate } from "./motion.js";
 import { followCamera } from "./tileHover.js";
+import { stepStatuses, clearStatuses, focusStatuses } from "./statusFx/index.js"; // A CHESS CARDS PIECE'S STATUSES, AS EFFECTS OR BADGES (TASK 21)
+export { syncStatuses, holdStatuses, pickStatuses } from "./statusFx/index.js";
 import { tileAt } from "./hoverRules.js"; // THE TILE UNDER A POINT ON THE BOARD (squareUnder)
 
 export { isCameraGesture, setSide, resetCamera } from "./camera.js";
@@ -234,6 +236,7 @@ function frame(now) {
 	followCamera(gliding); // THE HOVER BOX STAYS UNDER A STILL POINTER WHILE THE CAMERA MOVES BY ITSELF
 	stepFire(now, view.renderer.domElement.height); // ITS OWN TIMER ASKS FOR ITS FRAMES (fire.js)
 	stepClock(); // SO DOES THE CLOCK'S (clock.js)
+	stepStatuses(now); // & THE STATUS EFFECTS' (statusFx/index.js)
 	view.renderer.render(view.scene, view.camera);
 	if (view.textureReady) { view.markDrawn(); } // ONLY THE FIRST CALL COUNTS
 	perfFrame(now);
@@ -373,6 +376,7 @@ export function whenDrawn() {
 export function unmount() {
 	if (!view) { return; }
 	finishAnims();
+	clearStatuses(); // BEFORE THE PIECES GO: NO BURSTS, ITS FRAME TIMER STOPS
 	view.tweens.finish();
 	if (view.cards) { view.cards.dispose(); }
 	if (view.table) { view.table.dispose(); }
@@ -700,4 +704,5 @@ export function openCardPile() {
 export function highlightSquares(squares, focus = null) {
 	highlight(squares, "cards");
 	highlight(focus ? [focus] : [], "cardFocus");
+	focusStatuses(focus); // ITS PIECE'S STATUSES, NAMED BEFORE ENTER PICKS IT (RULING R-3)
 }

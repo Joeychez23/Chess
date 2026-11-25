@@ -55,6 +55,12 @@ const ACCOUNT_DELETE_LIMITS = { // DELETE MY ACCOUNT ASKS AUTH0'S MANAGEMENT API
 	accountDeleteSession: { burst: 5, refillMs: 60 * 1000 }, // A SIGNED IN PLAYER: 5 AT ONCE, THEN 1 A MINUTE
 	accountDeleteIp: { burst: 20, refillMs: 30 * 1000 }, // AN IP (IPv6: ITS /64): 20 AT ONCE, THEN 1 EVERY 30 SECONDS
 };
+const STATUS_DISPLAY_LIMITS = { // THE STATUS DISPLAY SETTING IS A user_db WRITE, & THE CLIENT SENDS ONE CHANGE AT A TIME (cards/statusPref.js DEFERS THE REST)
+	statusDisplaySession: { burst: 1, refillMs: 5 * 60 * 1000 }, // A SIGNED IN PLAYER: 1, THEN 1 EVERY 5 MINUTES
+};
+const SETTINGS_LIMITS = { // DEFAULT START SETTINGS, A user_db WRITE PER SAVE
+	settingsSession: { burst: 10, refillMs: 6 * 1000 }, // A SIGNED IN PLAYER: 10 AT ONCE, THEN 1 EVERY 6 SECONDS
+};
 const MAX_KEYS = 100000; // BUCKETS KEPT PER LIMIT, FULL ONES ARE DROPPED FIRST
 const LOG_EVERY = 60 * 1000; // A KEY THAT KEEPS HITTING ITS LIMIT IS LOGGED ONCE A MINUTE
 
@@ -136,6 +142,12 @@ const limitFriends = limiter(FRIEND_LIMITS, "Friend action", "friend requests", 
 // DELETE /api/user. AFTER requireAuth & BEFORE AUTH0 IS ASKED
 const limitAccountDeletes = limiter(ACCOUNT_DELETE_LIMITS, "Account delete", "delete requests", (req) => ({ accountDeleteSession: `user:${req.user.user_id}`, accountDeleteIp: ipKey(req.ip) }));
 
+// PUT /api/user/settings/status-display. AFTER requireAuth & checkStatusDisplay, SO A 400 SPENDS NO TOKEN
+const limitStatusDisplay = limiter(STATUS_DISPLAY_LIMITS, "Status display", "status display changes", (req) => ({ statusDisplaySession: `user:${req.user.user_id}` }));
+
+// PUT /api/user/settings. AFTER requireAuth
+const limitSettings = limiter(SETTINGS_LIMITS, "Settings", "settings saves", (req) => ({ settingsSession: `user:${req.user.user_id}` }));
+
 /* ---------------------------------------------------------------- */
 // Take Tokens
 /* ---------------------------------------------------------------- */
@@ -143,7 +155,7 @@ const limitAccountDeletes = limiter(ACCOUNT_DELETE_LIMITS, "Account delete", "de
  * @description Takes one token from each key's bucket, or none if any of them is empty (so a refused request costs nothing)
  * @param  {[object]} keys [{ session (optional), ip, site } bucket keys, { loginIp, loginEmail }, { signupIp, signupEmail }, { forgotIp, forgotEmail }, { aiMoveSession (optional), aiMoveIp }, { analysisSession (optional), analysisIp }, { searchSession, searchIp, searchSite } or { friendSession, friendIp }]
  * @param  {[number]} now [epoch ms]
- * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS or ACCOUNT_DELETE_LIMITS]
+ * @param  {[object]} limits [LIMITS (new games, the default), LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS, ACCOUNT_DELETE_LIMITS, STATUS_DISPLAY_LIMITS or SETTINGS_LIMITS]
  * @return {[object]} result [{ ok: true } | { ok: false, limit (the empty one), retryMs (until it has a token), log (first refusal this minute) }]
  */
 function takeTokens(keys, now, limits = LIMITS) {
@@ -183,7 +195,7 @@ function refill(limit, key, now, limits) {
  * @description Drops the buckets that have filled up again (the same as a new one), then the oldest if a limit still has too many
  */
 function sweep(now) {
-	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS, ACCOUNT_DELETE_LIMITS]) {
+	for (const limits of [LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, FRIEND_LIMITS, ACCOUNT_DELETE_LIMITS, STATUS_DISPLAY_LIMITS, SETTINGS_LIMITS]) {
 		for (const limit of Object.keys(limits)) {
 			const map = buckets[limit];
 			if (!map) { continue; }
@@ -227,4 +239,4 @@ function resetLimits() {
 }
 
 
-module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitCardActions, limitAnalysis, limitClientErrors, limitPlayerSearch, limitFriends, limitAccountDeletes, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, ACCOUNT_DELETE_LIMITS, FRIEND_LIMITS };
+module.exports = { limitNewGames, limitLogins, limitSignups, limitForgot, limitAiMoves, limitCardActions, limitAnalysis, limitClientErrors, limitPlayerSearch, limitFriends, limitAccountDeletes, limitStatusDisplay, limitSettings, takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, SIGNUP_LIMITS, FORGOT_LIMITS, AI_MOVE_LIMITS, ANALYSIS_LIMITS, CLIENT_ERROR_LIMITS, SEARCH_LIMITS, ACCOUNT_DELETE_LIMITS, FRIEND_LIMITS, STATUS_DISPLAY_LIMITS, SETTINGS_LIMITS };

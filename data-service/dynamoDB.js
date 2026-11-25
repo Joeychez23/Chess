@@ -1108,15 +1108,18 @@ async function saveLastColor(userId, ai, color) {
 // Update user settings (PUT)
 /* ---------------------------------------------------------------- */
 /**
- * @description Saves a player's Default start settings (the settings page) on their user_db row. It's its own attribute, so the game list
- * saves never touch it. A player without a row (Delete my data since their last login) gets one from initalizeUser first, so the game lists are there too
+ * @description Saves a player's settings (the settings page) on their user_db row, merged over the stored ones so saving one box never wipes another.
+ * It's its own attribute, so the game list saves never touch it. A player without a row (Delete my data since their last login) gets one from
+ * initalizeUser first, so the game lists are there too
  * @param  {[string]} userId [auth0 user id without "auth0|"]
- * @param  {[object]} settings [{ ai_level, ai_color, friend_color }, from readSettings in chessController.js]
+ * @param  {[object]} settings [the fields to change: any of { ai_level, ai_color, friend_color, status_display }, checked in userController.js]
  * @return {[object]} response [{ status, user_data (the row as saved), message }]
  */
 async function updateUserSettings(userId, settings) {
 	const user = await retrieveUser(userId, true);
 	if (!user.user_data) { await initalizeUser(userId); }
+	// shortcut: read then write, two saves at the same instant can lose one's fields; add a condition on the read settings if that ever matters
+	settings = { ...storedSettings(user.user_data?.settings?.S), ...settings };
 
 	const params = {
 		TableName: USER_TABLE,
@@ -1137,6 +1140,18 @@ async function updateUserSettings(userId, settings) {
 		user_data: response.Attributes,
 		message: `user id: ${userId} settings saved`
 	}
+}
+
+/**
+ * @description A row's stored settings as an object, {} when there are none or they're not a JSON object
+ * @param  {[string]} json [the settings attribute's string]
+ * @return {[object]} settings
+ */
+function storedSettings(json) {
+	try {
+		const settings = JSON.parse(json);
+		return settings && typeof settings == "object" && !Array.isArray(settings) ? settings : {};
+	} catch { return {}; }
 }
 
 /* ---------------------------------------------------------------- */
