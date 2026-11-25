@@ -150,6 +150,19 @@ body:has(#moveBox:not([hidden])) #gameStatus { /* THE OPEN MOVE BOX IS AT THE TO
 	outline-offset: 2px;
 }
 
+body:has(#board3D) #cardPrompt[data-plaques] button { /* CHESS CARDS ON 3D: THE TABLE'S BRASS PLAQUES ARE THESE BUTTONS (flow.js showPrompt). KEPT FOR THE KEYS & SCREEN READERS, NOT display: none. BACK ON 2D THEY SHOW AGAIN */
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	min-height: 0;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
 @media (max-width: 640px) {
 	body:has(#moveBox:not([hidden])) #drawPrompt, body:has(#moveBox:not([hidden])) #takebackPrompt { /* THE MESSAGE AREA MOVED UNDER THE OPEN MOVE BOX, THESE STAY UNDER IT */
 		top: calc(env(safe-area-inset-top, 0px) + 126px);

@@ -15,6 +15,24 @@ import { tapStatuses } from "./statusFx/index.js"; // A TAPPED PIECE'S STATUSES,
 
 let tableDrag = false; // THIS PRESS DRAGGED A CHESS CARDS GAME'S PIECE (releaseTable) OR CARD (releaseCard): ITS CLICK ISN'T A TAP
 let cardHeld = false; // THE MOUSE IS DOWN ON A CHESS CARDS GAME'S CARD THAT CAN BE DRAGGED (cardTable.js grab): "moving" ONCE IT FOLLOWS THE POINTER
+let plaqueLit = null; // THE PROMPT PLAQUE THE MOUSE LAST LIT (cardTable.js hoverButton), SO A MOVE OVER THE SAME ONE DRAWS NOTHING NEW
+
+// LIGHTS THE PLAQUE UNDER THE MOUSE (null: NONE)
+function hoverPlaque(id) {
+	if (id === plaqueLit) { return; }
+	plaqueLit = id;
+	view.table.hoverButton(id);
+}
+
+/**
+ * @description The plaques were laid (three/index.js showTableButtons): another list comes up unlit (ruling T23-20), so the one under a still mouse lights again (review M1)
+ */
+export function rehoverPlaque() {
+	plaqueLit = undefined; // WHAT THE TABLE HAS LIT ISN'T KNOWN NOW
+	if (view.pointerType !== "mouse" || !view.pointerOver || cardHeld || (view.held && view.held.dragging) || view.controlsActive) { return; } // AS onPointerMove'S HOVER
+	const at = tableAt({ clientX: view.pointerAt.x, clientY: view.pointerAt.y });
+	hoverPlaque(at && at.kind === "button" ? at.id : null);
+}
 
 /* ---------------------------------------------------------------- */
 // Camera Controls
@@ -31,7 +49,7 @@ export function createControls(camera, canvas) {
 	controls.maxDistance = MAX_DISTANCE;
 	controls.minPolarAngle = 0; // STRAIGHT DOWN, NEVER PAST IT
 	controls.maxPolarAngle = MAX_TILT;
-	controls.maxTargetRadius = BOARD_SIZE / 2; // THE CAMERA ALWAYS LOOKS AT A POINT ON THE BOARD, SO PANNING CAN'T LOSE IT (cursor IS THE ORIGIN)
+	controls.maxTargetRadius = BOARD_SIZE / 2; // THE CAMERA LOOKS AT A POINT ON THE BOARD, SO PANNING CAN'T LOSE IT (cursor IS THE ORIGIN). A CHESS CARDS GAME AT A NARROW WINDOW LOOKS PAST ITS FAR EDGE: camera.js resize WIDENS THIS
 	controls.addEventListener("start", function () {
 		view.controlsActive = true;
 		view.cameraTurn = null; // THE PLAYER TOOK THE CAMERA MID FLIP
@@ -77,7 +95,7 @@ export function onPointerDown(e) {
 	if (view.table && view.held) { view.cardOptions.onTable({ kind: "release", square: null, dragged: view.held.following }); } // A PIECE STILL HELD: ITS RELEASE NEVER CAME (LET GO OUTSIDE THE WINDOW), IT GOES BACK FIRST. dragged: AS releaseTable, A DRAG GIVES THE PICK UP
 	if (square && view.table && !view.table.open() && !view.table.zoomed() && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && !tableAt(e) && cardAt(e) === null) { view.cardOptions.onTable({ kind: "press", square }); } // A CHESS CARDS GAME: flow.js DECIDES WHETHER THE PIECE IS HELD (setHeld). WHERE A TAP WOULD GO TO A SQUARE (pickTable)
 	const at = e.pointerType === "mouse" && e.button === 0 && view.table && view.cardOptions.tableOn() && monitorIdle() && !glassHit(e) && cardAt(e) === null ? tableAt(e) : null;
-	cardHeld = Boolean(at && at.id && view.table.grab(at, view.cardOptions.onTable({ kind: "grab", from: at.kind, id: at.id }))); // A CARD: flow.js SAYS WHERE IT CAN BE LET GO (null: NOT HELD), THE TABLE WHETHER IT'S ONE OF THE PLAYER'S TO DRAG. THE CAMERA IS OFF ALREADY (tableCovers)
+	cardHeld = Boolean(at && at.kind !== "button" && at.id && view.table.grab(at, view.cardOptions.onTable({ kind: "grab", from: at.kind, id: at.id }))); // A CARD: flow.js SAYS WHERE IT CAN BE LET GO (null: NOT HELD), THE TABLE WHETHER IT'S ONE OF THE PLAYER'S TO DRAG. THE CAMERA IS OFF ALREADY (tableCovers)
 }
 
 // A HELD PIECE PAST THE DRAG THRESHOLD FOLLOWS THE POINTER (dragHeld). BEFORE gameplay/input'S mousemove / touchmove, SO ITS SQUARE LOOKUP SKIPS THE PIECE TOO
@@ -222,7 +240,7 @@ export function onPointerLeave() {
 	view.pointerOver = false;
 	hoverBoard(null);
 	if (view.cards) { view.cards.hover(null); }
-	if (view.table) { view.table.hover(null); }
+	if (view.table) { view.table.hover(null); hoverPlaque(null); }
 	view.cardCursor = false;
 	if (!view.monitor) { return; }
 	view.monitor.pointer("out");
@@ -266,7 +284,7 @@ function hoverCards(e) {
 	if (!view.cards && !view.table) { return; }
 	const over = view.cards ? cardAt(e) : null, table = tableAt(e);
 	if (view.cards) { view.cards.hover(over); }
-	if (view.table) { view.table.hover(table && table.kind === "hand" ? table.id : null); }
+	if (view.table) { view.table.hover(table && table.kind === "hand" ? table.id : null); hoverPlaque(table && table.kind === "button" ? table.id : null); }
 	if (over !== null || table) { view.container.style.cursor = "pointer"; view.cardCursor = true; }
 	else if (view.cardCursor) { view.cardCursor = false; if (!view.monitor) { view.container.style.cursor = ""; } } // WITH A MONITOR hoverGlass() ALREADY SET IT
 }
@@ -291,7 +309,13 @@ function togglePile(pile) {
 function pickTable(e, stop) {
 	if (!view.table || !view.cardOptions.tableOn() || view.cameraGesture || tableDrag || !isTap(view.press, { x: e.clientX, y: e.clientY }, view.pointerType) || glassHit(e)) { return false; } // THE MENU OPEN: THE PAGE'S CLICK-AWAY CLOSES IT, NOTHING IS PLAYED
 	const at = tableAt(e), square = at ? null : squareUnder(e), hit = at || (square ? { kind: "square", square } : null);
-	if (view.table.open() && !(at && at.kind === "pile")) { // A PILE IS OPEN: A TAP ANYWHERE ELSE CLOSES IT & DOES NOTHING MORE
+	if (at && at.kind === "button") { // A PLAQUE PRESSES THROUGH AN OPEN PILE OR A ZOOM IN ONE TAP, AS ITS 2D BUTTON DID (RULING T23-22)
+		if (stop) { e.stopPropagation(); }
+		if (view.table.open()) { togglePile(null); }
+		view.cardOptions.onTable(at); // ITS 2D BUTTON'S CLICK ENDS A ZOOM (flow.js endZoom)
+		return true;
+	}
+	if (view.table.open() &&!(at && at.kind === "pile")) { // A PILE IS OPEN: A TAP ANYWHERE ELSE CLOSES IT & DOES NOTHING MORE
 		if (stop) { e.stopPropagation(); }
 		togglePile(null);
 		return true;

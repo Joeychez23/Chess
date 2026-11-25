@@ -1,5 +1,5 @@
 // Owns 3D board camera and framing behavior
-import { view, requestRender, fitCamera, spherical, corner, dealShift, UP, offset, setLabels, glassCentre, glassSize, glassScale, glassNormal } from "./index.js";
+import { view, requestRender, fitCamera, spherical, corner, dealShift, UP, offset, setLabels, glassCentre, glassSize, glassScale, glassNormal, relayPlaques } from "./index.js";
 import { monitorIdle } from "./pointer.js";
 import { CARD_Y } from "./cardLayout.js";
 import { PHONE_PIXEL_RATIO, SMALL_SCREEN, SMALL_FOV, FOV, MAX_TILT, MIN_DISTANCE, MAX_DISTANCE, SMALL_TILTS, FIT_NDC, PIECE_TOP, TAP_PX, BOARD_SIZE, CELL_SIZE, COLUMN_X, COLUMN_Z, DEAL_SHIFT, DEAL_NEAR, ZOOM_MS, NEAR, CAMERA_DISTANCE, CAMERA_HEIGHT, DESK_Y, ROOM_CAMERA_AIM, ROOM_CAMERA_DISTANCE, ROOM_CAMERA_HEIGHT, FLIP_MS, GLASS_CLEAR, REDUCE } from "./constants.js";
@@ -8,6 +8,7 @@ import { easeInOut } from "../animate/timing.js";
 import { turnRoom } from "./room.js";
 import { zoomDistance } from "./monitor/monitor.js";
 import { setLeanCamera, leanSpot, retryLean } from "./lean.js";
+import { openingCamera } from "./openingCamera.js";
 
 /* ---------------------------------------------------------------- */
 // Mount
@@ -15,7 +16,9 @@ import { setLeanCamera, leanSpot, retryLean } from "./lean.js";
 
 // MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER (INSIDE ITS SAFE AREA PADDING, css/board3D.css #board3D), PIXEL DENSITY CAPPED
 // (2, PHONES 1.5) SO 3x PHONES DON'T DRAW 9x THE PIXELS. A SMALL SCREEN ALSO GETS ITS CAMERA LIMITS FOR THE NEW SIZE
-export function resize() {
+export const CARD_SETTLE_MS = 100; // A CHESS CARDS GAME'S OPENING SPOT IS SOLVED THIS LONG AFTER A WINDOW DRAG'S LAST RESIZE (UP TO 20 ms A SOLVE: NOT EVERY FRAME)
+
+export function resize(settled) {
 	const { renderer, camera, container, controls } = view;
 	const style = getComputedStyle(container);
 	const w = container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
@@ -27,13 +30,23 @@ export function resize() {
 	camera.aspect = w / h;
 	camera.fov = SMALL_SCREEN.matches ? SMALL_FOV : FOV;
 	camera.updateProjectionMatrix();
+	view.relayDue = view.relayDue || !(view.size && view.size.w === w && view.size.h === h); // A NEW SIZE: THE PLAQUES ARE LAID AGAIN ONCE THE CAMERA HAS SETTLED (index.js relayPlaques)
+	view.size = { w, h };
 	view.small = SMALL_SCREEN.matches ? smallScreenCamera(h) : null;
-	controls.maxPolarAngle = view.small ? view.small.tilt : MAX_TILT; // NO TILTING OR ZOOMING OUT TO WHERE A SQUARE IS UNDER TAP_PX
-	controls.maxDistance = view.small ? Math.max(view.small.distance, MIN_DISTANCE) : MAX_DISTANCE;
+	clearTimeout(view.cardSettle);
+	const settling = settled !== true && view.table && view.cardSpotFor === view.table;
+	if (settling) { view.cardSettle = setTimeout(() => resize(true), CARD_SETTLE_MS); } // MID-DRAG (settled: THE ResizeObserver'S ENTRIES): THE LAST SIZE'S SPOT
+	else { view.cardSpot = cardHome(0); view.cardSpotFor = view.table; }
+	const card = view.cardSpot; // A CHESS CARDS GAME: THE LIMITS ALSO ALLOW ITS OPENING SPOT FOR THIS SIZE
+	controls.maxPolarAngle = Math.max(view.small ? view.small.tilt : MAX_TILT, card ? card.tilt : 0); // NO TILTING OR ZOOMING OUT TO WHERE A SQUARE IS UNDER TAP_PX
+	controls.maxDistance = Math.max(view.small ? Math.max(view.small.distance, MIN_DISTANCE) : MAX_DISTANCE, card ? card.distance : 0);
+	view.targetRadius = Math.max(BOARD_SIZE / 2, card ? Math.hypot(card.target.x, card.target.z) : 0); // A NARROW WINDOW'S HAND VIEW LOOKS PAST THE BOARD
+	controls.maxTargetRadius = view.targetRadius;
 	if (monitorIdle()) { controls.update(); } // A CAMERA PAST THE NEW LIMITS (THE PHONE WAS TURNED) MOVES INSIDE THEM
 	else { refitZoom(); } // AT THE MONITOR: THE GLASS FILLS THE NEW SHAPE (THE DESK SPOT IS CLAMPED WHEN IT GETS BACK, landHome)
 	reframe();
 	requestRender();
+	if (!settling) { relayPlaques(); } // NOT MID-DRAG: THE CAMERA IS WHERE THE NEW LIMITS LEAVE IT (REVIEW N1)
 }
 
 /**
@@ -184,7 +197,7 @@ export function frameDeal(animate) {
 	if (!view.room || !monitorIdle()) { return; }
 	const home = view.dealHome;
 	if (home && !home.back && !view.pileBox) { return; } // ALREADY FRAMED, OR ON ITS WAY
-	if (view.pileBox) { view.pileBox = null; view.controls.maxTargetRadius = BOARD_SIZE / 2; view.table.togglePile(null); } // AN OPENED PILE HAD THE FRAME: IT CLOSES, THE DEAL IS FRAMED FROM THE SAME HOME
+	if (view.pileBox) { view.pileBox = null; view.controls.maxTargetRadius = view.targetRadius; view.table.togglePile(null); } // AN OPENED PILE HAD THE FRAME: IT CLOSES, THE DEAL IS FRAMED FROM THE SAME HOME
 	landTurn(); // FLIP BOARD WOULD TAKE THE CAMERA ELSEWHERE: THE FRAME IS WORKED OUT FROM WHERE ITS TURN ENDS
 	if (home) { home.back = false; }
 	else {
@@ -209,7 +222,7 @@ export function unframeDeal(animate) {
 	if (!home) { retryLean(); return; } // THE PROMOTION CARDS WENT BACK WITHOUT A FRAME: AUTO LEAN MAY LEAN AGAIN
 	const restore = function () {
 		view.controls.maxDistance = home.maxDistance;
-		view.controls.maxTargetRadius = BOARD_SIZE / 2; // AS pointer.js createControls: AN OPENED PILE'S FRAME LIFTED IT (framePile)
+		view.controls.maxTargetRadius = view.targetRadius; // AS resize SET IT: AN OPENED PILE'S FRAME LIFTED IT (framePile)
 		view.dealHome = null;
 		retryLean(); // THE DEAL'S OR THE OPENED PILE'S FRAME IS OVER
 	};
@@ -356,11 +369,19 @@ function turnDealHome(angle) {
 	target.applyAxisAngle(UP, by);
 }
 
-// PUTS THE CAMERA AT ITS DEFAULT SPOT angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE CENTER.
-// A SMALL SCREEN'S IS STEEPER & FITS THE BOARD TO IT (smallScreenCamera)
+// A CHESS CARDS GAME'S OPENING SPOT angle RADIANS AROUND THE BOARD, FOR THE CANVAS'S SIZE (openingCamera.js); null IN ANY OTHER GAME, BEFORE THE FIRST SIZE, OR BEFORE THE ROOM
+// HAS ITS TABLE (NO HAND TO SHOW, & THE BAIZE STAGE'S FOG WOULD SWALLOW A BOARD THAT FAR OFF)
+const cardHome = (angle) => (view.table && view.size ? openingCamera({ fov: view.camera.fov, width: view.size.w, height: view.size.h, angle }) : null);
+
+// PUTS THE CAMERA AT ITS DEFAULT SPOT angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE BOARD (THE LIBRARY'S VIEW: A LITTLE PAST ITS CENTER).
+// A SMALL SCREEN'S IS STEEPER & FITS THE BOARD TO IT (smallScreenCamera). A CHESS CARDS GAME'S SHOWS THE WHOLE HAND (cardHome): AT A NARROW WINDOW IT CAN LOOK PAST THE BOARD'S FAR EDGE (resize'S targetRadius)
 export function placeCamera(angle) {
+	const card = cardHome(angle);
 	view.controls.target.set(0, 0, 0); // UNDOES ANY PAN
-	if (view.small) { view.camera.position.setFromSpherical(spherical.set(view.small.distance, view.small.tilt, angle)); }
+	if (card) {
+		view.controls.target.copy(card.target);
+		view.camera.position.copy(card.position);
+	} else if (view.small) { view.camera.position.setFromSpherical(spherical.set(view.small.distance, view.small.tilt, angle)); }
 	else if (view.phone) { view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle)); }
 	else { // THE LIBRARY'S VIEW: THE MONITOR ACROSS THE BOARD IS IN IT
 		view.controls.target.set(-ROOM_CAMERA_AIM * Math.sin(angle), 0, -ROOM_CAMERA_AIM * Math.cos(angle));
@@ -398,6 +419,8 @@ export function stepCamera(now) {
 		view.cameraTurn = null;
 		retryLean();
 		if (view.dealHome && !view.dealHome.back) { aimDeal(true); } // A DEAL FRAMED FROM AN ORBITED CAMERA: THE ROOM TURNED BY A DIFFERENT ANGLE, FRAME IT AGAIN
+		view.relayDue = true;
+		relayPlaques(); // THE PROMPT WAS LAID AS THE TURN BEGAN: AN ORBITED CAMERA LANDS ELSEWHERE RELATIVE TO THE ROOM (REVIEW R2-1)
 	}
 }
 
@@ -408,6 +431,8 @@ export function landTurn() {
 	setLabels(view.side);
 	setRoomSide(view.side);
 	view.cameraTurn = null;
+	view.relayDue = true;
+	relayPlaques(); // AS stepCamera'S LANDING
 }
 
 export const sideAngle = (color) => (color === "b" ? Math.PI : 0); // AROUND THE BOARD FROM WHITE'S SIDE
@@ -566,4 +591,16 @@ export function resetCamera(color) {
 	reframe();
 	retryLean();
 	requestRender();
+}
+
+/**
+ * @description A Chess Cards game's table was made (index.js setCardTable): the limits for its opening spot, & the camera there. At the monitor (ruling T23-6) the camera stays,
+ * & the opening spot is where it comes back to when it leaves (T23-9)
+ */
+export function openCardCamera() {
+	resize();
+	if (monitorIdle()) { resetCamera(view.side); return; }
+	const card = cardHome(sideAngle(view.side));
+	leanToHome(); // A LEAN'S HOME WOULD TAKE ITS PLACE ON THE WAY BACK (landHome)
+	if (card && view.home) { view.home.position.copy(card.position); view.home.target.copy(card.target); }
 }

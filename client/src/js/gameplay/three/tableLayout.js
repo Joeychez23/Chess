@@ -1,6 +1,6 @@
 /* ---- Chess Cards table: where every card of a view lies. Both hands & each player's three places: the active spot, the passive pile, the discard pile. No three.js, no DOM (client/test/tableLayout.test.js) ---- */
 
-import { CARD_SIZE, DECK, CARD_Y } from "./cardLayout.js";
+import { CARD_SIZE, DECK, GREEN_DECK, CARD_Y } from "./cardLayout.js";
 import { handCards } from "../cards/select.js";
 import { PILE_AREA } from "./piles.js";
 
@@ -152,6 +152,122 @@ export function duelLayout(duel, you, view = null) {
 export function deskPoint(origin, dir, y) {
 	const t = (y - origin.y) / dir.y;
 	return dir.y && t > 0 ? { x: origin.x + dir.x * t, z: origin.z + dir.z * t } : null;
+}
+
+/* ---- The brass plaque buttons on the baize (table UI doc, "3D buttons on the table"; cardTable.js showButtons) ---- */
+const FRAME_EDGE = 14.25; // THE BOARD'S FRAME (board.js: BOARD_SIZE / 2 + BORDER 0.75 SQUARES OF 3); constants.js IMPORTS three, THIS FILE DOESN'T
+export const BOARD_RECT = { x0: -FRAME_EDGE, x1: FRAME_EDGE, z0: -FRAME_EDGE, z1: FRAME_EDGE };
+export const PLAQUE_TEXT = 0.6; // THE ENGRAVING'S FONT SIZE (ITS em; GEORGIA'S CAPITALS ARE ABOUT 0.69 OF IT, SO ABOUT 0.41 TALL): EVERY PLAQUE'S, ONE LINE OR TWO
+export const PLAQUE_LINE = 0.85; // A LINE OF TEXT, CENTRE TO CENTRE
+const PLAQUE_CHAR = 0.48; // A CAPITAL'S WIDTH & ITS LETTER-SPACING. shortcut: AN ESTIMATE FOR GEORGIA BOLD CAPS, NOT MEASURED; MEASURE THE TEXT IF A LABEL EVER OVERRUNS ITS PLAQUE
+const PLAQUE_PAD = { x: 0.55, z: 0.4 }; // BRASS ROUND THE TEXT, EACH SIDE
+const PLAQUE_MIN = 3.6; // THE NARROWEST PLAQUE (THE MOCKUP'S min-width)
+const PLAQUE_MAX_CHARS = 12; // A LONGER LABEL GOES TO TWO LINES ON A WIDER PLAQUE, NEVER SMALLER TEXT
+const PLAQUE_GAP = 0.4; // BETWEEN TWO PLAQUES
+const PLAQUE_CLEAR = 0.3; // BETWEEN A PLAQUE & WHAT IT MUST NOT COVER
+const PLAQUE_SHIFT = 0.25; // A COVERED ROW MOVES THIS FAR AT A TIME ALONG ITS SIDE, AS FAR AS THE DESK GOES; ALSO THE NEAREST-SPOT SEARCH'S GRID
+const PLAQUE_NEAR = 6; // THE ASKED SIDE STANDS IF ITS CLEAR SPOT IS THIS CLOSE TO THE ANCHOR (ITS NEAREST PLAQUE EDGE); FARTHER, THE NEAREST CLEAR SPOT ANYWHERE (RULING T23-19)
+const DESK_TOP = { x0: -47.6, x1: 47.6, z0: -39.6, z1: 31.6 }; // WHERE A PLAQUE MAY LIE: build_library.py DESK (x -48 .. 48, y -32 .. 40; z = -y) LESS ITS EDGE'S 0.35 BEVEL & A LITTLE
+const deckRect = (d) => ({ x0: d.x - 2.36, x1: d.x + 2.36, z0: d.z - 3.36, z1: d.z + 3.36 }); // A BAKED DECK: A CARD'S FOOTPRINT & ITS SLABS' TURNS & OFFSETS (build_library.py build_cards)
+const BOOKS = { x0: 26.4, x1: 43.6, z0: -27.3, z1: -14.7 }; // THE THREE BOOKS STACKED ASKEW ROUND (35, y 21) (build_library.py build_props): THE BIGGEST, 16 x 11 TURNED 0.1 RAD, REACHES 8.51 & 6.27 FROM IT
+// WHAT ELSE STANDS ON THE DESK BESIDE THE BAIZE (ROOM SPACE, UNTURNED; RULING T23-15): THE TAKEN PIECES' TWO PILES (piles.js PILE_AREA & ITS 180° TURN: WHICHEVER SIDE PLAYS, ONE PILE IS IN EACH),
+// BOTH DECKS & THE BOOKS (THE JACK PLATE, PLUGS & CABLES LEFT THE ROOM: RULING T23-21),
+// & SINCE THE NEAREST-SPOT SEARCH REACHES THEM (RULING T23-19): THE MONITOR (MON_W 17 WIDE, ITS FRONT AT MON_Y 22.5, 13.6 DEEP) & THE LAMP'S FOOT (RADIUS 4.4 AT LAMP (-35, 25))
+const MONITOR = { x0: -8.5, x1: 8.5, z0: -39.6, z1: -22.5 } /* z0: THE DESK'S BACK; THE TILTED CABINET REACHES ABOUT -37.3 */, LAMP_FOOT = { x0: -39.4, x1: -30.6, z0: -29.4, z1: -20.6 };
+export const DESK_AVOID = [PILE_AREA, { x0: -PILE_AREA.x1, x1: -PILE_AREA.x0, z0: -PILE_AREA.z1, z1: -PILE_AREA.z0 }, deckRect(DECK), deckRect(GREEN_DECK), BOOKS, MONITOR, LAMP_FOOT];
+
+// A LABEL IN CAPITALS: ONE LINE, OR TWO SPLIT AT THE SPACE NEAREST ITS MIDDLE
+function plaqueLines(label) {
+	const text = String(label).toUpperCase(), spaces = [...text].map((ch, i) => (ch === " " ? i : -1)).filter((i) => i > 0);
+	if (text.length <= PLAQUE_MAX_CHARS || !spaces.length) { return [text]; }
+	const at = spaces.sort((a, b) => Math.abs(a - text.length / 2) - Math.abs(b - text.length / 2))[0];
+	return [text.slice(0, at), text.slice(at + 1)];
+}
+
+/**
+ * @description Where the plaque buttons lie: in order, in a column beside the anchor ("left" | "right") or a row under it toward the player ("below"), each sized to its label. A row that would cover anything in avoid
+ * (a card, the board, DESK_AVOID) moves on along its side, a little at a time, until it covers nothing, never off the desk. If that spot is more than PLAQUE_NEAR from the anchor, or there's none,
+ * the same row or column lies at the clear spot on the desk nearest the anchor (ruling T23-19). If there's none anywhere, it lies at the asked side's last try on the desk, the array marked blocked.
+ * Given within (the desk the camera shows, ruling T23-24), the desk is only that much of it: a row or column slides along itself to lie inside it, & one longer than it is wraps into more rows
+ * (columns), as many plaques to each as fit, down to one each
+ * @param {{ id: string, label: string }[]} list the buttons
+ * @param {{ x: number, z: number, side: "left"|"right"|"below" }} anchor a desk point (room space, unturned) & the side the plaques go on
+ * @param {{ x0: number, x1: number, z0: number, z1: number }[]} avoid what no plaque may cover: BOARD_RECT, DESK_AVOID & the cards' footprints
+ * @param {{ x0: number, x1: number, z0: number, z1: number }|null} [within] the part of the desk on screen (cardTable.js deskInView), room space; null: the whole desk
+ * @returns {{ id: string, label: string, lines: string[], x: number, z: number, w: number, d: number }[]} each plaque's centre, width (x) & depth (z); blocked: true on the array when they cover something
+ */
+export function buttonLayout(list, anchor, avoid, within = null) {
+	const sized = list.map(({ id, label }) => { const lines = plaqueLines(label); return { id, label, lines, w: Math.max(PLAQUE_MIN, Math.max(...lines.map((l) => l.length)) * PLAQUE_CHAR + 2 * PLAQUE_PAD.x), d: lines.length * PLAQUE_LINE + 2 * PLAQUE_PAD.z }; });
+	const seen = within && { x0: Math.max(DESK_TOP.x0, within.x0), x1: Math.min(DESK_TOP.x1, within.x1), z0: Math.max(DESK_TOP.z0, within.z0), z1: Math.min(DESK_TOP.z1, within.z1) };
+	const area = seen && seen.x0 < seen.x1 && seen.z0 < seen.z1 ? seen : DESK_TOP; // A VIEW OFF THE DESK (AT THE MONITOR): THE WHOLE DESK
+	const lay = (side, push) => { // push: HOW FAR ALONG ITS SIDE THE ROW HAS MOVED
+		const across = side === "below", dir = side === "left" ? -1 : 1, [k, lo, hi] = across ? ["w", area.x0, area.x1] : ["d", area.z0, area.z1];
+		const rows = []; // EACH: ITS PLAQUES & LENGTH. ONE ROW BUT WITHIN A VIEW NARROWER THAN IT
+		for (const p of sized) {
+			const row = rows[rows.length - 1];
+			if (row && (area === DESK_TOP || row.len + PLAQUE_GAP + p[k] <= hi - lo)) { row.items.push(p); row.len += PLAQUE_GAP + p[k]; } else { rows.push({ items: [p], len: p[k] }); }
+		}
+		let out = PLAQUE_CLEAR + push; // FROM THE ANCHOR TO THIS ROW'S NEAR EDGE
+		return rows.flatMap(({ items, len }) => {
+			const thick = Math.max(...items.map((p) => (across ? p.d : p.w))), mid = out + thick / 2;
+			let at = (across ? anchor.x : anchor.z) - len / 2;
+			if (area !== DESK_TOP) { at = Math.max(lo, Math.min(at, hi - len)); } // SLID INSIDE THE VIEW
+			out += thick + PLAQUE_GAP;
+			return items.map((p) => {
+				const size = p[k], centre = at + size / 2;
+				at += size + PLAQUE_GAP;
+				return across ? { ...p, x: centre, z: anchor.z + mid } : { ...p, x: anchor.x + dir * mid, z: centre };
+			});
+		});
+	};
+	const covers = (p, dx = 0, dz = 0) => avoid.some((r) => p.x + dx - p.w / 2 - PLAQUE_CLEAR < r.x1 && r.x0 < p.x + dx + p.w / 2 + PLAQUE_CLEAR && p.z + dz - p.d / 2 - PLAQUE_CLEAR < r.z1 && r.z0 < p.z + dz + p.d / 2 + PLAQUE_CLEAR); // p MOVED BY dx, dz
+	const onDesk = (laid) => laid.every((p) => area.x0 <= p.x - p.w / 2 && p.x + p.w / 2 <= area.x1 && area.z0 <= p.z - p.d / 2 && p.z + p.d / 2 <= area.z1);
+	const gap = (laid, dx = 0, dz = 0) => Math.sqrt(laid.reduce((m, p) => Math.min(m, Math.max(Math.abs(p.x + dx - anchor.x) - p.w / 2, 0) ** 2 + Math.max(Math.abs(p.z + dz - anchor.z) - p.d / 2, 0) ** 2), Infinity)); // THE ANCHOR TO THE NEAREST PLAQUE'S EDGE, laid MOVED BY dx, dz
+	let last = lay(anchor.side, 0);
+	for (let i = 0, laid; onDesk((laid = lay(anchor.side, i * PLAQUE_SHIFT))); i++) { // PUSHED OUT, A ROW NEVER COMES BACK ONTO THE DESK
+		if (!laid.some((p) => covers(p))) { if (gap(laid) <= PLAQUE_NEAR) { return laid; } break; }
+		last = laid;
+	}
+	// ELSE THE ASKED SHAPE SLID ON THE DESK IN BOTH AXES, A PLAQUE_SHIFT GRID SEARCHED OUTWARD IN SQUARE RINGS: THE CLEAR SPOT NEAREST THE ANCHOR, TIES TO THE LEAST SLID (RULING T23-19).
+	// RING r IS AT LEAST r * PLAQUE_SHIFT - reach FROM THE ANCHOR, SO THE SEARCH STOPS ONCE THAT PASSES THE BEST GAP. shortcut: GRID-EXACT, NOT CONTINUOUS (A SPOT UP TO 0.25 NEARER CAN BE MISSED),
+	// & ABOUT 2 ms A LAYOUT, UP TO 10 FOR 4 LONG PLAQUES MID-BOARD (node, WARM); showButtons LAYS ONLY WHEN ITS ASK CHANGES (cardTable.js buttonsAsked)
+	const base = lay(anchor.side, 0), span = (k, lo, hi) => [Math.ceil((area[k + "0"] - Math.min(...base.map(lo))) / PLAQUE_SHIFT), Math.floor((area[k + "1"] - Math.max(...base.map(hi))) / PLAQUE_SHIFT)];
+	const [i0, i1] = span("x", (p) => p.x - p.w / 2, (p) => p.x + p.w / 2), [j0, j1] = span("z", (p) => p.z - p.d / 2, (p) => p.z + p.d / 2);
+	const reach = Math.max(...base.map((p) => Math.max(Math.abs(p.x - anchor.x) + p.w / 2, Math.abs(p.z - anchor.z) + p.d / 2))), rings = Math.max(-i0, i1, -j0, j1);
+	let best = null;
+	for (let r = 0; r <= rings && !(best && r * PLAQUE_SHIFT - reach > best.g); r++) {
+		for (let i = Math.max(-r, i0); i <= Math.min(r, i1); i++) {
+			for (let j = -r; j <= r; j += Math.abs(i) === r ? 1 : 2 * r) { // THE RING'S CELLS: ALL OF ITS LEFT & RIGHT EDGES, THE TOP & BOTTOM ONES BETWEEN
+				if (j < j0 || j > j1) { continue; }
+				const dx = i * PLAQUE_SHIFT, dz = j * PLAQUE_SHIFT, g = gap(base, dx, dz), slid = Math.abs(i) + Math.abs(j);
+				if (best && (g > best.g + 1e-9 || (g > best.g - 1e-9 && slid >= best.slid))) { continue; }
+				if (!base.some((p) => covers(p, dx, dz))) { best = { g, slid, dx, dz }; }
+			}
+		}
+	}
+	if (best) { return base.map((p) => ({ ...p, x: p.x + best.dx, z: p.z + best.dz })); }
+	return Object.assign(last, { blocked: true }); // NO CLEAR PLACE ON THE DESK: THE ASKED SIDE'S LAST TRY, & showButtons SAYS SO ONCE
+}
+
+/**
+ * @description A prompt's plaques' anchor (showButtons'), from what select.js plaquePrompt says they're by: a square's row on the board frame's nearer side edge (the plaques can't lie on the board), the right end of the
+ * player's duel cards, or under the near edge of the player's hand card
+ * @param {{ square: string }|{ duel: true }|{ card: string }} at plaquePrompt's
+ * @param {object} view cards.view
+ * @param {boolean} turned the room is turned half round: the player looks from Black's side (camera.js sideAngle)
+ * @returns {{ x: number, z: number, side: "left"|"right"|"below" }} room space, unturned
+ */
+export function plaqueAnchor(at, view, turned) {
+	if (at.square) {
+		const s = turned ? -1 : 1, x = s * (-12 + 3 * ("abcdefgh".indexOf(at.square[0]) + 0.5)), z = s * (-12 + 3 * (8 - Number(at.square[1]) + 0.5)); // three/index.js center(fileOf), center(rowOf): 8 SQUARES OF 3 ROUND THE ORIGIN
+		return { x: x < 0 ? BOARD_RECT.x0 : BOARD_RECT.x1, z, side: x < 0 ? "left" : "right" };
+	}
+	if (at.duel) {
+		const mine = view.duel ? duelLayout(view.duel, view.you, view).filter((d) => d.side === "mine") : [];
+		return { x: Math.max(STACK_X, ...mine.map((d) => d.x)) + CARD_SIZE.w / 2, z: DUEL_STACK.mine.z, side: "right" };
+	}
+	const spot = tableSpots(view, { base: 0, layer: 0 }).get(`${view.you}:${at.card}`) || { x: 0, z: HAND_Z };
+	return { x: spot.x, z: spot.z + CARD_SIZE.h / 2, side: "below" };
 }
 
 /**
