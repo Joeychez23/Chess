@@ -151,7 +151,7 @@ describe("POST /session/refresh & /session/logout", () => {
 		assert.equal((await refresh(session.refresh_token)).http, 401);
 	});
 
-	test("after logout an access token already out is refused on every device (#277)", async () => {
+	test("after logout an access token already out is refused on every device", async () => {
 		const phone = await login(aliceIdToken());
 		const laptop = await login(aliceIdToken());
 		assert.equal((await call("GET", "/users/me", { token: laptop.access_token })).status, 200);
@@ -166,7 +166,7 @@ describe("POST /session/refresh & /session/logout", () => {
 		assert.equal((await call("GET", "/users/me", { token: again.access_token })).status, 200);
 	});
 
-	test("after Delete my data the old access token can't make a game, and no row comes back (#277)", async () => {
+	test("after Delete my data the old access token can't make a game, and no row comes back", async () => {
 		const session = await login(aliceIdToken());
 		assert.equal((await call("POST", "/users/me/delete", { token: session.access_token })).status, 200);
 		const response = await call("POST", "/games/ai", { token: session.access_token, body: { color: "w", level: 3 } });

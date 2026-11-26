@@ -65,7 +65,7 @@ beforeEach(async () => {
 
 /* ---- A5 (RD-I1): an answer whose show throws doesn't stop Card Guy for good ---- */
 
-test("F6 A5: a throw showing Card Guy's answer tells the player & he is asked again", async () => {
+test("a throw showing Card Guy's answer tells the player & he is asked again", async () => {
 	let n = 0;
 	api.cardGuyAnswers = [() => { n++; if (n === 1) { chess.throwOnce = true; } return answer({ card_guy_due: n < 3 }); }];
 	flow.startCards(answer({ card_guy_due: true }));
@@ -75,7 +75,7 @@ test("F6 A5: a throw showing Card Guy's answer tells the player & he is asked ag
 	assert.equal(cards.cardGuyDue, false);
 });
 
-test("F6 A5: a throw showing the player's own answer still starts Card Guy's loop", async () => {
+test("a throw showing the player's own answer still starts Card Guy's loop", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	chess.throwOnce = true;
 	api.actionAnswers = [answer({ card_guy_due: true })];
@@ -88,7 +88,7 @@ test("F6 A5: a throw showing the player's own answer still starts Card Guy's loo
 
 /* ---- D13 (RD-M1): a final refusal with no view stops the loop & act ---- */
 
-test("F6 D13: the older-version 409 from /card-guy is asked once & offers the forfeit", async () => {
+test("the older-version 409 from /card-guy is asked once & offers the forfeit", async () => {
 	api.cardGuyAnswers = [{ status: 409, game_id: "g1", message: "This game is from an older version" }];
 	flow.startCards(answer({ card_guy_due: true }));
 	await settle(); await settle();
@@ -98,7 +98,7 @@ test("F6 D13: the older-version 409 from /card-guy is asked once & offers the fo
 });
 
 for (const status of [404, 403]) {
-	test(`F6 D13: a ${status} from /card-guy is asked once & says the game couldn't be loaded`, async () => {
+	test(`a ${status} from /card-guy is asked once & says the game couldn't be loaded`, async () => {
 		api.cardGuyAnswers = [{ status, message: "no" }];
 		flow.startCards(answer({ card_guy_due: true }));
 		await settle(); await settle();
@@ -107,7 +107,7 @@ for (const status of [404, 403]) {
 	});
 }
 
-test("F6 D13: no answer or a 5xx from /card-guy is still asked again", async () => {
+test("no answer or a 5xx from /card-guy is still asked again", async () => {
 	api.cardGuyAnswers = [undefined, { status: 500, serverError: true }, answer()];
 	flow.startCards(answer({ card_guy_due: true }));
 	await settle(); await settle();
@@ -115,7 +115,7 @@ test("F6 D13: no answer or a 5xx from /card-guy is still asked again", async () 
 	assert.ok(statuses().includes("Card Guy isn't answering. Trying again…"));
 });
 
-test("F6 D13: act on the older-version 409 offers the forfeit, no retry message, no re-read", async () => {
+test("act on the older-version 409 offers the forfeit, no retry message, no re-read", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	api.actionAnswers = [{ status: 409, game_id: "g1", message: "This game is from an older version" }];
 	assert.deepEqual(await flow.act({ type: "move", from: "e2", to: "e4" }), []);
@@ -124,7 +124,7 @@ test("F6 D13: act on the older-version 409 offers the forfeit, no retry message,
 	assert.equal(api.calls.get, 0);
 });
 
-test("F6 D13: act on a 404 says the game couldn't be loaded, no re-read", async () => {
+test("act on a 404 says the game couldn't be loaded, no re-read", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	api.actionAnswers = [{ status: 404, message: "gone" }];
 	assert.deepEqual(await flow.act({ type: "move", from: "e2", to: "e4" }), []);
@@ -134,7 +134,7 @@ test("F6 D13: act on a 404 says the game couldn't be loaded, no re-read", async 
 
 /* ---- D14 (RD-M2): a lost answer re-reads the game & goes on from it ---- */
 
-test("F6 D14: an action's lost answer re-reads the game once & asks Card Guy when he is owed", async () => {
+test("an action's lost answer re-reads the game once & asks Card Guy when he is owed", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	api.actionAnswers = [undefined];
 	api.getAnswers = [answer({ card_guy_due: true })];
@@ -146,7 +146,7 @@ test("F6 D14: an action's lost answer re-reads the game once & asks Card Guy whe
 	assert.ok(!statuses().includes("That didn't go through. Try again.")); // THE RE-READ SHOWS THE GAME MOVED ON: THE PLAY WAS SAVED (F6-M3)
 });
 
-test("F6 D14: a lost answer whose re-read is lost too changes nothing & asks nothing more", async () => {
+test("a lost answer whose re-read is lost too changes nothing & asks nothing more", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	api.actionAnswers = [undefined];
 	api.getAnswers = [undefined];
@@ -156,7 +156,7 @@ test("F6 D14: a lost answer whose re-read is lost too changes nothing & asks not
 	assert.equal(api.calls.cardGuy, 0);
 });
 
-test("F6 D14: a lost answer whose re-read is the older-version 409 offers the forfeit", async () => {
+test("a lost answer whose re-read is the older-version 409 offers the forfeit", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	api.actionAnswers = [undefined];
 	api.getAnswers = [{ status: 409, game_id: "g1", message: "older" }];
@@ -166,7 +166,7 @@ test("F6 D14: a lost answer whose re-read is the older-version 409 offers the fo
 
 /* ---- A7 (RA-I1): a lost turn is told, contract (f) ---- */
 
-test("F6 A7: a turn-skipped event tells whose turn was lost, once per event", async () => {
+test("a turn-skipped event tells whose turn was lost, once per event", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	api.actionAnswers = [answer({ view: view("w"), events: [{ type: "turn-skipped", player: "b" }] })];
 	await flow.act({ type: "move", from: "e2", to: "e4" });
@@ -182,7 +182,7 @@ test("F6 A7: a turn-skipped event tells whose turn was lost, once per event", as
 
 /* ---- A2 / contract (c): a finished game of an older version opens read-only ---- */
 
-test("F6 A2: a finished older-version game opens read-only: sides, the board from fen, the result, no forfeit, no table, no Card Guy", async () => {
+test("a finished older-version game opens read-only: sides, the board from fen, the result, no forfeit, no table, no Card Guy", async () => {
 	const fen = "4k3/8/8/8/8/8/8/4K3 w - - 0 1", result = { winner: "w", reason: "king" };
 	const loaded = flow.startCards({ status: 200, game_id: "g1", older: true, you: "b", fen, result, message: "This game is from an older version" });
 	await settle();
@@ -196,14 +196,14 @@ test("F6 A2: a finished older-version game opens read-only: sides, the board fro
 	assert.equal(api.calls.cardGuy, 0);
 });
 
-test("F6 A2: an open older-version game (the 409, no result) still offers the forfeit", () => {
+test("an open older-version game (the 409, no result) still offers the forfeit", () => {
 	assert.equal(flow.startCards({ status: 409, game_id: "g1", message: "This game is from an older version" }), false);
 	assert.ok(statuses().includes(OLDER));
 });
 
 /* ---- T25-M5: flow.js:231's desk branch, kept as it is ---- */
 
-test("F6 M5: the bare desk tapped while the promotion cards are out puts them back; with none out it does nothing", () => {
+test("the bare desk tapped while the promotion cards are out puts them back; with none out it does nothing", () => {
 	const promos = ["q", "r", "b", "n"].map((p) => ({ type: "move", from: "e7", to: "e8", promotion: p }));
 	const v = view("w"); v.board.sq[52] = { t: "p", c: "w", id: "wp5" };
 	flow.startCards(answer({ view: v, legal: promos }));
@@ -218,7 +218,7 @@ test("F6 M5: the bare desk tapped while the promotion cards are out puts them ba
 
 /* ---- the F6 review's Minors ---- */
 
-test("F6-M1: after a throw showing an answer the board is drawn once more from the answer's view (the turn may be the player's again)", async () => {
+test("after a throw showing an answer the board is drawn once more from the answer's view (the turn may be the player's again)", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	const before = chess.loads.length;
 	chess.throwOnce = true;
@@ -235,7 +235,7 @@ test("F6-M1: after a throw showing an answer the board is drawn once more from t
 	assert.ok(log.some((l) => l[0] === "status" && l[1] === "ai" && /Reload the page if the board looks wrong/.test(l[2])));
 });
 
-test("F6-M3: a lost answer whose re-read shows the play was saved isn't called a failure; one that shows nothing changed is", async () => {
+test("a lost answer whose re-read shows the play was saved isn't called a failure; one that shows nothing changed is", async () => {
 	flow.startCards(answer({ view: view("w") }));
 	api.actionAnswers = [undefined];
 	api.getAnswers = [answer({ view: view("b") })]; // THE GAME MOVED ON: THE PLAY LANDED
@@ -248,7 +248,7 @@ test("F6-M3: a lost answer whose re-read shows the play was saved isn't called a
 	assert.ok(statuses().includes("That didn't go through. Try again."));
 });
 
-test("F6-M2 (user ruling 2026-11-25): a 401 that is still a 401, & /card-guy's 400, stop the loop too; act stops on the 401 but a 400 there is not final", async () => {
+test("a 401 that is still a 401, & /card-guy's 400, stop the loop too; act stops on the 401 but a 400 there is not final", async () => {
 	for (const status of [401, 400]) {
 		api.calls.cardGuy = 0; log.length = 0;
 		api.cardGuyAnswers = [{ status, message: "no" }];
@@ -270,7 +270,7 @@ test("F6-M2 (user ruling 2026-11-25): a 401 that is still a 401, & /card-guy's 4
 	assert.equal(api.calls.get, 1); // NOT FINAL: THE GAME IS READ AGAIN
 });
 
-test("closing M1: a finished older-version game with no stored board (fen null) still opens with its result, no throw", async () => {
+test("a finished older-version game with no stored board (fen null) still opens with its result, no throw", async () => {
 	const result = { winner: null, reason: "forfeit" };
 	assert.equal(flow.startCards({ status: 200, game_id: "g1", older: true, you: "w", fen: null, result, message: "This game is from an older version" }), true);
 	await settle();

@@ -410,7 +410,7 @@ describe("refresh, resume & logout", () => {
 		assert.equal((await send("GET", "/api/auth/resume?returnTo=%2F", { refresh_token: laptop.cookies.refresh_token })).location, "/login?returnTo=%2F");
 	});
 
-	test("logout from another site, or by a link, is refused & the session stays on every device (#297)", async () => {
+	test("logout from another site, or by a link, is refused & the session stays on every device", async () => {
 		player("alice");
 		const login = await logIn(alice);
 		const ours = new URL(config.clientUrl).origin;
@@ -493,13 +493,13 @@ describe("only tokens the data service signed", () => {
 		assert.equal(readSessionUser({ cookies: { access_token: keys.sessionToken(alice.user, { key: "next" }) } }).user_id, "auth0|alice"); // SESSION_PUBLIC_KEY_NEXT
 	});
 
-	test("a refresh cookie from before #252 signs the player out", async () => {
+	test("an old HS256 refresh cookie signs the player out", async () => {
 		const response = await refresh(keys.sessionToken(alice.user, { type: "refresh", algorithm: "HS256", secret: "test-jwt-secret" }));
 		assert.equal(response.http, 401);
 		assert.equal(response.body.message, "SESSION EXPIRED");
 	});
 
-	test("a guest cookie from before #252 gets a new game, not a refusal", async () => {
+	test("a guest cookie in the old format gets a new game, not a refusal", async () => {
 		const response = await call("POST", "/api/chess/game", { cookie: `guest_game=session.guest1.${"x".repeat(43)}`, body: { game_id: "guest1", start_color: "w" } });
 		assert.equal(response.status, 200);
 		assert.ok(response.game_id);

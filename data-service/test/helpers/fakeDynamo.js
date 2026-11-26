@@ -2,8 +2,8 @@
  *  fakeDynamo.js  --  data service tests
  *	In-memory DynamoDB
  *  Replaces the DynamoDB client's calls (getItem, putItem, updateItem, deleteItem, batchGetItem, query, transactWriteItems) with tables held in memory,
- *  so data-service/dynamoDB.js runs unchanged with no AWS account. It understands the update and condition expressions
- *  dynamoDB.js uses: SET / REMOVE, =, <>, <, <=, >, >=, AND, OR, parentheses, attribute_exists and attribute_not_exists.
+ *  so data-service/db/ runs unchanged with no AWS account. It understands the update and condition expressions
+ *  db/ uses: SET / REMOVE, =, <>, <, <=, >, >=, AND, OR, parentheses, attribute_exists and attribute_not_exists.
  *  Reads are up to date (strongly consistent) unless a test turns on staleReads(), see below.
  *
  */
@@ -27,8 +27,8 @@ const INDEXES = { "username-search": { table: "user_db", hash: "search_group", r
 // Install
 /* ---------------------------------------------------------------- */
 /**
- * @description Points every DynamoDB client at the in-memory tables. The client in dynamoDB.js looks its methods up
- * on the prototype when it calls them, so this works even after dynamoDB.js is loaded
+ * @description Points every DynamoDB client at the in-memory tables. The client in db/ looks its methods up
+ * on the prototype when it calls them, so this works even after db/ is loaded
  */
 function install() {
 	DynamoDB.prototype.getItem = async (params) => getItem(params);
@@ -108,7 +108,7 @@ function poke(tableName, key, changes) {
 }
 
 /**
- * @description Signs a player in like a login does (startSession in dynamoDB.js): their row with empty game lists if they have none,
+ * @description Signs a player in like a login does (startSession in db/): their row with empty game lists if they have none,
  * & the session id their test access tokens carry (helpers/keys.js, "test-sid"). A row that already has a session id keeps it
  * @param  {[string]} userId [user_id without "auth0|"]
  * @param  {[string]} sid [the session id, default "test-sid"]

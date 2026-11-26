@@ -76,7 +76,7 @@ test("the discard pile: its top card on a block as thick as the cards under it, 
 const P = (player, card) => ({ player, card });
 const at = (s) => [Math.round(s.x * 100) / 100, Math.round(s.z * 100) / 100];
 
-test("the discard list (Task 21a): opened, its 6 cards lie newest first, 2 across & 3 down right of the discard piles, each in its owner's colour, a hidden one a back", () => {
+test("the discard list: opened, its 6 cards lie newest first, 2 across & 3 down right of the discard piles, each in its owner's colour, a hidden one a back", () => {
 	const piled = [P("b", { down: true }), P("w", move("m6")), P("b", { id: "a5", key: "x" }), P("w", move("m4")), P("b", move("m3", "r")), P("w", move("m2"))];
 	const v = { ...view({ pile: { n: 3, top: move("m6") } }, { pile: { n: 3, top: { down: true } } }), piled };
 	const open = tableSpots(v, { ...Y, open: "discard" }), shut = tableSpots(v, Y), log = piled.map((e, i) => open.get(`log:${i}`));
@@ -94,7 +94,7 @@ test("the discard list (Task 21a): opened, its 6 cards lie newest first, 2 acros
 	assert.deepEqual([r(one.x0), r(one.x1), r(one.z0), r(one.z1)], [37.05, 41.35, -9.3, -3.3]);
 });
 
-test("the discard list says whose each card was by its name bar, as the piles do: the player's along the bottom, Card Guy's along the top, for move cards, actives, passives & backs (fix round 1, I1)", () => {
+test("the discard list says whose each card was by its name bar, as the piles do: the player's along the bottom, Card Guy's along the top, for move cards, actives, passives & backs", () => {
 	const kinds = [move("m1"), { id: "a1", key: "double-time" }, { id: "p1", key: "spite" }, { down: true }]; // A MOVE CARD, AN ACTIVE, A PASSIVE, A BACK
 	const each = kinds.flatMap((card) => [P("w", card), P("b", card)]);
 	for (const piled of [each.slice(0, 6), each.slice(2)]) { // THE LIST HOLDS 6: EVERY KIND OF EACH OWNER OVER THE TWO
@@ -105,7 +105,7 @@ test("the discard list says whose each card was by its name bar, as the piles do
 	assert.deepEqual([mine.get("w:q1").barBottom, mine.get("b:q2").barBottom], [true, false]); // THE PILES' OWN MARK, THE ONE THE LIST FOLLOWS
 });
 
-test("both remembered cards, lying askew on the discard piles, clear the opened list: Card Guy's no longer covers the newest card's corner (fix round 1, M2)", () => {
+test("both remembered cards, lying askew on the discard piles, clear the opened list: Card Guy's no longer covers the newest card's corner", () => {
 	const v = { ...view({ pile: { n: 1, top: move("m6") }, kept: move("m9") }, { pile: { n: 1, top: { down: true } }, kept: { down: true } }), piled: Array.from({ length: 6 }, (_, i) => P("w", move(`l${i}`))) };
 	const want = tableSpots(v, { ...Y, open: "discard" }), box = columnBox("discard", 6), w = CARD_SIZE.w / 2, h = CARD_SIZE.h / 2;
 	for (const key of ["w:m9", "b:#kept"]) {
@@ -140,7 +140,7 @@ test("placeAt: the place under a point of the desk, empty or not", () => {
 	assert.equal(placeAt(0, 0), null);
 });
 
-test("placeAt: where the active spot and the passive pile overlap the nearer place wins, and a place reaches 0.5 round its card (final review F-M3)", () => {
+test("placeAt: where the active spot and the passive pile overlap the nearer place wins, and a place reaches 0.5 round its card", () => {
 	const z = PILES.mine.z, spot = PILES.mineSpot, w = CARD_SIZE.w / 2, h = CARD_SIZE.h / 2;
 	assert.ok(spot.x + w + 0.5 > PILES.mine.x - w - 0.5); // THE TWO PLACES' REACHES OVERLAP (x -27.15 .. -26.75)
 	assert.deepEqual(placeAt(-27.1, z), { side: "mine", place: "spot" }); // 2.3 FROM THE SPOT, 2.6 FROM THE PILE

@@ -14,7 +14,7 @@ provider "aws" {
 
 locals {
   metric_namespace = "Chess"
-  # EVERY KIND OF CALL data-service/dynamoDB.js MAKES. ThrottledRequests IS ONLY REPORTED PER OPERATION
+  # EVERY KIND OF CALL data-service/db/ MAKES. ThrottledRequests IS ONLY REPORTED PER OPERATION
   dynamodb_operations = ["GetItem", "PutItem", "UpdateItem", "DeleteItem", "BatchGetItem", "TransactWriteItems"]
 }
 

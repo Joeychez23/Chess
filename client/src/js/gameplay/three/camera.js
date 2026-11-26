@@ -1,8 +1,15 @@
 // Owns 3D board camera and framing behavior
-import { view, requestRender, fitCamera, spherical, corner, dealShift, UP, offset, setLabels, glassCentre, glassSize, glassScale, glassNormal, relayPlaques } from "./index.js";
+import {
+	view, requestRender, fitCamera, spherical, corner, dealShift, UP, offset, setLabels, glassCentre, glassSize, glassScale,
+	glassNormal, relayPlaques
+} from "./index.js";
 import { monitorIdle } from "./pointer.js";
 import { CARD_Y } from "./cardLayout.js";
-import { PHONE_PIXEL_RATIO, SMALL_SCREEN, SMALL_FOV, FOV, MAX_TILT, MIN_DISTANCE, MAX_DISTANCE, SMALL_TILTS, FIT_NDC, PIECE_TOP, TAP_PX, BOARD_SIZE, CELL_SIZE, COLUMN_X, COLUMN_Z, DEAL_SHIFT, DEAL_NEAR, ZOOM_MS, NEAR, CAMERA_DISTANCE, CAMERA_HEIGHT, DESK_Y, ROOM_CAMERA_AIM, ROOM_CAMERA_DISTANCE, ROOM_CAMERA_HEIGHT, FLIP_MS, GLASS_CLEAR, REDUCE } from "./constants.js";
+import {
+	PHONE_PIXEL_RATIO, SMALL_SCREEN, SMALL_FOV, FOV, MAX_TILT, MIN_DISTANCE, MAX_DISTANCE, SMALL_TILTS, FIT_NDC, PIECE_TOP,
+	TAP_PX, BOARD_SIZE, CELL_SIZE, COLUMN_X, COLUMN_Z, DEAL_SHIFT, DEAL_NEAR, ZOOM_MS, NEAR, CAMERA_DISTANCE, CAMERA_HEIGHT,
+	DESK_Y, ROOM_CAMERA_AIM, ROOM_CAMERA_DISTANCE, ROOM_CAMERA_HEIGHT, FLIP_MS, GLASS_CLEAR, REDUCE
+} from "./constants.js";
 import { MathUtils } from "three";
 import { easeInOut } from "../animate/timing.js";
 import { turnRoom } from "./room.js";
@@ -14,46 +21,58 @@ import { openingCamera } from "./openingCamera.js";
 // Mount
 /* ---------------------------------------------------------------- */
 
-// MATCHES THE DRAWING BUFFER & CAMERA TO THE CONTAINER (INSIDE ITS SAFE AREA PADDING, css/board3D.css #board3D), PIXEL DENSITY CAPPED
-// (2, PHONES 1.5) SO 3x PHONES DON'T DRAW 9x THE PIXELS. A SMALL SCREEN ALSO GETS ITS CAMERA LIMITS FOR THE NEW SIZE
-export const CARD_SETTLE_MS = 100; // A CHESS CARDS GAME'S OPENING SPOT IS SOLVED THIS LONG AFTER A WINDOW DRAG'S LAST RESIZE (UP TO 20 ms A SOLVE: NOT EVERY FRAME)
+// A Chess Cards game's opening spot is solved this long after a window drag's last resize (up to 20 ms a solve: not
+// every frame)
+export const CARD_SETTLE_MS = 100;
+// The pixel density cap off a phone (a phone's is PHONE_PIXEL_RATIO), so 3x screens don't draw 9x the pixels
+const MAX_PIXEL_RATIO = 2;
 
+// Matches the drawing buffer and camera to the container (inside its safe area padding, css/board3D.css #board3D),
+// pixel density capped so 3x phones don't draw 9x the pixels. A small screen also gets its camera limits for the new
+// size
 export function resize(settled) {
 	const { renderer, camera, container, controls } = view;
 	const style = getComputedStyle(container);
 	const w = container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
 	const h = container.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-	if (!(w > 0 && h > 0)) { return; } // HIDDEN: KEEP THE LAST SIZE
-	unframeDeal(false); // A DEAL IS FRAMED AGAIN BELOW, FOR THE NEW SIZE: FROM ITS HOME AS THE NEW LIMITS LEAVE IT
-	renderer.setPixelRatio(Math.min(window.devicePixelRatio, view.phone ? PHONE_PIXEL_RATIO : 2));
-	renderer.setSize(w, h, false); // CSS SIZES THE CANVAS
+	if (!(w > 0 && h > 0)) { return; } // Hidden: keep the last size
+	unframeDeal(false); // A deal is framed again below, for the new size: from its home as the new limits leave it
+	renderer.setPixelRatio(Math.min(window.devicePixelRatio, view.phone ? PHONE_PIXEL_RATIO : MAX_PIXEL_RATIO));
+	renderer.setSize(w, h, false); // CSS sizes the canvas
 	camera.aspect = w / h;
 	camera.fov = SMALL_SCREEN.matches ? SMALL_FOV : FOV;
 	camera.updateProjectionMatrix();
-	view.relayDue = view.relayDue || !(view.size && view.size.w === w && view.size.h === h); // A NEW SIZE: THE PLAQUES ARE LAID AGAIN ONCE THE CAMERA HAS SETTLED (index.js relayPlaques)
+	// A new size: the plaques are laid again once the camera has settled (index.js relayPlaques)
+	view.relayDue = view.relayDue || !(view.size && view.size.w === w && view.size.h === h);
 	view.size = { w, h };
 	view.small = SMALL_SCREEN.matches ? smallScreenCamera(h) : null;
 	clearTimeout(view.cardSettle);
 	const settling = settled !== true && view.table && view.cardSpotFor === view.table;
-	if (settling) { view.cardSettle = setTimeout(() => resize(true), CARD_SETTLE_MS); } // MID-DRAG (settled: THE ResizeObserver'S ENTRIES): THE LAST SIZE'S SPOT
-	else { view.cardSpot = cardHome(0); view.cardSpotFor = view.table; }
-	const card = view.cardSpot; // A CHESS CARDS GAME: THE LIMITS ALSO ALLOW ITS OPENING SPOT FOR THIS SIZE
-	controls.maxPolarAngle = Math.max(view.small ? view.small.tilt : MAX_TILT, card ? card.tilt : 0); // NO TILTING OR ZOOMING OUT TO WHERE A SQUARE IS UNDER TAP_PX
+	// Mid-drag (settled: the ResizeObserver's entries): the last size's spot
+	if (settling) { view.cardSettle = setTimeout(() => resize(true), CARD_SETTLE_MS); }
+	else {
+		view.cardSpot = cardHome(0);
+		view.cardSpotFor = view.table;
+	}
+	const card = view.cardSpot; // A Chess Cards game: the limits also allow its opening spot for this size
+	// No tilting or zooming out to where a square is under TAP_PX
+	controls.maxPolarAngle = Math.max(view.small ? view.small.tilt : MAX_TILT, card ? card.tilt : 0);
 	controls.maxDistance = Math.max(view.small ? Math.max(view.small.distance, MIN_DISTANCE) : MAX_DISTANCE, card ? card.distance : 0);
-	view.targetRadius = Math.max(BOARD_SIZE / 2, card ? Math.hypot(card.target.x, card.target.z) : 0); // A NARROW WINDOW'S HAND VIEW LOOKS PAST THE BOARD
+	// A narrow window's hand view looks past the board
+	view.targetRadius = Math.max(BOARD_SIZE / 2, card ? Math.hypot(card.target.x, card.target.z) : 0);
 	controls.maxTargetRadius = view.targetRadius;
-	if (monitorIdle()) { controls.update(); } // A CAMERA PAST THE NEW LIMITS (THE PHONE WAS TURNED) MOVES INSIDE THEM
-	else { refitZoom(); } // AT THE MONITOR: THE GLASS FILLS THE NEW SHAPE (THE DESK SPOT IS CLAMPED WHEN IT GETS BACK, landHome)
+	if (monitorIdle()) { controls.update(); } // A camera past the new limits (the phone was turned) moves inside them
+	else { refitZoom(); } // At the monitor: the glass fills the new shape (the desk spot is clamped when it gets back, landHome)
 	reframe();
 	requestRender();
-	if (!settling) { relayPlaques(); } // NOT MID-DRAG: THE CAMERA IS WHERE THE NEW LIMITS LEAVE IT (REVIEW N1)
+	if (!settling) { relayPlaques(); } // Not mid-drag: the camera is where the new limits leave it
 }
 
 /**
- * @description The small screen camera: the most tilted of SMALL_TILTS whose squares are TAP_PX tall at the distance picked, or the
- * steepest when none are (the biggest squares the screen allows: a phone on its side is about 8 squares tall). The distance is the
- * closest with room around the board & its pieces, or closer to make TAP_PX (edge pieces' tops may go off screen), but never so
- * close a square is off screen
+ * @description The small screen camera: the most tilted of SMALL_TILTS whose squares are TAP_PX tall at the distance
+ * picked, or the steepest when none are (the biggest squares the screen allows: a phone on its side is about 8 squares
+ * tall). The distance is the closest with room around the board & its pieces, or closer to make TAP_PX (edge pieces'
+ * tops may go off screen), but never so close a square is off screen
  * @param  {[number]} h [the canvas's height in CSS pixels, view.camera has its new aspect & fov]
  * @return {[object]} { tilt, distance } [from straight down, from the center]
  */
@@ -63,24 +82,26 @@ function smallScreenCamera(h) {
 	for (const tilt of SMALL_TILTS) {
 		const squares = closest(tilt, () => cornersOnScreen(0, 1));
 		const roomy = closest(tilt, () => cornersOnScreen(0, FIT_NDC) && cornersOnScreen(PIECE_TOP, 1));
-		const tap = closest(tilt, () => smallestSquarePx(h) < TAP_PX); // FARTHER THAN THIS IS UNDER TAP_PX
+		const tap = closest(tilt, () => smallestSquarePx(h) < TAP_PX); // Farther than this is under TAP_PX
 		fit = { tilt, distance: Math.max(squares, Math.min(roomy, tap)) };
 		aimFitCamera(tilt, fit.distance);
-		if (smallestSquarePx(h) >= TAP_PX - 0.5) { break; }
+		if (smallestSquarePx(h) >= TAP_PX - 0.5) { break; } // TAP_PX, with half a pixel of slack
 	}
 	return fit;
 }
 
-// PUTS fitCamera AT tilt & distance FROM WHITE'S SIDE (THE BOARD LOOKS THE SAME FROM BLACK'S)
+// Puts fitCamera at tilt and distance from White's side (the board looks the same from Black's)
 function aimFitCamera(tilt, distance) {
 	fitCamera.position.setFromSpherical(spherical.set(distance, tilt, 0));
 	fitCamera.lookAt(0, 0, 0);
 	fitCamera.updateMatrixWorld();
 }
 
-// THE CLOSEST DISTANCE AT tilt WHERE ok() IS TRUE (IT MUST BE TRUE FAR AWAY & FALSE UP CLOSE), FOUND BY HALVING
+// The closest distance at tilt where ok() is true (it must be true far away and false up close), found by halving 30
+// times between 1 and 400
 function closest(tilt, ok) {
-	let near = 1, far = 400;
+	let near = 1;
+	let far = 400;
 	for (let i = 0; i < 30; i++) {
 		const mid = (near + far) / 2;
 		aimFitCamera(tilt, mid);
@@ -89,7 +110,7 @@ function closest(tilt, ok) {
 	return far;
 }
 
-// THE BOARD'S 4 CORNERS, y UP, ARE INSIDE ndc OF fitCamera'S SCREEN (1 IS ITS EDGE)
+// The board's 4 corners, y up, are inside ndc of fitCamera's screen (1 is its edge)
 function cornersOnScreen(y, ndc) {
 	return [-1, 1].every((x) => [-1, 1].every(function (z) {
 		corner.set(x * BOARD_SIZE / 2, y, z * BOARD_SIZE / 2).project(fitCamera);
@@ -97,7 +118,8 @@ function cornersOnScreen(y, ndc) {
 	}));
 }
 
-// HOW TALL THE FAR ROW'S SQUARES ARE ON fitCamera'S SCREEN IN CSS PIXELS (THE SMALLEST, THE TILT SQUASHES THE FAR SIDE MOST)
+// How tall the far row's squares are on fitCamera's screen in CSS pixels (the smallest: the tilt squashes the far side
+// most)
 function smallestSquarePx(h) {
 	const back = corner.set(0, 0, -BOARD_SIZE / 2).project(fitCamera).y;
 	const front = corner.set(0, 0, -BOARD_SIZE / 2 + CELL_SIZE).project(fitCamera).y;
@@ -108,35 +130,41 @@ function smallestSquarePx(h) {
 // Deal Framing
 /* ---------------------------------------------------------------- */
 
-const dealing = () => Boolean(view.cards && view.cards.dealt()); // THE PROMOTION CARDS ARE OUT
+// The promotion cards are out
+function dealing() {
+	return Boolean(view.cards && view.cards.dealt());
+}
 
-// THE CARD COLUMN'S 4 CORNERS, THROUGH THE ROOM'S TURN, ARE IN FRONT OF camera & INSIDE FIT_NDC OF ITS SCREEN
+// The card column's 4 corners, through the room's turn, are in front of camera and inside FIT_NDC of its screen
 function columnInside(camera) {
 	view.room.updateMatrixWorld();
 	return COLUMN_X.every((x) => COLUMN_Z.every(function (z) {
 		corner.set(x, CARD_Y, z).applyMatrix4(view.room.matrixWorld).project(camera);
-		return corner.z < 1 && Math.abs(corner.x) <= FIT_NDC && Math.abs(corner.y) <= FIT_NDC; // z PAST 1 IS BEHIND THE CAMERA
+		return corner.z < 1 && Math.abs(corner.x) <= FIT_NDC && Math.abs(corner.y) <= FIT_NDC; // z past 1 is behind the camera
 	}));
 }
 
-// THE WHOLE CARD COLUMN IS ON THE PLAYER'S SCREEN
+// The whole card column is on the player's screen
 function columnOnScreen() {
 	view.camera.updateMatrixWorld();
 	return columnInside(view.camera);
 }
 
 /**
- * @description Where the camera frames a deal from home: looking DEAL_SHIFT toward the column (in the room's turn), from the closest point
- * along home's view direction where the board's & the column's corners are all inside FIT_NDC (closest()'s halving, on fitCamera)
+ * @description Where the camera frames a deal from home: looking DEAL_SHIFT toward the column (in the room's turn),
+ * from the closest point along home's view direction where the board's & the column's corners are all inside FIT_NDC
+ * (closest()'s halving, on fitCamera)
  * @param  {[object]} home { position, target } [where the camera was before the deal]
- * @return {[object]} { position, target, near, distance } [world space, near: the camera's near plane there, distance: from the target, what controls.maxDistance must allow]
+ * @return {[object]} { position, target, near, distance } [world space, near: the camera's near plane there, distance:
+ * from the target, what controls.maxDistance must allow]
  */
 function framedSpot(home) {
 	view.room.updateMatrixWorld();
 	const target = dealShift.set(1, 0, 0).transformDirection(view.room.matrixWorld).multiplyScalar(DEAL_SHIFT).add(home.target).clone();
 	const along = home.position.clone().sub(home.target).normalize();
 	fitCamera.copy(view.camera);
-	let near = 1, far = 400;
+	let near = 1;
+	let far = 400;
 	for (let i = 0; i < 30; i++) {
 		const mid = (near + far) / 2;
 		fitCamera.position.copy(target).addScaledVector(along, mid);
@@ -147,17 +175,27 @@ function framedSpot(home) {
 	return { position: target.clone().addScaledVector(along, far), target, near: DEAL_NEAR, distance: far };
 }
 
-// MOVES THE CAMERA, WHAT IT LOOKS AT & ITS NEAR PLANE TO to { position, target, near } OVER ZOOM_MS, SLOW START & LANDING, OR AT ONCE. done() RUNS AS IT LANDS.
-// view.dealEase IS THE MOVE RUNNING: A NEWER ONE TAKES OVER FROM WHEREVER IT IS, ITS update(1) LANDS IT (landDealEase)
+// Moves the camera, what it looks at and its near plane to `to` { position, target, near } over ZOOM_MS, slow start
+// and landing, or at once. done() runs as it lands. view.dealEase is the move running: a newer one takes over from
+// wherever it is, its update(1) lands it (landDealEase)
 function moveDealCamera(to, animate, done) {
 	const { camera, controls } = view;
-	const fromPosition = camera.position.clone(), fromTarget = controls.target.clone(), fromNear = camera.near;
+	const fromPosition = camera.position.clone();
+	const fromTarget = controls.target.clone();
+	const fromNear = camera.near;
 	const ease = {
 		duration: ZOOM_MS,
 		update(k) {
-			if (view.dealEase !== ease) { return; } // A NEWER MOVE TOOK OVER
-			if (to.lean && k < 1 && (view.cameraGesture || view.leanMoved)) { view.dealEase = null; view.leanHome = null; return; } // THE PLAYER TOOK THE CAMERA MID LEAN (A DRAG, OR A WHEEL: leanMoved WITHOUT cameraGesture, F8-M1): IT STAYS WHERE THEY PUT IT
-			if (k === 1) { // EXACTLY THERE, NOT A ROUNDING ERROR OFF IT: THE WAY BACK LANDS WHERE THE PLAYER HAD IT
+			if (view.dealEase !== ease) { return; } // A newer move took over
+			// The player took the camera mid lean (a drag, or a wheel: leanMoved without cameraGesture): it stays where
+			// they put it
+			if (to.lean && k < 1 && (view.cameraGesture || view.leanMoved)) {
+				view.dealEase = null;
+				view.leanHome = null;
+				return;
+			}
+			// Exactly there, not a rounding error off it: the way back lands where the player had it
+			if (k === 1) {
 				camera.position.copy(to.position);
 				controls.target.copy(to.target);
 				setNear(to.near);
@@ -167,20 +205,23 @@ function moveDealCamera(to, animate, done) {
 				setNear(fromNear + (to.near - fromNear) * k);
 			}
 			camera.lookAt(controls.target);
-			if (k === 1) { view.dealEase = null; done(); }
+			if (k === 1) {
+				view.dealEase = null;
+				done();
+			}
 		}
 	};
 	view.dealEase = ease;
-	if (animate) { view.tweens.add(ease); } else { ease.update(1); }
+	if (animate) { view.animations.add(ease); } else { ease.update(1); }
 	requestRender();
 }
 
-// A DEAL'S CAMERA MOVE IN PROGRESS LANDS AT ONCE
+// A deal's camera move in progress lands at once
 export function landDealEase() {
 	if (view.dealEase) { view.dealEase.update(1); }
 }
 
-// MOVES THE CAMERA TO FRAME THE DEAL FROM view.dealHome, ITS ZOOM LIMIT RAISED SO IT CAN STAY THERE
+// Moves the camera to frame the deal from view.dealHome, its zoom limit raised so it can stay there
 function aimDeal(animate) {
 	const spot = view.pileBox ? pileSpot(view.dealHome, view.pileBox) : framedSpot(view.dealHome);
 	view.controls.maxDistance = Math.max(view.dealHome.maxDistance, spot.distance);
@@ -188,46 +229,65 @@ function aimDeal(animate) {
 }
 
 /**
- * @description Frames a deal: when the card column isn't on screen (a phone's camera is fitted to the board) the camera eases back & over
- * until the board & the column both are, remembering where it was (view.dealHome). Nothing at the monitor or with the column already on
- * screen. A deal while the camera is still going back from the last one turns it round to the frame, with the same home
+ * @description Frames a deal: when the card column isn't on screen (a phone's camera is fitted to the board) the camera
+ * eases back & over until the board & the column both are, remembering where it was (view.dealHome). Nothing at the
+ * monitor or with the column already on screen. A deal while the camera is still going back from the last one turns it
+ * round to the frame, with the same home
  * @param  {[boolean]} animate [false cuts there (reduce motion)]
  */
 export function frameDeal(animate) {
 	if (!view.room || !monitorIdle()) { return; }
 	const home = view.dealHome;
-	if (home && !home.back && !view.pileBox) { return; } // ALREADY FRAMED, OR ON ITS WAY
-	if (view.pileBox) { view.pileBox = null; view.controls.maxTargetRadius = view.targetRadius; view.table.togglePile(null); } // AN OPENED PILE HAD THE FRAME: IT CLOSES, THE DEAL IS FRAMED FROM THE SAME HOME
-	landTurn(); // FLIP BOARD WOULD TAKE THE CAMERA ELSEWHERE: THE FRAME IS WORKED OUT FROM WHERE ITS TURN ENDS
+	if (home && !home.back && !view.pileBox) { return; } // Already framed, or on its way
+	// An opened pile had the frame: it closes, the deal is framed from the same home
+	if (view.pileBox) {
+		view.pileBox = null;
+		view.controls.maxTargetRadius = view.targetRadius;
+		view.table.togglePile(null);
+	}
+	landTurn(); // Flip Board would take the camera elsewhere: the frame is worked out from where its turn ends
 	if (home) { home.back = false; }
 	else {
-		const lean = takeLean(); // LEANED IN (AUTO LEAN): THE DEAL IS FRAMED FROM WHERE THE PLAYER HAD THE CAMERA, NOT FROM THE LEAN
+		const lean = takeLean(); // Leaned in (Auto Lean): the deal is framed from where the player had the camera, not the lean
 		if (lean ? columnFrom(lean) : columnOnScreen()) {
-			if (lean) { moveDealCamera({ position: lean.position, target: lean.target, near: NEAR }, animate, () => {}); } // THE CARDS ARE IN VIEW FROM THERE: JUST BACK
+			// The cards are in view from there: just back
+			if (lean) { moveDealCamera({ position: lean.position, target: lean.target, near: NEAR }, animate, () => {}); }
 			return;
 		}
 		const { camera, controls } = view;
-		view.dealHome = { position: lean ? lean.position : camera.position.clone(), target: lean ? lean.target : controls.target.clone(), maxDistance: controls.maxDistance, back: false }; // back: ON ITS WAY THERE (unframeDeal)
+		view.dealHome = {
+			position: lean ? lean.position : camera.position.clone(),
+			target: lean ? lean.target : controls.target.clone(),
+			maxDistance: controls.maxDistance,
+			back: false // back: on its way there (unframeDeal)
+		};
 	}
 	aimDeal(animate);
 }
 
 /**
- * @description Ends a framed deal: the camera goes back exactly to where it was before it, & its zoom limit with it (an orbit or zoom by
- * hand while the cards were out is let go: the frame was the deal's). At the monitor it's where the monitor hands the camera back to
+ * @description Ends a framed deal: the camera goes back exactly to where it was before it, & its zoom limit with it (an
+ * orbit or zoom by hand while the cards were out is let go: the frame was the deal's). At the monitor it's where the
+ * monitor hands the camera back to
  * @param  {[boolean]} animate [false cuts there]
  */
 export function unframeDeal(animate) {
 	const home = view.dealHome;
-	if (!home) { retryLean(); return; } // THE PROMOTION CARDS WENT BACK WITHOUT A FRAME: AUTO LEAN MAY LEAN AGAIN
+	if (!home) { // The promotion cards went back without a frame: Auto Lean may lean again
+		retryLean();
+		return;
+	}
 	const restore = function () {
 		view.controls.maxDistance = home.maxDistance;
-		view.controls.maxTargetRadius = view.targetRadius; // AS resize SET IT: AN OPENED PILE'S FRAME LIFTED IT (framePile)
+		view.controls.maxTargetRadius = view.targetRadius; // As resize set it: an opened pile's frame lifted it (framePile)
 		view.dealHome = null;
-		retryLean(); // THE DEAL'S OR THE OPENED PILE'S FRAME IS OVER
+		retryLean(); // The deal's or the opened pile's frame is over
 	};
-	if (!monitorIdle()) { // landHome() PUTS IT THERE
-		if (view.home) { view.home.position.copy(home.position); view.home.target.copy(home.target); }
+	if (!monitorIdle()) { // landHome() puts it there
+		if (view.home) {
+			view.home.position.copy(home.position);
+			view.home.target.copy(home.target);
+		}
 		restore();
 		return;
 	}
@@ -241,19 +301,21 @@ export function unframeDeal(animate) {
 /* ---------------------------------------------------------------- */
 
 /**
- * @description Where the camera reads an opened pile's column from (Chess Cards): looking at the column's middle from the closest point along home's view direction
- * where its 4 corners are inside FIT_NDC, never closer than the zoom limit
+ * @description Where the camera reads an opened pile's column from (Chess Cards): looking at the column's middle from
+ * the closest point along home's view direction where its 4 corners are inside FIT_NDC, never closer than the zoom limit
  * @param  {[object]} home { position, target } [where the camera was before the pile opened]
  * @param  {[object]} box { x0, x1, z0, z1 } [the column on the desk, room space (tableLayout.js columnBox)]
  * @return {[object]} { position, target, near, distance } [as framedSpot]
  */
 function pileSpot(home, box) {
 	view.room.updateMatrixWorld();
-	const corners = [box.x0, box.x1].flatMap((x) => [box.z0, box.z1].map((z) => corner.clone().set(x, DESK_Y, z).applyMatrix4(view.room.matrixWorld)));
+	const corners = [box.x0, box.x1].flatMap((x) =>
+		[box.z0, box.z1].map((z) => corner.clone().set(x, DESK_Y, z).applyMatrix4(view.room.matrixWorld)));
 	const target = corners[0].clone().add(corners[3]).multiplyScalar(0.5);
 	const along = home.position.clone().sub(home.target).normalize();
 	fitCamera.copy(view.camera);
-	let near = view.controls.minDistance, far = 400;
+	let near = view.controls.minDistance;
+	let far = 400;
 	for (let i = 0; i < 30; i++) {
 		const mid = (near + far) / 2;
 		fitCamera.position.copy(target).addScaledVector(along, mid);
@@ -269,30 +331,46 @@ function pileSpot(home, box) {
 }
 
 /**
- * @description Frames an opened pile's column, or a hand card zoomed in on (cardTable.js zoom), as a deal is framed, with the same home (view.dealHome): the camera glides there, & back exactly where the player had it when
- * the pile closes or the zoom ends (unframeDeal). While it's framed Auto Lean stands down (leanIn: view.dealHome). Nothing at the monitor or while the promotion cards are out
- * @param  {[object|null]} box [the column (tableLayout.js columnBox) or the card's footprint, again when it changed; null: the pile closed]
+ * @description Frames an opened pile's column, or a hand card zoomed in on (cardTable.js zoom), as a deal is framed,
+ * with the same home (view.dealHome): the camera glides there, & back exactly where the player had it when the pile
+ * closes or the zoom ends (unframeDeal). While it's framed Auto Lean stands down (leanIn: view.dealHome). Nothing at the
+ * monitor or while the promotion cards are out
+ * @param  {[object|null]} box [the column (tableLayout.js columnBox) or the card's footprint, again when it changed;
+ * null: the pile closed]
  * @param  {[boolean]} animate [false cuts there (reduce motion)]
  */
 export function framePile(box, animate) {
 	if (!view || !view.room) { return; }
 	if (!box) {
-		if (view.pileBox) { view.pileBox = null; unframeDeal(animate); }
+		if (view.pileBox) {
+			view.pileBox = null;
+			unframeDeal(animate);
+		}
 		return;
 	}
-	if (!monitorIdle() || dealing()) { return; } // shortcut: A PILE OPENED BY THE KEYS MEANWHILE LIES OPEN UNFRAMED, OPEN IT AGAIN TO FRAME IT
+	// shortcut: a pile opened by the keys meanwhile lies open unframed, open it again to frame it
+	if (!monitorIdle() || dealing()) { return; }
 	view.pileBox = box;
-	view.controls.maxTargetRadius = Infinity; // THE COLUMN IS OFF THE BOARD: THE CONTROLS WOULD PULL THE TARGET BACK ONTO IT AT THE FIRST ZOOM OR ORBIT (three 0.187 OrbitControls.update CLAMPS IT). BACK IN unframeDeal
+	// The column is off the board: the controls would pull the target back onto it at the first zoom or orbit (three
+	// 0.187 OrbitControls.update clamps it). Back in unframeDeal
+	view.controls.maxTargetRadius = Infinity;
 	landTurn();
 	if (view.dealHome) { view.dealHome.back = false; }
 	else {
-		const lean = takeLean(), { camera, controls } = view; // LEANED IN (AUTO LEAN): HOME IS WHERE THE PLAYER HAD THE CAMERA, AS frameDeal
-		view.dealHome = { position: lean ? lean.position : camera.position.clone(), target: lean ? lean.target : controls.target.clone(), maxDistance: controls.maxDistance, back: false };
+		const lean = takeLean(); // Leaned in (Auto Lean): home is where the player had the camera, as frameDeal
+		const { camera, controls } = view;
+		view.dealHome = {
+			position: lean ? lean.position : camera.position.clone(),
+			target: lean ? lean.target : controls.target.clone(),
+			maxDistance: controls.maxDistance,
+			back: false
+		};
 	}
 	aimDeal(animate);
 }
 
-// AFTER unframeDeal(false) FOR A NEW SIZE, SIDE OR DEFAULT SPOT: WHAT WAS FRAMED (A DEAL, OR AN OPENED PILE) IS FRAMED AGAIN FROM THERE
+// After unframeDeal(false) for a new size, side or default spot: what was framed (a deal, or an opened pile) is framed
+// again from there
 function reframe() {
 	if (dealing()) { frameDeal(false); }
 	else if (view.pileBox) { framePile(view.pileBox, false); }
@@ -302,48 +380,74 @@ function reframe() {
 // Auto Lean
 /* ---------------------------------------------------------------- */
 
-// THE POINTER WENT ONTO THE BOARD (lean.js, THE MENU'S OPTION ON): THE CAMERA GLIDES TO leanSpot(), REMEMBERING WHERE THE PLAYER HAD IT (view.leanHome).
-// NOTHING WHILE THE PLAYER MOVES THE CAMERA, AT THE MONITOR, DURING A FLIP BOARD TURN, WHILE THE PROMOTION CARDS ARE OUT OR A DEAL OR AN OPENED PILE IS FRAMED (view.dealHome:
-// THE FRAME WINS). WHERE ONE OF THOSE ENDS retryLean() ASKS AGAIN, FOR A POINTER STILL ON THE BOARD (lean.js)
+// The pointer went onto the board (lean.js, the menu's option on): the camera glides to leanSpot(), remembering where
+// the player had it (view.leanHome). Nothing while the player moves the camera, at the monitor, during a Flip Board
+// turn, while the promotion cards are out or a deal or an opened pile is framed (view.dealHome: the frame wins). Where
+// one of those ends retryLean() asks again, for a pointer still on the board (lean.js)
 function leanIn() {
 	const home = view && view.leanHome;
-	if (!view || view.lost || (home && !home.back)) { return; } // ALREADY LEANED, OR ON ITS WAY
+	if (!view || view.lost || (home && !home.back)) { return; } // Already leaned, or on its way
 	if (isCameraGesture() || view.zoom || view.cameraTurn || view.dealHome || dealing()) { return; }
 	const { camera, controls } = view;
-	const from = home || { position: camera.position.clone(), target: controls.target.clone() }; // BACK ON THE BOARD MID WAY BACK: THE SAME HOME
-	from.back = false; // back: ON ITS WAY HOME (leanBack)
-	view.leanMoved = false; // pointer.js SETS IT WHEN THE PLAYER REALLY MOVES THE CAMERA FROM HERE ON (A DRAG, TWO FINGERS, A WHEEL ZOOM)
-	from.spot = leanSpot({ home: from, fov: camera.fov, aspect: camera.aspect, board: BOARD_SIZE, min: controls.minDistance, max: controls.maxDistance });
+	// Back on the board mid way back: the same home
+	const from = home || { position: camera.position.clone(), target: controls.target.clone() };
+	from.back = false; // back: on its way home (leanBack)
+	// pointer.js sets it when the player really moves the camera from here on (a drag, two fingers, a wheel zoom)
+	view.leanMoved = false;
+	from.spot = leanSpot({
+		home: from,
+		fov: camera.fov,
+		aspect: camera.aspect,
+		board: BOARD_SIZE,
+		min: controls.minDistance,
+		max: controls.maxDistance
+	});
 	view.leanHome = from;
 	moveDealCamera({ position: from.spot.position, target: from.spot.target, near: NEAR, lean: true }, !REDUCE.matches, () => {});
 }
 
-// THE POINTER HAS BEEN OFF THE BOARD A WHILE (OR THE OPTION WAS TURNED OFF, OR FLIP BOARD & RESET VIEW NEED THE CAMERA): BACK TO WHERE THE PLAYER HAD IT.
-// A CAMERA THE PLAYER MOVED WHILE LEANED IN STAYS WHERE THEY PUT IT. AT THE MONITOR landHome() PUTS IT BACK (leanToHome)
+// The pointer has been off the board a while (or the option was turned off, or Flip Board and Reset View need the
+// camera): back to where the player had it. A camera the player moved while leaned in stays where they put it. At the
+// monitor landHome() puts it back (leanToHome)
 function leanBack(animate) {
 	const home = view && view.leanHome;
 	if (!home || !monitorIdle()) { return; }
-	if (home.back) { if (!animate) { landDealEase(); } return; } // ALREADY ON ITS WAY
-	if (!view.dealEase && view.leanMoved) { view.leanHome = null; return; } // A REAL GESTURE, NOT A CLICK'S 1 px WOBBLE OF PAN (RB-I1)
-	const v = view;
+	if (home.back) { // Already on its way
+		if (!animate) { landDealEase(); }
+		return;
+	}
+	// A real gesture, not a click's 1 px wobble of pan
+	if (!view.dealEase && view.leanMoved) {
+		view.leanHome = null;
+		return;
+	}
+	const leanedView = view;
 	home.back = true;
-	moveDealCamera({ position: home.position, target: home.target, near: NEAR, lean: true }, animate, () => { v.leanHome = null; });
+	moveDealCamera({ position: home.position, target: home.target, near: NEAR, lean: true }, animate, () => { leanedView.leanHome = null; });
 }
 
-// ENDS A LEAN WITHOUT MOVING THE CAMERA (ITS GLIDE TOO): WHERE THE PLAYER HAD IT, FOR WHATEVER TAKES THE CAMERA NEXT. null WHEN NOT LEANED
+// Ends a lean without moving the camera (its glide too): where the player had it, for whatever takes the camera next.
+// null when not leaned
 function takeLean() {
 	const home = view.leanHome;
-	if (home) { view.leanHome = null; view.dealEase = null; }
+	if (home) {
+		view.leanHome = null;
+		view.dealEase = null;
+	}
 	return home;
 }
 
-// THE CAMERA WENT TO THE MONITOR LEANED IN: THE DESK SPOT IT COMES BACK TO (view.home) IS WHERE THE PLAYER HAD IT, NOT THE LEAN
+// The camera went to the monitor leaned in: the desk spot it comes back to (view.home) is where the player had it, not
+// the lean
 function leanToHome() {
 	const lean = takeLean();
-	if (lean && view.home) { view.home.position.copy(lean.position); view.home.target.copy(lean.target); }
+	if (lean && view.home) {
+		view.home.position.copy(lean.position);
+		view.home.target.copy(lean.target);
+	}
 }
 
-// THE CARD COLUMN IS ON SCREEN FROM spot { position, target } (columnOnScreen() FOR A CAMERA THAT ISN'T THERE)
+// The card column is on screen from spot { position, target } (columnOnScreen() for a camera that isn't there)
 function columnFrom(spot) {
 	fitCamera.copy(view.camera);
 	fitCamera.position.copy(spot.position);
@@ -352,15 +456,22 @@ function columnFrom(spot) {
 	return columnInside(fitCamera);
 }
 
-setLeanCamera({ lean: leanIn, back() {
-	if (view && view.held && view.held.following) { return false; } // A PIECE IS DRAGGED OFF THE BOARD: THE CAMERA WAITS FOR THE DROP (lean.js ASKS AGAIN)
-	leanBack(!REDUCE.matches);
-} });
+setLeanCamera({
+	lean: leanIn,
+	back() {
+		// A piece is dragged off the board: the camera waits for the drop (lean.js asks again)
+		if (view && view.held && view.held.following) { return false; }
+		leanBack(!REDUCE.matches);
+	}
+});
 
-// THE CAMERA'S NEAR PLANE ON THE DESK: A FRAMED DEAL'S IS FARTHER (DEAL_NEAR)
-const deskNear = () => (view.dealHome && !view.dealHome.back ? DEAL_NEAR : NEAR);
+// The camera's near plane on the desk: a framed deal's is farther (DEAL_NEAR)
+function deskNear() {
+	return (view.dealHome && !view.dealHome.back ? DEAL_NEAR : NEAR);
+}
 
-// FLIP BOARD DURING A FRAMED DEAL: ITS HOME TURNS ROUND THE BOARD'S CENTER AS turnCamera() TURNS THE CAMERA, TO angle AROUND WHAT IT LOOKS AT
+// Flip Board during a framed deal: its home turns round the board's center as turnCamera() turns the camera, to angle
+// around what it looks at
 function turnDealHome(angle) {
 	const { position, target } = view.dealHome;
 	const by = angle - Math.atan2(position.x - target.x, position.z - target.z);
@@ -368,35 +479,43 @@ function turnDealHome(angle) {
 	target.applyAxisAngle(UP, by);
 }
 
-// A CHESS CARDS GAME'S OPENING SPOT angle RADIANS AROUND THE BOARD, FOR THE CANVAS'S SIZE (openingCamera.js); null IN ANY OTHER GAME, BEFORE THE FIRST SIZE, OR BEFORE THE ROOM
-// HAS ITS TABLE (NO HAND TO SHOW, & THE BAIZE STAGE'S FOG WOULD SWALLOW A BOARD THAT FAR OFF)
-const cardHome = (angle) => (view.table && view.size ? openingCamera({ fov: view.camera.fov, width: view.size.w, height: view.size.h, angle }) : null);
+// A Chess Cards game's opening spot angle radians around the board, for the canvas's size (openingCamera.js); null in
+// any other game, before the first size, or before the room has its table (no hand to show, and the baize stage's fog
+// would swallow a board that far off)
+function cardHome(angle) {
+	return (view.table && view.size ? openingCamera({ fov: view.camera.fov, width: view.size.w, height: view.size.h, angle }) : null);
+}
 
-// PUTS THE CAMERA AT ITS DEFAULT SPOT angle RADIANS AROUND THE BOARD FROM WHITE'S SIDE (0 WHITE, PI BLACK), LOOKING AT THE BOARD (THE LIBRARY'S VIEW: A LITTLE PAST ITS CENTER).
-// A SMALL SCREEN'S IS STEEPER & FITS THE BOARD TO IT (smallScreenCamera). A CHESS CARDS GAME'S SHOWS THE WHOLE HAND (cardHome): AT A NARROW WINDOW IT CAN LOOK PAST THE BOARD'S FAR EDGE (resize'S targetRadius)
+// Puts the camera at its default spot angle radians around the board from White's side (0 White, PI Black), looking at
+// the board (the library's view: a little past its center). A small screen's is steeper and fits the board to it
+// (smallScreenCamera). A Chess Cards game's shows the whole hand (cardHome): at a narrow window it can look past the
+// board's far edge (resize's targetRadius)
 export function placeCamera(angle) {
 	const card = cardHome(angle);
-	view.controls.target.set(0, 0, 0); // UNDOES ANY PAN
+	view.controls.target.set(0, 0, 0); // Undoes any pan
 	if (card) {
 		view.controls.target.copy(card.target);
 		view.camera.position.copy(card.position);
-	} else if (view.small) { view.camera.position.setFromSpherical(spherical.set(view.small.distance, view.small.tilt, angle)); }
-	else if (view.phone) { view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle)); }
-	else { // THE LIBRARY'S VIEW: THE MONITOR ACROSS THE BOARD IS IN IT
+	} else if (view.small) {
+		view.camera.position.setFromSpherical(spherical.set(view.small.distance, view.small.tilt, angle));
+	} else if (view.phone) {
+		view.camera.position.set(CAMERA_DISTANCE * Math.sin(angle), CAMERA_HEIGHT, CAMERA_DISTANCE * Math.cos(angle));
+	} else { // The library's view: the monitor across the board is in it
 		view.controls.target.set(-ROOM_CAMERA_AIM * Math.sin(angle), 0, -ROOM_CAMERA_AIM * Math.cos(angle));
 		view.camera.position.set(ROOM_CAMERA_DISTANCE * Math.sin(angle), ROOM_CAMERA_HEIGHT, ROOM_CAMERA_DISTANCE * Math.cos(angle));
 	}
-	view.controls.update(); // LOOKS AT THE TARGET
+	view.controls.update(); // Looks at the target
 }
 
-// THE CAMERA'S ANGLE AROUND WHAT IT LOOKS AT (0 WHITE'S SIDE, PI BLACK'S), WHEREVER THE PLAYER TURNED IT
+// The camera's angle around what it looks at (0 White's side, PI Black's), wherever the player turned it
 function cameraAzimuth() {
 	offset.copy(view.camera.position).sub(view.controls.target);
 	return Math.atan2(offset.x, offset.z);
 }
 
-// TURNS THE CAMERA AROUND WHAT IT LOOKS AT TO angle, KEEPING THE PLAYER'S ZOOM, TILT & PAN. turn (FLIP BOARD'S) ALSO CARRIES WHAT IT LOOKS AT
-// ROUND THE BOARD'S CENTER BY THE SAME ANGLE: THE LIBRARY'S VIEW LOOKS PAST THE CENTER, & FROM THE OTHER SIDE THAT POINT IS ON THE OTHER SIDE TOO
+// Turns the camera around what it looks at to angle, keeping the player's zoom, tilt and pan. turn (Flip Board's) also
+// carries what it looks at round the board's center by the same angle: the library's view looks past the center, and
+// from the other side that point is on the other side too
 function turnCamera(angle, turn) {
 	const { camera, controls } = view;
 	spherical.setFromVector3(offset.copy(camera.position).sub(controls.target));
@@ -406,24 +525,27 @@ function turnCamera(angle, turn) {
 	camera.lookAt(controls.target);
 }
 
-// TURNS THE CAMERA PART OF THE WAY TO ITS SIDE (setSide), SLOW START & LANDING
+// Turns the camera part of the way to its side (setSide), slow start and landing
 export function stepCamera(now) {
 	const turn = view.cameraTurn;
 	if (turn.start === null) { turn.start = now; }
 	const t = MathUtils.clamp((now - turn.start) / FLIP_MS, 0, 1);
 	turnCamera(turn.from + (turn.to - turn.from) * easeInOut(t), turn);
-	if (view.room) { turnRoom(view.room, turn.roomFrom + (turn.roomTo - turn.roomFrom) * easeInOut(t)); } // THE ROOM COMES ROUND WITH THE CAMERA: THE BOARD LOOKS TO TURN ON THE DESK
-	if (t >= 0.5) { setLabels(view.side); } // SIDE ON TO THE BOARD: THE LABELS SWAP UNSEEN
+	// The room comes round with the camera: the board looks to turn on the desk
+	if (view.room) { turnRoom(view.room, turn.roomFrom + (turn.roomTo - turn.roomFrom) * easeInOut(t)); }
+	if (t >= 0.5) { setLabels(view.side); } // Side on to the board: the labels swap unseen
 	if (t === 1) {
 		view.cameraTurn = null;
 		retryLean();
-		if (view.dealHome && !view.dealHome.back) { aimDeal(true); } // A DEAL FRAMED FROM AN ORBITED CAMERA: THE ROOM TURNED BY A DIFFERENT ANGLE, FRAME IT AGAIN
+		// A deal framed from an orbited camera: the room turned by a different angle, frame it again
+		if (view.dealHome && !view.dealHome.back) { aimDeal(true); }
 		view.relayDue = true;
-		relayPlaques(); // THE PROMPT WAS LAID AS THE TURN BEGAN: AN ORBITED CAMERA LANDS ELSEWHERE RELATIVE TO THE ROOM (REVIEW R2-1)
+		// The prompt was laid as the turn began: an orbited camera lands elsewhere relative to the room
+		relayPlaques();
 	}
 }
 
-// A FLIP BOARD TURN IN PROGRESS LANDS AT ONCE
+// A Flip Board turn in progress lands at once
 export function landTurn() {
 	if (!view.cameraTurn) { return; }
 	turnCamera(view.cameraTurn.to, view.cameraTurn);
@@ -431,20 +553,25 @@ export function landTurn() {
 	setRoomSide(view.side);
 	view.cameraTurn = null;
 	view.relayDue = true;
-	relayPlaques(); // AS stepCamera'S LANDING
+	relayPlaques(); // As stepCamera's landing
 }
 
-export const sideAngle = (color) => (color === "b" ? Math.PI : 0); // AROUND THE BOARD FROM WHITE'S SIDE
+// Around the board from White's side
+export function sideAngle(color) {
+	return (color === "b" ? Math.PI : 0);
+}
 
-// THE ROOM TURNS WITH THE PLAYER'S SIDE, SO THE MONITOR IS ALWAYS ACROSS THE BOARD FROM THEM
+// The room turns with the player's side, so the monitor is always across the board from them
 export function setRoomSide(color) {
 	if (view.room) { turnRoom(view.room, sideAngle(color)); }
 }
 
 /**
- * @description Where the camera sits to read the glass: square on to it, along its outward normal, far enough back that it fills
- * zoomDistance()'s share of the view. From the mesh's world matrix, so it follows the room as it turns with the player's side
- * @return {[object]} { position, centre, near } [world space, near: the near plane that clips what's between the camera & the glass]
+ * @description Where the camera sits to read the glass: square on to it, along its outward normal, far enough back
+ * that it fills zoomDistance()'s share of the view. From the mesh's world matrix, so it follows the room as it turns
+ * with the player's side
+ * @return {[object]} { position, centre, near } [world space, near: the near plane that clips what's between the
+ * camera & the glass]
  */
 export function zoomSpot() {
 	const { glass, camera } = view;
@@ -456,15 +583,20 @@ export function zoomSpot() {
 	box.getSize(glassSize);
 	glass.getWorldScale(glassScale);
 	const sizes = [0, 1, 2].map((i) => glassSize.getComponent(i) * Math.abs(glassScale.getComponent(i)));
-	const thin = sizes.indexOf(Math.min(...sizes)); // THE .glb HAS NO NORMALS: THE GLASS'S THINNEST AXIS IS ITS FACING
-	const [w, h] = sizes.filter((_, i) => i !== thin).sort((a, b) => b - a); // A 4:3 SCREEN, WIDER THAN TALL
+	const thin = sizes.indexOf(Math.min(...sizes)); // The .glb has no normals: the glass's thinnest axis is its facing
+	const [w, h] = sizes.filter((_, i) => i !== thin).sort((a, b) => b - a); // A 4:3 screen, wider than tall
 	glassNormal.set(0, 0, 0).setComponent(thin, 1).transformDirection(glass.matrixWorld);
-	if (glassNormal.x * glassCentre.x + glassNormal.z * glassCentre.z > 0) { glassNormal.negate(); } // OUTWARD IS TOWARD THE BOARD (THE ORIGIN), ACROSS FROM THE PLAYER
+	// Outward is toward the board (the origin), across from the player
+	if (glassNormal.x * glassCentre.x + glassNormal.z * glassCentre.z > 0) { glassNormal.negate(); }
 	const distance = zoomDistance(w, h, camera.fov, camera.aspect);
-	return { position: glassCentre.clone().addScaledVector(glassNormal, distance), centre: glassCentre.clone(), near: Math.max(NEAR, distance - GLASS_CLEAR) };
+	return {
+		position: glassCentre.clone().addScaledVector(glassNormal, distance),
+		centre: glassCentre.clone(),
+		near: Math.max(NEAR, distance - GLASS_CLEAR)
+	};
 }
 
-// PUTS THE CAMERA AT A SPOT, LOOKING AT ITS CENTRE
+// Puts the camera at a spot, looking at its centre
 export function setCameraAt({ position, centre, near }) {
 	view.camera.position.copy(position);
 	view.zoomLook.copy(centre);
@@ -478,14 +610,24 @@ function setNear(near) {
 	view.camera.updateProjectionMatrix();
 }
 
-// STARTS THE CAMERA'S MOVE TO THE GLASS, OR BACK TO THE DESK (FROM WHEREVER IT IS, A ZOOM CAN TURN BACK HALFWAY)
+// Starts the camera's move to the glass, or back to the desk (from wherever it is: a zoom can turn back halfway)
 export function zoomTo(back) {
 	leanToHome();
 	const to = back ? { position: view.home.position, centre: view.home.target, near: deskNear() } : zoomSpot();
-	view.zoom = { from: view.camera.position.clone(), fromLook: view.zoomLook.clone(), fromNear: view.camera.near, to: to.position.clone(), toLook: to.centre.clone(), toNear: to.near, start: null, back };
+	view.zoom = {
+		from: view.camera.position.clone(),
+		fromLook: view.zoomLook.clone(),
+		fromNear: view.camera.near,
+		to: to.position.clone(),
+		toLook: to.centre.clone(),
+		toNear: to.near,
+		start: null,
+		back
+	};
 }
 
-// MOVES THE CAMERA PART OF THE WAY (now = Infinity LANDS IT), SLOW START & LANDING, & TELLS THE MONITOR WHEN IT ARRIVES
+// Moves the camera part of the way (now = Infinity lands it), slow start and landing, and tells the monitor when it
+// arrives
 export function stepZoom(now) {
 	const zoom = view.zoom;
 	if (zoom.start === null) { zoom.start = now; }
@@ -497,11 +639,11 @@ export function stepZoom(now) {
 	setNear(zoom.fromNear + (zoom.toNear - zoom.fromNear) * along);
 	if (t < 1) { return; }
 	view.zoom = null;
-	if (zoom.back) { view.monitor.left(); } // IDLE: onMonitorShow() HANDS THE CAMERA BACK (landHome)
+	if (zoom.back) { view.monitor.left(); } // Idle: onMonitorShow() hands the camera back (landHome)
 	else { view.monitor.arrived(); }
 }
 
-// THE VIEW CHANGED SHAPE AT THE MONITOR: THE GLASS FILLS THE NEW ONE
+// The view changed shape at the monitor: the glass fills the new one
 function refitZoom() {
 	if (view.zoom && !view.zoom.back) {
 		const spot = zoomSpot();
@@ -511,7 +653,8 @@ function refitZoom() {
 	} else if (!view.zoom && view.monitor.state === "zoomed") { setCameraAt(zoomSpot()); }
 }
 
-// BACK ON THE DESK: THE CAMERA WHERE IT WAS (A CUT WHEN THE MONITOR WENT STRAIGHT TO IDLE), THE CONTROLS ON, leaveMonitor()'S PROMISES RESOLVED
+// Back on the desk: the camera where it was (a cut when the monitor went straight to idle), the controls on,
+// leaveMonitor()'s promises resolved
 export function landHome() {
 	const { camera, controls } = view;
 	view.zoom = null;
@@ -523,41 +666,44 @@ export function landHome() {
 	}
 	setNear(deskNear());
 	controls.enabled = true;
-	controls.update(); // LOOKS AT THE TARGET AGAIN, INSIDE ANY NEW LIMITS
+	controls.update(); // Looks at the target again, inside any new limits
 	retryLean();
-	if (dealing() && !view.dealHome) { frameDeal(!REDUCE.matches); } // CARDS DEALT WHILE THE MONITOR WAS UP (frameDeal WAITED FOR THE DESK): FRAME THEM NOW
+	// Cards dealt while the monitor was up (frameDeal waited for the desk): frame them now
+	if (dealing() && !view.dealHome) { frameDeal(!REDUCE.matches); }
 	view.leaving.splice(0).forEach((resolve) => resolve());
 }
 
-// STRAIGHT BACK TO THE DESK, NO MOVE (FLIP BOARD & RESET VIEW START FROM THERE)
+// Straight back to the desk, no move (Flip Board and Reset View start from there)
 function landAtDesk() {
 	if (!monitorIdle()) { view.monitor.reset(); }
 }
 
 /**
- * @description A camera gesture is in progress (true from its start until after the click its release fires), piece input ignores the pointer meanwhile
+ * @description A camera gesture is in progress (true from its start until after the click its release fires), piece
+ * input ignores the pointer meanwhile
  * @return {[boolean]}
  */
 export function isCameraGesture() {
-	return Boolean(view && (view.cameraGesture || !monitorIdle())); // AT THE MONITOR THE POINTER BELONGS TO IT, NOT TO THE PIECES
+	return Boolean(view && (view.cameraGesture || !monitorIdle())); // At the monitor the pointer belongs to it, not to the pieces
 }
 
 /**
- * @description Puts the camera on a side of the board (Flip Board), turning it the short way around what it looks at (keeping the
- * player's zoom, tilt & pan) or setting it at its default at once. Pressing again mid-turn turns back from where it is
+ * @description Puts the camera on a side of the board (Flip Board), turning it the short way around what it looks at
+ * (keeping the player's zoom, tilt & pan) or setting it at its default at once. Pressing again mid-turn turns back from
+ * where it is
  * @param  {[string]} color ['w' | 'b', the side the player looks from]
  * @param  {[boolean]} animate [false sets it at once (mount, reduce motion)]
  */
 export function setSide(color, animate) {
 	if (!view || view.side === color) { return; }
-	landAtDesk(); // FROM THE DESK'S SPOT, NOT THE MONITOR'S
-	leanBack(false); // NOT AUTO LEAN'S EITHER
-	landDealEase(); // & FROM WHERE A DEAL'S CAMERA MOVE ENDS
+	landAtDesk(); // From the desk's spot, not the monitor's
+	leanBack(false); // Not Auto Lean's either
+	landDealEase(); // And from where a deal's camera move ends
 	view.side = color;
 	const angle = color === "b" ? Math.PI : 0;
 	if (!animate) {
 		view.cameraTurn = null;
-		unframeDeal(false); // THE SIDE'S DEFAULT SPOT IS A DEAL'S NEW HOME
+		unframeDeal(false); // The side's default spot is a deal's new home
 		placeCamera(angle);
 		setLabels(color);
 		setRoomSide(color);
@@ -566,9 +712,17 @@ export function setSide(color, animate) {
 		return;
 	}
 	const from = cameraAzimuth();
-	const roomFrom = view.room ? view.room.rotation.y : sideAngle(color === "b" ? "w" : "b"); // PRESSED AGAIN MID-TURN: THE ROOM TURNS BACK FROM WHERE IT IS
-	view.cameraTurn = { from, to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)), start: null, roomFrom, roomTo: angle, target: view.controls.target.clone() }; // target: WHAT THE CAMERA LOOKED AT AS THE TURN BEGAN
-	if (view.dealHome) { turnDealHome(angle); } // A FRAMED DEAL GOES BACK TO THE NEW SIDE
+	// Pressed again mid-turn: the room turns back from where it is
+	const roomFrom = view.room ? view.room.rotation.y : sideAngle(color === "b" ? "w" : "b");
+	view.cameraTurn = {
+		from,
+		to: from + Math.atan2(Math.sin(angle - from), Math.cos(angle - from)),
+		start: null,
+		roomFrom,
+		roomTo: angle,
+		target: view.controls.target.clone() // target: what the camera looked at as the turn began
+	};
+	if (view.dealHome) { turnDealHome(angle); } // A framed deal goes back to the new side
 	requestRender();
 }
 
@@ -582,7 +736,7 @@ export function resetCamera(color) {
 	leanBack(false);
 	landDealEase();
 	view.cameraTurn = null;
-	unframeDeal(false); // THE DEFAULT SPOT IS A DEAL'S NEW HOME
+	unframeDeal(false); // The default spot is a deal's new home
 	view.side = color;
 	placeCamera(color === "b" ? Math.PI : 0);
 	setLabels(color);
@@ -593,13 +747,19 @@ export function resetCamera(color) {
 }
 
 /**
- * @description A Chess Cards game's table was made (index.js setCardTable): the limits for its opening spot, & the camera there. At the monitor (ruling T23-6) the camera stays,
- * & the opening spot is where it comes back to when it leaves (T23-9)
+ * @description A Chess Cards game's table was made (index.js setCardTable): the limits for its opening spot, & the
+ * camera there. At the monitor the camera stays, & the opening spot is where it comes back to when it leaves
  */
 export function openCardCamera() {
 	resize();
-	if (monitorIdle()) { resetCamera(view.side); return; }
+	if (monitorIdle()) {
+		resetCamera(view.side);
+		return;
+	}
 	const card = cardHome(sideAngle(view.side));
-	leanToHome(); // A LEAN'S HOME WOULD TAKE ITS PLACE ON THE WAY BACK (landHome)
-	if (card && view.home) { view.home.position.copy(card.position); view.home.target.copy(card.target); }
+	leanToHome(); // A lean's home would take its place on the way back (landHome)
+	if (card && view.home) {
+		view.home.position.copy(card.position);
+		view.home.target.copy(card.target);
+	}
 }

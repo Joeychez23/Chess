@@ -6,7 +6,7 @@
 
 const statuses = require("../../statuses.js");
 const { pieceById, sqName } = require("../../board.js");
-const { LOSES } = require("../../movegen.js");
+const { CASTLING_LOST } = require("../../movegen.js");
 const { kingFree } = require("../../hand.js");
 
 const KEY = "swap";
@@ -46,10 +46,10 @@ module.exports = {
 	play(ctx, player, target) {
 		const b = ctx.state.board, [i, j] = target.pieces.map((id) => pieceById(b, id));
 		[b.sq[i], b.sq[j]] = [b.sq[j], b.sq[i]];
-		for (const k of [i, j]) for (const ch of LOSES[k] || "") b.castling = b.castling.replace(ch, "");
+		for (const k of [i, j]) for (const ch of CASTLING_LOST[k] || "") b.castling = b.castling.replace(ch, "");
 		b.castling = b.castling || "-";
 		if (b.sq[i].t === "p" || b.sq[j].t === "p") ctx.resetHalf = true;
-		ctx.held = []; // EVENTS NOW, TRIGGERS ONCE BOTH PIECES STAND (AS IN turn.move)
+		ctx.held = []; // EVENTS NOW, TRIGGERS ONCE BOTH PIECES STAND (AS IN turn.js resolveMove)
 		ctx.emit({ type: "move", player, card: null, piece: b.sq[j].id, from: sqName(i), to: sqName(j) });
 		ctx.emit({ type: "move", player, card: null, piece: b.sq[i].id, from: sqName(j), to: sqName(i) });
 		const held = ctx.held;

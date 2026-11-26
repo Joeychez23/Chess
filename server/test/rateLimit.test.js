@@ -10,7 +10,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
 const { call, player, named, peek } = testServer;
-const { takeTokens, ipKey, resetLimits, LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS, SEARCH_LIMITS, ACCOUNT_DELETE_LIMITS } = require("../middleware/rateLimit.js");
+const { takeTokens, ipKey, resetLimits, NEW_GAME_LIMITS, LOGIN_LIMITS, AI_MOVE_LIMITS, SEARCH_LIMITS, ACCOUNT_DELETE_LIMITS } = require("../middleware/rateLimit.js");
 const { guestToken } = require("../../data-service/test/helpers/keys.js");
 
 let server;
@@ -106,7 +106,7 @@ describe("a guest's game only answers the browser that made it", () => {
 
 describe("new game limits", () => {
 	test("one browser making games in a loop is cut off with a 429, and its game still plays", async () => {
-		for (let i = 0; i <= LIMITS.session.burst; i++) { assert.equal((await newGuestGame(`guest${i}`)).status, 200, `game ${i}`); } // A NEW ID EACH TIME, THE SAME BROWSER. THE FIRST IS MADE BEFORE IT HAS THE COOKIE, SO burst + 1
+		for (let i = 0; i <= NEW_GAME_LIMITS.session.burst; i++) { assert.equal((await newGuestGame(`guest${i}`)).status, 200, `game ${i}`); } // A NEW ID EACH TIME, THE SAME BROWSER. THE FIRST IS MADE BEFORE IT HAS THE COOKIE, SO burst + 1
 		const limited = await newGuestGame("one-more");
 		assert.equal(limited.http, 429);
 		assert.equal(limited.status, 429);
@@ -114,27 +114,27 @@ describe("new game limits", () => {
 		assert.ok(Number(limited.retry_after) > 0 && Number(limited.retry_after) <= 60);
 		assert.equal(peek("chess_db", "one-more"), undefined);
 
-		const lastGame = `guest${LIMITS.session.burst}`;
+		const lastGame = `guest${NEW_GAME_LIMITS.session.burst}`;
 		assert.equal((await call("PUT", `/api/chess/game/${lastGame}`, { body: { move: ["e2", "e4"] } })).status, 200); // MOVES AREN'T LIMITED
 		assert.equal((await newGuestGame("other-browser", { guest: "other" })).status, 200); // ANOTHER BROWSER ON THE SAME IP STILL CAN
 	});
 
 	test("browsers on one IP share its limit, other IPs aren't affected", async () => {
 		const ip = "203.0.113.5";
-		for (let i = 0; i < LIMITS.ip.burst; i++) { assert.equal((await newGuestGame(`guest${i}`, { guest: `browser${i}`, ip })).status, 200); } // A NEW BROWSER (NO COOKIE) EACH TIME
+		for (let i = 0; i < NEW_GAME_LIMITS.ip.burst; i++) { assert.equal((await newGuestGame(`guest${i}`, { guest: `browser${i}`, ip })).status, 200); } // A NEW BROWSER (NO COOKIE) EACH TIME
 		assert.equal((await newGuestGame("one-more", { guest: "fresh", ip })).http, 429);
 		assert.equal((await newGuestGame("elsewhere", { guest: "fresh", ip: "198.51.100.7" })).status, 200);
 	});
 
 	test("the whole site has a limit too", async () => {
-		for (let i = 0; i < LIMITS.site.burst; i++) { assert.equal((await newGuestGame(`guest${i}`, { guest: `browser${i}`, ip: `198.51.100.${i}` })).status, 200); }
+		for (let i = 0; i < NEW_GAME_LIMITS.site.burst; i++) { assert.equal((await newGuestGame(`guest${i}`, { guest: `browser${i}`, ip: `198.51.100.${i}` })).status, 200); }
 		assert.equal((await newGuestGame("one-more", { guest: "fresh", ip: "192.0.2.1" })).http, 429);
 	});
 
 	test("a signed-in player restarting in a loop is cut off before the game is forfeited", async () => {
 		const alice = player("alice");
 		let game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
-		for (let i = 1; i < LIMITS.session.burst; i++) {
+		for (let i = 1; i < NEW_GAME_LIMITS.session.burst; i++) {
 			game = await call("POST", `/api/chess/game/${game.game_id}/restart`, { as: alice });
 			assert.equal(game.status, 200);
 		}
@@ -146,7 +146,7 @@ describe("new game limits", () => {
 	test("invites count as new games", async () => {
 		const alice = player("alice");
 		const bob = player("bob");
-		for (let i = 0; i < LIMITS.session.burst; i++) {
+		for (let i = 0; i < NEW_GAME_LIMITS.session.burst; i++) {
 			assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } })).status, 200);
 		}
 		assert.equal((await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } })).http, 429);
@@ -156,14 +156,14 @@ describe("new game limits", () => {
 		const alice = player("alice");
 		const bob = player("bob");
 		const lookup = (who) => call("POST", "/api/chess/invite", { as: who, body: { opponent_username: "NoSuchPlayer" } });
-		for (let i = 0; i < LIMITS.session.burst; i++) { assert.equal((await lookup(alice)).http, 404); }
+		for (let i = 0; i < NEW_GAME_LIMITS.session.burst; i++) { assert.equal((await lookup(alice)).http, 404); }
 		assert.equal((await lookup(alice)).http, 429);
 		assert.equal((await lookup(bob)).http, 404); // ANOTHER PLAYER STILL HAS THEIRS
 	});
 
 	test("the first refusal for a key is logged, then once a minute", async (t) => {
 		const log = t.mock.method(console, "log", () => { });
-		for (let i = 0; i <= LIMITS.session.burst; i++) { await newGuestGame(`guest${i}`); }
+		for (let i = 0; i <= NEW_GAME_LIMITS.session.burst; i++) { await newGuestGame(`guest${i}`); }
 		for (let i = 0; i < 3; i++) { assert.equal((await newGuestGame("one-more")).http, 429); }
 		const lines = log.mock.calls.map((call) => call.arguments[0]).filter((line) => /^New game limit/.test(line));
 		assert.equal(lines.length, 1);
@@ -233,17 +233,17 @@ describe("buckets", () => {
 	const keys = { session: "s", ip: "i", site: "all" };
 
 	test("a burst, then one more each time a token comes back", () => {
-		for (let i = 0; i < LIMITS.session.burst; i++) { assert.equal(takeTokens(keys, 0).ok, true); }
+		for (let i = 0; i < NEW_GAME_LIMITS.session.burst; i++) { assert.equal(takeTokens(keys, 0).ok, true); }
 		const refused = takeTokens(keys, 0);
-		assert.deepEqual([refused.ok, refused.limit, refused.retryMs], [false, "session", LIMITS.session.refillMs]);
-		assert.equal(takeTokens(keys, LIMITS.session.refillMs / 2).retryMs, LIMITS.session.refillMs / 2);
-		assert.equal(takeTokens(keys, LIMITS.session.refillMs).ok, true);
-		assert.equal(takeTokens(keys, LIMITS.session.refillMs).ok, false);
+		assert.deepEqual([refused.ok, refused.limit, refused.retryMs], [false, "session", NEW_GAME_LIMITS.session.refillMs]);
+		assert.equal(takeTokens(keys, NEW_GAME_LIMITS.session.refillMs / 2).retryMs, NEW_GAME_LIMITS.session.refillMs / 2);
+		assert.equal(takeTokens(keys, NEW_GAME_LIMITS.session.refillMs).ok, true);
+		assert.equal(takeTokens(keys, NEW_GAME_LIMITS.session.refillMs).ok, false);
 	});
 
 	test("a refused request takes nothing from the other limits", () => {
-		for (let i = 0; i < LIMITS.session.burst + 5; i++) { takeTokens(keys, 0); } // 5 REFUSED
-		const left = LIMITS.ip.burst - LIMITS.session.burst;
+		for (let i = 0; i < NEW_GAME_LIMITS.session.burst + 5; i++) { takeTokens(keys, 0); } // 5 REFUSED
+		const left = NEW_GAME_LIMITS.ip.burst - NEW_GAME_LIMITS.session.burst;
 		for (let i = 0; i < left; i++) { assert.equal(takeTokens({ ip: "i" }, 0).ok, true); }
 		assert.equal(takeTokens({ ip: "i" }, 0).ok, false);
 	});
@@ -262,6 +262,6 @@ describe("buckets", () => {
 			assert.equal(takeTokens({ loginIp: "203.0.113.5" }, 0, LOGIN_LIMITS).ok, true);
 		}
 		assert.equal(takeTokens({ loginIp: "203.0.113.5" }, 0, LOGIN_LIMITS).ok, false);
-		assert.equal(takeTokens({ ip: "203.0.113.5" }, 0, LIMITS).ok, true);
+		assert.equal(takeTokens({ ip: "203.0.113.5" }, 0, NEW_GAME_LIMITS).ok, true);
 	});
 });

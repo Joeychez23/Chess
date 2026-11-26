@@ -14,7 +14,7 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
-const { startSession, endSession, retrieveUser } = require("../dynamoDB.js");
+const { startSession, endSession, retrieveUser } = require("../db/index.js");
 const { readSessionToken } = require("../utils/sessionKeys.js");
 const { sessionTokens } = require("../utils/tokens.js");
 const { refuse } = require("../utils/refuse.js");

@@ -1,4 +1,4 @@
-// Task 24 S5: duel cards go to & from the green deck by DUEL_WAYPOINT, off the board (Task 20 S2 review M4). Real three.js in node, a stub DOM, the tween runner stepped by hand (as cardTableDuel.test.js)
+// Task 24 S5: duel cards go to & from the green deck by DUEL_WAYPOINT, off the board (Task 20 S2 review M4). Real three.js in node, a stub DOM, the animation runner stepped by hand (as cardTable-duel.test.js)
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -13,7 +13,7 @@ global.document = {
 const THREE = require("../../node_modules/three/build/three.module.js");
 const { createCardTable, DUEL_OUT, DUEL_WAYPOINT, duelPath } = require("../src/js/gameplay/three/cardTable.js");
 const { pileSpots } = require("../src/js/gameplay/three/piles.js");
-const { createTweens } = require("../src/js/gameplay/three/tween.js");
+const { createAnimations } = require("../src/js/gameplay/three/animations.js");
 const { duelSpot, BOARD_RECT } = require("../src/js/gameplay/three/tableLayout.js");
 const { CARD_Y, CARD_SIZE, GREEN_DECK } = require("../src/js/gameplay/three/cardLayout.js");
 const { DESK_Y } = require("../src/js/gameplay/three/constants.js");
@@ -46,7 +46,7 @@ test("duelPath: the ends, out of the deck along z 0 then across to the row, mirr
 	}
 });
 
-test("a full near taken-pieces pile: every duel card's footprint clears every piece, dealt & sent back (review I1)", () => {
+test("a full near taken-pieces pile: every duel card's footprint clears every piece, dealt & sent back", () => {
 	const deck = { x: GREEN_DECK.x, y: GREEN_DECK.y, z: GREEN_DECK.z, yaw: 0 };
 	const near = pileSpots(Array.from({ length: 15 }, () => ({ type: "p", color: "b" })), "w").filter((s) => s.key.startsWith("near")); // WHITE: THE ROOM IS THE SCENE
 	assert.equal(near.length, 15);
@@ -65,7 +65,7 @@ test("a full near taken-pieces pile: every duel card's footprint clears every pi
 	}
 });
 
-test("a card sent back before it got across goes straight back, no detour (review M1)", () => {
+test("a card sent back before it got across goes straight back, no detour", () => {
 	const deck = { x: GREEN_DECK.x, y: GREEN_DECK.y, z: GREEN_DECK.z, yaw: 0 };
 	for (const side of ["mine", "his"]) {
 		const s = duelSpot(side, "round", 0), row = { x: s.x, y: CARD_Y, z: s.z, yaw: 0 };
@@ -79,7 +79,7 @@ test("a card sent back before it got across goes straight back, no detour (revie
 	}
 });
 
-test("duelPath rise lifts the waypoints only, not the ends (review M2)", () => {
+test("duelPath rise lifts the waypoints only, not the ends", () => {
 	const deck = { x: GREEN_DECK.x, y: GREEN_DECK.y, z: GREEN_DECK.z, yaw: 0 }, s = duelSpot("mine", "round", 1), row = { x: s.x, y: CARD_Y, z: s.z, yaw: 0 };
 	close(duelPath(row, deck, 0, 0.2), row, "start");
 	close(duelPath(row, deck, 1, 0.2), deck, "end");
@@ -88,21 +88,21 @@ test("duelPath rise lifts the waypoints only, not the ends (review M2)", () => {
 });
 
 test("dealt & sent back, no duel card ever passes over the board", () => {
-	const room = new THREE.Group(), tweens = createTweens(() => {});
+	const room = new THREE.Group(), animations = createAnimations(() => {});
 	let now = 0;
 	const g = new THREE.Group();
 	g.add(new THREE.Mesh(new THREE.PlaneGeometry(4.3, 6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ name: "cardFace" })), new THREE.Mesh(new THREE.PlaneGeometry(4.3, 6).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ name: "cardBack" })));
-	const table = createCardTable({ template: g, room, tweens, requestRender() {} });
+	const table = createCardTable({ template: g, room, animations, requestRender() {} });
 	const view = { you: "w", effects: [], duel: null, players: { w: { king: true, moves: [], actives: [], passive: null, curses: [], spot: [], pile: { n: 0, top: null }, kept: null }, b: { king: true, hand: { count: 0, shown: [] }, spot: [], pile: { n: 0, top: null }, kept: null } } };
 	view.duel = { player: "w", piece: "w12", card: "all-or-nothing", step: "pick", wins: 0, round: 1, hands: { w: [null, null, null], b: [null, null, null] }, picked: { w: [], b: [] }, spades: null };
 	table.set(view, {});
-	while (tweens.step((now += 16))) { /* SETTLED */ }
+	while (animations.step((now += 16))) { /* SETTLED */ }
 	const hands = new Set(room.children);
 	let frames = 0, sawWaypoint = false;
 	const flying = () => [...room.children].filter((o) => o.isGroup && !hands.has(o) && !(Math.abs(o.position.x - GREEN_DECK.x) < 1e-6 && Math.abs(o.position.z - GREEN_DECK.z) < 1e-6)).map((o) => o.position); // OFF THE DECK
 	const coplanar = () => flying().some((a, i, ps) => ps.slice(i + 1).some((b) => Math.abs(a.x - b.x) < CARD_SIZE.w && Math.abs(a.z - b.z) < CARD_SIZE.h && Math.abs(a.y - b.y) < 1e-4)); // AT ONE HEIGHT: THEY WOULD Z-FIGHT
 	const watch = (back = false) => {
-		while (tweens.step((now += 16))) {
+		while (animations.step((now += 16))) {
 			frames++;
 			assert.equal(back && coplanar(), false, "cards sent back together never overlap at one height (review M2)");
 			for (const o of room.children) {

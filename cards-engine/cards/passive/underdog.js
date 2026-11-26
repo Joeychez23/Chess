@@ -10,8 +10,8 @@ const other = (c) => (c === "w" ? "b" : "w");
  * @description color's material on the board: pawn 1, knight 3, bishop 3, rook 5, queen 9 (the king, and a fogged "?" piece in a view, count 0).
  */
 const material = (state, color) => {
-	const { VALUE } = require("../../hand.js"); // LAZY hand.js: SEE shackles.js. ITS VALUE IS THE ENGINE'S ONE TABLE
-	return state.board.sq.reduce((n, q) => n + (q && q.c === color ? VALUE[q.t] || 0 : 0), 0);
+	const { PIECE_VALUE } = require("../../hand.js"); // LAZY hand.js: SEE shackles.js. ITS PIECE_VALUE IS THE ENGINE'S ONE TABLE
+	return state.board.sq.reduce((n, q) => n + (q && q.c === color ? PIECE_VALUE[q.t] || 0 : 0), 0);
 };
 
 module.exports = {

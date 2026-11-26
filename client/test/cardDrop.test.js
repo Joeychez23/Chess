@@ -6,7 +6,7 @@ const { CARD_SIZE, DECK } = require("../src/js/gameplay/three/cardLayout.js");
 const S = require("../src/js/gameplay/cards/select.js");
 const { fromFen } = require("../../cards-engine/board.js");
 
-// THE START POSITION: WHITE'S g1 KNIGHT IS w15, b1 IS w10 (AS server/test/cardsClient.test.js)
+// THE START POSITION: WHITE'S g1 KNIGHT IS w15, b1 IS w10 (AS server/test/cards-clientSelect.test.js)
 const view = (w = {}) => ({
 	you: "w", board: fromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"), effects: [{ id: "p1", owner: "w", card: { id: "p1", key: "spite" } }],
 	players: {

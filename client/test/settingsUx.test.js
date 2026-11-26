@@ -14,7 +14,7 @@ async function save(response) {
 	return uxNote.innerText;
 }
 
-test("m2: a 429 (one status display save per 5 minutes, shared with the in-game toggle) says it can be saved again in 5 minutes, not try again", async () => {
+test("a 429 (one status display save per 5 minutes, shared with the in-game toggle) says it can be saved again in 5 minutes, not try again", async () => {
 	const note = await save({ status: 429, message: "Too many status display changes, try again in 300 seconds" });
 	assert.match(note, /saved again in 5 minutes/);
 	assert.doesNotMatch(note, /try again/);

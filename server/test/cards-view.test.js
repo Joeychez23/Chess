@@ -219,7 +219,7 @@ test("Trapdoor's square shows only to its owner", () => {
 	assert.equal(ev[0].target.square, "e3");
 });
 
-test("the engine version is 3 (one Insidious Nullification, Hunger loses every 3rd turn, Task 25b): a new game carries it, so the server answers 409 for a version 2 game, as for a version 1 (cardsRoutes.test.js)", () => {
+test("the engine version is 3 (one Insidious Nullification, Hunger loses every 3rd turn): a new game carries it, so the server answers 409 for a version 2 game, as for a version 1 (cards-routes.test.js)", () => {
 	assert.equal(require("../../cards-engine/index.js").ENGINE_VERSION, 3);
 	assert.equal(newGame({ cardGuy: "b", level: 1300, seed: 1 }).v, 3);
 });
@@ -286,7 +286,7 @@ test("a finished game hides nothing under Fog of War: with a result the opponent
 	assert.equal(toFen(v), board.toFen(s.board));
 });
 
-test("a finished game shows the opponent's whole hand (no fakes), a hidden Trapdoor and the last action's events in full; while it is on, none of them (user ruling 2026-11-21)", () => {
+test("a finished game shows the opponent's whole hand (no fakes), a hidden Trapdoor and the last action's events in full; while it is on, none of them", () => {
 	const s = fresh(), b = s.players.b, drawn = b.moves[0];
 	s.enchant.push({ id: "e2", key: "trapdoor", owner: "b", pieces: [], left: null, data: { square: "e4" } });
 	s.players.w.seen = { ids: [], fake: [{ id: "c99", key: "t-pocket" }] }; // INTERDICTED FORESIGHT'S FAKE: NOT A CARD SHE HOLDS
@@ -447,7 +447,7 @@ function withStatuses(make) {
 	return { s, pawn, rook, knight };
 }
 
-test("a veiled Frozen (Tremor) in plain sight: never in its owner's view or events; the caster gets the entry with by (ruling 2026-11-23 08:33, #493)", () => {
+test("a veiled Frozen (Tremor) in plain sight: never in its owner's view or events; the caster gets the entry with by", () => {
 	const { s, pawn } = withStatuses(({ pawn }) => ({ [pawn]: [{ s: "frozen", left: 3, by: "b", veiled: true }] }));
 	assert.equal(playerView(s, "w").statuses[pawn], undefined);
 	assert.deepEqual(playerView(s, "b").statuses[pawn], [{ s: "frozen", left: 3, by: "b", veiled: true }]);
@@ -483,7 +483,7 @@ test("a status cast on the opponent's piece (Last Rites' Frozen): both views and
 	for (const c of ["w", "b"]) assert.deepEqual(playerEvents(s, ev, c), ev, c);
 });
 
-test("playerLegal: its owner is told no action that names or needs its veiled Frozen (Cleanse's target, the rare Cleanse with nothing else to clear), also under the opponent's fog; the pawn's lost moves stay the accepted tell; the rules are unchanged (#493, ruling 2026-11-23 09:28 I1 (a))", () => {
+test("playerLegal: its owner is told no action that names or needs its veiled Frozen (Cleanse's target, the rare Cleanse with nothing else to clear), also under the opponent's fog; the pawn's lost moves stay the accepted tell; the rules are unchanged", () => {
 	register(require("../../cards-engine/cards/active/cleanse.js")); // THIS FILE'S REGISTRY IS RESET (:30)
 	const { s, pawn, rook } = withStatuses(({ pawn }) => ({ [pawn]: [{ s: "frozen", left: 3, by: "b", veiled: true }] }));
 	s.players.w.actives = [hand.newCard(s, "cleanse"), hand.newCard(s, "cleanse-rare")];
@@ -503,7 +503,7 @@ test("playerLegal: its owner is told no action that names or needs its veiled Fr
 	assert.ok(!told.some(names) && told.some((a) => a.card === rare), "under black's fog");
 });
 
-test("a finished game shows its owner the veiled Frozen, with by, in the view and in the events of the action that ended it (ruling 2026-11-23 09:28 M1: as the fog lifts)", () => {
+test("a finished game shows its owner the veiled Frozen, with by, in the view and in the events of the action that ended it (as the fog lifts)", () => {
 	const { s, pawn } = withStatuses(({ pawn }) => ({ [pawn]: [{ s: "frozen", left: 3, by: "b", veiled: true }] }));
 	s.result = { winner: "b", reason: "checkmate" };
 	assert.deepEqual(playerView(s, "w").statuses[pawn], [{ s: "frozen", left: 3, by: "b", veiled: true }]);
@@ -511,7 +511,7 @@ test("a finished game shows its owner the veiled Frozen, with by, in the view an
 	assert.deepEqual(playerEvents(s, ev, "w"), ev);
 });
 
-test("after a handover the owner is the pawn's colour now: the new owner (the caster) is not shown the veiled Frozen, the old one sees it with no caster (ruling 2026-11-23 09:28 M2)", () => {
+test("after a handover the owner is the pawn's colour now: the new owner (the caster) is not shown the veiled Frozen, the old one sees it with no caster", () => {
 	const { s, pawn } = withStatuses(({ pawn }) => ({ [pawn]: [{ s: "frozen", left: 3, by: "b", veiled: true }] }));
 	const p = s.board.sq[board.sqIndex("a2")];
 	s.board.sq[board.sqIndex("a2")] = null;
@@ -534,7 +534,7 @@ function bare(fen) {
 	return s;
 }
 
-test("playerLegal: when hiding the veil's actions would leave its owner no legal action at all, they are told (ruling 2026-11-23 10:08 N1: the rare dead end leaks, the game never hangs)", () => {
+test("playerLegal: when hiding the veil's actions would leave its owner no legal action at all, they are told (the rare dead end leaks, the game never hangs)", () => {
 	register(require("../../cards-engine/cards/active/cleanse.js")); // THIS FILE'S REGISTRY IS RESET (:30)
 	const s = bare("1r5k/8/8/8/8/8/P7/K7 w - - 0 1"), pawn = s.board.sq[board.sqIndex("a2")].id; // BLACK'S ROOK COVERS b1/b2: WHITE'S ONLY CARD ACTION IS CLEANSE ON THE FROZEN PAWN
 	s.players.w.moves = [hand.newCard(s, "move", { piece: "p" })];
@@ -548,7 +548,7 @@ test("playerLegal: when hiding the veil's actions would leave its owner no legal
 	assert.deepEqual(playerLegal(state, "w"), cleanse, "and it is told");
 });
 
-test("playerLegal after Opposing Finality's handover: the pawn's owner is its colour now, so the new owner (the caster) is not told the Cleanse of its veiled Frozen (ruling 2026-11-23 09:28 M2)", () => {
+test("playerLegal after Opposing Finality's handover: the pawn's owner is its colour now, so the new owner (the caster) is not told the Cleanse of its veiled Frozen", () => {
 	register(require("../../cards-engine/cards/active/cleanse.js"));
 	const s = bare("k7/8/8/8/8/8/P7/K7 b - - 0 1"), p = s.board.sq[board.sqIndex("a2")];
 	s.board.sq[board.sqIndex("a2")] = null;
@@ -561,7 +561,7 @@ test("playerLegal after Opposing Finality's handover: the pawn's owner is its co
 	assert.deepEqual(playerLegal(s, "b"), all.filter((a) => !names(a)));
 });
 
-test("playerLegal hides an action legal only because of the veil though it doesn't name it: the drop of a Stronghold whose Frozen pawn gives no check (ruling 2026-11-23 10:08 N2: the broad rule stays)", () => {
+test("playerLegal hides an action legal only because of the veil though it doesn't name it: the drop of a Stronghold whose Frozen pawn gives no check (the broad rule stays)", () => {
 	register(require("../../cards-engine/cards/active/stronghold.js"));
 	const s = bare("8/7k/6P1/8/8/8/8/K7 w - - 0 1"), pawn = s.board.sq[board.sqIndex("g6")].id; // THE g6 PAWN WOULD CHECK h7 BUT FOR ITS FROZEN
 	const card = hand.newCard(s, "stronghold");

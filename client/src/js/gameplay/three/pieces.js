@@ -8,19 +8,23 @@
  *
  */
 
-import { MathUtils, LatheGeometry, Vector2, BoxGeometry, TorusGeometry, Shape, ExtrudeGeometry, Mesh, PlaneGeometry, MeshBasicMaterial, TextureLoader, SRGBColorSpace } from "three";
+import {
+	MathUtils, LatheGeometry, Vector2, BoxGeometry, TorusGeometry, Shape, ExtrudeGeometry, Mesh, PlaneGeometry, MeshBasicMaterial,
+	TextureLoader, SRGBColorSpace
+} from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import * as materials from "./materials.js";
 
-const SEGMENTS = 20; // AROUND THE LATHE, KEEPS 32 PIECES WELL UNDER 50K TRIANGLES
+// Segments around a lathe: keeps the 32 pieces well under 50k triangles.
+const SEGMENTS = 20;
 
 /* ---------------------------------------------------------------- */
 // Geometry
 /* ---------------------------------------------------------------- */
 
-// POINTS ALONG A CIRCLE ARC FROM a0 TO a1 (DEGREES), AS [r, y] LATHE PROFILE POINTS
+// Points along a circle arc from a0 to a1 (degrees), as [r, y] lathe profile points.
 function arc(cx, cy, radius, a0, a1, steps) {
 	const points = [];
 	for (let i = 0; i <= steps; i++) {
@@ -30,17 +34,22 @@ function arc(cx, cy, radius, a0, a1, steps) {
 	return points;
 }
 
-const lathe = (profile) => new LatheGeometry(profile.map(([r, y]) => new Vector2(Math.max(r, 0), y)), SEGMENTS); // SPIN A [r, y] PROFILE AROUND Y
-const box = (w, h, d, x, y, z) => new BoxGeometry(w, h, d).translate(x, y + h / 2, z); // BOTTOM-CENTER AT (x, y, z)
-const ring = (r, y) => new TorusGeometry(r, 0.025, 6, SEGMENTS).rotateX(Math.PI / 2).translate(0, y, 0); // GOLD COLLARS & CROWNS
-const foot = (r) => [[0, 0], [r, 0], [r, 0.06], [r - 0.05, 0.10], [r - 0.07, 0.14]]; // STEPPED FOOT, ENDS WHERE THE STEM STARTS
+// Spins an [r, y] profile around the Y axis.
+const lathe = (profile) => new LatheGeometry(profile.map(([r, y]) => new Vector2(Math.max(r, 0), y)), SEGMENTS);
+// A box with its bottom center at (x, y, z).
+const box = (w, h, d, x, y, z) => new BoxGeometry(w, h, d).translate(x, y + h / 2, z);
+// The gold collars and crowns.
+const ring = (r, y) => new TorusGeometry(r, 0.025, 6, SEGMENTS).rotateX(Math.PI / 2).translate(0, y, 0);
+// A stepped foot that ends where the stem starts.
+const foot = (r) => [[0, 0], [r, 0], [r, 0.06], [r - 0.05, 0.10], [r - 0.07, 0.14]];
 const merge = (parts) => mergeGeometries(parts.map((g) => g.index ? g.toNonIndexed() : g));
 
-// BUILDERS RETURN [woodParts, goldParts]: ONE GEOMETRY PER PIECE, GROUP 0 DRAWN IN WOOD & GROUP 1 IN GOLD
+// The builders return [woodParts, goldParts]. Each piece becomes one geometry: group 0 is drawn in wood and group 1 in gold.
 function build([wood, gold]) {
 	if (gold) { return mergeGeometries([merge(wood), merge(gold)], true); }
 	const geometry = merge(wood);
-	geometry.addGroup(0, Infinity, 0); // NO GROUPS DRAWS NOTHING UNDER A MATERIAL ARRAY
+	// A geometry with no groups draws nothing under a material array.
+	geometry.addGroup(0, Infinity, 0);
 	return geometry;
 }
 
@@ -85,27 +94,34 @@ function king() {
 
 function knight() {
 	const base = lathe([...foot(0.40), [0.30, 0.17], [0.28, 0.20], [0, 0.20]]);
-	const outline = [ // HORSE-HEAD SILHOUETTE IN THE XY PLANE, FACING +X
+	// The horse-head silhouette in the XY plane, facing +X.
+	const outline = [
 		[0.24, 0.18], [0.18, 0.40], [0.10, 0.56], [0.30, 0.66], [0.34, 0.76], [0.30, 0.86], [0.10, 0.98],
 		[0.04, 1.10], [-0.02, 1.12], [-0.08, 1.04], [-0.20, 0.96], [-0.26, 0.70], [-0.24, 0.40], [-0.28, 0.18],
 	];
 	const depth = 0.18, bevel = 0.03;
+	// Centered on its depth. The bevel dips below y = 0.18, where the base hides it.
 	const head = new ExtrudeGeometry(new Shape(outline.map(([x, y]) => new Vector2(x, y))), {
 		depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2,
-	}).translate(0, 0, -depth / 2); // THE BEVEL DIPS BELOW y = 0.18, HIDDEN INSIDE THE BASE
+	}).translate(0, 0, -depth / 2);
 	return [[base, head]];
 }
 
 const builders = { p: pawn, n: knight, b: bishop, r: rook, q: queen, k: king };
-const geometries = {}; // MADE ON FIRST USE, SHARED BY EVERY PIECE OF THAT TYPE (DISPOSING ONLY FREES THE GPU COPY, THE NEXT RENDER RE-UPLOADS IT)
+// Made on first use and shared by every piece of that type. Disposing one only frees the GPU copy; the next render uploads it again.
+const geometries = {};
 
 /* ---------------------------------------------------------------- */
 // Blender models
 /* ---------------------------------------------------------------- */
 
-const ASSETS = `${process.env.CHESS_ASSETS_URL}/images/3d`; // S3 / CLOUDFRONT LIKE THE SPRITES
-const MODEL_URL = `${ASSETS}/blend/pieces.glb`; // ONLY FETCHED WITH 3D ON
-const ATLAS_URLS = [ // BAKED FROM THE 2D PIECES' SHADERS. THEIR OWN FILES: AN IMAGE INSIDE THE .glb LOADS FROM A blob: URL, WHICH THE CSP BLOCKS
+// Served from S3 / CloudFront, like the sprites.
+const ASSETS = `${process.env.CHESS_ASSETS_URL}/images/3d`;
+// Only fetched with 3D on.
+const MODEL_URL = `${ASSETS}/blend/pieces.glb`;
+// Baked from the 2D pieces' shaders. They are files of their own because an image inside the .glb loads from a blob: URL,
+// which the CSP blocks.
+const ATLAS_URLS = [
 	`${ASSETS}/pieces-w.webp`,
 	`${ASSETS}/pieces-b.webp`,
 	`${ASSETS}/pieces-rm-w.webp`,
@@ -113,11 +129,14 @@ const ATLAS_URLS = [ // BAKED FROM THE 2D PIECES' SHADERS. THEIR OWN FILES: AN I
 	`${ASSETS}/pieces-n.webp`,
 	`${ASSETS}/pieces-l.webp`,
 ];
-const MODEL_TIMEOUT_MS = 15000; // A STALLED DOWNLOAD SHOULDN'T LEAVE "Loading 3D board..." UP FOREVER
-const KNIGHT_TWIST = 13.5 * Math.PI / 180; // TURNS THE .glb KNIGHT'S NOSE ONTO +X (MEASURED: THE HEAD'S LONG AXIS IN XZ)
+// A stalled download shouldn't leave "Loading 3D board..." up forever.
+const MODEL_TIMEOUT_MS = 15000;
+// Turns the .glb knight's nose onto +X (measured from the head's long axis in XZ).
+const KNIGHT_TWIST = 13.5 * Math.PI / 180;
 const MODEL_NAMES = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
 
-// ONE GEOMETRY PER PIECE LIKE build(): GROUP 0 DRAWN IN WOOD & GROUP 1 IN GOLD. A glTF PRIMITIVE PER MATERIAL LOADS AS ONE MESH EACH
+// One geometry per piece, like build(): group 0 is drawn in wood and group 1 in gold.
+// The glTF has one primitive per material, and each loads as a mesh of its own, so they are merged here.
 function modelGeometry(scene, name) {
 	const meshes = [];
 	scene.getObjectByName(name).traverse((o) => { if (o.isMesh) { meshes.push(o); } });
@@ -129,7 +148,8 @@ function modelGeometry(scene, name) {
 
 function loadAtlas(url) {
 	return new TextureLoader().loadAsync(url).then(function (atlas) {
-		atlas.flipY = false; // glTF UVs START AT THE IMAGE'S TOP
+		// glTF UVs start at the image's top.
+		atlas.flipY = false;
 		atlas.anisotropy = 4;
 		return atlas;
 	});
@@ -137,7 +157,8 @@ function loadAtlas(url) {
 
 /**
  * @description Downloads the Blender models & their atlases
- * @return {[Promise<object>]} [{ models: geometry by piece type, atlasMaterials: by color }, both empty when they couldn't load: the pieces are built from code instead]
+ * @return {[Promise<object>]} [{ models: geometry by piece type, atlasMaterials: by color }, both empty when they couldn't load:
+ * the pieces are built from code instead]
  */
 async function loadModels() {
 	try {
@@ -148,10 +169,15 @@ async function loadModels() {
 		colorW.colorSpace = colorB.colorSpace = SRGBColorSpace;
 		const models = {};
 		for (const [type, name] of Object.entries(MODEL_NAMES)) {
-			if (gltf.scene.getObjectByName(name)) { models[type] = modelGeometry(gltf.scene, name); } // NOT IN THE .glb YET: BUILT FROM CODE
+			// A piece that is not in the .glb yet is built from code.
+			if (gltf.scene.getObjectByName(name)) { models[type] = modelGeometry(gltf.scene, name); }
 		}
-		if (models.n) { models.n.rotateY(KNIGHT_TWIST); } // THE BAKED HEAD POINTS ~13.5 DEG OFF +X, SO FACING KNIGHTS LOOKED PAST EACH OTHER
-		const atlasMaterials = { w: materials.atlasMaterial({ color: colorW, roughMetal: roughMetalW, normal, light }), b: materials.atlasMaterial({ color: colorB, roughMetal: roughMetalB, normal, light }) };
+		// The baked head points about 13.5 degrees off +X, so knights facing each other looked past each other.
+		if (models.n) { models.n.rotateY(KNIGHT_TWIST); }
+		const atlasMaterials = {
+			w: materials.atlasMaterial({ color: colorW, roughMetal: roughMetalW, normal, light }),
+			b: materials.atlasMaterial({ color: colorB, roughMetal: roughMetalB, normal, light })
+		};
 		return { models, atlasMaterials };
 	} catch (error) {
 		console.warn("3D pieces: the Blender models didn't load, building them from code", error);
@@ -159,7 +185,8 @@ async function loadModels() {
 	}
 }
 
-const { models, atlasMaterials } = await loadModels(); // ONCE, IN THE LAZY "three" CHUNK: load3D()'S import() WAITS FOR IT, SO createPiece() STAYS SYNCHRONOUS
+// Loaded once, in the lazy "three" chunk: load3D()'s import() waits for it, so createPiece() stays synchronous.
+const { models, atlasMaterials } = await loadModels();
 
 function pieceGeometry(type) {
 	if (!builders[type]) { throw new Error(`Bad piece type: ${type}`); }
@@ -171,11 +198,16 @@ function pieceGeometry(type) {
 /* ---------------------------------------------------------------- */
 
 const WOODS = { w: materials.maple, b: materials.walnut };
-const pieceMaterials = (type, color) => (models[type] ? [atlasMaterials[color]] : [WOODS[color], materials.gold]); // ITS ATLAS, OR WOOD & GOLD WHEN IT'S BUILT FROM CODE
-const SHADOW_Y = 0.015; // WORLD UNITS ABOVE THE BOARD: OVER THE GRID LINES (0.01), UNDER THE HIGHLIGHTS (0.02+)
+// A piece's atlas material, or wood and gold when it is built from code.
+const pieceMaterials = (type, color) => (models[type] ? [atlasMaterials[color]] : [WOODS[color], materials.gold]);
+// World units above the board: over the grid lines (0.01), under the highlights (0.02 and up).
+const SHADOW_Y = 0.015;
 const SHADOW_OPACITY = 0.85;
-const SHADOW_FADE = 1.5; // PIECE UNITS OF LIFT AT WHICH THE SHADOW IS GONE
-const SHADOW_TIP = Math.PI / 8; // A TOPPLING PIECE'S TILT (rotation.z, three/motion.js) AT WHICH ITS SHADOW IS GONE: THE DISC TURNS WITH IT, IT WOULD STAND UP OFF THE BOARD
+// The lift, in piece units, at which the shadow is gone.
+const SHADOW_FADE = 1.5;
+// The tilt of a toppling piece (rotation.z, see three/motion.js) at which its shadow is gone. The disc turns with the piece,
+// so past this it would stand up off the board.
+const SHADOW_TIP = Math.PI / 8;
 const shadowGeometry = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 
 /**
@@ -190,15 +222,21 @@ export function createPiece(type, color, size) {
 	const geometry = pieceGeometry(type);
 	const mesh = new Mesh(geometry, pieceMaterials(type, color));
 	mesh.scale.setScalar(size);
-	mesh.rotation.y = (color === "w" ? Math.PI : 0) - (type === "n" ? Math.PI / 2 : 0); // EACH SIDE FACES THE OTHER: FRONTS ARE BUILT FACING +Z (WHITE'S CAMERA), THE KNIGHT'S NOSE +X
+	// Each side faces the other. Fronts are built facing +Z (towards white's camera), and the knight's nose along +X.
+	mesh.rotation.y = (color === "w" ? Math.PI : 0) - (type === "n" ? Math.PI / 2 : 0);
 	mesh.userData.type = type;
 	mesh.userData.color = color;
 	if (!geometry.boundingBox) { geometry.computeBoundingBox(); }
 	const { min, max } = geometry.boundingBox;
-	const width = 1.5 * Math.max(max.x - min.x, max.z - min.z); // A LITTLE WIDER THAN THE FOOT
-	const shadow = new Mesh(shadowGeometry, new MeshBasicMaterial({ map: materials.blob, transparent: true, opacity: SHADOW_OPACITY, depthWrite: false })); // OWN MATERIAL SO IT CAN FADE ON ITS OWN
+	// A little wider than the foot.
+	const width = 1.5 * Math.max(max.x - min.x, max.z - min.z);
+	// Its own material, so each shadow can fade on its own.
+	const shadow = new Mesh(shadowGeometry, new MeshBasicMaterial({
+		map: materials.blob, transparent: true, opacity: SHADOW_OPACITY, depthWrite: false
+	}));
 	shadow.scale.set(width, 1, width);
-	shadow.renderOrder = -1; // UNDER THE PIECES & HIGHLIGHTS, NO Z-FIGHTING WITH THE BOARD
+	// Drawn under the pieces and highlights, with no z-fighting against the board.
+	shadow.renderOrder = -1;
 	shadow.name = "shadow";
 	mesh.add(shadow);
 	updateShadow(mesh);
@@ -211,12 +249,16 @@ export function createPiece(type, color, size) {
  */
 export function updateShadow(mesh) {
 	const shadow = mesh.getObjectByName("shadow");
-	const lift = mesh.position.y / mesh.scale.y; // IN PIECE UNITS
+	// In piece units.
+	const lift = mesh.position.y / mesh.scale.y;
 	shadow.position.y = SHADOW_Y / mesh.scale.y - lift;
-	shadow.material.opacity = SHADOW_OPACITY * MathUtils.clamp(1 - Math.max(lift, 0) / SHADOW_FADE, 0, 1) * MathUtils.clamp(1 - Math.abs(mesh.rotation.z) / SHADOW_TIP, 0, 1) * (mesh.userData.opacity ?? 1);
+	shadow.material.opacity = SHADOW_OPACITY *
+		MathUtils.clamp(1 - Math.max(lift, 0) / SHADOW_FADE, 0, 1) *
+		MathUtils.clamp(1 - Math.abs(mesh.rotation.z) / SHADOW_TIP, 0, 1) *
+		(mesh.userData.opacity ?? 1);
 }
 
-// SEE-THROUGH COPIES OF A PIECE'S MATERIALS (THEIR SHADER PATCH & UNIFORMS COME ALONG), SO IT FADES ON ITS OWN
+// See-through copies of a piece's materials, so it fades on its own. The shader patch and uniforms are carried over to the copies.
 function fadeMaterials(type, color) {
 	return pieceMaterials(type, color).map(function (shared) {
 		const m = shared.clone();
@@ -234,7 +276,8 @@ function freeFadeMaterials(mesh) {
 }
 
 /**
- * @description Fades a piece & its shadow (captures fading away, the slide home fading pieces in & out). At 1 it's back on the shared, solid materials
+ * @description Fades a piece & its shadow (captures fading away, the slide home fading pieces in & out).
+ * At 1 it's back on the shared, solid materials
  * @param  {[Mesh]} mesh [from createPiece()]
  * @param  {[number]} opacity [0 - 1]
  */
@@ -254,11 +297,13 @@ export function setOpacity(mesh, opacity) {
 }
 
 /**
- * @description Frees a piece's own GPU resources (its shadow material & fade copies). Its geometry & wood are shared, the scene's disposal frees those
+ * @description Frees a piece's own GPU resources (its shadow material & fade copies).
+ * Its geometry & wood are shared, the scene's disposal frees those
  * @param  {[Mesh]} mesh [from createPiece()]
  */
 export function disposePiece(mesh) {
 	mesh.getObjectByName("shadow").material.dispose();
 	freeFadeMaterials(mesh);
-	mesh.userData.disposeStatuses?.(); // ITS STATUS EFFECTS GO WITH IT (statusFx/index.js SETS THIS)
+	// Its status effects go with it (statusFx/index.js sets this hook).
+	mesh.userData.disposeStatuses?.();
 }

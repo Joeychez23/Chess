@@ -194,7 +194,7 @@ describe("the levels under 1300 overlook moves", () => {
 	});
 });
 
-describe("parallel /ai-move requests on one game (#296)", () => { // AFTER "aiMove": ITS afterEach PUTS BACK THE REAL fetch, start() SETS THE STAND-IN
+describe("parallel /ai-move requests on one game", () => { // AFTER "aiMove": ITS afterEach PUTS BACK THE REAL fetch, start() SETS THE STAND-IN
 	let server;
 	before(async () => { server = await testServer.start(); });
 	after(() => server.close());

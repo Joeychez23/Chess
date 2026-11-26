@@ -263,7 +263,8 @@ function flipBoard() {
 	game.flipPending = false;
 	game.viewColor = game.viewColor == 'w' ? 'b' : 'w';
 	handleInitialData();
-	refreshData(game.response);
+	// A Chess Cards game has no game_board in game.response (flow.js keeps chessInst), only the 3D camera turns
+	if (!game.cardGame) { refreshData(game.response); }
 }
 
 /**

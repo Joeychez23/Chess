@@ -11,7 +11,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("./helpers/server.js");
 const { call, player, poke } = testServer;
-const { readSettings } = require("../controllers/chessController.js");
+const { readSettings } = require("../controllers/chess/index.js");
 const { takeTokens, resetLimits, STATUS_DISPLAY_LIMITS, SETTINGS_LIMITS } = require("../middleware/rateLimit.js");
 
 let server;

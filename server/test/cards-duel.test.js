@@ -127,7 +127,7 @@ describe("All or Nothing: the card duel", () => {
 	test("a loss: the piece is taken, the whole hand is forfeit and not refilled this turn; half 0", () => {
 		let { s, events, piece } = start(KNIGHT, "a4");
 		const before = held(s.players.w);
-		assert.ok(s.players.w.moves.length === hand.MOVES && before >= hand.MOVES);
+		assert.ok(s.players.w.moves.length === hand.HAND_MOVES && before >= hand.HAND_MOVES);
 		rig(s, ["2c", "3c", "4c"], ["Ac", "Kc", "Qc"]);
 		({ s, events } = both(s, 1, 0));
 		assert.deepEqual(ofType(events, "duel-result"), [{ type: "duel-result", winner: "b" }]);
@@ -505,7 +505,7 @@ describe("All or Nothing versions: the stakes of a lost hand", () => {
 		assert.deepEqual(ofType(events, "duel-result"), [{ type: "duel-result", winner: "b" }]);
 		assert.deepEqual(ofType(events, "capture"), []);
 		assert.deepEqual(at(s, "e4"), { id: piece, c: "w", t: "b" }); // THE BASE CARD NEVER UNDOES A WON UPGRADE; ONLY THE FORFEIT IS LIFTED
-		assert.ok(before >= hand.MOVES);
+		assert.ok(before >= hand.HAND_MOVES);
 		assert.equal(ofType(events, "discard").filter((e) => e.player === "w").length, before);
 		assert.equal(count(s.players.w), 0);
 		assert.deepEqual(ofType(events, "draw").filter((e) => e.player === "w"), []); // NOT REFILLED THIS TURN
@@ -541,7 +541,7 @@ describe("All or Nothing versions: the stakes of a lost hand", () => {
 					assert.equal(discards, 0);
 				} else {
 					assert.deepEqual(at(s, "e4"), { id: piece, c: "w", t: "b" });
-					assert.ok(before >= hand.MOVES);
+					assert.ok(before >= hand.HAND_MOVES);
 					assert.equal(discards, before);
 				}
 			}

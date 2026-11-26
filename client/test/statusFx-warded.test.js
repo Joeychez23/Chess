@@ -443,7 +443,7 @@ test("dispose frees its own materials & geometry, not the shared ones, & leaves 
 });
 
 // FIX ROUND 1 (S2c I1/M3/M4, rulings T24-R1/R3): NO FLARE UNDER REDUCE, UNKNOWN KINDS IGNORED, MATERIALS ONLY ONCE A FLARE PLAYS
-test("R3/P1: reduce on, play does nothing visible, even over many frames at a frozen clock", () => {
+test("reduce on, play does nothing visible, even over many frames at a frozen clock", () => {
 	const opts = optsFor({ reduce: true }), fx = flare.make(opts.mesh, opts);
 	fx.play("gain");
 	assert.equal(fx.object.visible, false);
@@ -452,7 +452,7 @@ test("R3/P1: reduce on, play does nothing visible, even over many frames at a fr
 	fx.dispose();
 });
 
-test("R3/P2: reduce turned on mid-flare hides it at once, & it stays hidden when reduce goes off", () => {
+test("reduce turned on mid-flare hides it at once, & it stays hidden when reduce goes off", () => {
 	const opts = optsFor(), fx = flare.make(opts.mesh, opts);
 	fx.play("gain"); fx.update(0, opts); fx.update(0.3, opts);
 	assert.equal(fx.object.visible, true);
@@ -463,7 +463,7 @@ test("R3/P2: reduce turned on mid-flare hides it at once, & it stays hidden when
 	fx.dispose();
 });
 
-test("M3: an unknown kind is ignored and does not cut a playing flare", () => {
+test("an unknown kind is ignored and does not cut a playing flare", () => {
 	const opts = optsFor(), fx = flare.make(opts.mesh, opts);
 	fx.play("foo"); fx.update(0, opts); fx.update(0.1, opts);
 	assert.equal(fx.object.visible, false, "foo plays nothing");
@@ -475,7 +475,7 @@ test("M3: an unknown kind is ignored and does not cut a playing flare", () => {
 	fx.dispose();
 });
 
-test("M4: no materials until the first play; dispose of a never-played flare is harmless", () => {
+test("no materials until the first play; dispose of a never-played flare is harmless", () => {
 	const opts = optsFor(), fx = flare.make(opts.mesh, opts);
 	assert.equal(meshes(fx).length, 0);
 	fx.dispose(); fx.dispose();
@@ -487,7 +487,7 @@ test("M4: no materials until the first play; dispose of a never-played flare is 
 	fx2.dispose();
 });
 
-test("an update after dispose on a playing flare does nothing (re-review N1)", () => {
+test("an update after dispose on a playing flare does nothing", () => {
 	const { Object3D } = require("three");
 	const m = new Object3D();
 	m.geometry = { boundingBox: { min: { x: -0.3, y: 0 }, max: { x: 0.3, y: 0.83 } } };
@@ -516,7 +516,7 @@ test("reduced motion: a steady level whatever t is", () => {
 	assert.equal(wl.level(0.5, o), wl.LIGHT + wl.PULSE / 2);
 });
 
-test("every Warded piece gets the same strength, Heavy Cavalry's ward included (ruling T24-R4)", () => {
+test("every Warded piece gets the same strength, Heavy Cavalry's ward included", () => {
 	assert.equal(wl.level(1, setupLight({ cavalry: true })), wl.level(1, setupLight()));
 	assert.equal(wl.CAVALRY, undefined);
 });

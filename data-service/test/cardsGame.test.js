@@ -1,6 +1,6 @@
 /*
  *  cardsGame.test.js  --  data service tests
- *	Chess Cards Games (controllers/gameController.js newCardsGame & saveCardsGame)
+ *	Chess Cards Games (controllers/game/ newCardsGame & saveCardsGame)
  *  The data service stores a card game's engine state as an opaque JSON string & never runs the engine. Each save names the
  *  version it was made on, so only one save per version lands. A refused request leaves the stored game exactly as it was
  *
@@ -11,7 +11,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const service = require("./helpers/service.js");
 const { call, player, peek } = service;
-const db = require("../dynamoDB.js");
+const db = require("../db/index.js");
 const { poke } = require("./helpers/fakeDynamo.js");
 
 let server;
@@ -279,7 +279,7 @@ describe("save card game", () => {
 		const gameId = await cardsGame();
 		await refused(gameId, { body: { version: 1, state: STATE, fen: START } }, 401);
 		await refused(gameId, { as: mallory, body: { version: 1, state: STATE, fen: START } }, 403);
-		await db.initalizeGame("chess1", "alice", "CHESS_AI", 1300, { start_params: { color: "w" } });
+		await db.initializeGame("chess1", "alice", "CHESS_AI", 1300, { start_params: { color: "w" } });
 		assert.equal((await refused("chess1", { as: alice, body: { version: 1, state: STATE, fen: START } }, 409)).message, "Not a card game");
 	});
 });

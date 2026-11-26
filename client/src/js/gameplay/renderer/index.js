@@ -2,161 +2,124 @@
  *  index.js  --  chess frontend
  *	Renderer
  *	The one place that picks the board the player sees: the 2D canvas or the 3D board (three/). The rest of the game calls
- *	drawBoard() & setView() & never checks which one is on. The 2D canvas keeps drawing on 3D, laid clear over the 3D board
- *	with only its trays showing, its frames still run the game (tiles, slides, trays), then the 3D board is set to match chessInst,
- *	game.viewColor (the camera's side) & the 2D highlights.
- *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D. One that loses its WebGL context (iPhones do when
- *	the page is backgrounded) is put up again when the browser gives it back, or falls back to 2D when it keeps losing it. Input (gameplay/input) only asks here for the
- *	square under the pointer, its handlers are the same on both boards (addBoardListener)
+ *	drawBoard() and setView() and never checks which one is on.
+ *	On 3D the 2D canvas keeps drawing, laid clear over the 3D board with only its trays showing: its frames still run the game
+ *	(tiles, slides, trays). Then the 3D board is set to match chessInst, game.viewColor (the camera's side) and the 2D highlights.
+ *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D. One that loses its WebGL context (iPhones do
+ *	when the page is backgrounded) is put up again when the browser gives it back, or falls back to 2D when it keeps losing it.
+ *	Input (gameplay/input) only asks here for the square under the pointer; its handlers are the same on both boards
+ *	(addBoardListener).
  *
  */
 
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, canvas, chessInst, requestFrame } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE 2D CANVAS, THE BOARD THAT'S DRAWN
-const { load3D } = require("../three/load.js"); // DOWNLOADS THE 3D BOARD THE FIRST TIME IT'S TURNED ON
-const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
-const { stepBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS (EITHER WAY), THE SQUARE OF A SCREEN TILE
-const { reportError } = require("../../pages/utils/reportErrors.js"); // THE BROWSER ERROR REPORTS (#194)
-const { pickable } = require("../three/hoverRules.js"); // THE PIECES THE PLAYER CAN PICK UP (THE 3D HOVER'S FADE). NO three.js IN IT
-const { capturesAt } = require("../captures/index.js"); // THE PIECES TAKEN TO REACH A POSITION
+const { game, canvas, chessInst, requestFrame } = require("../state/index.js");
+const { load3D } = require("../three/load.js"); // Downloads the 3D board the first time it's turned on
+const { showStatus, MESSAGE_TIME } = require("../status/index.js");
+const { stepBetween, tileToSquare } = require("../utils/index.js");
+const { reportError } = require("../../pages/utils/reportErrors.js");
+const { pickable } = require("../three/hoverRules.js"); // The pieces the 3D hover fades for. No three.js in it
+const { capturesAt } = require("../captures/index.js");
 const { Chess } = require("chess.js");
-const statusPref = require("../cards/statusPref.js"); // HOW A CHESS CARDS PIECE'S STATUSES SHOW: EFFECTS OR BADGES (three/statusFx)
-statusPref.onChange(() => { game.refresh = true; requestFrame(); }); // THE NEXT FRAME SWAPS THEM (drawBoard). init() CALLS NO LISTENER: drawBoard READS current()
-const scratch = new Chess(); // ONLY stepBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
+const statusPref = require("../cards/statusPref.js"); // How a Chess Cards piece's statuses show: effects or badges (three/statusFx)
+statusPref.onChange(handleStatusPrefChange);
+const scratch = new Chess(); // Only stepBetween uses it, not validateState, so nothing else can be halfway through it
 
 export const VIEWS = { TWO_D: "2d", THREE_D: "3d" };
 
-let board3D = null; // THE 3D MODULE WHILE IT'S MOUNTED, null ON 2D
-let container = null; // WHAT THE 3D CANVAS FILLS, IN #main NEXT TO THE (HIDDEN) 2D CANVAS
-let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT TWICE
-let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
-let skipAnimation = false; // THE NEXT POSITION IS SET AT ONCE (skipNextAnimation3D: A REPLAY'S JUMP)
-let shownFacings = null; // THE POSITION & PIECE FACINGS THE 3D BOARD WAS LAST TURNED TO (syncFacing3D)
-let shownTaken = null; // WHAT THE 3D BOARD'S PILES WERE LAST SET FROM (syncTaken3D), SO THEY'RE ONLY REDONE WHEN IT CHANGES
-let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
-let shownScreen = null; // WHAT THE 3D ROOM'S MONITOR WAS LAST TOLD TO SHOW (screen3D() AS JSON)
-let cardPick = null; // WHAT A PICKED PROMOTION CARD CALLS (onCardPick), gameplay/input'S choosePromotion
-let shownPromotion = null; // THE COLOUR THE 3D CARDS WERE LAST DEALT FOR, null WHEN THEY'RE ON THE DECK (syncCards3D)
-let shownCardFocus = null; // THE CARD THE 3D BOARD FRAMES (game.cardFocus)
-let tablePick = null; // WHAT A CHESS CARDS GAME'S PICKED HAND CARD OR SQUARE, & ITS MOUSE PRESS & RELEASE, CALL (onTablePick), gameplay/cards/flow.js
-let pickableKey = null, pickableNow = null; // THE NORMAL GAME'S PICKABLE SQUARES LAST WORKED OUT (pickable3D)
-let tableHeld = null; // THE PIECE A CHESS CARDS GAME'S DRAG HOLDS, { square, dragging } (holdTablePiece3D), null FOR NONE
-let table = null; // THE CHESS CARDS TABLE AS setTable3D LAST SAID IT, PUT ON EVERY 3D BOARD MOUNTED LATER
-let tableSide = null; // game.viewColor WHEN flow.js WAS LAST TOLD OF THE 3D TABLE (tableUp): FLIP BOARD TURNS THE ROOM, A PROMPT'S PLAQUES BY A SQUARE ARE LAID AGAIN (REVIEW I2)
-let tableDuel = null; // THE CARD DUEL THE TABLE WAS LAST DEALT (dealDuel3D), DEALT ON EVERY 3D BOARD MOUNTED LATER, null FOR NONE
-let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
-let monitorHooks = null; // gameplay/monitor'S { handlers, announce, onChange, data } (setMonitorHooks), GIVEN TO EVERY 3D BOARD
-let shownMonitor = null; // WHAT THE MONITOR'S CHANNELS WERE LAST SENT (monitorHooks.data() AS JSON)
-const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
-let viewListener = () => {}; // onViewChange()'S, TOLD WHEN 3D FALLS BACK TO 2D BY ITSELF
+let board3D = null; // The 3D module while it's mounted, null on 2D
+let container = null; // What the 3D canvas fills, in #main next to the (hidden) 2D canvas
+let switching = null; // The setView() in progress, so two presses don't mount twice
+let shownFen = null; // The position the 3D board shows (or is sliding to)
+let skipAnimation = false; // The next position is set at once (skipNextAnimation3D: a replay's jump)
+let shownFacings = null; // The position and piece facings the 3D board was last turned to (syncFacing3D)
+let shownTaken = null; // What the 3D board's piles were last set from (syncTaken3D), so they're only redone when it changes
+let shownMarks = null; // The highlights the 3D board shows (marks3D() as JSON), so they're only redone when they change
+let shownScreen = null; // What the 3D room's monitor was last told to show (screen3D() as JSON)
+let cardPick = null; // What a picked promotion card calls (onCardPick): gameplay/input's choosePromotion
+let shownPromotion = null; // The colour the 3D cards were last dealt for, null when they're on the deck (syncCards3D)
+let shownCardFocus = null; // The card the 3D board frames (game.cardFocus)
+let tablePick = null; // What a Chess Cards game's picked hand card or square, and its mouse press and release, call (onTablePick)
+let pickableKey = null; // The normal game's pickable squares last worked out (pickable3D): what they were worked out from
+let pickableNow = null; // ...and the squares
+let tableHeld = null; // The piece a Chess Cards game's drag holds, { square, dragging } (holdTablePiece3D), null for none
+let table = null; // The Chess Cards table as setTable3D last said it, put on every 3D board mounted later
+// game.viewColor when flow.js was last told of the 3D table (tableUp). Flip Board turns the room, so a prompt's plaques by a
+// square are laid again
+let tableSide = null;
+let tableDuel = null; // The card duel the table was last dealt (dealDuel3D), dealt on every 3D board mounted later, null for none
+let heldFace = null; // The face the monitor holds (a result's), put back on a 3D board mounted later
+let monitorHooks = null; // gameplay/monitor's { handlers, announce, onChange, data } (setMonitorHooks), given to every 3D board
+let shownMonitor = null; // What the monitor's channels were last sent (monitorHooks.data() as JSON)
+let tableImage = null; // The 2D canvas's CSS table background, taken off on 3D (it's opaque and would hide the 3D board)
+const boardListeners = []; // [type, handler, options] from addBoardListener, put on each new 3D container too
+let viewListener = function () {}; // onViewChange()'s, told when 3D falls back to 2D by itself
 
-const RESTORE_WAIT_MS = 3000; // A LOST CONTEXT NOT GIVEN BACK THIS LONG AFTER THE PAGE IS SEEN: A NEW BOARD (& CONTEXT) GOES UP ANYWAY
-const MAX_LOSSES = 3; // THIS MANY LOST CONTEXTS...
-const LOSS_WINDOW_MS = 2 * 60 * 1000; // ...THIS CLOSE TOGETHER & IT'S BACK TO 2D
-let losses = []; // WHEN EACH RECENT CONTEXT WAS LOST (Date.now())
+const RESTORE_WAIT_MS = 3000; // A lost context not given back this long after the page is seen: a new board (and context) goes up anyway
+const MAX_LOSSES = 3; // This many lost contexts...
+const LOSS_WINDOW_MS = 2 * 60 * 1000; // ...this close together and it's back to 2D
+let losses = []; // When each recent context was lost (Date.now())
 let restoreTimer = null;
+
+// The next frame swaps the statuses. init() calls no listener: drawBoard reads current()
+function handleStatusPrefChange() {
+	game.refresh = true;
+	requestFrame();
+}
 
 /* ---------------------------------------------------------------- */
 // Draw
 /* ---------------------------------------------------------------- */
 /**
- * @description Draws one frame of the board that's on. The render loop & a window resize call it instead of game.drawScreen().
- * 3D only follows chessInst, which only the move path (gameplay/moves) & the replay change: one move from what it shows slides, a replay's
- * step back slides in reverse, anything else (load, takeback, restart, reconnect, a turned down move, a replay's jump) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
+ * @description Draws one frame of the board that's on. The render loop and a window resize call it instead of game.drawScreen().
+ * 3D only follows chessInst, which only the move path (gameplay/moves) and the replay change: one move from what it shows slides,
+ * a replay's step back slides in reverse, anything else (load, takeback, restart, reconnect, a turned down move, a replay's jump)
+ * is set at once. A move that wasn't legal never changes chessInst, so the piece stays
  */
 export function drawBoard() {
-	game.drawScreen(); // 2D (HIDDEN ON 3D): ALSO FILLS game.tiles & STEPS THE SLIDES THE GAME WAITS ON
-	if (!board3D) { return; } // 3D: SIZES ITSELF (ResizeObserver) & DRAWS ITS OWN FRAMES, ONLY THE PIECES, CAMERA SIDE & HIGHLIGHTS ARE SET HERE
-	const cards = Boolean(board3D.hasCards?.()); // THE ROOM'S CARDS ARE THE PROMOTION PICKER, THE FLAT ONE STAYS WHEN IT HAS NONE
-	if (cards !== game.cards3D) { game.cards3D = cards; game.refresh = true; }
-	board3D.setSide(game.viewColor, !game.reduceMotion); // FLIP BOARD TURNS THE CAMERA
+	game.drawScreen(); // 2D (hidden on 3D) also fills game.tiles and steps the slides the game waits on
+	// 3D sizes itself (ResizeObserver) and draws its own frames: only the pieces, camera side and highlights are set here
+	if (!board3D) { return; }
+	const hasCards = Boolean(board3D.hasCards?.()); // The room's cards are the promotion picker; the flat one stays when it has none
+	if (hasCards !== game.cards3D) {
+		game.cards3D = hasCards;
+		game.refresh = true;
+	}
+	board3D.setSide(game.viewColor, !game.reduceMotion); // Flip Board turns the camera
 	if (game.viewColor !== tableSide) { tableUp(); }
 	syncCards3D();
 	syncMarks3D();
 	syncScreen3D();
 	syncMonitor3D();
 	const fen = chessInst.fen();
-	if (fen !== shownFen) { // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
+	if (fen !== shownFen) { // Unchanged: a sync would cut a slide short
 		const step = game.reduceMotion || skipAnimation ? null : stepBetween(scratch, shownFen, fen);
 		skipAnimation = false;
 		shownFen = fen;
 		if (step?.kind === "forward") { board3D.animateMove(step.move.from, step.move.to, step.move.promotion); }
-		else if (step?.kind === "back" && game.readOnly) { board3D.animateUndo(step.move, facings3D()); } // syncFacing3D BELOW TURNS IT THE WAY IT FACED BEFORE THE MOVE
+		else if (step?.kind === "back" && game.readOnly) { board3D.animateUndo(step.move, facings3D()); } // syncFacing3D turns it back
 		else { board3D.syncFromBoard(chessInst); }
 	}
 	syncTaken3D(fen);
 	syncFacing3D(fen);
-	board3D.setPickable(table ? table.opts.pickable || null : pickable3D(fen)); // A CHESS CARDS GAME'S ARE flow.js'S
-	const held = tableHeld || heldPiece(); // A CHESS CARDS GAME'S HELD PIECE IS flow.js'S (holdTablePiece3D): heldPiece() HAS NONE THERE
-	board3D.setHeld(held && held.square, held && held.dragging); // AFTER THE MOVE: A DROPPED PIECE SLIDES FROM WHERE IT WAS LET GO
-	if (table && game.cardGame) { board3D.syncStatuses(table.view, statusPref.current()); } // AFTER THE PIECES STAND AS THE VIEW SAYS: THE TABLE'S VIEW IS THE ONE ON THE BOARD (flow.js loadBoard & refreshTable LAND IT TOGETHER)
+	board3D.setPickable(table ? table.opts.pickable || null : pickable3D(fen)); // A Chess Cards game's are flow.js's
+	const held = tableHeld || heldPiece(); // A Chess Cards game's held piece is flow.js's (holdTablePiece3D): heldPiece() has none there
+	board3D.setHeld(held && held.square, held && held.dragging); // After the move: a dropped piece slides from where it was let go
+	// After the pieces stand as the view says: the table's view is the one on the board (flow.js loadBoard and refreshTable land
+	// it together)
+	if (table && game.cardGame) { board3D.syncStatuses(table.view, statusPref.current()); }
 }
 
-// THE SQUARES THE PLAYER CAN PICK A PIECE UP FROM IN A NORMAL GAME, null WHILE THEY CAN'T ACT: THE 3D HOVER ONLY FADES COVERING PIECES FOR THOSE (USER RULING R1, TASK 20E).
-// THE PLAYER'S COLOUR, NOT game.viewColor: FLIP BOARD ONLY TURNS THE CAMERA
-function pickable3D(fen) {
-	const open = !game.gameOver && game.response?.state !== "CLOSED" && !game.readOnly && !game.opposingMove && !game.currPromotion;
-	const key = `${fen}|${game.playerColor}|${open}`;
-	if (key !== pickableKey) {
-		pickableKey = key;
-		pickableNow = pickable({ board: chessInst.board(), player: game.playerColor, turn: chessInst.turn(), open });
-	}
-	return pickableNow;
-}
-
-/**
- * @description The piece the player holds, as the 2D board lifts it: picked up by a click (clickedTile) or pressed (mousedownTile, the
- * press is still down so it drags). Nothing once the board is locked for the move just sent (opposingMove)
- * @return {[object|null]} { square, dragging } [its square ("e2"), null when nothing is held]
- */
-function heldPiece() {
-	const tile = game.mousedownTile || game.clickedTile;
-	if (!tile || game.opposingMove) { return null; }
-	const square = tileToSquare(tile.originX, tile.originY, game.viewColor);
-	return square ? { square, dragging: Boolean(game.mousedownTile) } : null;
-}
-
-/**
- * @description The squares the 2D board highlights, by 3D highlight kind: the opponent's last move, the hint, the king in check
- * & the held piece's moves (captures apart), like drawLastMove, drawHint, the check highlight & checkAvailableMoves. focus is the
- * keyboard's (remote-only mode's) selected square while the menu is closed: 2D only lifts the piece on it, 3D needs a visible ring
- * @return {[object]} { last, hint, check, legal, capture, focus } [lists of squares]
- */
-function marks3D() {
-	const marks = { last: game.lastOpponentMove || [], hint: game.hint || [], check: [], legal: [], capture: [], focus: [] };
-	const keyboard = game.keyboardTile && !game.menuToggled && tileToSquare(game.keyboardTile.x, game.keyboardTile.y, game.viewColor);
-	if (keyboard) { marks.focus.push(keyboard); }
-	if (chessInst.isCheck()) {
-		const king = chessInst.board().flat().find((p) => p && p.type === "k" && p.color === chessInst.turn());
-		if (king) { marks.check.push(king.square); }
-	}
-	const held = heldPiece();
-	if (held && !game.currPromotion) {
-		chessInst.moves({ square: held.square, verbose: true }).forEach((m) => marks[m.captured ? "capture" : "legal"].push(m.to));
-	}
-	return marks;
-}
-
-// STANDS THE TAKEN PIECES IN THE 3D BOARD'S PILES WHEN THEY CHANGED. AFTER THE MOVE STEP: A CAPTURE'S PIECE IS WAITING TO FLY TO ITS PILE
-function syncTaken3D(fen = chessInst.fen()) { // fen: THE BOARD'S, WHEN THE CALLER HAS IT
-	const { moveHistory } = require("../movelist/index.js"); // THE MOVES THE TAKEN PIECES ARE WORKED OUT FROM. HERE, NOT ABOVE: IT REACHES gameplay/animate & menu, WHICH REQUIRE THIS FILE, & THEY WOULD GET IT HALF MADE (NO VIEWS)
-	const { moves, startFen } = moveHistory();
-	const key = `${fen}|${moves.length}|${startFen}|${game.playerColor}`;
-	if (key === shownTaken) { return; }
-	shownTaken = key;
-	board3D.setTaken(capturesAt(moves, startFen, fen), game.playerColor);
-}
-
-// DEALS THE ROOM'S CARDS WHILE THE PLAYER PROMOTES (THEY ARE THE PICKER WHEN game.cards3D), PUTS THEM BACK AFTER. THE KEYBOARD'S FRAME STARTS ON THE QUEEN
-// WHEN THE KEYBOARD IS IN USE (game.keyboardTile), game.cardFocus IS THEN MOVED BY gameplay/input'S handleCardKey
+// Deals the room's cards while the player promotes (they are the picker when game.cards3D) and puts them back after. When the
+// keyboard is in use (game.keyboardTile) its frame starts on the queen; game.cardFocus is then moved by gameplay/input's handleCardKey
 function syncCards3D() {
-	const want = game.currPromotion && game.cards3D ? game.playerColor : null;
-	if (want !== shownPromotion) {
-		shownPromotion = want;
-		board3D.setPromotion(want, !game.reduceMotion);
-		game.cardFocus = want && game.keyboardTile ? 0 : null;
+	const promotionColor = game.currPromotion && game.cards3D ? game.playerColor : null;
+	if (promotionColor !== shownPromotion) {
+		shownPromotion = promotionColor;
+		board3D.setPromotion(promotionColor, !game.reduceMotion);
+		game.cardFocus = promotionColor && game.keyboardTile ? 0 : null;
 	}
 	if (game.cardFocus !== shownCardFocus) {
 		shownCardFocus = game.cardFocus;
@@ -164,7 +127,7 @@ function syncCards3D() {
 	}
 }
 
-// PUTS marks3D() ON THE 3D BOARD WHEN THEY CHANGED
+// Puts marks3D() on the 3D board when they changed
 function syncMarks3D() {
 	const marks = marks3D();
 	const key = JSON.stringify(marks);
@@ -174,8 +137,38 @@ function syncMarks3D() {
 }
 
 /**
- * @description What the library's monitor shows: the opponent (the AI's bot or a friend, by name) & a status line. Before a
- * game has loaded there's no name, the monitor shows its test card
+ * @description The squares the 2D board highlights, by 3D highlight kind: the opponent's last move, the hint, the king in check
+ * and the held piece's moves (captures apart), like drawLastMove, drawHint, the check highlight and checkAvailableMoves. focus is
+ * the keyboard's (remote-only mode's) selected square while the menu is closed: 2D only lifts the piece on it, 3D needs a visible ring
+ * @return {[object]} { last, hint, check, legal, capture, focus } [lists of squares]
+ */
+function marks3D() {
+	const marks = { last: game.lastOpponentMove || [], hint: game.hint || [], check: [], legal: [], capture: [], focus: [] };
+	const keyboard = game.keyboardTile && !game.menuToggled && tileToSquare(game.keyboardTile.x, game.keyboardTile.y, game.viewColor);
+	if (keyboard) { marks.focus.push(keyboard); }
+	if (chessInst.isCheck()) {
+		const king = chessInst.board().flat().find((piece) => piece && piece.type === "k" && piece.color === chessInst.turn());
+		if (king) { marks.check.push(king.square); }
+	}
+	const held = heldPiece();
+	if (held && !game.currPromotion) {
+		chessInst.moves({ square: held.square, verbose: true }).forEach((move) => marks[move.captured ? "capture" : "legal"].push(move.to));
+	}
+	return marks;
+}
+
+// Puts screen3D() on the monitor when it changed
+function syncScreen3D() {
+	const state = screen3D();
+	const key = JSON.stringify(state);
+	if (key === shownScreen) { return; }
+	shownScreen = key;
+	board3D.setScreen(state);
+}
+
+/**
+ * @description What the library's monitor shows: the opponent (the AI's bot or a friend, by name) and a status line. Before a
+ * game has loaded there's no name, and the monitor shows its test card
  * @return {[object]} { name, status, ai, thinking }
  */
 function screen3D() {
@@ -187,33 +180,15 @@ function screen3D() {
 	let status = theirTurn ? (ai ? "thinking..." : "their move") : "your move";
 	if (game.gameOver || response.state == "CLOSED") {
 		const winner = (game.result || response).winner;
-		status = winner !== "w" && winner !== "b" ? "draw" : winner === game.playerColor ? "you win" : ai ? "i win" : "you lose";
+		if (winner !== "w" && winner !== "b") { status = "draw"; }
+		else if (winner === game.playerColor) { status = "you win"; }
+		else if (ai) { status = "i win"; }
+		else { status = "you lose"; }
 	}
 	return { name, status, ai, thinking: ai && theirTurn && !game.gameOver };
 }
 
-// PUTS screen3D() ON THE MONITOR WHEN IT CHANGED
-function syncScreen3D() {
-	const state = screen3D();
-	const key = JSON.stringify(state);
-	if (key === shownScreen) { return; }
-	shownScreen = key;
-	board3D.setScreen(state);
-}
-
-/* ---------------------------------------------------------------- */
-// Monitor
-/* ---------------------------------------------------------------- */
-/**
- * @description What the 3D room's monitor works with, from gameplay/monitor (it can't be required here, it requires the menu, which requires this file).
- * Every 3D board put up from now on gets them
- * @param  {[object]} hooks [{ handlers, announce(text), onChange({ ready, state }) } (three/index.js mount()'s monitor option) & data(): the channels' data]
- */
-export function setMonitorHooks(hooks) {
-	monitorHooks = hooks;
-}
-
-// PUTS THE CHANNELS' DATA ON THE MONITOR WHEN IT CHANGED
+// Puts the channels' data on the monitor when it changed
 function syncMonitor3D() {
 	if (!monitorHooks) { return; }
 	const data = monitorHooks.data();
@@ -221,6 +196,97 @@ function syncMonitor3D() {
 	if (key === shownMonitor) { return; }
 	shownMonitor = key;
 	board3D.setMonitor(data);
+}
+
+// Stands the taken pieces in the 3D board's piles when they changed. After the move step: a capture's piece is waiting to fly
+// to its pile. fen is the board's, when the caller has it
+function syncTaken3D(fen = chessInst.fen()) {
+	// Required here, not at the top: movelist reaches gameplay/animate and menu, which require this file and would get it half
+	// made (no VIEWS)
+	const { moveHistory } = require("../movelist/index.js");
+	const { moves, startFen } = moveHistory();
+	const key = `${fen}|${moves.length}|${startFen}|${game.playerColor}`;
+	if (key === shownTaken) { return; }
+	shownTaken = key;
+	board3D.setTaken(capturesAt(moves, startFen, fen), game.playerColor);
+}
+
+// Puts facings3D() on the 3D board when they or the position changed (a sync can move meshes onto other squares)
+function syncFacing3D(fen) {
+	const facings = facings3D();
+	const key = facings && fen + JSON.stringify(facings);
+	if (!facings || key === shownFacings) { return; }
+	shownFacings = key;
+	board3D.setFacing(facings);
+}
+
+/**
+ * @description Which way each king, queen, bishop, rook and knight faces, from the same lists the 2D board draws them by
+ * (w_piece / b_piece, w_knight / b_knight): an entry with a from last moved up or down ("up" toward rank 8), a knight's left or
+ * right ("right" toward the h-file). null when there's no game from the server yet
+ * @return {[object|null]} { w: { square: "up" | "down" | "left" | "right" | null }, b: { ... } }
+ */
+function facings3D() {
+	if (!game.response || !game.response.w_piece || !game.response.b_piece) { return null; }
+	return { w: facingsOf("w"), b: facingsOf("b") };
+}
+
+// One colour's facings, by square
+function facingsOf(color) {
+	const pieces = facingEntries(game.response[color + "_piece"], upOrDown);
+	const knights = facingEntries(game.response[color + "_knight"], leftOrRight);
+	return Object.fromEntries([...pieces, ...knights]);
+}
+
+// [square, facing] for each piece in a facing list (JSON) that stands somewhere; facing is null for one that never moved
+function facingEntries(list, direction) {
+	if (!list) { return []; }
+	return JSON.parse(list).filter((piece) => piece.to).map((piece) => [piece.to, piece.from ? direction(piece.from, piece.to) : null]);
+}
+
+function upOrDown(from, to) {
+	return to[1] > from[1] ? "up" : "down";
+}
+
+function leftOrRight(from, to) {
+	return to[0] > from[0] ? "right" : "left";
+}
+
+// The squares the player can pick a piece up from in a normal game, null while they can't act: the 3D hover only fades covering
+// pieces for those. The player's colour, not game.viewColor: Flip Board only turns the camera
+function pickable3D(fen) {
+	const open = !game.gameOver && game.response?.state !== "CLOSED" && !game.readOnly && !game.opposingMove && !game.currPromotion;
+	const key = `${fen}|${game.playerColor}|${open}`;
+	if (key !== pickableKey) {
+		pickableKey = key;
+		pickableNow = pickable({ board: chessInst.board(), player: game.playerColor, turn: chessInst.turn(), open });
+	}
+	return pickableNow;
+}
+
+/**
+ * @description The piece the player holds, as the 2D board lifts it: picked up by a click (clickedTile) or pressed
+ * (mousedownTile, the press is still down so it drags). Nothing once the board is locked for the move just sent (opposingMove)
+ * @return {[object|null]} { square, dragging } [its square ("e2"), null when nothing is held]
+ */
+function heldPiece() {
+	const tile = game.mousedownTile || game.clickedTile;
+	if (!tile || game.opposingMove) { return null; }
+	const square = tileToSquare(tile.originX, tile.originY, game.viewColor);
+	return square ? { square, dragging: Boolean(game.mousedownTile) } : null;
+}
+
+/* ---------------------------------------------------------------- */
+// Monitor
+/* ---------------------------------------------------------------- */
+/**
+ * @description What the 3D room's monitor works with, from gameplay/monitor (it can't be required here: it requires the menu,
+ * which requires this file). Every 3D board put up from now on gets them
+ * @param  {[object]} hooks [{ handlers, announce(text), onChange({ ready, state }) } (three/index.js mount()'s monitor option)
+ * and data(): the channels' data]
+ */
+export function setMonitorHooks(hooks) {
+	monitorHooks = hooks;
 }
 
 /**
@@ -256,40 +322,19 @@ export function focusMonitor3D(on) {
 }
 
 /**
- * @description The monitor's face reacts to a move or the result (AI games, gameplay/bots faceFor & endFaceFor). Does nothing on 2D,
- * but a result's face is remembered for a 3D board put up later
+ * @description The monitor's face reacts to a move or the result (AI games, gameplay/bots faceFor and endFaceFor). Does nothing
+ * on 2D, but a result's face is remembered for a 3D board put up later
  * @param  {[string]} name ["happy" | "sad" | "angry" | "won" | "lost" | "neutral" | null (no change)]
  */
 export function setFace(name) {
-	if (!name || name === heldFace) { return; } // THE MATING MOVE ALREADY SHOWED THE RESULT, GAME OVER DOESN'T START IT AGAIN
+	if (!name || name === heldFace) { return; } // The mating move already showed the result: game over doesn't start it again
 	heldFace = name === "won" || name === "lost" ? name : null;
 	if (board3D) { board3D.setFace(name); }
 }
 
-/**
- * @description Which way each king, queen, bishop, rook & knight faces, from the same lists the 2D board draws them by (w_piece / b_piece,
- * w_knight / b_knight): an entry with a from last moved up or down ("up" toward rank 8), a knight's left or right ("right" toward the h-file).
- * null when there's no game from the server yet
- * @return {[object|null]} { w: { square: "up" | "down" | "left" | "right" | null }, b: { ... } }
- */
-function facings3D() {
-	if (!game.response || !game.response.w_piece || !game.response.b_piece) { return null; }
-	const side = (list, dir) => (list ? JSON.parse(list).filter((p) => p.to).map((p) => [p.to, p.from ? dir(p.from, p.to) : null]) : []);
-	const upDown = (from, to) => (to[1] > from[1] ? "up" : "down");
-	const leftRight = (from, to) => (to[0] > from[0] ? "right" : "left");
-	const color = (c) => Object.fromEntries([...side(game.response[c + "_piece"], upDown), ...side(game.response[c + "_knight"], leftRight)]);
-	return { w: color("w"), b: color("b") };
-}
-
-// PUTS facings3D() ON THE 3D BOARD WHEN THEY OR THE POSITION CHANGED (A SYNC CAN MOVE MESHES ONTO OTHER SQUARES)
-function syncFacing3D(fen) {
-	const facings = facings3D();
-	const key = facings && fen + JSON.stringify(facings);
-	if (!facings || key === shownFacings) { return; }
-	shownFacings = key;
-	board3D.setFacing(facings);
-}
-
+/* ---------------------------------------------------------------- */
+// Pieces
+/* ---------------------------------------------------------------- */
 /**
  * @description The next position the 3D board is given is set at once, not slid (a replay's jump, a held key). Does nothing on 2D
  */
@@ -298,27 +343,27 @@ export function skipNextAnimation3D() {
 }
 
 /**
- * @description Restart & Rematch on 3D: the pieces glide home to chessInst (already the new game) in the 2D slide's time,
+ * @description Restart and Rematch on 3D: the pieces glide home to chessInst (already the new game) in the 2D slide's time,
  * pieces with no match fade in or out. With reduce motion on they're just set. Does nothing on 2D
  */
 export function glideHome3D() {
 	if (!board3D) { return; }
-	shownFen = chessInst.fen(); // SO drawBoard DOESN'T SET THEM AT ONCE WHEN THE NEW GAME TAKES OVER
+	shownFen = chessInst.fen(); // So drawBoard doesn't set them at once when the new game takes over
 	if (game.reduceMotion) { board3D.syncFromBoard(chessInst); }
 	else { board3D.glideHome(chessInst); }
 }
 
 /**
- * @description Reduce motion was just turned on: 3D's camera turn & piece slides in progress land at once. Reduce motion keeps 3D
- * (it doesn't switch to 2D), it only takes the motion out: Flip Board & Reset View set the camera, moves & restarts set the pieces
- * (drawBoard, glideHome3D). Only the player's own camera drags still move it. Does nothing on 2D
+ * @description Reduce motion was just turned on: 3D's camera turn and piece slides in progress land at once. Reduce motion keeps
+ * 3D (it doesn't switch to 2D), it only takes the motion out: Flip Board and Reset View set the camera, moves and restarts set the
+ * pieces (drawBoard, glideHome3D). Only the player's own camera drags still move it. Does nothing on 2D
  */
 export function stopMotion3D() {
 	if (board3D) { board3D.stopMotion(); }
 }
 
 /**
- * @description Resolves once the 3D board has drawn a frame with its squares in (the page fades in on it, #433). At once on 2D
+ * @description Resolves once the 3D board has drawn a frame with its squares in (the page fades in on it). At once on 2D
  * @return {[Promise<void>]}
  */
 export function whenDrawn3D() {
@@ -333,27 +378,34 @@ export function onCardPick(handler) {
 	cardPick = handler;
 }
 
+/* ---------------------------------------------------------------- */
+// Chess Cards Table
+/* ---------------------------------------------------------------- */
 /**
  * @description Sets what a Chess Cards game's picked hand card or square does on the 3D board (gameplay/cards/flow.js)
- * @param  {[function]} handler [(hit) => {}, hit is { kind: "hand", id } or { kind: "square", square } (a click or tap), { kind: "press", square } (the left mouse button went down on a square)
- * or { kind: "release", square } (it came up with a piece held: the square a drag was let go on, else null)]
+ * @param  {[function]} handler [(hit) => {}, hit is { kind: "hand", id } or { kind: "square", square } (a click or tap),
+ * { kind: "press", square } (the left mouse button went down on a square) or { kind: "release", square } (it came up with a
+ * piece held: the square a drag was let go on, else null)]
  */
 export function onTablePick(handler) {
 	tablePick = handler;
 }
 
 /**
- * @description The piece a Chess Cards game's mouse drag holds on the 3D board (gameplay/cards/flow.js pressSquare / releaseSquare), kept so every sync lifts it again (drawBoard)
+ * @description The piece a Chess Cards game's mouse drag holds on the 3D board (gameplay/cards/flow.js pressSquare /
+ * releaseSquare), kept so every sync lifts it again (drawBoard). Every pick (keys, tap, click) comes through here, so its
+ * status text shows
  * @param  {[string|null]} square [the held piece's square, null to put it back down]
  * @param  {[boolean]} dragging [the press is still down, so moving the pointer drags it]
  */
 export function holdTablePiece3D(square, dragging) {
 	tableHeld = square ? { square, dragging: Boolean(dragging) } : null;
-	if (board3D) { board3D.setHeld(square || null, Boolean(dragging)); board3D.pickStatuses(square || null); } // EVERY PICK (KEYS, TAP, CLICK) COMES THROUGH HERE: ITS STATUS TEXT SHOWS (RULING R4)
+	if (board3D) { board3D.setHeld(square || null, Boolean(dragging)); board3D.pickStatuses(square || null); }
 }
 
 /**
- * @description A Chess Cards drag let go on a square it plays to: the piece stands on that square at once, no longer held, as a normal game's drop lands; the move's slide starts & ends there (flow.js releaseSquare).
+ * @description A Chess Cards drag let go on a square it plays to: the piece stands on that square at once, no longer held, as a
+ * normal game's drop lands; the move's slide starts and ends there (flow.js releaseSquare).
  * holdTablePiece3D(square, false) then holdTablePiece3D(null) sends it home when the play isn't made
  */
 export function dropTablePiece3D(square) {
@@ -362,19 +414,46 @@ export function dropTablePiece3D(square) {
 }
 
 /**
- * @description A Chess Cards game's table on the 3D board (three/index.js setCardTable, liftCard / dropCard & highlightSquares). Kept for a board mounted later
+ * @description A Chess Cards game's table on the 3D board (three/index.js setCardTable, liftCard / dropCard and
+ * highlightSquares). Kept for a board mounted later
  * @param  {[object]} view [cards.view]
  * @param  {[array]} legal [cards.legal]
- * @param  {[object]} opts [{ pickable: the squares of the pieces the player can pick up, null while they can't act (the 3D hover's fade), catalog, focus: the keyboard's hand card, focusPile: the keyboard's pile, focusDuel: the keyboard's duel card (an index), dim: the hand cards drawn dimmer, lifted: the card being played, glow: its next squares, glowFocus: the keyboard's square }]
+ * @param  {[object]} opts [{ pickable: the squares of the pieces the player can pick up, null while they can't act (the 3D
+ * hover's fade), catalog, focus: the keyboard's hand card, focusPile: the keyboard's pile, focusDuel: the keyboard's duel card
+ * (an index), dim: the hand cards drawn dimmer, lifted: the card being played, glow: its next squares, glowFocus: the keyboard's
+ * square }]
  */
 export function setTable3D(view, legal, opts) {
 	table = { view, legal, opts };
 	applyTable3D();
 }
 
+function applyTable3D() {
+	if (!board3D || !table) { return; }
+	const { view, legal, opts } = table;
+	board3D.setCardTable(view, legal, {
+		catalog: opts.catalog,
+		focus: opts.focus,
+		focusPile: opts.focusPile,
+		focusDuel: opts.focusDuel,
+		dim: opts.dim,
+	});
+	if (opts.lifted) { board3D.liftCard(opts.lifted); }
+	else { board3D.dropCard(); }
+	board3D.highlightSquares(opts.glow || [], opts.glowFocus || null);
+}
+
+// flow.js lays a Chess Cards prompt's plaques again (its { kind: "table" }): a new 3D board (its room still loading, so the 2D
+// buttons show) or the room turned (Flip Board). The table coming up says so itself (three/index.js setCardTable)
+function tableUp() {
+	tableSide = game.viewColor;
+	tablePick?.({ kind: "table" });
+}
+
 /**
- * @description A Chess Cards game's card duel on the 3D board (three/index.js dealDuel, flipDuel & endDuel, gameplay/cards/flow.js): deals it or brings it to the view, turns a card up, ends it.
- * The duel dealt is kept for a board mounted later
+ * @description A Chess Cards game's card duel on the 3D board (three/index.js dealDuel, flipDuel and endDuel,
+ * gameplay/cards/flow.js): deals it or brings it to the view, turns a card up, ends it. The duel dealt is kept for a board
+ * mounted later
  * @param  {[object]} duel [view.duel]
  */
 export function dealDuel3D(duel) {
@@ -394,7 +473,7 @@ export function flipDuel3D(player, index, card, won) {
 }
 
 /**
- * @description The card duel is over on the 3D board (three/index.js endDuel), & none is kept for a board mounted later
+ * @description The card duel is over on the 3D board (three/index.js endDuel), and none is kept for a board mounted later
  */
 export function endDuel3D() {
 	tableDuel = null;
@@ -402,16 +481,22 @@ export function endDuel3D() {
 }
 
 /**
- * @description One of a Chess Cards answer's board steps (gameplay/cards/boardShow.js) on the 3D board (three/motion.js playBoardStep): a move, a swap, a take, a piece out to a square or back, a topple, a handover.
- * chessInst isn't changed: the answer's set step loads its view, & drawBoard then sets the pieces to it (they already stand there). At once on 2D & under reduce motion (the set lands the view)
+ * @description One of a Chess Cards answer's board steps (gameplay/cards/boardShow.js) on the 3D board (three/motion.js
+ * playBoardStep): a move, a swap, a take, a piece out to a square or back, a topple, a handover. chessInst isn't changed: the
+ * answer's set step loads its view, and drawBoard then sets the pieces to it (they already stand there). At once on 2D and under
+ * reduce motion (the set lands the view)
  * @param  {[object]} step [boardSteps']
  * @return {[Promise<void>]} [resolves when the step has ended]
  */
 export function boardStep3D(step) {
 	if (!board3D || game.reduceMotion) { return Promise.resolve(); }
-	if (table) { board3D.holdStatuses(table.view); } // ITS PIECES MOVE PAST THE TABLE'S VIEW: drawBoard DOESN'T SYNC THE STATUSES TO IT UNTIL THE set LANDS THE ANSWER'S (statusFx)
+	// Its pieces move past the table's view: drawBoard doesn't sync the statuses to it until the set lands the answer's (statusFx)
+	if (table) { board3D.holdStatuses(table.view); }
 	const done = board3D.playBoardStep(step);
-	if (step.op === "move") { shownTaken = null; syncTaken3D(); } // THE MOVE'S OWN TAKEN PIECE LEAVES AS A DRAWN MOVE'S DOES (drawBoard)
+	if (step.op === "move") { // The move's own taken piece leaves as a drawn move's does (drawBoard)
+		shownTaken = null;
+		syncTaken3D();
+	}
 	return done;
 }
 
@@ -432,10 +517,11 @@ export function tablePileOpen3D() {
 }
 
 /**
- * @description A Chess Cards prompt's brass plaques on the 3D table (three/index.js showTableButtons, gameplay/cards/flow.js showPrompt), [] takes them away
+ * @description A Chess Cards prompt's brass plaques on the 3D table (three/index.js showTableButtons, gameplay/cards/flow.js
+ * showPrompt), [] takes them away
  * @param  {[array]} list [[{ id, label }]]
  * @param  {[object|null]} anchor [tableLayout.js plaqueAnchor's]
- * @return {[boolean]} [the 3D table is up: false on 2D & while its room loads, the prompt keeps its 2D buttons]
+ * @return {[boolean]} [the 3D table is up: false on 2D and while its room loads, the prompt keeps its 2D buttons]
  */
 export function showTableButtons3D(list, anchor) {
 	return Boolean(board3D) && board3D.showTableButtons(list, anchor);
@@ -450,28 +536,16 @@ export function focusTableButton3D(index) {
 }
 
 /**
- * @description A plaque on the 3D table sinks & rises (three/index.js pressTableButton)
+ * @description A plaque on the 3D table sinks and rises (three/index.js pressTableButton)
  * @param  {[string]} id
  */
 export function pressTableButton3D(id) {
 	if (board3D) { board3D.pressTableButton(id); }
 }
 
-// flow.js LAYS A CHESS CARDS PROMPT'S PLAQUES AGAIN (ITS { kind: "table" }): A NEW 3D BOARD (ITS ROOM STILL LOADING: THE 2D BUTTONS SHOW) OR THE ROOM TURNED (FLIP BOARD). THE TABLE COMING UP SAYS SO ITSELF (three/index.js setCardTable)
-function tableUp() {
-	tableSide = game.viewColor;
-	tablePick?.({ kind: "table" });
-}
-
-function applyTable3D() {
-	if (!board3D || !table) { return; }
-	const { view, legal, opts } = table;
-	board3D.setCardTable(view, legal, { catalog: opts.catalog, focus: opts.focus, focusPile: opts.focusPile, focusDuel: opts.focusDuel, dim: opts.dim });
-	if (opts.lifted) { board3D.liftCard(opts.lifted); }
-	else { board3D.dropCard(); }
-	board3D.highlightSquares(opts.glow || [], opts.glowFocus || null);
-}
-
+/* ---------------------------------------------------------------- */
+// Camera
+/* ---------------------------------------------------------------- */
 /**
  * @description Which board is on
  * @return {[string]} [VIEWS.TWO_D or VIEWS.THREE_D]
@@ -491,7 +565,8 @@ export function resetCamera() {
 // Input
 /* ---------------------------------------------------------------- */
 /**
- * @description Listens on the board the player sees: the 2D canvas now & every 3D board put up later (its container goes away with it)
+ * @description Listens on the board the player sees: the 2D canvas now and every 3D board put up later (its container goes away
+ * with it)
  * @param  {[string]} type ["click", "touchstart", ...]
  * @param  {[function]} handler [the same handler for both boards]
  * @param  {[object]} options [addEventListener options]
@@ -504,7 +579,7 @@ export function addBoardListener(type, handler, options) {
 
 /**
  * @description The square under a pointer on the 3D board
- * @param  {[MouseEvent|object]} e [anything with clientX & clientY]
+ * @param  {[MouseEvent|object]} e [anything with clientX and clientY]
  * @return {[string|null]} ["e4", null off the board or on 2D]
  */
 export function squareUnder3D(e) {
@@ -523,54 +598,59 @@ export function isCameraGesture() {
 // Switch
 /* ---------------------------------------------------------------- */
 /**
- * @description Shows the 2D canvas or the 3D board, mid-game too: the one that's on is taken down, the other is put up & set to
- * the position. 3D that can't load or mount says why (status "view") & stays on 2D
+ * @description Shows the 2D canvas or the 3D board, mid-game too: the one that's on is taken down, the other is put up and set
+ * to the position. 3D that can't load or mount says why (status "view") and stays on 2D
  * @param  {[string]} view [VIEWS.TWO_D or VIEWS.THREE_D]
  * @return {[Promise<string>]} [the view that's on now]
  */
 export function setView(view) {
-	return queue(() => view === VIEWS.THREE_D && can3D() ? show3D() : show2D()); // TEMPORARY (can3D): A PHONE OR TABLET ALREADY IN 3D (SAVED, OR LEFT ON) GOES TO 2D
+	// Temporary (can3D): a phone or tablet already in 3D (saved, or left on) goes to 2D
+	return queueSwitch(function () {
+		return view === VIEWS.THREE_D && can3D() ? show3D() : show2D();
+	});
 }
 
 /* ---------------------------------------------------------------- */
 // Can 3D
 /* ---------------------------------------------------------------- */
 /**
- * @description TEMPORARY: until the 3D board's touch & remote controls are done. Can this screen turn 3D on? Not on a phone or tablet (a touch-first screen)
- * & not in remote-only mode (game.REMOTE_ONLY_CONDITIONAL). Remove it with its callers: setView(), watchTouchScreen(), loadView(), & setViewWords() & handleView() in gameplay/menu/index.js
+ * @description Temporary, until the 3D board's touch and remote controls are done. Can this screen turn 3D on? Not on a phone or
+ * tablet (a touch-first screen) and not in remote-only mode (game.REMOTE_ONLY_CONDITIONAL). Remove it with its callers: setView(),
+ * watchTouchScreen(), loadView(), and setViewWords() and handleView() in gameplay/menu/index.js
  * @return {[boolean]} can
  */
-export function can3D() { // TEMPORARY
-	if (game.REMOTE_ONLY_CONDITIONAL) { return false; } // THE REMOTE CAN'T WORK THE 3D CAMERA OR MONITOR YET
-	return !window.matchMedia("(pointer: coarse)").matches; // A TOUCH LAPTOP WITH A MOUSE OR TRACKPAD STILL HAS 3D
+export function can3D() { // Temporary
+	if (game.REMOTE_ONLY_CONDITIONAL) { return false; } // The remote can't work the 3D camera or monitor yet
+	return !window.matchMedia("(pointer: coarse)").matches; // A touch laptop with a mouse or trackpad still has 3D
 }
 
 /* ---------------------------------------------------------------- */
 // Watch Touch Screen
 /* ---------------------------------------------------------------- */
 /**
- * @description TEMPORARY, with can3D(). A screen that turns touch-first while 3D is on (a tablet's keyboard & trackpad taken off) switches to 2D by itself.
- * Either way the menu's View button is told (viewListener), so it says & does what this screen can
+ * @description Temporary, with can3D(). A screen that turns touch-first while 3D is on (a tablet's keyboard and trackpad taken
+ * off) switches to 2D by itself. Either way the menu's View button is told (viewListener), so it says and does what this screen can
  */
-function watchTouchScreen() { // TEMPORARY
+function watchTouchScreen() { // Temporary
 	if (typeof window == "undefined" || !window.matchMedia) { return; }
 	window.matchMedia("(pointer: coarse)").addEventListener("change", function () {
-		if (!can3D() && currentView() === VIEWS.THREE_D) { queue(show2D).then(viewListener); return; }
-		viewListener(currentView()); // THE BUTTON TURNS BACK ON (OR OFF) WITHOUT A SWITCH
+		if (!can3D() && currentView() === VIEWS.THREE_D) { queueSwitch(show2D).then(viewListener); return; }
+		viewListener(currentView()); // The button turns back on (or off) without a switch
 	});
 }
 watchTouchScreen();
 
 /**
- * @description Calls listener with the view that's on when the board switches by itself (3D lost its context for good & fell back to 2D)
+ * @description Calls listener with the view that's on when the board switches by itself (3D lost its context for good and fell
+ * back to 2D)
  * @param  {[function]} listener [(view) => {}]
  */
 export function onViewChange(listener) {
 	viewListener = listener;
 }
 
-// RUNS task AFTER THE LAST SWITCH, SO THE LAST PRESS WINS
-function queue(task) {
+// Runs task after the last switch, so the last press wins
+function queueSwitch(task) {
 	const next = (switching || Promise.resolve()).then(task);
 	switching = next;
 	next.finally(function () { if (switching === next) { switching = null; } });
@@ -580,16 +660,16 @@ function queue(task) {
 /* ---------------------------------------------------------------- */
 // Lost Context
 /* ---------------------------------------------------------------- */
-// THE 3D BOARD STOPPED DRAWING. TOO MANY LATELY: 2D, OTHERWISE A NEW BOARD GOES UP WHEN THE CONTEXT IS BACK (OR AFTER A WAIT)
+// The 3D board stopped drawing. Too many lately: 2D, otherwise a new board goes up when the context is back (or after a wait)
 function contextLost() {
 	const now = Date.now();
-	losses = losses.filter((t) => now - t < LOSS_WINDOW_MS).concat(now);
+	losses = losses.filter((time) => now - time < LOSS_WINDOW_MS).concat(now);
 	reportError("3D board lost its WebGL context", "3d-board");
 	if (losses.length >= MAX_LOSSES) { fallBack2D("3D board kept losing its graphics. Switched to 2D."); return; }
 	waitForRestore();
 }
 
-// WAITS RESTORE_WAIT_MS OF THE PAGE BEING SEEN (A HIDDEN PAGE DOESN'T COUNT), THEN REBUILDS EVEN IF THE CONTEXT ISN'T BACK
+// Waits RESTORE_WAIT_MS of the page being seen (a hidden page doesn't count), then rebuilds even if the context isn't back
 function waitForRestore() {
 	stopWaiting();
 	if (document.hidden) { document.addEventListener("visibilitychange", waitForRestore, { once: true }); return; }
@@ -602,19 +682,21 @@ function stopWaiting() {
 	document.removeEventListener("visibilitychange", waitForRestore);
 }
 
-// TAKES DOWN THE LOST BOARD & PUTS UP A NEW ONE AT THE CURRENT POSITION (show3D SYNCS IT). ONE THAT CAN'T START: 2D
+// Takes down the lost board and puts up a new one at the current position (show3D syncs it). One that can't start: 2D
 function rebuild3D() {
 	stopWaiting();
-	queue(function () {
-		if (!board3D) { return VIEWS.TWO_D; } // THE PLAYER WENT TO 2D MEANWHILE
+	queueSwitch(function () {
+		if (!board3D) { return VIEWS.TWO_D; } // The player went to 2D meanwhile
 		remove3D();
 		return show3D();
-	}).then((on) => { if (on !== VIEWS.THREE_D) { viewListener(on); } });
+	}).then(function (on) {
+		if (on !== VIEWS.THREE_D) { viewListener(on); }
+	});
 }
 
 function fallBack2D(message) {
 	stopWaiting();
-	queue(function () {
+	queueSwitch(function () {
 		showStatus("view", message, MESSAGE_TIME);
 		reportError(message, "3d-board");
 		return show2D();
@@ -623,21 +705,27 @@ function fallBack2D(message) {
 
 async function show3D() {
 	if (board3D) { return VIEWS.THREE_D; }
-	const board = await load3D(); // null: load3D ALREADY SAID WHY
+	const board = await load3D(); // null: load3D already said why
 	if (!board) { return show2D(); }
 	container = document.createElement("div");
 	container.id = "board3D";
 	container.style.width = container.style.height = "100%";
-	container.style.touchAction = "none"; // THE TOUCH HANDLERS OWN EVERY FINGER, NO SCROLL OR PINCH ZOOM OF THE PAGE
+	container.style.touchAction = "none"; // The touch handlers own every finger: no scroll or pinch zoom of the page
 	boardListeners.forEach(([type, handler, options]) => container.addEventListener(type, handler, options));
 	canvas.after(container);
 	try {
-		const monitor = monitorHooks && { handlers: monitorHooks.handlers, announce: monitorHooks.announce, onChange: monitorHooks.onChange };
-		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D, monitor, cards: { onPick: (type) => cardPick?.(type), onTable: (hit) => tablePick?.(hit), tableOn: () => !game.menuToggled } }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
+		const monitor = monitorHooks && {
+			handlers: monitorHooks.handlers,
+			announce: monitorHooks.announce,
+			onChange: monitorHooks.onChange,
+		};
+		const cards = { onPick: handleCardPick, onTable: handleTablePick, tableOn: isTableOn };
+		// Throws when the WebGL context can't be made
+		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D, monitor, cards });
 	} catch (err) {
 		console.warn("3D board failed to start", err);
 		reportError(`3D board couldn't start: ${err.message}`, "3d-board");
-		board.unmount(); // FREES WHATEVER IT MADE BEFORE IT THREW
+		board.unmount(); // Frees whatever it made before it threw
 		container.remove();
 		container = null;
 		showStatus("view", "3D board couldn't start. Staying on 2D.", MESSAGE_TIME);
@@ -652,33 +740,47 @@ async function show3D() {
 	syncFacing3D(shownFen);
 	shownMarks = null;
 	shownTaken = null;
-	shownPromotion = null; // A NEW BOARD'S CARDS ARE ON THE DECK
+	shownPromotion = null; // A new board's cards are on the deck
 	shownCardFocus = null;
 	game.cardFocus = null;
 	syncTaken3D();
 	shownScreen = null;
 	syncScreen3D();
-	shownMonitor = null; // A NEW BOARD (ONE REBUILT AFTER A LOST CONTEXT TOO) GETS THE DATA AGAIN
+	shownMonitor = null; // A new board (one rebuilt after a lost context too) gets the data again
 	syncMonitor3D();
 	applyTable3D();
 	tableUp();
 	if (tableDuel) { board3D.dealDuel(tableDuel); }
-	if (heldFace) { board3D.setFace(heldFace); } // THE GAME ENDED BEFORE THIS BOARD WENT UP
+	if (heldFace) { board3D.setFace(heldFace); } // The game ended before this board went up
 	game.refresh = true;
 	requestFrame();
 	return VIEWS.THREE_D;
 }
 
+// The 3D board's card callbacks read cardPick and tablePick when they're called, so a handler set after the mount still hears it.
+// The answer goes back to the 3D board (flow.js says whether a card can be held or zoomed)
+function handleCardPick(type) {
+	return cardPick?.(type);
+}
+
+function handleTablePick(hit) {
+	return tablePick?.(hit);
+}
+
+// The table takes clicks only while the menu is closed
+function isTableOn() {
+	return !game.menuToggled;
+}
+
 /**
- * @description On 3D the 2D canvas lies over the 3D board, the same size & place as on 2D, clear except for the taken piece trays
- * (the promotion picker while promoting, game.traysOnly), so they stay where they are on 2D (trayNudge too). Pointer input goes
- * through it to the 3D board, input finds the picker from the canvas position (gameplay/input)
+ * @description On 3D the 2D canvas lies over the 3D board, the same size and place as on 2D, clear except for the taken piece
+ * trays (the promotion picker while promoting, game.traysOnly), so they stay where they are on 2D (trayNudge too). Pointer input
+ * goes through it to the 3D board; input finds the picker from the canvas position (gameplay/input)
  * @param  {[boolean]} on [true for 3D, false puts it back in the page as the 2D board]
  */
-let tableImage = null; // THE 2D CANVAS'S CSS TABLE BACKGROUND, TAKEN OFF ON 3D (IT'S OPAQUE & WOULD HIDE THE 3D BOARD), PUT BACK ON 2D
 function overlayCanvas(on) {
 	game.traysOnly = on;
-	if (on) { canvas.setAttribute("aria-hidden", "true"); } // ONLY TRAYS ON 3D: SCREEN READERS GET THE 3D CANVAS'S LABEL, NOT A SECOND BOARD
+	if (on) { canvas.setAttribute("aria-hidden", "true"); } // Only trays on 3D: screen readers get the 3D canvas's label, not a second board
 	else { canvas.removeAttribute("aria-hidden"); }
 	if (on && tableImage === null) { tableImage = canvas.style.backgroundImage; }
 	Object.assign(canvas.style, on
@@ -687,10 +789,10 @@ function overlayCanvas(on) {
 	if (!on) { tableImage = null; }
 }
 
-// TAKES THE 3D BOARD & ITS CONTAINER DOWN, THE 2D CANVAS STAYS AS IT IS
+// Takes the 3D board and its container down; the 2D canvas stays as it is
 function remove3D() {
 	stopWaiting();
-	game.cards3D = false; // NO BOARD, NO CARDS: THE FLAT PICKER SHOWS UNTIL A NEW ONE'S ROOM HAS THEM
+	game.cards3D = false; // No board, no cards: the flat picker shows until a new one's room has them
 	if (board3D) {
 		board3D.unmount();
 		board3D = null;
@@ -704,8 +806,8 @@ function remove3D() {
 function show2D() {
 	remove3D();
 	overlayCanvas(false);
-	game.cards3D = false; // 2D HAS ITS FLAT PICKER
-	game.refresh = true; // REDRAW THE WHOLE CANVAS, IT ONLY HAD THE TRAYS ON 3D
+	game.cards3D = false; // 2D has its flat picker
+	game.refresh = true; // Redraw the whole canvas, it only had the trays on 3D
 	requestFrame();
 	return VIEWS.TWO_D;
 }

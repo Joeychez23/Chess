@@ -37,11 +37,11 @@ const Q = SPOTS[0], N = SPOTS[3];
 
 /* ---- the pure hit test, in the room's own units on the baize ---- */
 
-test("A4: the dead zone is a small margin, under half a card width", () => {
+test("the dead zone is a small margin, under half a card width", () => {
 	assert.ok(PROMOTION_DEAD_ZONE > 0 && PROMOTION_DEAD_ZONE < 0.5);
 });
 
-test("A4: a point on a dealt card, or within the margin round it, is in the dead zone", () => {
+test("a point on a dealt card, or within the margin round it, is in the dead zone", () => {
 	for (const s of SPOTS) { assert.equal(inPromotionDeadZone({ x: s.x, z: s.z }), true); }
 	assert.equal(inPromotionDeadZone({ x: Q.x + CARD_SIZE.w / 2 + MARGIN * 0.9, z: Q.z }), true); // JUST PAST THE QUEEN'S LONG EDGE
 	assert.equal(inPromotionDeadZone({ x: Q.x, z: Q.z - CARD_SIZE.h / 2 - MARGIN * 0.9 }), true); // JUST PAST THE QUEEN'S TOP
@@ -49,7 +49,7 @@ test("A4: a point on a dealt card, or within the margin round it, is in the dead
 	assert.equal(inPromotionDeadZone({ x: Q.x, z: (SPOTS[1].z + SPOTS[2].z) / 2 }), true); // THE GAP BETWEEN TWO CARDS
 });
 
-test("A4: a point past the margin, the board, the far desk or no point at all is outside it", () => {
+test("a point past the margin, the board, the far desk or no point at all is outside it", () => {
 	assert.equal(inPromotionDeadZone({ x: Q.x + CARD_SIZE.w / 2 + MARGIN * 1.1, z: Q.z }), false);
 	assert.equal(inPromotionDeadZone({ x: Q.x, z: Q.z - CARD_SIZE.h / 2 - MARGIN * 1.1 }), false);
 	assert.equal(inPromotionDeadZone({ x: 0, z: 0 }), false); // THE BOARD'S CENTRE
@@ -91,7 +91,7 @@ function tapAt(x, z, type = "mouse") {
 }
 const desk = (calls) => calls.filter((c) => c.kind === "desk");
 
-test("A4: cards out, a click on the bare desk sends onTable({ kind: \"desk\" }) once, with no other fields, & stops the click", () => {
+test("cards out, a click on the bare desk sends onTable({ kind: \"desk\" }) once, with no other fields, & stops the click", () => {
 	const { calls } = setup();
 	const e = tapAt(Q.x + CARD_SIZE.w / 2 + MARGIN + 2, Q.z);
 	onClick(e);
@@ -99,7 +99,7 @@ test("A4: cards out, a click on the bare desk sends onTable({ kind: \"desk\" }) 
 	assert.equal(e.stopped, true);
 });
 
-test("A4: cards out, a click just off a card (inside the dead zone) is swallowed: no call, stopped", () => {
+test("cards out, a click just off a card (inside the dead zone) is swallowed: no call, stopped", () => {
 	const { calls } = setup();
 	const e = tapAt(Q.x + CARD_SIZE.w / 2 + MARGIN / 2, Q.z);
 	onClick(e);
@@ -107,7 +107,7 @@ test("A4: cards out, a click just off a card (inside the dead zone) is swallowed
 	assert.equal(e.stopped, true);
 });
 
-test("A4: the dead zone turns with the room (Black's side)", () => {
+test("the dead zone turns with the room (Black's side)", () => {
 	const { calls } = setup({ turned: true });
 	onClick(tapAt(N.x - CARD_SIZE.w / 2 - MARGIN / 2, N.z));
 	assert.deepEqual(calls, []);
@@ -115,7 +115,7 @@ test("A4: the dead zone turns with the room (Black's side)", () => {
 	assert.deepEqual(desk(calls), [{ kind: "desk" }]);
 });
 
-test("A4: a finger's tap on the bare desk cancels too, not stopped (the camera controls need their pointerup)", () => {
+test("a finger's tap on the bare desk cancels too, not stopped (the camera controls need their pointerup)", () => {
 	const { calls } = setup();
 	view.touches = new Set([1]);
 	view.multiTouch = false;
@@ -125,7 +125,7 @@ test("A4: a finger's tap on the bare desk cancels too, not stopped (the camera c
 	assert.equal(e.stopped, false);
 });
 
-test("A4: cards not out, a click on the bare desk is unchanged: no call, not stopped", () => {
+test("cards not out, a click on the bare desk is unchanged: no call, not stopped", () => {
 	const { calls } = setup({ dealt: false });
 	const e = tapAt(Q.x + CARD_SIZE.w / 2 + MARGIN + 2, Q.z);
 	onClick(e);
@@ -133,7 +133,7 @@ test("A4: cards not out, a click on the bare desk is unchanged: no call, not sto
 	assert.equal(e.stopped, false);
 });
 
-test("A4: cards out, a square, a pile, a plaque, an open pile & a zoom keep their own answer (no desk)", () => {
+test("cards out, a square, a pile, a plaque, an open pile & a zoom keep their own answer (no desk)", () => {
 	let { calls } = setup();
 	view.squareAt = "e4";
 	onClick(tapAt(0, 0));
@@ -159,7 +159,7 @@ test("A4: cards out, a square, a pile, a plaque, an open pile & a zoom keep thei
 	assert.equal(e.stopped, true);
 });
 
-test("A4: cards out but the monitor isn't on the desk: no desk call (the monitor's tap)", () => {
+test("cards out but the monitor isn't on the desk: no desk call (the monitor's tap)", () => {
 	const { calls } = setup({ idle: false });
 	view.monitor = { state: "zoomed", pointer() {}, leave() {} };
 	view.leaving = [];
@@ -169,14 +169,14 @@ test("A4: cards out but the monitor isn't on the desk: no desk call (the monitor
 
 /* ---- T25-M5: the A4 reviewer's probes (scratch-t25-A4-review/probe2.test.cjs P2 to P5) ---- */
 
-test("T25-M5 P2: a camera gesture under way: no desk call", () => {
+test("a camera gesture under way: no desk call", () => {
 	const { calls } = setup();
 	view.cameraGesture = true;
 	onClick(tapAt(10, 10));
 	assert.deepEqual(calls, []);
 });
 
-test("T25-M5 P3: a drag (let go far from the press): no desk call", () => {
+test("a drag (let go far from the press): no desk call", () => {
 	const { calls } = setup();
 	const e = tapAt(10, 10);
 	view.press = { x: e.clientX - 200, y: e.clientY, time: 0 };
@@ -184,7 +184,7 @@ test("T25-M5 P3: a drag (let go far from the press): no desk call", () => {
 	assert.deepEqual(calls, []);
 });
 
-test("T25-M5 P4: a tap on a promotion card picks it, no desk call", () => {
+test("a tap on a promotion card picks it, no desk call", () => {
 	const { calls } = setup();
 	const picks = [];
 	view.cards.hit = () => 2;
@@ -199,12 +199,12 @@ test("T25-M5 P4: a tap on a promotion card picks it, no desk call", () => {
 const { PROMOTION_DEAD_ZONE_TOUCH } = require("../src/js/gameplay/three/pointer.js");
 const TOUCH_MARGIN = 0.5 * CARD_SIZE.w;
 
-test("F7 B3: the mouse's dead zone is 0.25 card widths, a finger's or pen's 0.5", () => {
+test("the mouse's dead zone is 0.25 card widths, a finger's or pen's 0.5", () => {
 	assert.equal(PROMOTION_DEAD_ZONE, 0.25);
 	assert.equal(PROMOTION_DEAD_ZONE_TOUCH, 0.5);
 });
 
-test("F7 B3: inPromotionDeadZone takes the margin in card widths, the mouse's by default", () => {
+test("inPromotionDeadZone takes the margin in card widths, the mouse's by default", () => {
 	const between = { x: Q.x + CARD_SIZE.w / 2 + (MARGIN + TOUCH_MARGIN) / 2, z: Q.z }; // PAST THE MOUSE'S MARGIN, INSIDE A FINGER'S
 	assert.equal(inPromotionDeadZone(between), false);
 	assert.equal(inPromotionDeadZone(between, PROMOTION_DEAD_ZONE), false);
@@ -213,7 +213,7 @@ test("F7 B3: inPromotionDeadZone takes the margin in card widths, the mouse's by
 	assert.equal(inPromotionDeadZone(null, PROMOTION_DEAD_ZONE_TOUCH), false);
 });
 
-test("F7 B3: between the two margins a click cancels, a finger's or a pen's tap is swallowed", () => {
+test("between the two margins a click cancels, a finger's or a pen's tap is swallowed", () => {
 	const x = Q.x + CARD_SIZE.w / 2 + (MARGIN + TOUCH_MARGIN) / 2;
 	let { calls } = setup();
 	onClick(tapAt(x, Q.z));
@@ -232,7 +232,7 @@ test("F7 B3: between the two margins a click cancels, a finger's or a pen's tap 
 	assert.deepEqual(calls, [{ kind: "desk" }]);
 });
 
-test("T25-M5 P5: a normal game (no card table): no call, not stopped", () => {
+test("a normal game (no card table): no call, not stopped", () => {
 	setup();
 	const calls = [];
 	view.table = null;
@@ -243,7 +243,7 @@ test("T25-M5 P5: a normal game (no card table): no call, not stopped", () => {
 	assert.equal(e.stopped, false);
 });
 
-test("20e C M4: the board has no hover while the card game's menu is open (cardOptions.tableOn false), as a click there isn't the board's; it has it again once the menu shuts", () => {
+test("the board has no hover while the card game's menu is open (cardOptions.tableOn false), as a click there isn't the board's; it has it again once the menu shuts", () => {
 	setup();
 	const e = tapAt(0, 0);
 	hoverBoard(e);

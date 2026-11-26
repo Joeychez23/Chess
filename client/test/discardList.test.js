@@ -1,4 +1,4 @@
-// The discard list on the real table (Task 21a A): createCardTable with real three.js in node, the harness of cardTableDuel.test.js (a stub DOM, a stand-in card template, the tweens stepped by hand)
+// The discard list on the real table (Task 21a A): createCardTable with real three.js in node, the harness of cardTable-duel.test.js (a stub DOM, a stand-in card template, the animations stepped by hand)
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -14,7 +14,7 @@ global.document = {
 };
 const THREE = require("../../node_modules/three/build/three.module.js"); // THE SAME COPY cardTable.js IMPORTS
 const { createCardTable } = require("../src/js/gameplay/three/cardTable.js");
-const { createTweens } = require("../src/js/gameplay/three/tween.js");
+const { createAnimations } = require("../src/js/gameplay/three/animations.js");
 const { DISCARD, columnBox, tableSpots } = require("../src/js/gameplay/three/tableLayout.js");
 const { CARD_BACK, CARD_LIGHT } = require("../src/js/gameplay/three/cards.js");
 const { GOLD } = require("../src/js/gameplay/three/cardLayout.js");
@@ -32,10 +32,10 @@ const move = (id) => ({ id, key: "move", piece: "p" });
 const LIST = { kind: "pile", pile: "discard", id: null };
 
 test("either discard pile, face-down top too, hits as the discard list; togglePile opens it beside them, framed, & again closes it, the table as it was (the taps that call it are pointer.js's, untested here)", () => {
-	const room = new THREE.Group(), tweens = createTweens(() => {}), framed = [];
+	const room = new THREE.Group(), animations = createAnimations(() => {}), framed = [];
 	let now = 0;
-	const table = createCardTable({ template: template(), room, tweens, requestRender() {}, frame: (box) => framed.push(box) });
-	const run = () => { while (tweens.step((now += 16))) { /* TO THE END */ } room.updateMatrixWorld(true); };
+	const table = createCardTable({ template: template(), room, animations, requestRender() {}, frame: (box) => framed.push(box) });
+	const run = () => { while (animations.step((now += 16))) { /* TO THE END */ } room.updateMatrixWorld(true); };
 	const view = {
 		you: "w", effects: [], piled: [{ player: "b", card: { down: true } }, { player: "w", card: move("m6") }, { player: "w", card: move("m5") }],
 		players: { w: { king: true, moves: [], actives: [], passive: null, curses: [], spot: [], pile: { n: 2, top: move("m6") }, kept: null }, b: { king: true, hand: { count: 0, shown: [] }, spot: [], pile: { n: 1, top: { down: true } }, kept: null } },
@@ -60,17 +60,17 @@ test("either discard pile, face-down top too, hits as the discard list; togglePi
 	table.dispose();
 });
 
-test("a hidden card of the opened list lies face up, its face painted as its back with its owner's name bar (Card Guy's: along the top), untinted as the piles' backs (fix round 1, I1)", () => {
-	const room = new THREE.Group(), tweens = createTweens(() => {});
+test("a hidden card of the opened list lies face up, its face painted as its back with its owner's name bar (Card Guy's: along the top), untinted as the piles' backs", () => {
+	const room = new THREE.Group(), animations = createAnimations(() => {});
 	let now = 0;
-	const table = createCardTable({ template: template(), room, tweens, requestRender() {} });
+	const table = createCardTable({ template: template(), room, animations, requestRender() {} });
 	const view = {
 		you: "w", effects: [], piled: [{ player: "b", card: { down: true } }, { player: "w", card: move("m6") }],
 		players: { w: { king: true, moves: [], actives: [], passive: null, curses: [], spot: [], pile: { n: 1, top: move("m6") }, kept: null }, b: { king: true, hand: { count: 0, shown: [] }, spot: [], pile: { n: 1, top: { down: true } }, kept: null } },
 	};
 	table.set(view, {});
 	table.togglePile("discard");
-	while (tweens.step((now += 16))) { /* TO THE END */ }
+	while (animations.step((now += 16))) { /* TO THE END */ }
 	const at = tableSpots(view, { open: "discard", base: 0, layer: 0 }), card = (key) => room.children.find((o) => o.position.x === at.get(key).x && o.position.z === at.get(key).z);
 	const back = card("log:0"), face = back.children[0], rects = face.material.map.image.rects; // THE TEMPLATE'S FIRST CHILD IS ITS FACE
 	assert.equal(Math.abs(back.rotation.z), 0, "not turned over: a turned-over card shows the plain back, no bar");
@@ -80,12 +80,12 @@ test("a hidden card of the opened list lies face up, its face painted as its bac
 	table.dispose();
 });
 
-test("the keyboard's discard stop frames the player's own pile top while it has a card, else Card Guy's, whichever top the table made first (fix round 1, M3)", () => {
-	const room = new THREE.Group(), tweens = createTweens(() => {});
+test("the keyboard's discard stop frames the player's own pile top while it has a card, else Card Guy's, whichever top the table made first", () => {
+	const room = new THREE.Group(), animations = createAnimations(() => {});
 	let now = 0;
-	const table = createCardTable({ template: template(), room, tweens, requestRender() {} }), frame = room.children[0]; // THE TABLE'S FIRST CHILD: THE KEYBOARD'S GOLD FRAME
+	const table = createCardTable({ template: template(), room, animations, requestRender() {} }), frame = room.children[0]; // THE TABLE'S FIRST CHILD: THE KEYBOARD'S GOLD FRAME
 	const view = (mine) => ({ you: "w", effects: [], piled: [], players: { w: { king: true, moves: [], actives: [], passive: null, curses: [], spot: [], pile: mine, kept: null }, b: { king: true, hand: { count: 0, shown: [] }, spot: [], pile: { n: 1, top: { down: true } }, kept: null } } });
-	const show = (mine) => { table.set(view(mine), { focusPile: "discard" }); while (tweens.step((now += 16))) { /* TO THE END */ } };
+	const show = (mine) => { table.set(view(mine), { focusPile: "discard" }); while (animations.step((now += 16))) { /* TO THE END */ } };
 	show({ n: 0, top: null });
 	assert.ok(frame.visible);
 	assert.deepEqual([frame.position.x, frame.position.z], [DISCARD.his.x, DISCARD.his.z], "yours empty: Card Guy's");

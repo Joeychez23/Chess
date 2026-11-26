@@ -12,7 +12,7 @@ const assert = require("node:assert/strict");
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const service = require("./helpers/service.js");
 const { call, player, peek } = service;
-const db = require("../dynamoDB.js");
+const db = require("../db/index.js");
 
 let server;
 before(async () => { server = await service.start(); });
@@ -27,7 +27,7 @@ const bob = player("bob");
 /* ---------------------------------------------------------------- */
 
 const SETTINGS = { ai_level: 5, ai_color: "b", friend_color: "random" };
-const friendGame = (gameId, white, black, pending) => db.initalizeGame(gameId, white, black, false, { names: { w: white, b: black }, pending, start_params: { color: "w" }, inviter_id: white });
+const friendGame = (gameId, white, black, pending) => db.initializeGame(gameId, white, black, false, { names: { w: white, b: black }, pending, start_params: { color: "w" }, inviter_id: white });
 
 /**
  * @description Makes a request that must be refused & checks the rows named didn't change
@@ -51,7 +51,7 @@ describe("GET /users/me", () => {
 		const first = await call("GET", "/users/me?consistent=true", { as: alice });
 		assert.deepEqual(JSON.parse(first.user_data.open_games.S), []);
 		assert.equal(first.user_data.sid, undefined);
-		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		const response = await call("GET", "/users/me?consistent=true", { as: alice });
 		assert.equal(response.user_data.user_id.S, "alice");
 		assert.deepEqual(JSON.parse(response.user_data.open_games.S), ["game1"]);
@@ -59,10 +59,10 @@ describe("GET /users/me", () => {
 	});
 
 	test("with games: the open AI and friend games and the invites, expired ones pruned", async () => {
-		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		await friendGame("game2", "alice", "bob");
 		await friendGame("invite1", "bob", "alice", true);
-		await db.initalizeGame("game3", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game3", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		await new DynamoDB({ region: "us-west-2" }).deleteItem({ TableName: "chess_db", Key: { game_id: { S: "game3" } } }); // TTL DELETED IT, IT'S STILL IN HER LIST
 		const user = (await call("GET", "/users/me?games=true", { as: alice })).user_data;
 		assert.equal(user.ai_game_id, "game1"); // THE NEWEST AI GAME THAT'S STILL THERE
@@ -167,14 +167,14 @@ describe("POST /users/me/delete", () => {
 		await call("POST", "/users/me/username", { as: bob, body: { username: "Bobby" } });
 		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
 		await call("POST", "/users/me/friends/request", { as: alice, body: { username: "Bobby" } });
-		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		assert.equal((await call("POST", "/users/me/delete", { as: alice })).http, 409);
 		assert.deepEqual(JSON.parse(peek("user_db", "bob").friend_lists.S).received, ["alice"]);
 	});
 
 	test("refused while the player still has an open game or an invite", async () => {
 		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
-		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		await refused(["alice", "username#alice_k"], "POST", "/users/me/delete", { as: alice }, 409);
 		await call("POST", "/games/game1/forfeit", { as: alice });
 		await friendGame("game2", "bob", "alice");
@@ -186,7 +186,7 @@ describe("POST /users/me/delete", () => {
 
 	test("refused when the open games can't be read (a throttled or failed batch read)", async () => {
 		await call("POST", "/users/me/username", { as: alice, body: { username: "Alice_K" } });
-		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		service.failBatchReads(true);
 		await refused(["alice", "username#alice_k"], "POST", "/users/me/delete", { as: alice }, 500);
 		assert.equal((await call("GET", "/users/me?games=true", { as: alice })).http, 500); // HOME TOO, NOT AN EMPTY LIST
@@ -205,7 +205,7 @@ describe("POST /users/me/delete", () => {
 	});
 
 	test("a game on their list that they're not in is pruned & doesn't block it", async () => {
-		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		await new DynamoDB({}).putItem({ TableName: "chess_db", Item: { ...peek("chess_db", "game1"), white_player_id: { S: "bob" } } }); // REPLACED UNDER ALICE'S LIST (BEFORE CREATES WERE CONDITIONAL)
 		assert.equal((await call("GET", "/users/me?games=true", { as: alice })).user_data.ai_game_id, null);
 		assert.deepEqual(JSON.parse(peek("user_db", "alice").open_games.S), []);

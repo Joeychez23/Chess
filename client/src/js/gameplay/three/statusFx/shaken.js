@@ -1,251 +1,413 @@
-// Status effect: Shaken (can't capture). One lightning cage per turn left over the piece's head (one for a permanent Shaken, ruling Q2), steel blue (#b9cde4 bolts over a #2c5a94 glow),
-// each cage's core the "Bolt through ring" glyph (art/Glyphs/simple/shaken-core-picks.html, design N1, its brush engine rebuilt here). A bolt strikes about every second; the piece never
-// moves & there is no aura. T24: each strike forks (shorter-lived side branches), the bolts glow (a white core, a steel-blue halo, BLOOM_LAYER unless opts.cheap) & the cages read from the opening camera. A turn passing bursts the last cage, as does the status ending (burst). The contract & opts are statusFx/index.js's (see its @description)
-import { Group, Sprite, SpriteMaterial, CanvasTexture, SRGBColorSpace, LineSegments, LineBasicMaterial, Points, PointsMaterial, BufferGeometry, Float32BufferAttribute, AdditiveBlending } from "three";
+// Status effect: Shaken (can't capture). One lightning cage per turn left over the piece's head (one for a permanent
+// Shaken), steel blue (#b9cde4 bolts over a #2c5a94 glow). Each cage's core is the "Bolt through ring" glyph
+// (art/Glyphs/simple/shaken-core-picks.html, design N1, its brush engine rebuilt here). A bolt strikes about every second;
+// the piece never moves and there is no aura. Each strike forks into shorter-lived side branches, the bolts glow (a white
+// core, a steel-blue halo, on BLOOM_LAYER unless opts.cheap) and the cages read from the opening camera. A turn passing
+// bursts the last cage, as does the status ending (burst). The contract and opts are statusFx/index.js's (see its @description)
+import { Group, Sprite, SpriteMaterial, CanvasTexture, SRGBColorSpace, LineSegments, LineBasicMaterial, Points, PointsMaterial,
+	BufferGeometry, Float32BufferAttribute, AdditiveBlending } from "three";
 import { CELL_SIZE, BLOOM_LAYER } from "../constants.js";
 import { skullMap } from "./marked.js";
 import { dotTexture, pointSize } from "./warded.js";
-import * as shakenFlash from "./shakenFlash.js"; // A CYCLE (IT IMPORTS OUR CONSTANTS): ONLY USED AT RUN TIME
+// An import cycle (shakenFlash.js imports our constants): only used at run time, never while either module loads
+import * as shakenFlash from "./shakenFlash.js";
 
-export const STRIKE = 1; // SECONDS BETWEEN BOLT STRIKES (THE CAGES TAKE TURNS)
-export const FLASH = 0.25; // SECONDS A STRIKE'S FLASH TAKES TO FADE
-export const BURST = 0.45; // SECONDS A BURSTING CAGE PLAYS: IT SWELLS & FADES
-export const CAGE = CELL_SIZE * 0.44; // A CAGE'S HEIGHT ON THE BOARD (WORLD UNITS) AT 1-2 CAGES: ABOUT 32 PX FROM THE CHESS CARDS OPENING CAMERA ON A 1440x900 WINDOW (WAS 0.32, ABOUT 24 PX)
-export const GAP = 0.9; // CAGES SIDE BY SIDE, IN CAGE SIZES FROM ONE'S MIDDLE TO THE NEXT'S
-export const OVER = 0.1; // HOW FAR OVER THE PIECE'S TOP (PIECE UNITS)
-const ROW = CELL_SIZE * 0.95, WIDE = 1.12; // A ROW'S WIDTH AT MOST (RULING T24-R10); A CAGE'S WIDTH IN CAGE SIZES (BARS BOW OUT 0.48 EITHER SIDE, HALO DOTS 0.08 MORE)
-const REST = 0.55; // THE BOLTS' OPACITY BETWEEN STRIKES (WAS 0.4: TOO FAINT FROM THE OPENING CAMERA)
-const PX = 128; // THE GLYPH'S CANVAS SIDE
-const MAX = 3; // CAGES DRAWN AT MOST (RULING R15): A LONGER SHAKEN SHOWS 3, THE HOVER TEXT HAS THE NUMBER
-const BARS = 4, STEPS = 5; // A CAGE'S BOLTS & THE JAGGED STEPS IN EACH: 40 LINE VERTICES A CAGE
-export const MAIN_VERTS = BARS * STEPS * 2;
-export const FORKS = 4, FORK_VERTS = 2 * 2; // SIDE BRANCHES A STRIKE THROWS OFF, 2 JAGGED STEPS EACH: SAME GEOMETRY & DRAW AS THE BARS, SHOWN BY ITS DRAW RANGE
-export const FORK_S = 0.12; // SECONDS A STRIKE'S FORKS LAST (UNDER FLASH: THEY FLICKER OUT FIRST)
-const FORK_DIM = 0.5; // A FORK'S VERTEX COLOUR AGAINST THE BAR'S 1: LINE WIDTH IS ALWAYS 1 PX IN WebGL, SO "THINNER" IS DIMMER
-const CORE = "#eef4ff", HALO = "#3d6fae", HALO_SIZE = 0.16; // A NEAR-WHITE CORE LINE; A STEEL-BLUE HALO OF SOFT DOTS ON ITS JOINTS (CAGE UNITS ACROSS)
-const PAL = { halo: "rgba(44,90,148,", body: "rgba(95,135,195,", core: "rgba(185,205,228,", spark: "rgba(200,220,245," }; // #2c5a94 GLOW, #b9cde4 CORE
+// Seconds between bolt strikes (the cages take turns)
+export const STRIKE_SECONDS = 1;
+// Seconds a strike's flash takes to fade
+export const FLASH_SECONDS = 0.25;
+// Seconds a bursting cage plays: it swells and fades
+export const BURST_SECONDS = 0.45;
+// A cage's height on the board (world units) at 1-2 cages: about 32 px from the Chess Cards opening camera on a
+// 1440x900 window (it was 0.32, about 24 px)
+export const CAGE_HEIGHT = CELL_SIZE * 0.44;
+// Cages side by side, in cage sizes from one's middle to the next's
+export const CAGE_SPACING = 0.9;
+// How far over the piece's top the cages float (piece units)
+export const CAGE_LIFT = 0.1;
+// A row of cages is never wider than this, so the row stays over its own square
+const ROW_MAX_WIDTH = CELL_SIZE * 0.95;
+// A cage's width in cage sizes: the bolts bow out 0.48 either side, the halo dots 0.08 more
+const CAGE_WIDTH = 1.12;
+// The bolts' opacity between strikes (it was 0.4: too faint from the opening camera)
+const BOLT_REST_OPACITY = 0.55;
+// The glyph's canvas side
+const GLYPH_CANVAS_PX = 128;
+// Cages drawn at most: a longer Shaken still shows 3, the hover text has the number
+const MAX_CAGES = 3;
+// A cage's bolts and the jagged steps in each: 40 line vertices a cage
+const CAGE_BOLTS = 4;
+const BOLT_STEPS = 5;
+export const MAIN_VERTS = CAGE_BOLTS * BOLT_STEPS * 2;
+// Side branches a strike throws off, 2 jagged steps each: the same geometry and draw call as the bolts, shown by its draw range
+export const STRIKE_FORKS = 4;
+export const FORK_VERTS = 2 * 2;
+// Seconds a strike's forks last (under FLASH_SECONDS: they flicker out first)
+export const FORK_S = 0.12;
+// A fork's vertex colour against the bolt's 1: line width is always 1 px in WebGL, so "thinner" means dimmer
+const FORK_DIM = 0.5;
+// A near-white core line, and a steel-blue halo of soft dots on its joints (HALO_SIZE: cage units across)
+const CORE_COLOR = "#eef4ff";
+const HALO_COLOR = "#3d6fae";
+const HALO_SIZE = 0.16;
+// The glyph's brush colours: a #2c5a94 glow, a #b9cde4 core
+const GLOW_COLORS = { halo: "rgba(44,90,148,", body: "rgba(95,135,195,", core: "rgba(185,205,228,", spark: "rgba(200,220,245," };
 
 /**
- * @description How many cages Shaken shows: one per turn left up to MAX (ruling R15), one for a permanent status (left null, ruling Q2)
+ * @description How many cages Shaken shows: one per turn left, up to MAX_CAGES, and one for a permanent status (left null)
  * @param  {[number|null]} left
  * @return {[number]}
  */
-export const cageCount = (left) => (left === null || left === undefined ? 1 : Math.min(MAX, Math.max(0, left)));
+export function cageCount(left) {
+	return left === null || left === undefined ? 1 : Math.min(MAX_CAGES, Math.max(0, left));
+}
 
 /**
- * @description A bolt strike's flash, t seconds after it: 1 at the strike, down to 0 at FLASH, a straight fade
+ * @description A bolt strike's flash, t seconds after it: 1 at the strike, down to 0 at FLASH_SECONDS, a straight fade
  * @param  {[number]} t
  * @return {[number]} 0..1
  */
-export const flash = (t) => Math.max(0, 1 - t / FLASH);
+export function flash(t) {
+	return Math.max(0, 1 - t / FLASH_SECONDS);
+}
 
 /**
- * @description The cage row's layout for n cages: a cage's size (world units) & cage i's x off the row's middle (world units). CAGE until n cages would pass ROW, then smaller so they fit (ruling T24-R10)
+ * @description The cage row's layout for n cages: a cage's size (world units) and cage i's x off the row's middle (world units).
+ * CAGE_HEIGHT until n cages would be wider than ROW_MAX_WIDTH, then smaller so they fit
  * @param  {[number]} n
  * @param  {[number]} i
  * @return {[object]} { size, x }
  */
 export function cageLayout(n, i = 0) {
-	const size = Math.min(CAGE, ROW / (Math.max(0, n - 1) * GAP + WIDE));
-	return { size, x: (i - (n - 1) / 2) * GAP * size };
+	const size = Math.min(CAGE_HEIGHT, ROW_MAX_WIDTH / (Math.max(0, n - 1) * CAGE_SPACING + CAGE_WIDTH));
+	return { size, x: (i - (n - 1) / 2) * CAGE_SPACING * size };
 }
 
 /**
- * @description How many forks a cage draws t seconds after its strike: all FORKS until FORK_S, half (rounded up) when cheap, then none
+ * @description How many forks a cage draws t seconds after its strike: all STRIKE_FORKS until FORK_S (half, rounded up, when cheap), then none
  * @param  {[number]} t
  * @param  {[boolean]} cheap [opts.cheap]
  * @return {[number]}
  */
-export const forks = (t, cheap) => (t < FORK_S ? (cheap ? Math.ceil(FORKS / 2) : FORKS) : 0);
+export function forks(t, cheap) {
+	return t < FORK_S ? (cheap ? Math.ceil(STRIKE_FORKS / 2) : STRIKE_FORKS) : 0;
+}
 
 /**
- * @description A bursting cage's look t seconds in: it swells to 1.8 times its size & fades out by BURST
+ * @description A bursting cage's look t seconds in: it swells to 1.8 times its size and fades out by BURST_SECONDS
  * @param  {[number]} t
  * @return {[object]} { scale, opacity }
  */
 export function burstLook(t) {
-	const k = Math.min(1, t / BURST);
-	return { scale: 1 + 0.8 * k, opacity: 1 - k };
+	const progress = Math.min(1, t / BURST_SECONDS);
+	return { scale: 1 + 0.8 * progress, opacity: 1 - progress };
 }
 
-// ---- THE GLYPH: N1'S BRUSH (A FILLED RIBBON IN THREE GLOW LAYERS) ON A ROUGHENED PATH, DRAWN ONCE TO A CANVAS ----
-const rnd = (a, b) => a + Math.random() * (b - a);
-const sample = (fn, n) => Array.from({ length: n + 1 }, (_, i) => fn(i / n));
-const seg = (ax, ay, bx, by, n) => sample((t) => [ax + (bx - ax) * t, ay + (by - ay) * t], n);
-function normal(pts, i) {
-	const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
-	return [-dy / l, dx / l];
+/* ---- The glyph: design N1's brush (a filled ribbon in three glow layers) on a roughened path, drawn once to a canvas ---- */
+
+function rnd(a, b) {
+	return a + Math.random() * (b - a);
 }
-// A HAND'S WOBBLE: A SLOW DRIFT ALONG THE NORMAL & A LITTLE JITTER
-function rough(pts, amt) {
-	const f1 = rnd(0, 6), f2 = rnd(0, 6), k1 = rnd(2, 4), k2 = rnd(5, 9);
+
+function sample(fn, n) {
+	return Array.from({ length: n + 1 }, (_, i) => fn(i / n));
+}
+
+function seg(ax, ay, bx, by, n) {
+	return sample((t) => [ax + (bx - ax) * t, ay + (by - ay) * t], n);
+}
+
+function normal(pts, i) {
+	const a = pts[Math.max(0, i - 1)];
+	const b = pts[Math.min(pts.length - 1, i + 1)];
+	const dx = b[0] - a[0];
+	const dy = b[1] - a[1];
+	const length = Math.hypot(dx, dy) || 1;
+	return [-dy / length, dx / length];
+}
+
+// A hand's wobble: a slow drift along the normal and a little jitter
+function rough(pts, amount) {
+	const phase1 = rnd(0, 6);
+	const phase2 = rnd(0, 6);
+	const waves1 = rnd(2, 4);
+	const waves2 = rnd(5, 9);
 	return pts.map(([x, y], i) => {
-		const t = i / pts.length, d = amt * (0.7 * Math.sin(t * k1 * Math.PI + f1) + 0.3 * Math.sin(t * k2 * Math.PI + f2)), [nx, ny] = normal(pts, i);
-		return [x + nx * d + rnd(-0.4, 0.4), y + ny * d + rnd(-0.4, 0.4)];
+		const t = i / pts.length;
+		const drift = amount * (0.7 * Math.sin(t * waves1 * Math.PI + phase1) + 0.3 * Math.sin(t * waves2 * Math.PI + phase2));
+		const [nx, ny] = normal(pts, i);
+		return [x + nx * drift + rnd(-0.4, 0.4), y + ny * drift + rnd(-0.4, 0.4)];
 	});
 }
-// A ZIGZAG FROM a TO b IN k LEGS, amp OUT TO EITHER SIDE
-function jag(ax, ay, bx, by, k, amp) {
-	const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy), nx = -dy / len, ny = dx / len, corners = [[ax, ay]];
-	for (let i = 1; i < k; i++) { const s = (i % 2 ? 1 : -1) * amp * rnd(0.5, 1.2); corners.push([ax + dx * i / k + nx * s, ay + dy * i / k + ny * s]); }
+
+// A zigzag from a to b in `legs` legs, amp out to either side
+function jag(ax, ay, bx, by, legs, amp) {
+	const dx = bx - ax;
+	const dy = by - ay;
+	const length = Math.hypot(dx, dy);
+	const nx = -dy / length;
+	const ny = dx / length;
+	const corners = [[ax, ay]];
+	for (let i = 1; i < legs; i++) {
+		const side = (i % 2 ? 1 : -1) * amp * rnd(0.5, 1.2);
+		corners.push([ax + dx * i / legs + nx * side, ay + dy * i / legs + ny * side]);
+	}
 	corners.push([bx, by]);
 	return corners.slice(1).flatMap((c, i) => seg(...corners[i], ...c, 6));
 }
-function ribbon(x, pts, w, taper) {
-	const L = [], R = [], n = pts.length;
+
+function ribbon(ctx, pts, width, taper) {
+	const left = [];
+	const right = [];
+	const n = pts.length;
 	pts.forEach((p, i) => {
-		const t = i / (n - 1), swell = taper ? Math.pow(Math.sin(Math.PI * t), 0.55) : 1, ww = w * (0.35 + 0.65 * swell) * (0.85 + 0.3 * Math.sin(t * 9 + w)), [nx, ny] = normal(pts, i);
-		L.push([p[0] + nx * ww, p[1] + ny * ww]);
-		R.push([p[0] - nx * ww, p[1] - ny * ww]);
+		const t = i / (n - 1);
+		const swell = taper ? Math.pow(Math.sin(Math.PI * t), 0.55) : 1;
+		const halfWidth = width * (0.35 + 0.65 * swell) * (0.85 + 0.3 * Math.sin(t * 9 + width));
+		const [nx, ny] = normal(pts, i);
+		left.push([p[0] + nx * halfWidth, p[1] + ny * halfWidth]);
+		right.push([p[0] - nx * halfWidth, p[1] - ny * halfWidth]);
 	});
-	x.beginPath();
-	x.moveTo(...L[0]);
-	L.forEach((p) => x.lineTo(...p));
-	R.reverse().forEach((p) => x.lineTo(...p));
-	x.closePath();
-	x.fill();
+	ctx.beginPath();
+	ctx.moveTo(...left[0]);
+	left.forEach((p) => ctx.lineTo(...p));
+	right.reverse().forEach((p) => ctx.lineTo(...p));
+	ctx.closePath();
+	ctx.fill();
 }
-// ONE STROKE: A WIDE HALO, THE BODY, A HOT CORE (shadowBlur IGNORES THE TRANSFORM, SO IT'S SCALED BY k: THE CANVAS OVER THE MOCKUP'S 560 PX), AN ENGRAVED LINE ON A HEAVY ONE, EMBER SPARKS
-function stroke(x, k, pts, w, hair) {
-	x.save();
-	x.globalCompositeOperation = "lighter";
-	x.shadowColor = PAL.halo + "1)"; x.shadowBlur = 34 * k; x.fillStyle = PAL.halo + "0.35)"; ribbon(x, pts, w * 2.6, !hair);
-	x.shadowBlur = 14 * k; x.fillStyle = PAL.body + "0.85)"; ribbon(x, pts, w, !hair);
-	x.shadowBlur = 6 * k; x.shadowColor = PAL.core + "1)"; x.fillStyle = PAL.core + "0.95)"; ribbon(x, pts, w * 0.38, !hair);
-	x.restore();
+
+// One stroke: a wide halo, the body, a hot core, an engraved line on a heavy one, ember sparks.
+// shadowBlur ignores the transform, so it is scaled by blurScale: the canvas over the mockup's 560 px
+function stroke(ctx, blurScale, pts, width, hair) {
+	ctx.save();
+	ctx.globalCompositeOperation = "lighter";
+	ctx.shadowColor = GLOW_COLORS.halo + "1)";
+	ctx.shadowBlur = 34 * blurScale;
+	ctx.fillStyle = GLOW_COLORS.halo + "0.35)";
+	ribbon(ctx, pts, width * 2.6, !hair);
+	ctx.shadowBlur = 14 * blurScale;
+	ctx.fillStyle = GLOW_COLORS.body + "0.85)";
+	ribbon(ctx, pts, width, !hair);
+	ctx.shadowBlur = 6 * blurScale;
+	ctx.shadowColor = GLOW_COLORS.core + "1)";
+	ctx.fillStyle = GLOW_COLORS.core + "0.95)";
+	ribbon(ctx, pts, width * 0.38, !hair);
+	ctx.restore();
 	if (!hair) {
-		x.save();
-		x.globalCompositeOperation = "destination-out";
-		x.lineWidth = 1.1;
-		x.strokeStyle = "rgba(0,0,0,0.55)";
-		const off = pts.map((p, i) => { const [nx, ny] = normal(pts, i); return [p[0] + nx * w * 0.55, p[1] + ny * w * 0.55]; });
-		x.beginPath();
-		x.moveTo(...off[2]);
-		off.slice(3, -3).forEach((p) => x.lineTo(...p));
-		x.stroke();
-		x.restore();
+		ctx.save();
+		ctx.globalCompositeOperation = "destination-out";
+		ctx.lineWidth = 1.1;
+		ctx.strokeStyle = "rgba(0,0,0,0.55)";
+		const offset = pts.map((p, i) => {
+			const [nx, ny] = normal(pts, i);
+			return [p[0] + nx * width * 0.55, p[1] + ny * width * 0.55];
+		});
+		ctx.beginPath();
+		ctx.moveTo(...offset[2]);
+		offset.slice(3, -3).forEach((p) => ctx.lineTo(...p));
+		ctx.stroke();
+		ctx.restore();
 	}
-	dots(x, pts, Math.floor(pts.length / 5), w * 2, 0.6, 2.2);
+	dots(ctx, pts, Math.floor(pts.length / 5), width * 2, 0.6, 2.2);
 }
-function dots(x, pts, n, spread, r0, r1) {
-	x.save();
-	x.globalCompositeOperation = "lighter";
+
+function dots(ctx, pts, n, spread, r0, r1) {
+	ctx.save();
+	ctx.globalCompositeOperation = "lighter";
 	for (let i = 0; i < n; i++) {
 		const p = pts[Math.floor(rnd(0, pts.length))];
-		x.fillStyle = PAL.spark + rnd(0.3, 0.9) + ")";
-		x.beginPath();
-		x.arc(p[0] + rnd(-spread, spread), p[1] + rnd(-spread, spread), rnd(r0, r1), 0, Math.PI * 2);
-		x.fill();
+		ctx.fillStyle = GLOW_COLORS.spark + rnd(0.3, 0.9) + ")";
+		ctx.beginPath();
+		ctx.arc(p[0] + rnd(-spread, spread), p[1] + rnd(-spread, spread), rnd(r0, r1), 0, Math.PI * 2);
+		ctx.fill();
 	}
-	x.restore();
+	ctx.restore();
 }
-// KNOCK A LINE OR SMALL BITES OUT OF WHAT'S DRAWN: THE RING PASSING OVER THE BOLT, THE WORN EDGES
-function cut(x, draw) { x.save(); x.globalCompositeOperation = "destination-out"; x.fillStyle = x.strokeStyle = "rgba(0,0,0,1)"; draw(); x.restore(); }
+
+// Knock a line or small bites out of what is drawn: the ring passing over the bolt, the worn edges
+function cut(ctx, draw) {
+	ctx.save();
+	ctx.globalCompositeOperation = "destination-out";
+	ctx.fillStyle = ctx.strokeStyle = "rgba(0,0,0,1)";
+	draw();
+	ctx.restore();
+}
 
 /**
- * @description Draws design N1, "Bolt through ring", on a 2D context S px square: a hairline ring, a heavy jagged bolt through it (behind the ring at the top, in front at the bottom),
- * dust on the ring's front & worn chips. Coordinates are the mockup's (a 280 unit square)
- * @param  {[CanvasRenderingContext2D]} x
- * @param  {[number]} S
+ * @description Draws design N1, "Bolt through ring", on a 2D context `size` px square: a hairline ring, a heavy jagged bolt through it
+ * (behind the ring at the top, in front at the bottom), dust on the ring's front and worn chips. Coordinates are the mockup's
+ * (a 280 unit square)
+ * @param  {[CanvasRenderingContext2D]} ctx
+ * @param  {[number]} size
  */
-function drawGlyph(x, S) {
-	const k = S / 280, ring = rough(sample((t) => [Math.cos(t * 6.3) * 70, Math.sin(t * 6.3) * 70], 140), 1.5), back = ring.slice(70), front = ring.slice(0, 71);
-	x.clearRect(0, 0, S, S);
-	x.translate(S / 2, S / 2);
-	x.scale(k, k);
-	x.lineCap = x.lineJoin = "round";
-	stroke(x, S / 560, back, 2.2, true); // THE MOCKUP'S BLURS ARE PX ON ITS 560 PX CANVAS, NOT GLYPH UNITS
-	stroke(x, S / 560, rough(jag(-55, -100, 50, 100, 5, 20), 1), 8, false);
-	cut(x, () => { x.lineWidth = 2.2 * 1.4 * 3.2; x.beginPath(); x.moveTo(...front[0]); front.forEach((p) => x.lineTo(...p)); x.stroke(); });
-	stroke(x, S / 560, front, 2.2, true);
-	dots(x, front, 18, 6, 0.4, 1.8);
-	cut(x, () => { for (let i = 0; i < 90; i++) { x.globalAlpha = rnd(0.2, 0.7); x.beginPath(); x.arc(rnd(-120, 120), rnd(-120, 120), rnd(0.6, 2.6), 0, Math.PI * 2); x.fill(); } });
-	// A DARK SOFT DISC BEHIND IT ALL, SO THE BLUE READS ON THE LIGHT SQUARES TOO (THE OPENING CAMERA IS FAR BACK)
-	x.globalCompositeOperation = "destination-over";
-	x.fillStyle = "rgba(6,12,24,0.13)"; // 6 STACKED DISCS: ABOUT 0.57 DARK AT THE MIDDLE, FADING OUT TO r 120
-	for (let r = 120; r >= 45; r -= 15) { x.beginPath(); x.arc(0, 0, r, 0, Math.PI * 2); x.fill(); }
-	x.globalCompositeOperation = "source-over";
+function drawGlyph(ctx, size) {
+	const scale = size / 280;
+	const ring = rough(sample((t) => [Math.cos(t * 6.3) * 70, Math.sin(t * 6.3) * 70], 140), 1.5);
+	const back = ring.slice(70);
+	const front = ring.slice(0, 71);
+	ctx.clearRect(0, 0, size, size);
+	ctx.translate(size / 2, size / 2);
+	ctx.scale(scale, scale);
+	ctx.lineCap = ctx.lineJoin = "round";
+	// The mockup's blurs are px on its 560 px canvas, not glyph units
+	stroke(ctx, size / 560, back, 2.2, true);
+	stroke(ctx, size / 560, rough(jag(-55, -100, 50, 100, 5, 20), 1), 8, false);
+	cut(ctx, function () {
+		ctx.lineWidth = 2.2 * 1.4 * 3.2;
+		ctx.beginPath();
+		ctx.moveTo(...front[0]);
+		front.forEach((p) => ctx.lineTo(...p));
+		ctx.stroke();
+	});
+	stroke(ctx, size / 560, front, 2.2, true);
+	dots(ctx, front, 18, 6, 0.4, 1.8);
+	cut(ctx, function () {
+		for (let i = 0; i < 90; i++) {
+			ctx.globalAlpha = rnd(0.2, 0.7);
+			ctx.beginPath();
+			ctx.arc(rnd(-120, 120), rnd(-120, 120), rnd(0.6, 2.6), 0, Math.PI * 2);
+			ctx.fill();
+		}
+	});
+	// A dark soft disc behind it all, so the blue reads on the light squares too (the opening camera is far back)
+	ctx.globalCompositeOperation = "destination-over";
+	// 6 stacked discs: about 0.57 dark at the middle, fading out to radius 120
+	ctx.fillStyle = "rgba(6,12,24,0.13)";
+	for (let r = 120; r >= 45; r -= 15) {
+		ctx.beginPath();
+		ctx.arc(0, 0, r, 0, Math.PI * 2);
+		ctx.fill();
+	}
+	ctx.globalCompositeOperation = "source-over";
 }
 
-// THE GLYPH TEXTURE & THE HALO'S DOT, ONE EACH FOR EVERY SHAKEN EFFECT (HERETICAL SUBJECTION SHAKES UP TO 16 PIECES IN ONE SYNC): MADE FOR THE FIRST USER, FREED WITH THE LAST
-let glyph = null, dot = null, users = 0;
+// The glyph texture and the halo's dot, one each for every Shaken effect (Heretical Subjection shakes up to 16 pieces in one sync):
+// made for the first user, freed with the last
+let glyph = null;
+let dot = null;
+let users = 0;
+
 function useGlyph() {
 	if (!users++) {
 		const canvas = document.createElement("canvas");
-		canvas.width = canvas.height = PX;
-		drawGlyph(canvas.getContext("2d"), PX);
+		canvas.width = canvas.height = GLYPH_CANVAS_PX;
+		drawGlyph(canvas.getContext("2d"), GLYPH_CANVAS_PX);
 		glyph = new CanvasTexture(canvas);
 		glyph.colorSpace = SRGBColorSpace;
 		dot = dotTexture();
 	}
 	return glyph;
 }
+
 function dropGlyph() {
-	if (!--users) { glyph.dispose(); dot.dispose(); glyph = dot = null; }
+	if (!--users) {
+		glyph.dispose();
+		dot.dispose();
+		glyph = dot = null;
+	}
 }
 
-// A CAGE'S BOLTS: BARS JAGGED STRANDS FROM ITS TOP TO ITS BOTTOM, BOWED OUT ROUND THE CORE (CAGE UNITS: 1 HIGH, CENTRED). REDRAWN ON EACH STRIKE SO THE LIGHTNING MOVES
+// A cage's bolts: CAGE_BOLTS jagged strands from its top to its bottom, bowed out round the core (cage units: 1 high, centred).
+// Redrawn on each strike so the lightning moves
 function boltPoints(out) {
-	let o = 0;
-	for (let b = 0; b < BARS; b++) {
-		const a0 = (b / BARS) * Math.PI * 2 + rnd(-0.3, 0.3);
+	let offset = 0;
+	for (let bolt = 0; bolt < CAGE_BOLTS; bolt++) {
+		const angle0 = (bolt / CAGE_BOLTS) * Math.PI * 2 + rnd(-0.3, 0.3);
 		let prev = [0, 0.5, 0];
-		for (let i = 1; i <= STEPS; i++) {
-			const t = i / STEPS, r = Math.sin(Math.PI * t) * 0.42 + (i < STEPS ? rnd(-0.06, 0.06) : 0), a = a0 + (i < STEPS ? rnd(-0.25, 0.25) : 0);
+		for (let i = 1; i <= BOLT_STEPS; i++) {
+			const t = i / BOLT_STEPS;
+			const r = Math.sin(Math.PI * t) * 0.42 + (i < BOLT_STEPS ? rnd(-0.06, 0.06) : 0);
+			const a = angle0 + (i < BOLT_STEPS ? rnd(-0.25, 0.25) : 0);
 			const p = [Math.cos(a) * r, 0.5 - t, Math.sin(a) * r];
-			out.set(prev, o); out.set(p, o + 3); o += 6;
+			out.set(prev, offset);
+			out.set(p, offset + 3);
+			offset += 6;
 			prev = p;
 		}
 	}
-	// FORKS: EACH FROM A RANDOM INNER JOINT OF A BAR, OUT & DOWN IN 2 SHORT JAGGED STEPS
-	for (let f = 0; f < FORKS; f++) {
-		const j = (Math.floor(rnd(0, BARS)) * STEPS + Math.floor(rnd(1, STEPS))) * 6 - 3; // THE END OF A BAR'S STEP 1..STEPS-1
-		let prev = [out[j], out[j + 1], out[j + 2]];
+	// Forks: each from a random inner joint of a bolt, out and down in 2 short jagged steps
+	for (let fork = 0; fork < STRIKE_FORKS; fork++) {
+		// The end of a bolt's step 1..BOLT_STEPS-1
+		const joint = (Math.floor(rnd(0, CAGE_BOLTS)) * BOLT_STEPS + Math.floor(rnd(1, BOLT_STEPS))) * 6 - 3;
+		let prev = [out[joint], out[joint + 1], out[joint + 2]];
 		const a = Math.atan2(prev[2], prev[0]) + rnd(-0.6, 0.6);
 		for (let i = 0; i < 2; i++) {
 			const p = [prev[0] + Math.cos(a) * rnd(0.06, 0.12), prev[1] - rnd(0.04, 0.1), prev[2] + Math.sin(a) * rnd(0.06, 0.12)];
-			out.set(prev, o); out.set(p, o + 3); o += 6;
+			out.set(prev, offset);
+			out.set(p, offset + 3);
+			offset += 6;
 			prev = p;
 		}
 	}
 	return out;
 }
-const VERTS = MAIN_VERTS + FORKS * FORK_VERTS;
-const COLORS = Float32Array.from({ length: VERTS * 3 }, (_, i) => (i < MAIN_VERTS * 3 ? 1 : FORK_DIM)); // COPIED INTO EACH CAGE: THREE MAY HOLD THE ARRAY
-// THE HALO'S DOTS, EACH JOINT ONCE (A LineSegments JOINT IS 2 VERTICES & ALL BARS SHARE THE TOP & BOTTOM): THE TOP, EACH BAR'S INNER JOINTS, THE BOTTOM, THEN EACH FORK'S 2 ENDS
+
+const CAGE_VERTS = MAIN_VERTS + STRIKE_FORKS * FORK_VERTS;
+// Copied into each cage: three may hold on to the array
+const VERTEX_COLORS = Float32Array.from({ length: CAGE_VERTS * 3 }, (_, i) => (i < MAIN_VERTS * 3 ? 1 : FORK_DIM));
+// The halo's dots, each joint once (a LineSegments joint is 2 vertices and all bolts share the top and bottom):
+// the top, each bolt's inner joints, the bottom, then each fork's 2 ends
 const HALO_INDEX = [0];
-for (let b = 0; b < BARS; b++) { for (let s = 0; s < STEPS - 1; s++) { HALO_INDEX.push((b * STEPS + s) * 2 + 1); } }
-HALO_INDEX.push(STEPS * 2 - 1);
+for (let bolt = 0; bolt < CAGE_BOLTS; bolt++) {
+	for (let step = 0; step < BOLT_STEPS - 1; step++) {
+		HALO_INDEX.push((bolt * BOLT_STEPS + step) * 2 + 1);
+	}
+}
+HALO_INDEX.push(BOLT_STEPS * 2 - 1);
 const HALO_MAIN = HALO_INDEX.length;
-for (let f = 0; f < FORKS; f++) { HALO_INDEX.push(MAIN_VERTS + f * FORK_VERTS + 1, MAIN_VERTS + f * FORK_VERTS + 3); }
+for (let fork = 0; fork < STRIKE_FORKS; fork++) {
+	HALO_INDEX.push(MAIN_VERTS + fork * FORK_VERTS + 1, MAIN_VERTS + fork * FORK_VERTS + 3);
+}
 
 function makeCage(texture) {
 	const group = new Group();
 	const core = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
 	core.scale.setScalar(0.8);
 	const geometry = new BufferGeometry();
-	geometry.setAttribute("position", new Float32BufferAttribute(boltPoints(new Float32Array(VERTS * 3)), 3));
-	geometry.setAttribute("color", new Float32BufferAttribute(COLORS.slice(), 3));
+	geometry.setAttribute("position", new Float32BufferAttribute(boltPoints(new Float32Array(CAGE_VERTS * 3)), 3));
+	geometry.setAttribute("color", new Float32BufferAttribute(VERTEX_COLORS.slice(), 3));
 	geometry.setDrawRange(0, MAIN_VERTS);
-	const bolts = new LineSegments(geometry, new LineBasicMaterial({ color: CORE, vertexColors: true, transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending, fog: false })); // fog: SEE wardedMotes.js
+	// fog: false, see wardedMotes.js
+	const bolts = new LineSegments(geometry, new LineBasicMaterial({
+		color: CORE_COLOR, vertexColors: true, transparent: true, opacity: BOLT_REST_OPACITY, depthWrite: false,
+		blending: AdditiveBlending, fog: false,
+	}));
 	bolts.name = "bolts";
-	const dots = new BufferGeometry(); // ITS OWN INDEX (COPIED PER CAGE, FREED WITH IT) OVER THE BOLTS' POSITIONS
-	dots.setAttribute("position", geometry.attributes.position);
-	dots.setIndex(HALO_INDEX.slice());
-	dots.setDrawRange(0, HALO_MAIN);
-	const halo = new Points(dots, new PointsMaterial({ color: HALO, map: dot, transparent: true, opacity: REST, depthWrite: false, blending: AdditiveBlending, fog: false }));
+	// Its own index (copied per cage, freed with it) over the bolts' positions
+	const haloGeometry = new BufferGeometry();
+	haloGeometry.setAttribute("position", geometry.attributes.position);
+	haloGeometry.setIndex(HALO_INDEX.slice());
+	haloGeometry.setDrawRange(0, HALO_MAIN);
+	const halo = new Points(haloGeometry, new PointsMaterial({
+		color: HALO_COLOR, map: dot, transparent: true, opacity: BOLT_REST_OPACITY, depthWrite: false,
+		blending: AdditiveBlending, fog: false,
+	}));
 	halo.name = "halo";
 	group.add(core, halo, bolts);
 	return { group, core, bolts, halo, t: 0 };
 }
-const glowOn = (o, on) => (on ? o.layers.enable(BLOOM_LAYER) : o.layers.disable(BLOOM_LAYER)); // LAYER 0 STAYS: IT STILL DRAWS NORMALLY
-function freeCage(c) { c.group.removeFromParent(); c.core.material.dispose(); c.bolts.geometry.dispose(); c.halo.geometry.dispose(); c.bolts.material.dispose(); c.halo.material.dispose(); }
+
+// Layer 0 stays on: the object still draws normally, the bloom pass adds its glow
+function glowOn(object, on) {
+	return on ? object.layers.enable(BLOOM_LAYER) : object.layers.disable(BLOOM_LAYER);
+}
+
+function freeCage(cage) {
+	cage.group.removeFromParent();
+	cage.core.material.dispose();
+	cage.bolts.geometry.dispose();
+	cage.halo.geometry.dispose();
+	cage.bolts.material.dispose();
+	cage.halo.material.dispose();
+}
 
 /**
- * @description Shaken's cages, in a row in opts.root over the piece's head (they follow its lift, drag & drop). The row follows opts.left; a cage it loses bursts (none under opts.reduce),
- * the others keep their places until it's gone. While the piece is also Marked (opts.siblings), the centre cage's core is Marked's skull (ruling 09:19; of two, the left one)
+ * @description Shaken's cages, in a row in opts.root over the piece's head (they follow its lift, drag and drop). The row follows
+ * opts.left; a cage it loses bursts (none under opts.reduce), the others keep their places until it's gone. While the piece is also Marked
+ * (opts.siblings), the centre cage's core is Marked's skull (of two, the left one)
  * @param  {[Mesh]} pieceMesh [unused: opts.mesh is the current one]
- * @param  {[object]} opts [statusFx/index.js's: { s, id, left, by, square, mode, slot, slots, mesh, root, squareRoot, reduce, cheap, fresh }, updated in place]
+ * @param  {[object]} opts [statusFx/index.js's: { s, id, left, by, square, mode, slot, slots, mesh, root, squareRoot, reduce, cheap,
+ * fresh }, updated in place]
  * @return {[object]} { update(dt), burst(), animating(), dispose() }
  */
 export function create(pieceMesh, opts) {
@@ -253,94 +415,143 @@ export function create(pieceMesh, opts) {
 	const row = new Group();
 	row.name = "shakenCages";
 	opts.root.add(row);
-	const cages = [], dying = [];
-	let fl = shakenFlash.make(pieceMesh, opts, dot); // THE STRIKE FLASH: STRUCK FROM OUR STRIKE BRANCH BELOW (ONE CLOCK), GONE ON burst()
-	opts.root.add(fl.object);
-	opts.squareRoot.add(fl.ground);
-	let clock = 0, since = FLASH, striking = 0, ended = false, skull = null, slots = 0, dotSize = 0; // ended: burst() WAS CALLED, opts.left STAYS AT ITS LAST VALUE. skull: MADE ON FIRST NEED. slots: THE ROW'S LAID-OUT COUNT
-	function glow(c) { // HOISTED, NOT A CLOSURE PER FRAME. UNDER CHEAP THE HALO IS HIDDEN (RULING T24-R9)
-		glowOn(c.bolts, !opts.cheap);
-		glowOn(c.halo, !opts.cheap);
-		c.halo.visible = !opts.cheap;
-		c.halo.material.size = dotSize;
+	const cages = [];
+	const dying = [];
+	// The strike flash: struck from our strike branch below (one clock), gone on burst()
+	let strikeFlash = shakenFlash.make(pieceMesh, opts, dot);
+	opts.root.add(strikeFlash.object);
+	opts.squareRoot.add(strikeFlash.ground);
+	let clock = 0;
+	let since = FLASH_SECONDS;
+	let striking = 0;
+	// burst() was called: opts.left stays at its last value
+	let ended = false;
+	// Marked's skull, made on first need
+	let skull = null;
+	// The row's laid-out cage count
+	let slots = 0;
+	let dotSize = 0;
+
+	// A declaration, not a closure made each frame. Under cheap the halo is hidden
+	function glow(cage) {
+		glowOn(cage.bolts, !opts.cheap);
+		glowOn(cage.halo, !opts.cheap);
+		cage.halo.visible = !opts.cheap;
+		cage.halo.material.size = dotSize;
 	}
 
-	function lose(c) {
-		if (opts.reduce) { freeCage(c); } else { c.t = 0; dying.push(c); }
+	function lose(cage) {
+		if (opts.reduce) {
+			freeCage(cage);
+		} else {
+			cage.t = 0;
+			dying.push(cage);
+		}
 	}
-	let laid = -1, laidSize = 0; // THE CAGE COUNT THE ROW WAS LAST LAID OUT FOR & ITS CAGE SIZE
+
+	// The cage count the row was last laid out for, and its cage size
+	let laid = -1;
+	let laidSize = 0;
+
 	function update(dt) {
-		const n = ended ? 0 : cageCount(opts.left);
+		const count = ended ? 0 : cageCount(opts.left);
 		let grew = false;
-		while (cages.length > n) { lose(cages.pop()); }
-		while (cages.length < n) { const c = makeCage(texture); row.add(c.group); cages.push(c); grew = true; }
-		for (let k = dying.length - 1; k >= 0; k--) {
-			const c = dying[k];
-			c.t += dt;
-			if (opts.reduce || c.t >= BURST) { dying.splice(k, 1); freeCage(c); }
+		while (cages.length > count) { lose(cages.pop()); }
+		while (cages.length < count) {
+			const cage = makeCage(texture);
+			row.add(cage.group);
+			cages.push(cage);
+			grew = true;
 		}
-		if (grew || !dying.length) { // THE ROW CLOSES UP (& RESIZES) ONCE A LOST CAGE HAS BURST
+		for (let i = dying.length - 1; i >= 0; i--) {
+			const cage = dying[i];
+			cage.t += dt;
+			if (opts.reduce || cage.t >= BURST_SECONDS) {
+				dying.splice(i, 1);
+				freeCage(cage);
+			}
+		}
+		// The row closes up (and resizes) once a lost cage has burst
+		if (grew || !dying.length) {
 			slots = cages.length;
-			for (let i = 0; i < slots; i++) { cages[i].group.position.set((i - (slots - 1) / 2) * GAP, 0, 0); }
+			for (let i = 0; i < slots; i++) { cages[i].group.position.set((i - (slots - 1) / 2) * CAGE_SPACING, 0, 0); }
 		}
-		const box = opts.mesh.geometry && opts.mesh.geometry.boundingBox, size = (slots === laid ? laidSize : (laidSize = cageLayout(laid = slots).size)) / (opts.mesh.scale.y || 1); // THE ROOT IS IN PIECE UNITS. THE LAYOUT ONLY WHEN THE ROW'S CAGE COUNT CHANGES, NOT AN OBJECT A FRAME (T24 M4)
+		// The root is in piece units. The layout is worked out only when the row's cage count changes, not as an object a frame
+		const box = opts.mesh.geometry && opts.mesh.geometry.boundingBox;
+		const size = (slots === laid ? laidSize : (laidSize = cageLayout(laid = slots).size)) / (opts.mesh.scale.y || 1);
 		dotSize = pointSize(HALO_SIZE * size, opts.mesh);
 		row.scale.setScalar(size);
-		row.position.set(0, (box ? box.max.y : 1) + OVER + size / 2, 0);
-		if (fl) { fl.update(dt); }
+		row.position.set(0, (box ? box.max.y : 1) + CAGE_LIFT + size / 2, 0);
+		if (strikeFlash) { strikeFlash.update(dt); }
 		if (!opts.reduce && cages.length) {
 			clock += dt;
 			since += dt;
-			if (clock >= STRIKE) {
-				clock %= STRIKE;
+			if (clock >= STRIKE_SECONDS) {
+				clock %= STRIKE_SECONDS;
 				since = 0;
 				striking = (striking + 1) % cages.length;
-				const pos = cages[striking].bolts.geometry.attributes.position;
-				boltPoints(pos.array);
-				pos.needsUpdate = true;
-				if (fl) { fl.strike(striking, slots); } // THE CAGE AS THE ROW LAYS IT OUT (slots, NOT cages.length, WHILE A LOST CAGE BURSTS)
+				const position = cages[striking].bolts.geometry.attributes.position;
+				boltPoints(position.array);
+				position.needsUpdate = true;
+				// The cage as the row lays it out (slots, not cages.length, while a lost cage bursts)
+				if (strikeFlash) { strikeFlash.strike(striking, slots); }
 			}
 		}
-		const fade = opts.mesh.userData.opacity ?? 1, f = opts.reduce ? 0 : flash(since);
-		const marked = opts.siblings.includes("marked"), centre = cages[Math.floor((cages.length - 1) / 2)];
+		const fade = opts.mesh.userData.opacity ?? 1;
+		const flashLevel = opts.reduce ? 0 : flash(since);
+		const marked = opts.siblings.includes("marked");
+		const centre = cages[Math.floor((cages.length - 1) / 2)];
 		if (marked && !skull) { skull = skullMap(); }
 		const forked = opts.reduce ? 0 : forks(since, opts.cheap);
 		for (let i = 0; i < cages.length; i++) {
-			const c = cages[i], lit = i === striking % cages.length ? f : 0, shown = lit ? forked : 0;
-			glow(c);
-			c.bolts.geometry.setDrawRange(0, MAIN_VERTS + shown * FORK_VERTS);
-			c.halo.geometry.setDrawRange(0, HALO_MAIN + shown * 2);
-			c.bolts.material.opacity = c.halo.material.opacity = (REST + (1 - REST) * lit) * fade;
-			c.core.material.opacity = (0.85 + 0.15 * lit) * fade;
-			c.core.material.map = marked && c === centre ? skull : texture;
+			const cage = cages[i];
+			const lit = i === striking % cages.length ? flashLevel : 0;
+			const shown = lit ? forked : 0;
+			glow(cage);
+			cage.bolts.geometry.setDrawRange(0, MAIN_VERTS + shown * FORK_VERTS);
+			cage.halo.geometry.setDrawRange(0, HALO_MAIN + shown * 2);
+			cage.bolts.material.opacity = cage.halo.material.opacity = (BOLT_REST_OPACITY + (1 - BOLT_REST_OPACITY) * lit) * fade;
+			cage.core.material.opacity = (0.85 + 0.15 * lit) * fade;
+			cage.core.material.map = marked && cage === centre ? skull : texture;
 		}
-		for (const c of dying) {
-			glow(c);
-			const look = burstLook(c.t);
-			c.group.scale.setScalar(look.scale);
-			c.bolts.geometry.setDrawRange(0, MAIN_VERTS);
-			c.halo.geometry.setDrawRange(0, HALO_MAIN);
-			c.bolts.material.opacity = c.halo.material.opacity = look.opacity * fade;
-			c.core.material.opacity = look.opacity * fade;
-			c.core.material.map = texture; // A BURSTING CAGE IS SHAKEN'S OWN: MARKED'S SKULL FLOATS AGAIN ONCE SHAKEN ENDS
+		for (const cage of dying) {
+			glow(cage);
+			const look = burstLook(cage.t);
+			cage.group.scale.setScalar(look.scale);
+			cage.bolts.geometry.setDrawRange(0, MAIN_VERTS);
+			cage.halo.geometry.setDrawRange(0, HALO_MAIN);
+			cage.bolts.material.opacity = cage.halo.material.opacity = look.opacity * fade;
+			cage.core.material.opacity = look.opacity * fade;
+			// A bursting cage is Shaken's own: Marked's skull floats again once Shaken ends
+			cage.core.material.map = texture;
 		}
 	}
+
 	update(0);
 	return {
 		update,
 		burst() {
 			ended = true;
-			if (fl) { fl.dispose(); fl = null; } // NO FLASH OVER BURSTING CAGES
+			// No flash over bursting cages
+			if (strikeFlash) {
+				strikeFlash.dispose();
+				strikeFlash = null;
+			}
 			if (opts.reduce) { return 0; }
 			while (cages.length) { lose(cages.pop()); }
-			return BURST * 1000;
+			return BURST_SECONDS * 1000;
 		},
-		animating: () => !opts.reduce && (cages.length > 0 || dying.length > 0),
+		animating() {
+			return !opts.reduce && (cages.length > 0 || dying.length > 0);
+		},
 		dispose() {
 			[...cages, ...dying].forEach(freeCage);
 			cages.length = dying.length = 0;
 			row.removeFromParent();
-			if (fl) { fl.dispose(); fl = null; }
+			if (strikeFlash) {
+				strikeFlash.dispose();
+				strikeFlash = null;
+			}
 			dropGlyph();
 			if (skull) { skull.dispose(); }
 		},

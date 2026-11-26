@@ -10,10 +10,10 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { retrieveUser, pruneOpenGames, pruneClosedGames, expireFinishedAiGames, anonymizeFriendGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser, changeFriends, retrieveFriends, leaveFriends } = require("../dynamoDB.js");
+const { retrieveUser, pruneOpenGames, pruneClosedGames, expireFinishedAiGames, anonymizeFriendGames, pruneInvites, updateUserSettings, claimUsername, findUsername, searchUsernames, deleteUser, changeFriends, retrieveFriends, leaveFriends } = require("../db/index.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { readAiLevel, isColor } = require("../utils/games.js");
-const { currentGame } = require("./gameController.js");
+const { currentGame } = require("./game/index.js");
 const { refuse } = require("../utils/refuse.js");
 const { FRIEND_ACTIONS } = require("../utils/friends.js");
 

@@ -145,7 +145,7 @@ test("a piece's mesh disposed (removePiece) disposes its effects with it", () =>
 	assert.equal(fx.liveStatuses().length, 0);
 });
 
-test("veil (Q3): a veiled Frozen is not drawn for its owner, and is drawn for its caster", () => {
+test("veil: a veiled Frozen is not drawn for its owner, and is drawn for its caster", () => {
 	const pieces = { e2: "w:p1:p" };
 	meshes(pieces);
 	fx.syncStatuses(cardsView(pieces, { p1: [{ s: "frozen", left: 3, veiled: true }] }, "w"), "effects"); // THE OWNER'S VIEW: NO by (S2b STRIPS IT)
@@ -156,7 +156,7 @@ test("veil (Q3): a veiled Frozen is not drawn for its owner, and is drawn for it
 	assert.deepEqual(made(), [["create", "frozen", "e2"]], "its caster (b) sees it");
 });
 
-test("veil (R-1): a veiled Frozen the server sends is drawn in a finished game and after a handover, hidden only from its owner while the game is on", () => {
+test("veil: a veiled Frozen the server sends is drawn in a finished game and after a handover, hidden only from its owner while the game is on", () => {
 	const veiled = { p1: [{ s: "frozen", left: 3, by: "b", veiled: true }] };
 	const list = (pieces, statuses, you, result) => fx.statusList({ ...cardsView(pieces, statuses, you), result }).want.has("p1:frozen");
 	assert.equal(list({ e2: "w:p1:p" }, veiled, "w"), false, "live game, the owner: hidden");
@@ -181,7 +181,7 @@ test("mode switch: effects to badges swaps the effect for a badge sprite, and ba
 	assert.ok(fx.liveStatuses().every((e) => e.opts.root.children.length === 0), "the badges are gone");
 });
 
-test("permanent (Q2): a badge for left: null draws no count, a timed one draws its turns left", () => {
+test("permanent: a badge for left: null draws no count, a timed one draws its turns left", () => {
 	assert.equal(badgeText(null), "");
 	assert.equal(badgeText(2), "2");
 	const pieces = { e2: "w:p1:p" };
@@ -205,7 +205,7 @@ test("hover text: each status's name, its turns and what it does; nothing for a 
 
 // FIX ROUND 1 (task-21-S4-review.md I1, I2, M1, M5, RULING R4)
 
-test("I1: no sync while a piece is in flight (view.anims): the old view against a moved mesh disposes & re-parents nothing; the sync lands once the flight ends", () => {
+test("no sync while a piece is in flight (view.anims): the old view against a moved mesh disposes & re-parents nothing; the sync lands once the flight ends", () => {
 	const pieces = { e2: "w:p1:p", e4: "b:p9:p" }, v = meshes(pieces);
 	const old = cardsView(pieces, { p1: [{ s: "warded", left: 2, by: "w" }], p9: [{ s: "shaken", left: 2, by: "w" }] });
 	fx.syncStatuses(old, "effects");
@@ -227,7 +227,7 @@ test("I1: no sync while a piece is in flight (view.anims): the old view against 
 	assert.equal(w.root.parent, p1);
 });
 
-test("I1: no sync of a view the board's steps have moved past (holdStatuses), between steps too; the next view lands", () => {
+test("no sync of a view the board's steps have moved past (holdStatuses), between steps too; the next view lands", () => {
 	const pieces = { e2: "w:p1:p", e4: "b:p9:p" }, v = meshes(pieces);
 	const old = cardsView(pieces, { p1: [{ s: "warded", left: 2, by: "w" }], p9: [{ s: "shaken", left: 2, by: "w" }] });
 	fx.syncStatuses(old, "effects");
@@ -244,7 +244,7 @@ test("I1: no sync of a view the board's steps have moved past (holdStatuses), be
 	assert.equal(fx.liveStatuses()[0].opts.root.parent, p1);
 });
 
-test("I2: the frame timer runs only while an effect says it animates, or a burst plays", () => {
+test("the frame timer runs only while an effect says it animates, or a burst plays", () => {
 	const pieces = { e2: "w:p1:p" };
 	meshes(pieces);
 	const cv = cardsView(pieces, { p1: [{ s: "frozen", left: 2, by: "b" }] });
@@ -260,7 +260,7 @@ test("I2: the frame timer runs only while an effect says it animates, or a burst
 	assert.equal(timers.size, 0, "badges are still");
 });
 
-test("I2: under reduced motion no timer runs, no burst plays, and opts.reduce reaches each effect (also when it changes)", () => {
+test("under reduced motion no timer runs, no burst plays, and opts.reduce reaches each effect (also when it changes)", () => {
 	const pieces = { e2: "w:p1:p" };
 	meshes(pieces);
 	reduce(true);
@@ -277,7 +277,7 @@ test("I2: under reduced motion no timer runs, no burst plays, and opts.reduce re
 	assert.deepEqual(made(), [["create", "shaken", "e2"], ["dispose", "shaken"]], "ended without a burst");
 });
 
-test("M5: dt is clamped after a long gap (a hidden tab)", () => {
+test("dt is clamped after a long gap (a hidden tab)", () => {
 	const pieces = { e2: "w:p1:p" };
 	meshes(pieces);
 	moving = true;
@@ -287,7 +287,7 @@ test("M5: dt is clamped after a long gap (a hidden tab)", () => {
 	assert.ok(Math.max(...dts) <= 0.1, `dts: ${dts}`);
 });
 
-test("R4: the status text shows for the picked piece (keys, tap or click) as for the hovered one, in the one live region", () => {
+test("the status text shows for the picked piece (keys, tap or click) as for the hovered one, in the one live region", () => {
 	const pieces = { e2: "w:p1:p", d2: "w:p2:p" };
 	meshes(pieces);
 	appended.length = 0;
@@ -305,7 +305,7 @@ test("R4: the status text shows for the picked piece (keys, tap or click) as for
 	assert.equal(appended.length, 1, "the same element");
 });
 
-test("R-3: a tap or the keyboard's focus on any piece, an enemy's too, shows its status text in the same live region; the latest of the two wins", () => {
+test("a tap or the keyboard's focus on any piece, an enemy's too, shows its status text in the same live region; the latest of the two wins", () => {
 	const pieces = { e2: "w:p1:p", d7: "b:p9:p", d2: "w:p2:p" };
 	meshes(pieces);
 	appended.length = 0;
@@ -330,7 +330,7 @@ test("R-3: a tap or the keyboard's focus on any piece, an enemy's too, shows its
 	assert.equal(appended.length, 1, "the same element");
 });
 
-test("R-3 wiring: a finger's tap on a square (pointer.js pickTable) & the keyboard's square (three/index.js highlightSquares) reach the status text", () => {
+test("wiring: a finger's tap on a square (pointer.js pickTable) & the keyboard's square (three/index.js highlightSquares) reach the status text", () => {
 	const fs = require("node:fs"), src = (f) => fs.readFileSync(path.join(__dirname, "../src/js/gameplay/three", f), "utf8");
 	const pick = /function pickTable\(e, stop\) \{[\s\S]*?\n\}/.exec(src("pointer.js"))[0];
 	assert.match(pick, /if \(hit\.kind === "square" && view\.pointerType !== "mouse"\) \{ tapStatuses\(hit\.square\); \}/);
@@ -341,7 +341,7 @@ test("R-3 wiring: a finger's tap on a square (pointer.js pickTable) & the keyboa
 	assert.match(src("index.js"), /import \{ stepStatuses, clearStatuses, focusStatuses \} from "\.\/statusFx\/index\.js";/);
 });
 
-test("T21 m4 wiring: renderer/index.js syncs the statuses to the table's view after the pieces stand, shows a pick's status text & clears it at the drop, & holds them while the board's steps play", () => {
+test("wiring: renderer/index.js syncs the statuses to the table's view after the pieces stand, shows a pick's status text & clears it at the drop, & holds them while the board's steps play", () => {
 	const src = require("node:fs").readFileSync(path.join(__dirname, "../src/js/gameplay/renderer/index.js"), "utf8");
 	assert.match(src, /if \(table && game\.cardGame\) \{ board3D\.syncStatuses\(table\.view, statusPref\.current\(\)\); \}/);
 	assert.match(src, /board3D\.setHeld\(square \|\| null, Boolean\(dragging\)\); board3D\.pickStatuses\(square \|\| null\);/);
@@ -349,7 +349,7 @@ test("T21 m4 wiring: renderer/index.js syncs the statuses to the table's view af
 	assert.match(src, /if \(table\) \{ board3D\.holdStatuses\(table\.view\); \}/);
 });
 
-test("siblings (ruling 09:19): each effect is told its piece's other shown statuses; a change is an update with update(0), an unchanged sync isn't", () => {
+test("siblings: each effect is told its piece's other shown statuses; a change is an update with update(0), an unchanged sync isn't", () => {
 	const pieces = { e2: "w:p1:p", d2: "w:p2:p" };
 	meshes(pieces);
 	fx.syncStatuses(cardsView(pieces, { p1: [{ s: "shaken", left: 2, by: "b" }, { s: "marked", left: null, by: "b" }], p2: [{ s: "hexed", left: 1, by: "b" }] }), "effects");
@@ -367,7 +367,7 @@ test("siblings (ruling 09:19): each effect is told its piece's other shown statu
 	assert.deepEqual(opts("p1:hexed").siblings, ["marked"]);
 });
 
-test("M1: a badge is depth tested, so cards, the duel and the monitor in front of it hide it", () => {
+test("a badge is depth tested, so cards, the duel and the monitor in front of it hide it", () => {
 	const pieces = { e2: "w:p1:p" };
 	meshes(pieces);
 	fx.syncStatuses(cardsView(pieces, { p1: [{ s: "warded", left: 2, by: "w" }] }), "badges");
