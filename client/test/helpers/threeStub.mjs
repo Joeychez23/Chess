@@ -1,4 +1,4 @@
-// THE NAMES three/motion.js IMPORTS FROM three/index.js & three/pieces.js, FOR client/test/boardStep.test.js (ITS RESOLVE HOOK SWAPS BOTH FOR THIS FILE): NO WebGL, A PIECE IS A PLAIN
+// THE NAMES three/board/motion.js IMPORTS FROM three/index.js & three/board/pieces.js, FOR client/test/cards/boardStep.test.js (ITS RESOLVE HOOK SWAPS BOTH FOR THIS FILE): NO WebGL, A PIECE IS A PLAIN
 // OBJECT. fileOf, rowOf, center, place, setYaw, faceTravel AS IN three/index.js; addPiece TURNS A PIECE AS createPiece DOES & GIVES IT A FOOT 0.34 PIECE UNITS WIDE (THE PAWN'S, pieces.js)
 import { BOARD_SIZE, CELL_SIZE, FILES, PIECE_SIZE } from "../../src/js/gameplay/three/constants.js";
 

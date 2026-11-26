@@ -1,4 +1,4 @@
-// THE NAMES three/camera.js IMPORTS FROM three/index.js, pointer.js, room.js, monitor/monitor.js & lean.js, FOR client/test/openingCamera.test.js (ITS RESOLVE HOOK SWAPS ALL FIVE FOR THIS FILE):
+// THE NAMES three/camera/ IMPORTS FROM three/index.js, pointer/index.js, room.js, monitor/monitor.js & autoLean.js, FOR client/test/camera/openingCamera.test.js (ITS RESOLVE HOOK SWAPS ALL FIVE FOR THIS FILE):
 // NO WebGL, NO ROOM, NO MONITOR. THE SCRATCH OBJECTS ARE REAL three.js ONES, AS IN three/index.js
 import { PerspectiveCamera, Spherical, Vector3 } from "three";
 

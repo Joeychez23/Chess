@@ -27,7 +27,7 @@ module.exports = {
 		return { id: waitingId(ctx.state), piece: left.length ? require("../../hand.js").cardOf(ctx.rng.pick(left)) : "p", waiting: true }; // LAZY hand.js: AS insidious-nullification.js
 	},
 	/**
-	 * @description A move action under its id (turn.js lists one for each move a real card of its type has, never in check): nothing moves, the turn is used, and it leaves through ctx.clearCurse with a curse-fired event.
+	 * @description A move action under its id (turn/ lists one for each move a real card of its type has, never in check): nothing moves, the turn is used, and it leaves through ctx.clearCurse with a curse-fired event.
 	 */
 	act(ctx, player, a, src) {
 		ctx.clearCurse(player, src.card);

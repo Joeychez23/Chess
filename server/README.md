@@ -36,8 +36,8 @@ IAM role on AWS, with read/write access to `chess_db` and `user_db` in us-west-2
 
 ```bash
 (cd data-service && npm ci)    # the server tests start the real data service
-(cd server && npm ci && npm test)          # every server/test/*.test.js, Node's built-in test runner
-(cd data-service && npm test)              # every data-service/test/*.test.js
+(cd server && npm ci && npm test)          # every server/test/**/*.test.js, Node's built-in test runner
+(cd data-service && npm test)              # every data-service/test/**/*.test.js
 ```
 
 The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
@@ -50,26 +50,26 @@ engine are answered from test data.
 
 | File | What it covers |
 | --- | --- |
-| `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
-| `ai.test.js` | The 27 AI levels and their settings, the 8 old levels mapping to them, the low levels overlooking moves (only seen moves are searched, always a legal move), the engine call, mixed depths and the js-chess-engine fallback |
-| `analysis.test.js` | The analysis route: the engine's move and evaluation, AI and finished games only, the cache by FEN, one request at a time per game, finished boards without the engine, the engine failing, and the limit |
-| `drawOffers.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
-| `openings.test.js` | Opening names (`utils/openings.js`, the data in `data/openings/`): the lookup, other move orders, the name getting more specific and staying once the game leaves the book, player and AI moves, a move that ends the game, a failed save, a new game, and Home's rows |
-| `takeback.test.js` | The takeback route: two moves or one, guests, set positions, the opening going back, and each refusal changing nothing. Friend games: request, accept and decline, once per move, a move cancelling, the limit and the invite's setting |
-| `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
-| `dataClient.test.js` | The data service down, too slow (3 seconds for a read, 10 for a write) or refusing the signature: 503 "Try again in a moment". A move, forfeit, accept or rematch that saved but answered too late is read back: the player gets what was saved and the other player is told. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
-| `auth.test.js` | Signing in through the data service: `GET /api/auth/login` going to the login page, the login's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
-| `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, an email invite answering the same with or without an account, and the sign-in checks |
-| `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
-| `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
-| `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
-| `settings.test.js` | The settings page's Default start settings and Delete my data |
-| `monitoring.test.js` | `GET /api/health` (a slow engine counts as down in time, the answer is kept, it never says why), the log lines the alarms match, and browser error reports from `reportErrors.js` to the log line: limited, cut short, and unable to set off an alarm |
-| `moveSuggestions.test.js` | The client's type move box suggestions (`client/src/js/gameplay/movebox/suggestions.js`): the legal moves that start with what was typed, each promotion piece, when the player can't move, and where the arrow keys go |
-| `boardHelpers.test.js` | The client's board helpers (`client/src/js/gameplay/user/index.js`, `utils/index.js`): the move a drop sends for each player and view color, promotions, each side's last move, the material count, screen position to square, and adding and removing marks and arrows. The board drawing isn't covered, it needs a canvas |
-| `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and an open socket reconnects to the next start |
-| `friends.test.js` | Friends: requests saved on both rows and pushed to both players, every refusal, full lists, the rate limit, names only with who's online, a rename, and Delete my data leaving nothing on a friend's row |
-| `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
+| `engine/validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
+| `engine/ai.test.js` | The 27 AI levels and their settings, the 8 old levels mapping to them, the low levels overlooking moves (only seen moves are searched, always a legal move), the engine call, mixed depths and the js-chess-engine fallback |
+| `engine/analysis.test.js` | The analysis route: the engine's move and evaluation, AI and finished games only, the cache by FEN, one request at a time per game, finished boards without the engine, the engine failing, and the limit |
+| `game/drawOffers.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
+| `engine/openings.test.js` | Opening names (`utils/openings.js`, the data in `data/openings/`): the lookup, other move orders, the name getting more specific and staying once the game leaves the book, player and AI moves, a move that ends the game, a failed save, a new game, and Home's rows |
+| `game/takeback.test.js` | The takeback route: two moves or one, guests, set positions, the opening going back, and each refusal changing nothing. Friend games: request, accept and decline, once per move, a move cancelling, the limit and the invite's setting |
+| `game/undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
+| `service/dataClient.test.js` | The data service down, too slow (3 seconds for a read, 10 for a write) or refusing the signature: 503 "Try again in a moment". A move, forfeit, accept or rematch that saved but answered too late is read back: the player gets what was saved and the other player is told. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
+| `security/auth.test.js` | Signing in through the data service: `GET /api/auth/login` going to the login page, the login's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
+| `game/games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, an email invite answering the same with or without an account, and the sign-in checks |
+| `security/rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
+| `game/rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
+| `game/startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
+| `pages/settings.test.js` | The settings page's Default start settings and Delete my data |
+| `service/monitoring.test.js` | `GET /api/health` (a slow engine counts as down in time, the answer is kept, it never says why), the log lines the alarms match, and browser error reports from `reportErrors.js` to the log line: limited, cut short, and unable to set off an alarm |
+| `engine/moveSuggestions.test.js` | The client's type move box suggestions (`client/src/js/gameplay/movebox/suggestions.js`): the legal moves that start with what was typed, each promotion piece, when the player can't move, and where the arrow keys go |
+| `engine/boardHelpers.test.js` | The client's board helpers (`client/src/js/gameplay/user/index.js`, `utils/index.js`): the move a drop sends for each player and view color, promotions, each side's last move, the material count, screen position to square, and adding and removing marks and arrows. The board drawing isn't covered, it needs a canvas |
+| `service/shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and an open socket reconnects to the next start |
+| `game/friends.test.js` | Friends: requests saved on both rows and pushed to both players, every refusal, full lists, the rate limit, names only with who's online, a rename, and Delete my data leaving nothing on a friend's row |
+| `security/username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
 service tests and the client build on every pull request and every push to `main`.

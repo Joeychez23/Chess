@@ -4,7 +4,7 @@
  *	The monitor as the game's menu: idle on the desk, zooming in, zoomed (the tab row & the channel's buttons) & leaving.
  *	It is fed pointer hits in grid pixels & keys by ../index.js, & screen.js draws its view().
  *	The pure helpers (tab row, hit testing, focus, keys, zoom maths, screen reader text) are in controls.js.
- *	No DOM & no three.js here, so the tests load it in Node (client/test/monitor.test.js)
+ *	No DOM & no three.js here, so the tests load it in Node (client/test/monitor/monitor.test.js)
  *
  */
 

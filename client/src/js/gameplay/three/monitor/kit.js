@@ -2,7 +2,7 @@
  *  kit.js  --  chess frontend
  *	The CRT Monitor's Drawing Kit
  *	What the screen & every channel share: the 160 x 120 grid's size & colours, pixel text, the test card, buttons & where a channel's body is.
- *	Everything draws on a 2D context handed in, so no DOM & no three.js here: the tests load it in Node (client/test/monitorChannels.test.js)
+ *	Everything draws on a 2D context handed in, so no DOM & no three.js here: the tests load it in Node (client/test/monitor/monitorChannels.test.js)
  *
  */
 

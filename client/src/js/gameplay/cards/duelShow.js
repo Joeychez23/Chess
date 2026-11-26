@@ -1,8 +1,8 @@
 /*
  *  duelShow.js  --  chess frontend
  *	Chess Cards Duel Show
- *	What a card route's answer shows of All or Nothing's card duel on the table (three/cardTable.js dealDuel, flipDuel, endDuel), in the order of its events: flow.js shows the steps
- *	one after another with a short wait between them. No DOM, the client tests require it (client/test/cards-duelShowAndPrompt.test.js)
+ *	What a card route's answer shows of All or Nothing's card duel on the table (three/cardTable/ dealDuel, flipDuel, endDuel), in the order of its events: flow.js shows the steps
+ *	one after another with a short wait between them. No DOM, the client tests require it (client/test/cards/cards-duelShowAndPrompt.test.js)
  *
  */
 

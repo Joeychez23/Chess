@@ -115,7 +115,7 @@ an invite with `replace_current` is one call, so the inviter is checked before
 the player's own game is forfeited.
 
 `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are copies of
-the server's, and `test/shared.test.js` fails if they differ, so change both.
+the server's, and `test/service/shared.test.js` fails if they differ, so change both.
 
 ## Session keys (#252)
 
@@ -237,16 +237,16 @@ The data service has its own tests, the same way as the [server's](../server/REA
 
 | File | What it covers |
 | --- | --- |
-| `signature.test.js` | Signed requests: unsigned, another secret, a changed body, path, query or method, a timestamp over 30 seconds either way, a replayed request, and the old secret during a change. Behind a good signature, another player's token still gets nothing, and a `user_id` in a body is refused |
-| `session.test.js` | Logins: only Auth0's `id_token` (not forged, our client and tenant, not expired, at most 5 minutes old, used once) for the user it names. Refresh while the session id is unchanged, and not after logout (on any device) or Delete my data. An access token already out is refused after either, and can't make the deleted row again. The old key during a change. Guest tokens only for the game just made, with the same guest session from game to game |
-| `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
-| `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
-| `cardsGame.test.js` | Chess Cards games: a new one starts at version 1 with the state as sent, a save lands only on the version it names (409 and nothing changes otherwise), a save with a winner closes the game, and bad fields, versions, states, boards and results are refused. The two card routes' larger body limit, and every other route keeping 16kb |
-| `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
-| `db-conditionalWrites.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, draw offers (one per player per move, ended by a move, an accept losing to a move), invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
-| `rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
-| `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
-| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are the same files as the server's, and both pin the same `chess.js` |
+| `account/signature.test.js` | Signed requests: unsigned, another secret, a changed body, path, query or method, a timestamp over 30 seconds either way, a replayed request, and the old secret during a change. Behind a good signature, another player's token still gets nothing, and a `user_id` in a body is refused |
+| `account/session.test.js` | Logins: only Auth0's `id_token` (not forged, our client and tenant, not expired, at most 5 minutes old, used once) for the user it names. Refresh while the session id is unchanged, and not after logout (on any device) or Delete my data. An access token already out is refused after either, and can't make the deleted row again. The old key during a change. Guest tokens only for the game just made, with the same guest session from game to game |
+| `account/users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
+| `game/lifecycle/` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
+| `game/cardsGame.test.js` | Chess Cards games: a new one starts at version 1 with the state as sent, a save lands only on the version it names (409 and nothing changes otherwise), a save with a winner closes the game, and bad fields, versions, states, boards and results are refused. The two card routes' larger body limit, and every other route keeping 16kb |
+| `game/games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
+| `db/db-conditionalWrites.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, draw offers (one per player per move, ended by a move, an accept losing to a move), invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `db/rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
+| `service/shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
+| `service/shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are the same files as the server's, and both pin the same `chess.js` |
 
 ## Layout
 
@@ -268,7 +268,7 @@ data-service/                The only code that reads and writes DynamoDB (#245)
   utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
   utils/signature.js         sign(), signedHeaders(), signatureMatches(): the HMAC the chess server signs with
   utils/tokens.js            Signs the access, refresh & guest tokens with SESSION_PRIVATE_KEY (ES256)
-  utils/validate.js, rating.js, username.js, sessionKeys.js  The same files as server/utils/ (test/shared.test.js)
+  utils/validate.js, rating.js, username.js, sessionKeys.js  The same files as server/utils/ (test/service/shared.test.js)
   auth0-jwks.json            Auth0's public keys, saved here (not committed, README.md -> Saving Auth0's keys)
   test/                      Data service tests (npm test): games, lifecycle, users, session, signature, dynamoDB, rating, shared, plus helpers/ (keys.js: the test run's keys)
 ```

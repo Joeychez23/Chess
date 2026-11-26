@@ -2,7 +2,7 @@
  *  store.js  --  chess frontend
  *	Chess Cards Store
  *	The card game as the card routes (server/controllers/cardsController.js) last told it: the player's view, their legal actions, their side, the result
- *	& whether Card Guy owes an action. The server decides everything, this only keeps its answer. No DOM, the server tests require it (server/test/cards-clientSelect.test.js)
+ *	& whether Card Guy owes an action. The server decides everything, this only keeps its answer. No DOM, the server tests require it (server/test/cards/cards-clientSelect.test.js)
  *
  */
 

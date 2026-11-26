@@ -124,13 +124,13 @@ leaveGame();
 
 ## The 3D room's monitor
 
-With 3D on, a CRT monitor across the board shows the opponent (`three/screen.js`, fed by `screen3D()` in `gameplay/renderer`). It is also the game's menu in 3D (channels, zoom, keys, what it hides, its `MONITOR` localStorage setting): see `docs/3d-room.md`, "The monitor". On the desk it shows:
+With 3D on, a CRT monitor across the board shows the opponent (`three/monitor/screen.js`, fed by `screen3D()` in `gameplay/renderer`). It is also the game's menu in 3D (channels, zoom, keys, what it hides, its `MONITOR` localStorage setting): see `docs/3d-room.md`, "The monitor". On the desk it shows:
 
 - **Before a game has loaded:** colour bars.
 - **Friend games:** the opponent's username and `your move` / `their move`, or the result. Players have no pictures.
 - **AI games:** the colour bars, then a pixel face for the rest of the game, with the name and status on a strip along the bottom.
 
-The face is data in `three/faces.js`. `faceFor()` and `endFaceFor()` in `gameplay/bots/index.js` pick it, and the game calls `setFace()` (`gameplay/renderer`) where the bot speaks:
+The face is data in `three/monitor/faces.js`. `faceFor()` and `endFaceFor()` in `gameplay/bots/index.js` pick it, and the game calls `setFace()` (`gameplay/renderer`) where the bot speaks:
 
 | Event | Face |
 | --- | --- |
@@ -144,7 +144,7 @@ The face is data in `three/faces.js`. `faceFor()` and `endFaceFor()` in `gamepla
 
 Mate beats check, and check beats a capture. While it is the bot's turn the idle face is `thinking` (the eyes look left and right). A reaction lasts 2.5 seconds and a newer one replaces it at once. The idle face blinks every 3 to 7 seconds. With reduced motion on, each face shows its main frame and holds still.
 
-To add an expression: add its parts to `PARTS` if it needs new ones, add an entry to `FACES` (`colour`, `frames`, and `loop` or `then`), and return its name from `faceFor()` for the event it reacts to. The drawing code doesn't change. `client/test/faces.test.js` checks the table.
+To add an expression: add its parts to `PARTS` if it needs new ones, add an entry to `FACES` (`colour`, `frames`, and `loop` or `then`), and return its name from `faceFor()` for the event it reacts to. The drawing code doesn't change. `client/test/monitor/faces.test.js` checks the table.
 
 ## Layout
 
@@ -202,14 +202,14 @@ client/
     monitor/data.js          Its pure part: actionsFrom(), resultText(), trimScores(), plyOf(), startPlyFor(). No DOM, tested in client/test
     three/load.js            load3D(): downloads the lazy "three" chunk the first time 3D is turned on
     three/index.js           The 3D board: mount / unmount, camera, picking, piece slides, highlights. Loads the library room & lights its fire after the board is up (addRoom)
-    three/board.js           The board's frame, gold inlay & labels, and the baize table (the fallback when the room doesn't load)
-    three/pieces.js          Piece meshes from pieces.glb (docs/3d-pieces.md), blob shadows
+    three/board/board.js     The board's frame, gold inlay & labels, and the baize table (the fallback when the room doesn't load)
+    three/board/pieces.js    Piece meshes from pieces.glb (docs/3d-pieces.md), blob shadows
     three/materials.js       Piece & board materials
-    three/room.js            The library room & CRT monitor from library.glb & library-room.glb (docs/3d-room.md): detail texture x baked light map, unlit
-    three/fire.js            The library's fire: swaying flames, embers & the flicker of its light on the room, 30 frames a second
-    three/clock.js           The library's longcase clock: its hands show the local time, stepping each second, & its pendulum swings
-    three/screen.js          What the monitor shows, on a canvas used as its glass's texture: test card, name & status, the face
-    three/faces.js           The monitor's pixel faces as data: PARTS (pixel grids) & FACES (frames, timings). No DOM, tested in client/test
+    three/room/room.js       The library room & CRT monitor from library.glb & library-room.glb (docs/3d-room.md): detail texture x baked light map, unlit
+    three/room/fire.js       The library's fire: swaying flames, embers & the flicker of its light on the room, 30 frames a second
+    three/room/clock.js      The library's longcase clock: its hands show the local time, stepping each second, & its pendulum swings
+    three/monitor/screen.js  What the monitor shows, on a canvas used as its glass's texture: test card, name & status, the face
+    three/monitor/faces.js   The monitor's pixel faces as data: PARTS (pixel grids) & FACES (frames, timings). No DOM, tested in client/test
     three/pixelFont.js       The monitor's 5 x 7 font. No DOM, tested in client/test
     three/hint.js            The controls hint, the first time 3D opens
     three/perf.js            The ?perf=1 readout (docs/3d-phone-test.md)

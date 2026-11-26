@@ -26,7 +26,7 @@ const { setView, currentView, resetCamera, onViewChange, can3D, VIEWS } = requir
 const { timeLeftText } = require("../../pages/utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT
 const statusPref = require("../cards/statusPref.js"); // CHESS CARDS: A PIECE'S STATUSES AS EFFECTS OR BADGES
 import { showGameOver, handleDrawEvent, handleTakebackEvent } from "./offers.js";
-import { setAutoLean } from "../three/lean.js"; // NO three.js IN IT: STAYS IN THIS BUNDLE, THE 3D CHUNK USES THE SAME MODULE
+import { setAutoLean } from "../three/camera/autoLean.js"; // NO three.js IN IT: STAYS IN THIS BUNDLE, THE 3D CHUNK USES THE SAME MODULE
 import { loadRematch, showOpponentLeft } from "./endGame.js";
 export { handleTakeback, handleDeclineTakeback, loadTakeback, syncDrawOffer, handleOfferDraw, handleDeclineDraw, showGameOver } from "./offers.js";
 export { handleRestart, setRestartLoading, handleCancelRematch, showReadOnlyMenu, handleLeave, handleExit } from "./endGame.js";
@@ -194,7 +194,7 @@ export function handleView(e) {
 	});
 }
 
-// AUTO LEAN ON OR OFF (three/lean.js), THE WORDS SAY WHAT A PRESS WILL DO
+// AUTO LEAN ON OR OFF (three/camera/autoLean.js), THE WORDS SAY WHAT A PRESS WILL DO
 let autoLean = false; // KEPT HERE, NOT READ BACK FROM THE BUTTON: innerText COMES BACK IN CAPITALS (THE MENU'S text-transform), SO THE WORDS NEVER MATCHED & IT ONLY TURNED ON
 function showAutoLean(on) {
 	autoLean = on;
