@@ -104,7 +104,7 @@ export function drawBoard() {
 	}
 	syncTaken3D(fen);
 	syncFacing3D(fen);
-	board3D.setPickable(table ? table.opts.pickable || null : pickable3D(fen)); // A Chess Cards game's are flow.js's
+	board3D.setPickable(table ? table.opts.pickable || null : pickable3D(fen), game.playerColor); // A Chess Cards game's are flow.js's
 	const held = tableHeld || heldPiece(); // A Chess Cards game's held piece is flow.js's (holdTablePiece3D): heldPiece() has none there
 	board3D.setHeld(held && held.square, held && held.dragging); // After the move: a dropped piece slides from where it was let go
 	// After the pieces stand as the view says: the table's view is the one on the board (flow.js loadBoard and refreshTable land
