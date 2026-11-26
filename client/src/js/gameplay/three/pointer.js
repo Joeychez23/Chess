@@ -4,7 +4,7 @@ import { setRoomSide, zoomTo, setCameraAt, zoomSpot, landHome, landTurn, landDea
 import { liftHeld } from "./motion.js";
 import { hoverTile } from "./tileHover.js";
 import { hoverOn, cameraFree } from "./hoverRules.js";
-import { MIN_DISTANCE, MAX_DISTANCE, MAX_TILT, BOARD_SIZE, DRAG_PX, isDrag } from "./constants.js";
+import { MIN_DISTANCE, MAX_DISTANCE, MAX_TILT, BOARD_SIZE, DRAG_PX, DRAG_HOLD_MS, isDrag } from "./constants.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { MOUSE, TOUCH, Matrix4, Plane, Ray, Vector3 } from "three";
 import { dismissHint } from "./hint.js";
@@ -163,6 +163,22 @@ export function onPointerDown(e) {
 	// The camera is off already (tableCovers)
 	cardHeld = Boolean(at && at.kind !== "button" && at.id && view.table.grab(at,
 		view.cardOptions.onTable({ kind: "grab", from: at.kind, id: at.id })));
+	// Held DRAG_HOLD_MS as a piece is, the card is picked up even before it moves: its release is a drop, not a zooming click
+	if (cardHeld) {
+		const held = view.press;
+		setTimeout(() => {
+			if (cardHeld === true && view && view.table && view.press === held) { followCard(view.pointerAt.x, view.pointerAt.y); }
+		}, DRAG_HOLD_MS);
+	}
+}
+
+// The held card goes under the pointer at (x, y)
+function followCard(x, y) {
+	cardHeld = "moving";
+	const rect = view.renderer.domElement.getBoundingClientRect();
+	pointer.set(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1);
+	raycaster.setFromCamera(pointer, view.camera);
+	view.table.follow(raycaster);
 }
 
 // A held piece past the drag threshold follows the pointer (dragHeld). Before gameplay/input's mousemove / touchmove,
@@ -184,11 +200,7 @@ export function onPointerMove(e) {
 	if (cardHeld && view.table && e.pointerType === "mouse"
 		&& (cardHeld === "moving"
 			|| isDrag(Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y), performance.now() - view.press.time, false))) {
-		cardHeld = "moving";
-		const rect = view.renderer.domElement.getBoundingClientRect();
-		pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-		raycaster.setFromCamera(pointer, view.camera);
-		view.table.follow(raycaster);
+		followCard(e.clientX, e.clientY);
 	}
 	const held = view.held;
 	if (!held || !held.dragging || view.cameraGesture) { return; }
@@ -220,6 +232,11 @@ export function onPointerUp(e) {
 function releaseTable(e) {
 	const held = view.held;
 	if (!view.table || !held || !held.dragging) { return; }
+	// A quick flick that stopped moving before DRAG_HOLD_MS ran out: let go past it and away from the press, it's a drag
+	if (!held.following && e.pointerType === "mouse"
+		&& isDrag(Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y), performance.now() - view.press.time, false)) {
+		held.following = true;
+	}
 	tableDrag = held.following;
 	const onBoard = held.following && e.type === "pointerup" && monitorIdle() && !glassHit(e) && !tableAt(e);
 	// dragged: it followed the pointer, so letting go off a target gives the pick up

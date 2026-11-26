@@ -11,14 +11,15 @@ import { hoverStatuses } from "./statusFx/index.js"; // THE HOVERED PIECE'S STAT
 const HOVER_LIFT = LIFT_HEIGHT * 0.4; // THE HOVERED PIECE'S LIFT: A PICKED PIECE'S (liftHeld), SMALLER
 const BOX = [0.42, 0.5]; // THE BOX'S INNER & OUTER EDGE, HALF A SIDE IN SQUARES FROM THE CENTER (THE FOCUS RING'S SHAPE, ON THE TILE'S EDGE)
 const BOX_Y = 0.04; // OVER THE HIGHLIGHTS
+const BOX_COLOR = 0xE6DCC4; // SOLID IVORY: THE SAME ON A LIGHT OR DARK TILE (SEE-THROUGH WHITE TOOK ITS TILE'S COLOR), CLEAR OF THE YELLOW, ORANGE & RED HIGHLIGHTS
 const TARGETS = ["legal", "capture", "cards"]; // THE MARKS OF A PIECE OR CARD IN HAND: THEIR TILES CAN BE ACTED ON
 
-// THE HOVER OF THIS mount(), MADE THE FIRST TIME THE POINTER MOVES. THE BOX IGNORES DEPTH & DRAWS LAST, SO A PIECE IN FRONT CAN'T HIDE IT (unmount() FREES IT WITH THE SCENE)
+// THE HOVER OF THIS mount(), MADE THE FIRST TIME THE POINTER MOVES. THE BOX LIES ON THE TILE: A PIECE ON OR IN FRONT OF IT COVERS IT (unmount() FREES IT WITH THE SCENE)
 function hoverState() {
 	if (view.hover) { return view.hover; }
 	const [inner, outer] = BOX.map((s) => s * CELL_SIZE * Math.SQRT2); // 4 SEGMENTS FROM 45°: A SQUARE RING, AS THE FOCUS RING (index.js mount)
-	const box = new Mesh(new RingGeometry(inner, outer, 4, 1, Math.PI / 4).rotateX(-0.5 * Math.PI), new MeshBasicMaterial({ color: 0xFFFFFF, opacity: 0.9, transparent: true, depthTest: false }));
-	box.renderOrder = 10;
+	const box = new Mesh(new RingGeometry(inner, outer, 4, 1, Math.PI / 4).rotateX(-0.5 * Math.PI), new MeshBasicMaterial({ color: BOX_COLOR, depthWrite: false }));
+	box.renderOrder = 10; // AFTER THE HIGHLIGHTS UNDER IT
 	box.visible = false;
 	view.scene.add(box);
 	view.hover = { box, tile: null, lifted: null, rested: false, timer: null, faded: new Set() }; // lifted: THE MESH THE HOVER LIFTED, rested: THE POINTER HAS STAYED STILL ON tile FOR REST_MS, faded: THE MESHES IT TURNED SEE-THROUGH
@@ -56,9 +57,12 @@ export function hoverTile(e) {
  * @description The squares the player can pick a piece up from right now (gameplay's own list: its turn, its colour, its rules), null while they can't act: off turn,
  * after the game, in a replay. Nothing fades then (hoverRules.js canAct). The fade follows at the pointer's next rest
  * @param  {[string[]|null]} squares
+ * @param  {[string|null]} playerColor ["w" or "b": only that side's pieces lift on hover. null (no side, a replay without one): any piece does]
  */
-export function setPickable(squares) {
-	if (view) { view.pickable = squares || null; }
+export function setPickable(squares, playerColor = null) {
+	if (!view) { return; }
+	view.pickable = squares || null;
+	view.playerColor = playerColor || null;
 }
 
 /**
@@ -90,6 +94,7 @@ function rest(h) {
 function liftUp(h) {
 	const mesh = h.tile && view.pieces.get(h.tile);
 	if (!mesh || mesh.position.y !== 0 || mesh.position.x !== center(fileOf(h.tile)) || mesh.position.z !== center(rowOf(h.tile))) { return; }
+	if (view.playerColor && mesh.userData.color !== view.playerColor) { return; } // THE OPPONENT'S PIECES STAY DOWN
 	setDown(h);
 	mesh.position.y = HOVER_LIFT;
 	updateShadow(mesh);

@@ -489,6 +489,7 @@ export function mount(container, {
 		pointerAt: { x: 0, y: 0 },
 		pointerOver: false,
 		pickable: null,
+		playerColor: null, // The player's side (setPickable): only its pieces lift on hover
 		pointerType: null,
 		touches: new Set(), // The fingers down (pointerId)
 		multiTouch: false // More than one was, since all were up
