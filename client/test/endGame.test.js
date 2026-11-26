@@ -9,7 +9,7 @@ const { RESULT_REASONS, reasonLine } = require("../src/js/pages/utils/resultReas
 
 /* ---- the pure module ---- */
 
-test("F10: RESULT_REASONS keeps the chess server's words & adds the card engine's", () => {
+test("RESULT_REASONS keeps the chess server's words & adds the card engine's", () => {
 	assert.deepEqual(RESULT_REASONS, {
 		"checkmate": "by Checkmate",
 		"stalemate": "by Stalemate",
@@ -25,7 +25,7 @@ test("F10: RESULT_REASONS keeps the chess server's words & adds the card engine'
 	});
 });
 
-test("F10: reasonLine gives the line, or \"\" for a forfeit, null, an unknown word or an Object key", () => {
+test("reasonLine gives the line, or \"\" for a forfeit, null, an unknown word or an Object key", () => {
 	assert.equal(reasonLine("king"), "by taking the King");
 	assert.equal(reasonLine("checkmate"), "by Checkmate");
 	assert.equal(reasonLine("fifty"), "by the fifty-move rule");
@@ -77,7 +77,7 @@ beforeEach(() => {
 	BTN.innerHTML = "";
 });
 
-test("F10 (RD-M4): a card game won by taking the King shows its line under the result", () => {
+test("a card game won by taking the King shows its line under the result", () => {
 	endGame.showResult({ winner: "w", reason: "king" });
 	assert.equal(endGame.resultDisplay.innerText, "White Wins!");
 	assert.equal(endGame.resultReason.innerText, "by taking the King");
@@ -92,7 +92,7 @@ test("F10 (RD-M4): a card game won by taking the King shows its line under the r
 	assert.equal(endGame.resultReason.hidden, true);
 });
 
-test("F10 (D15 / RD-M3): a failed forfeit on Card Guy's turn doesn't block the next Forfeit", async () => {
+test("a failed forfeit on Card Guy's turn doesn't block the next Forfeit", async () => {
 	Object.assign(S.game, { ai: true, cardGame: { startColor: "w" }, playerColor: "w", gameOver: false });
 	S.turn = "b"; // CARD GUY'S TURN
 	S.forfeit.push({ status: 500, message: "down" }, { state: "CLOSED" });
@@ -104,7 +104,7 @@ test("F10 (D15 / RD-M3): a failed forfeit on Card Guy's turn doesn't block the n
 	assert.equal(S.calls.at(-1), "gameOver");
 });
 
-test("F10 (D15): a card game with aiTurn left set still forfeits; a chess AI game still waits", async () => {
+test("a card game with aiTurn left set still forfeits; a chess AI game still waits", async () => {
 	Object.assign(S.game, { ai: true, cardGame: { startColor: "w" }, aiTurn: true, playerColor: "w", gameOver: false });
 	S.forfeit.push({ state: "CLOSED" });
 	await press();
@@ -115,7 +115,7 @@ test("F10 (D15): a card game with aiTurn left set still forfeits; a chess AI gam
 	assert.deepEqual(S.calls, [["status", "action", "Wait for the AI's move to finish."]]);
 });
 
-test("F10 (D15): a chess AI game's failed forfeit on the AI's turn still hands the turn back to the AI", async () => {
+test("a chess AI game's failed forfeit on the AI's turn still hands the turn back to the AI", async () => {
 	Object.assign(S.game, { ai: true, playerColor: "w", gameOver: false });
 	S.turn = "b";
 	S.forfeit.push(null);
@@ -123,7 +123,7 @@ test("F10 (D15): a chess AI game's failed forfeit on the AI's turn still hands t
 	assert.equal(S.game.aiTurn, true);
 });
 
-test("F10: Restart's other failures keep today's line & clear the replace", async () => {
+test("Restart's other failures keep today's line & clear the replace", async () => {
 	Object.assign(S.game, { ai: true, gameOver: true, cardGame: { startColor: "w" }, response: { ai_level: 3 }, GAME_URL: "/api/chess" });
 	S.newCards.push({ status: 500 }, { status: 200, game_id: "g3" });
 	await press();
@@ -134,7 +134,7 @@ test("F10: Restart's other failures keep today's line & clear the replace", asyn
 	assert.deepEqual(S.calls[0], ["newCards", false]);
 });
 
-test("F10 (contract d): Restart's 503 shows its line & leaves Restart as it was (still Forfeit & restart, the next press replaces)", async () => {
+test("Restart's 503 shows its line & leaves Restart as it was (still Forfeit & restart, the next press replaces)", async () => {
 	Object.assign(S.game, { ai: true, gameOver: true, cardGame: { startColor: "w" }, response: { ai_level: 3 }, GAME_URL: "/api/chess" });
 	S.newCards.push({ status: 409, message: "open" }, { status: 503, message: "Your other game couldn't be closed. Try again." }, { status: 200, game_id: "g2" });
 	await press();
@@ -148,7 +148,7 @@ test("F10 (contract d): Restart's 503 shows its line & leaves Restart as it was 
 	assert.deepEqual(S.calls, [["newCards", true], "stopFrames", ["go", "/play/g2"]]);
 });
 
-test("F10-m1: a 503 on a first press (no replace asked: the data service is down) is not the forfeit's: the plain line, the next press still asks first", async () => {
+test("a 503 on a first press (no replace asked: the data service is down) is not the forfeit's: the plain line, the next press still asks first", async () => {
 	Object.assign(S.game, { ai: true, gameOver: true, cardGame: { startColor: "w" }, response: { ai_level: 3 }, GAME_URL: "/api/chess" });
 	S.newCards.push({ status: 500 }, { status: 503, message: "Try again in a moment" }, { status: 409, message: "open" });
 	await press(); // ANY OTHER FAILURE PUTS replaceOpen BACK TO false

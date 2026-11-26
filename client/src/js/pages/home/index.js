@@ -1,107 +1,115 @@
 /*
  *  index.js  --  chess frontend
  *	Home Page (/, signed in)
- *	Seven boxes: Play the AI (at a level & color), Play a friend (by username, with your color), Chess Cards (vs Card Guy at a level & color, 3D only), Invites (sent & received),
- *	the player's open games, their finished games & Friends. A player has one AI game (a card game counts) & one friend game open at a time: each box shows its game's board & Continue current game,
- *	& starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts them in Invites, a challenge link waits until someone opens it & joins,
- *	the socket redraws Play a friend & Invites when one changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
+ *	Seven boxes: Play the AI (at a level & color), Play a friend (by username, with your color), Chess Cards (vs Card Guy at a
+ *	level & color, 3D only), Invites (sent & received), the player's open games, their finished games & Friends.
+ *	A player has one AI game (a card game counts) & one friend game open at a time: each box shows its game's board & Continue
+ *	current game, & starting another forfeits it (after a second press). Friend invites wait (PENDING) until the friend accepts
+ *	them in Invites, a challenge link waits until someone opens it & joins, the socket redraws Play a friend & Invites when one
+ *	changes. Every game opens on its own page, /play/:gameId. Logout is in the menu (3 lines, top right)
  *
  */
 
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
-import "../../../css/home.css"; // HOME PAGE STYLES
-require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
+import "../../../css/nav.css"; // Menu (3 lines, top right), colors & fonts
+import "../../../css/home.css";
+require("../utils/reportErrors.js").startErrorReports(); // Before the other modules run, so their errors are reported too
 const { InternalAuth } = require("../../auth/index.js");
 const { validate, newAiGame, getUserGameData, searchPlayers, acceptInvite, getFriends } = require("../../gameplay/validate/index.js");
-const { newCardsGame } = require("../../gameplay/cards/api.js"); // CHESS CARDS: A NEW GAME VS CARD GUY
-const { hasWebGL } = require("../../gameplay/three/load.js"); // CHESS CARDS IS 3D ONLY
-const { reasonLine } = require("../utils/resultReasons.js"); // A FINISHED GAME'S REASON AS THE RESULT SCREEN SAYS IT
+const { newCardsGame } = require("../../gameplay/cards/api.js");
+const { hasWebGL } = require("../../gameplay/three/load.js"); // Chess Cards is 3D only
+const { reasonLine } = require("../utils/resultReasons.js"); // A finished game's reason as the result screen says it
 const { preloadImages } = require("../../gameplay/images/index.js");
 const { watchGames } = require("../../socket/index.js");
-const { timeLeftText } = require("../utils/timeLeft.js"); // A TIME LIMIT'S TIME LEFT ON YOUR GAMES
-const { startBoxNav, startDropdowns, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, botLevels, botName, colorText, startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn } = require("../utils/index.js");
-const { handleMultiSubmit, handleCreateChallenge, handleCopyChallenge, handleCancelInvite, loadInvites, resetInviteBtn } = require("./invites.js");
+const { timeLeftText } = require("../utils/timeLeft.js"); // A time limit's time left on your games
+const {
+	startBoxNav, startDropdowns, startLogoutButtons, showCurrentGame, hideCurrentGame, loadLevels, botLevels, botName, colorText,
+	startLoading, goToPage, stopLoading, startGameLinks, showPageWhenDrawn,
+} = require("../utils/index.js");
+const {
+	handleMultiSubmit, handleCreateChallenge, handleCopyChallenge, handleCancelInvite, loadInvites, resetInviteBtn,
+} = require("./invites.js");
 const { handleAddFriend, loadFriends } = require("./friends.js");
 
-export const CHESS_URL = "/api/chess"; // CHESS ROUTES LIVE ON THE EXPRESS SERVER (server/routes/api/chessRoutes.js)
+export const CHESS_URL = "/api/chess"; // Chess routes live on the Express server (server/routes/api/chessRoutes.js)
 export const USER_URL = "/api/user"; // server/routes/api/userRoutes.js
-const SEARCH_DELAY = 250; // MS AFTER THE LAST KEY BEFORE A PLAYER SEARCH, SO A NAME TYPED QUICKLY IS ONE OR TWO SEARCHES
+const SEARCH_DELAY = 250; // ms after the last key before a player search, so a name typed quickly is one or two searches
 
-const signedInAs = document.getElementById("signedInAs"); // "SIGNED IN // EMAIL"
-const welcome = document.getElementById("welcome"); // "WELCOME BACK, USERNAME"
-const playerRating = document.getElementById("playerRating"); // "RATING // 1520?", FRIEND GAMES CHANGE IT
-const soloBox = document.getElementById("soloBox"); // PLAY THE AI
-const optNewSoloBtn = document.getElementById("optNewSolo"); // PLAY THE AI: PLAY AI, OR NEW GAME WHILE AN AI GAME IS OPEN
-const aiLevelSelect = document.getElementById("aiLevel"); // ABOVE PLAY AI, FILLED FROM THE SERVER'S LEVELS
-const aiColorSelect = document.getElementById("aiColor"); // ALTERNATE, RANDOM, WHITE OR BLACK, RESTART KEEPS IT
-const aiFenInput = document.getElementById("aiFen"); // START POSITION (FEN), BLANK = THE STANDARD POSITION, RESTART KEEPS IT
-const soloNote = document.getElementById("soloNote"); // NEW GAME: "THIS FORFEITS YOUR CURRENT GAME"
-const cardsBox = document.getElementById("cardsBox"); // CHESS CARDS, ITS OPEN GAME SHOWS HERE (THE SAME ONE AT A TIME AS AN AI GAME)
-const optNewCardsBtn = document.getElementById("optNewCards"); // CHESS CARDS: START, OR NEW GAME WHILE A CARD GAME IS OPEN. OFF WITHOUT WEBGL
-const cardsLevelSelect = document.getElementById("cardsLevel"); // CARD GUY'S LEVEL, THE SAME LEVELS AS THE AI'S
-const cardsColorSelect = document.getElementById("cardsColor"); // ALTERNATE, RANDOM, WHITE OR BLACK, RESTART KEEPS IT
-const cardsNote = document.getElementById("cardsNote"); // THE FORFEIT WARNING, OR WHY IT CAN'T START (NO 3D)
-const friendBox = document.getElementById("friendBox"); // PLAY A FRIEND
-const muliplayerForm = document.getElementById("muliplayerForm"); // PLAY A FRIEND: USERNAME & INVITE
+const signedInAs = document.getElementById("signedInAs"); // "Signed in // email"
+const welcome = document.getElementById("welcome"); // "Welcome back, username"
+const playerRating = document.getElementById("playerRating"); // "Rating // 1520?", friend games change it
+const soloBox = document.getElementById("soloBox"); // Play the AI
+const optNewSoloBtn = document.getElementById("optNewSolo"); // Play the AI: Play AI, or New game while an AI game is open
+const aiLevelSelect = document.getElementById("aiLevel"); // Above Play AI, filled from the server's levels
+const aiColorSelect = document.getElementById("aiColor"); // Alternate, random, white or black, Restart keeps it
+const aiFenInput = document.getElementById("aiFen"); // Start position (FEN), blank is the standard position, Restart keeps it
+const soloNote = document.getElementById("soloNote"); // New game: "This forfeits your current game"
+const cardsBox = document.getElementById("cardsBox"); // Chess Cards, its open game shows here (the same one at a time as an AI game)
+const optNewCardsBtn = document.getElementById("optNewCards"); // Chess Cards: Start, or New game while a card game is open
+const cardsLevelSelect = document.getElementById("cardsLevel"); // Card Guy's level, the same levels as the AI's
+const cardsColorSelect = document.getElementById("cardsColor"); // Alternate, random, white or black, Restart keeps it
+const cardsNote = document.getElementById("cardsNote"); // The forfeit warning, or why it can't start (no 3D)
+const friendBox = document.getElementById("friendBox"); // Play a friend
+const muliplayerForm = document.getElementById("muliplayerForm"); // Play a friend: username & Invite
 export const multiEmailInput = document.getElementById("enterMultiEmail");
-const playerResults = document.getElementById("playerResults"); // USERNAMES STARTING WITH WHAT WAS TYPED, PRESSING ONE FILLS THE FIELD
-const playerSearchNote = document.getElementById("playerSearchNote"); // NOBODY FOUND, OR WHY THE SEARCH FAILED
+const playerResults = document.getElementById("playerResults"); // Usernames starting with what was typed, pressing one fills the field
+const playerSearchNote = document.getElementById("playerSearchNote"); // Nobody found, or why the search failed
 export const multiEmailBtn = document.getElementById("enterMultiSubmit");
-export const friendColorSelect = document.getElementById("friendColor"); // THE INVITER'S COLOR, THE INVITE SHOWS IT & REMATCHES KEEP IT
-export const friendTakebacksSelect = document.getElementById("friendTakebacks"); // THE GAME'S TAKEBACK SETTING, REMATCHES KEEP IT
-export const friendDaysSelect = document.getElementById("friendDays"); // THE GAME'S TIME PER MOVE, REMATCHES KEEP IT
-export const friendFenInput = document.getElementById("friendFen"); // START POSITION (FEN) FOR THE INVITE, BLANK = THE STANDARD POSITION
-export const createChallengeBtn = document.getElementById("createChallenge"); // A LINK ANYONE SIGNED IN CAN OPEN TO PLAY YOU, WITH THE SAME START SETTINGS
-export const multiNote = document.getElementById("multiNote"); // WHY AN INVITE DIDN'T GO THROUGH, INVITE'S FORFEIT WARNING
-export const noInvites = document.getElementById("noInvites"); // INVITES: "NO INVITES RIGHT NOW"
-export const inviteList = document.getElementById("inviteList"); // "BOB INVITED YOU", ACCEPT & DECLINE
-export const sentInvite = document.getElementById("sentInvite"); // "INVITE SENT TO BOB // WAITING" & CANCEL INVITE
+export const friendColorSelect = document.getElementById("friendColor"); // The inviter's color, the invite shows it & rematches keep it
+export const friendTakebacksSelect = document.getElementById("friendTakebacks"); // The game's takeback setting, rematches keep it
+export const friendDaysSelect = document.getElementById("friendDays"); // The game's time per move, rematches keep it
+export const friendFenInput = document.getElementById("friendFen"); // Start position (FEN) for the invite, blank is the standard position
+export const createChallengeBtn = document.getElementById("createChallenge"); // A link anyone signed in can open to play you, same settings
+export const multiNote = document.getElementById("multiNote"); // Why an invite didn't go through, Invite's forfeit warning
+export const noInvites = document.getElementById("noInvites"); // Invites: "No invites right now"
+export const inviteList = document.getElementById("inviteList"); // "Bob invited you", Accept & Decline
+export const sentInvite = document.getElementById("sentInvite"); // "Invite sent to Bob // Waiting" & Cancel invite
 export const sentInviteText = document.getElementById("sentInviteText");
 export const cancelInviteBtn = document.getElementById("cancelInvite");
-export const challengeLinkField = document.getElementById("challengeLinkField"); // A SENT CHALLENGE LINK: THE LINK & COPY LINK
+export const challengeLinkField = document.getElementById("challengeLinkField"); // A sent challenge link: the link & Copy link
 export const challengeLinkInput = document.getElementById("challengeLink");
 const copyChallengeBtn = document.getElementById("copyChallenge");
-export const inviteNote = document.getElementById("inviteNote"); // ACCEPT'S FORFEIT WARNING, WHY AN ACCEPT DIDN'T GO THROUGH
-const loadingDiv = document.getElementById("loadingDiv"); // "Loading...", THEN "No open games" IF THERE ARE NONE
+export const inviteNote = document.getElementById("inviteNote"); // Accept's forfeit warning, why an accept didn't go through
+const loadingDiv = document.getElementById("loadingDiv"); // "Loading...", then "No open games" if there are none
 const gameList = document.getElementById("gameList");
-const noFinished = document.getElementById("noFinished"); // "Loading...", THEN "No finished games" IF THERE ARE NONE
+const noFinished = document.getElementById("noFinished"); // "Loading...", then "No finished games" if there are none
 const finishedList = document.getElementById("finishedList");
-export const noFriends = document.getElementById("noFriends"); // FRIENDS: "NO FRIENDS YET"
-export const friendRequests = document.getElementById("friendRequests"); // "BOB WANTS TO BE FRIENDS", ACCEPT & DECLINE
-export const sentRequests = document.getElementById("sentRequests"); // "REQUEST SENT TO BOB // WAITING" & CANCEL
-export const friendList = document.getElementById("friendList"); // EACH FRIEND, ONLINE OR NOT, WITH CHALLENGE & REMOVE
+export const noFriends = document.getElementById("noFriends"); // Friends: "No friends yet"
+export const friendRequests = document.getElementById("friendRequests"); // "Bob wants to be friends", Accept & Decline
+export const sentRequests = document.getElementById("sentRequests"); // "Request sent to Bob // Waiting" & Cancel
+export const friendList = document.getElementById("friendList"); // Each friend, online or not, with Challenge & Remove
 const addFriendForm = document.getElementById("addFriendForm");
 export const addFriendInput = document.getElementById("addFriendName");
 export const addFriendBtn = document.getElementById("addFriendBtn");
-export const friendNote = document.getElementById("friendNote"); // WHY A FRIEND ACTION DIDN'T GO THROUGH, REMOVE'S WARNING
+export const friendNote = document.getElementById("friendNote"); // Why a friend action didn't go through, Remove's warning
 
 const auth = new InternalAuth;
-const sessionCheck = auth.getUser(); // STARTS CHECKING THE SESSION NOW INSTEAD OF AFTER THE PAGE LOADS
+const sessionCheck = auth.getUser(); // Starts checking the session now instead of after the page loads
 
 export let PLAYER_ID;
-let CURRENT_GAME_ID = null; // THE PLAYER'S OPEN AI GAME (ONE AT A TIME)
-let confirmNewGame = false; // NEW GAME NEEDS A SECOND PRESS WHILE AN AI GAME IS OPEN, IT FORFEITS THAT ONE
-let confirmNewCards = false; // THE SAME FOR CHESS CARDS' START (A CARD GAME IS THE PLAYER'S ONE OPEN AI GAME TOO)
-export let FRIEND_GAME_ID = null; // THE PLAYER'S OPEN FRIEND GAME (ONE AT A TIME)
-export let FRIEND_NAME = "Friend"; // ITS OPPONENT, FOR THE FORFEIT WARNINGS
-export let confirmAccept = null; // THE INVITE WHOSE ACCEPT WAS PRESSED ONCE WHILE A FRIEND GAME IS OPEN (SAME WARNING)
-let searchTimer = null; // THE PLAYER SEARCH WAITING FOR SEARCH_DELAY
-let searchTurn = 0; // A NEWER KEY PRESS MAKES AN OLDER SEARCH'S ANSWER STALE
-let homeDrawing = Promise.resolve(); // ONE REDRAW AT A TIME (refreshHome)
-let SETTINGS = null; // THE PLAYER'S DEFAULT START SETTINGS (THE SETTINGS PAGE), THE DROPDOWNS START ON THEM
+let CURRENT_GAME_ID = null; // The player's open AI game (one at a time)
+let confirmNewGame = false; // New game needs a second press while an AI game is open, it forfeits that one
+let confirmNewCards = false; // The same for Chess Cards' Start (a card game is the player's one open AI game too)
+export let FRIEND_GAME_ID = null; // The player's open friend game (one at a time)
+export let FRIEND_NAME = "Friend"; // Its opponent, for the forfeit warnings
+export let confirmAccept = null; // The invite whose Accept was pressed once while a friend game is open (same warning)
+let searchTimer = null; // The player search waiting for SEARCH_DELAY
+let searchTurn = 0; // A newer key press makes an older search's answer stale
+let homeDrawing = Promise.resolve(); // One redraw at a time (refreshHome)
+let SETTINGS = null; // The player's default start settings (the Settings page), the dropdowns start on them
 
 startBoxNav();
-startDropdowns(); // ENTER OPENS A DROPDOWN, A NATIVE <select> CAN'T BE OPENED BY A SCRIPT IN SAFARI
-startLogoutButtons(auth); // LOGOUT IN THE MENU IS A POST (#332)
-preloadImages(); // THE GAME'S IMAGES, AS SOON AS THE PAGE OPENS, SO THE GAME OPENS FROM THE BROWSER CACHE
-startGameLinks(); // CONTINUE CURRENT GAME & YOUR GAMES SAY LOADING TOO
+startDropdowns(); // Enter opens a dropdown, a script can't open a native <select> in Safari
+startLogoutButtons(auth); // Logout in the menu is a POST
+preloadImages(); // The game's images, as soon as the page opens, so the game opens from the browser cache
+startGameLinks(); // Continue current game & Your games say Loading too
 optNewSoloBtn.addEventListener("click", handleNewSoloGame);
 optNewCardsBtn.addEventListener("click", handleNewCardsGame);
-if (cardsBlocked()) { optNewCardsBtn.disabled = true; cardsNote.innerText = "Chess Cards needs 3D, which this device can't show."; } // A CARD GAME IS 3D ONLY
-muliplayerForm.addEventListener("submit", handleMultiSubmit); // INVITE BUTTON & ENTER IN THE USERNAME FIELD
+// A card game is 3D only
+if (cardsBlocked()) { optNewCardsBtn.disabled = true; cardsNote.innerText = "Chess Cards needs 3D, which this device can't show."; }
+muliplayerForm.addEventListener("submit", handleMultiSubmit); // The Invite button & Enter in the username field
 multiEmailInput.addEventListener("input", handlePlayerSearch);
 createChallengeBtn.addEventListener("click", handleCreateChallenge);
 copyChallengeBtn.addEventListener("click", handleCopyChallenge);
@@ -114,34 +122,36 @@ startHome();
 // Start Home
 /* ---------------------------------------------------------------- */
 /**
- * @description Gets the player, then fills the AI levels, the boxes & the open games. The socket keeps Play a friend & Invites up to date.
- * From a game (its Home button) the game stays on screen until all of it is drawn, then fades into it (showPageWhenDrawn)
+ * @description Gets the player, then fills the AI levels, the boxes & the open games. The socket keeps Play a friend & Invites
+ * up to date. From a game (its Home button) the game stays on screen until all of it is drawn, then fades into it (showPageWhenDrawn)
  */
 async function startHome() {
 	const sessionUser = await sessionCheck;
-	if (!sessionUser) { return auth.login(); } // THE SERVER ONLY SENDS HOME TO SIGNED IN PLAYERS, THIS CATCHES A SESSION THAT ENDED SINCE
+	if (!sessionUser) { return auth.login(); } // The server only sends Home to signed in players, this catches a session that ended since
 	PLAYER_ID = sessionUser.userId.split("auth0|")[1];
-	const name = sessionUser.username || sessionUser.screenname; // THE SERVER SENDS A PLAYER WITHOUT A USERNAME TO /settings FIRST
+	const name = sessionUser.username || sessionUser.screenname; // The server sends a player without a username to /settings first
 	if (name) { welcome.innerText = `Welcome back, ${name}`; }
 	if (sessionUser.email) { signedInAs.innerText = `Signed in // ${sessionUser.email}`; }
-	const levelsLoaded = Promise.all([loadLevels(CHESS_URL, aiLevelSelect), loadLevels(CHESS_URL, cardsLevelSelect, false)]); // ONE GET /levels FOR BOTH, CARD GUY'S BY ELO ONLY
+	// One GET /levels for both, Card Guy's by Elo only
+	const levelsLoaded = Promise.all([loadLevels(CHESS_URL, aiLevelSelect), loadLevels(CHESS_URL, cardsLevelSelect, false)]);
 	const homeDrawn = refreshHome(true);
 	const settingsUsed = useSettings(levelsLoaded, homeDrawn);
-	watchGames(refreshHome); // INVITES & FRIEND GAMES CHANGE WITHOUT A RELOAD
+	watchGames(refreshHome); // Invites & friend games change without a reload
 	showPageWhenDrawn([levelsLoaded, homeDrawn, settingsUsed]);
 }
 
 /**
- * @description Starts the level & color dropdowns on the player's Default start settings, once the levels & the game lists (which carry them) are in
+ * @description Starts the level & color dropdowns on the player's Default start settings, once the levels & the game lists
+ * (which carry them) are in
  * @param  {[object]} levelsLoaded [loadLevels() promise]
  * @param  {[object]} homeDrawn [the first refreshHome() promise, it sets SETTINGS]
  */
 async function useSettings(levelsLoaded, homeDrawn) {
 	await Promise.allSettled([levelsLoaded, homeDrawn]);
-	if (!SETTINGS) { return; } // NO ROW YET: THE DROPDOWNS KEEP THEIR DEFAULTS
+	if (!SETTINGS) { return; } // No row yet: the dropdowns keep their defaults
 	aiLevelSelect.value = `${SETTINGS.ai_level}`;
 	aiColorSelect.value = SETTINGS.ai_color;
-	cardsLevelSelect.value = `${SETTINGS.ai_level}`; // CARD GUY STARTS ON THE AI'S DEFAULTS, IT HAS NONE OF ITS OWN
+	cardsLevelSelect.value = `${SETTINGS.ai_level}`; // Card Guy starts on the AI's defaults, it has none of its own
 	cardsColorSelect.value = SETTINGS.ai_color;
 	friendColorSelect.value = SETTINGS.friend_color;
 }
@@ -156,30 +166,35 @@ export function refreshHome(firstLoad) {
 }
 
 /**
- * @description Loads the player's games & friends from the server & draws Home with them: the rating, the game list, the invites, the friends,
- * the friend box & (first load only) the AI game's board picture. Only call it through refreshHome()
+ * @description Loads the player's games & friends from the server & draws Home with them: the rating, the game list, the invites,
+ * the friends, the friend box & (first load only) the AI game's board picture. Only call it through refreshHome()
  * @param  {[boolean]} firstLoad [true also reads the default start settings & loads the AI game]
  */
 async function drawHome(firstLoad) {
-	const [gameData, friendData, levels] = await Promise.all([getUserGameData(CHESS_URL, PLAYER_ID), getFriends(USER_URL), botLevels(CHESS_URL)]); // levels: THE AI GAMES SHOW THEIR BOT'S NAME
-	if (firstLoad) { SETTINGS = gameData?.settings || null; } // ONLY ON LOAD, A REDRAW DOESN'T UNDO A PICK
-	const releaseHeight = holdPageHeight(); // THE PAGE DOESN'T GET SHORTER WHILE IT'S REDRAWN, SO THE SCROLL STAYS PUT (#240)
+	const [gameData, friendData, levels] = await Promise.all([ // levels: the AI games show their bot's name
+		getUserGameData(CHESS_URL, PLAYER_ID),
+		getFriends(USER_URL),
+		botLevels(CHESS_URL),
+	]);
+	if (firstLoad) { SETTINGS = gameData?.settings || null; } // Only on load, a redraw doesn't undo a pick
+	const releaseHeight = holdPageHeight(); // The page doesn't get shorter while it's redrawn, so the scroll stays put
 	try {
-		showRating(gameData?.rating); // A FINISHED FRIEND GAME REDRAWS HOME (SOCKET "games"), SO THE NEW RATING SHOWS
+		showRating(gameData?.rating); // A finished friend game redraws Home (socket "games"), so the new rating shows
 		const friendGame = await openGame(gameData?.friend_game_id);
-		const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null; // ITS BOARD PICTURE, DRAWN ALONGSIDE THE REST
+		// Its board picture, drawn alongside the rest
+		const currentGame = (firstLoad && gameData?.ai_game_id) ? loadCurrentGame(gameData.ai_game_id) : null;
 		listGames(gameData, levels);
 		listFinishedGames(gameData, levels);
 		loadInvites(gameData);
 		loadFriends(friendData);
 		await loadFriendBox(gameData, friendGame);
-		await currentGame; // HOME IS DRAWN ONCE IT'S IN TOO (showPageWhenDrawn)
+		await currentGame; // Home is drawn once it's in too (showPageWhenDrawn)
 	} finally { releaseHeight(); }
 }
 
 /**
  * @description Keeps the page at least as tall as it is now until the returned function is called. A redraw swaps boxes & lists
- * part by part (some wait on the server or a board picture), & a page that got shorter for a moment moved the scroll (#240)
+ * part by part (some wait on the server or a board picture), & a page that got shorter for a moment moved the scroll
  * @return {[function]} release [puts the page's height back to its CSS (body min-height 100dvh)]
  */
 function holdPageHeight() {
@@ -195,7 +210,9 @@ function holdPageHeight() {
 function showRating(rating) {
 	if (!rating) { return; }
 	playerRating.innerText = `Rating // ${rating.rating}${rating.provisional ? "?" : ""}`;
-	playerRating.title = rating.provisional ? `Provisional until 10 rated games (${rating.rated_games} so far). Friend games change it, AI games don't` : "Friend games change it, AI games don't";
+	playerRating.title = rating.provisional
+		? `Provisional until 10 rated games (${rating.rated_games} so far). Friend games change it, AI games don't`
+		: "Friend games change it, AI games don't";
 	playerRating.hidden = false;
 }
 
@@ -206,7 +223,7 @@ function showRating(rating) {
  */
 async function openGame(gameId) {
 	if (!gameId) { return null; }
-	const game = await validate(CHESS_URL, gameId, PLAYER_ID, false, false, false); // GET THE GAME
+	const game = await validate(CHESS_URL, gameId, PLAYER_ID, false, false, false);
 	if (game?.status != 200 || game.state != "OPEN") { return null; }
 	return game;
 }
@@ -222,27 +239,31 @@ async function openGame(gameId) {
  * @param  {[object]} levels [GET /levels, botLevels(): an AI game shows its bot's name]
  */
 function listGames(gameData, levels) {
-	const openGames = gameData?.open_game_list || []; // NEW USERS HAVE NO GAMES YET
+	const openGames = gameData?.open_game_list || []; // New users have no games yet
 	const rows = [];
 	for (let i = 0; i < openGames.length; i++) {
+		const game = openGames[i];
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
-		const opponent = opponentText(openGames[i], levels);
-		gameLink.href = `/play/${encodeURIComponent(openGames[i].game_id)}`; // A CARD GAME TOO: THE PLAY PAGE OPENS IT BY ITS MODE
+		const opponent = opponentText(game, levels);
+		gameLink.href = `/play/${encodeURIComponent(game.game_id)}`; // A card game too: the play page opens it by its mode
 		gameLink.innerHTML = `<span class="label">Game ${i + 1}</span><span class="spec gameInfo"></span><span class="label gameOpen">Open</span>`;
-		const opening = openGames[i].opening ? ` // ${openGames[i].opening.eco} ${openGames[i].opening.name}` : "";
-		const timeLeft = openGames[i].move_deadline ? ` // ${timeLeftText(openGames[i].move_deadline)}` : "";
-		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(openGames[i].player_color, openGames[i].start_params)}${opening}${timeLeft}`; // innerText, THE NAME IS NEVER READ AS HTML
+		const opening = game.opening ? ` // ${game.opening.eco} ${game.opening.name}` : "";
+		const timeLeft = game.move_deadline ? ` // ${timeLeftText(game.move_deadline)}` : "";
+		const settings = colorText(game.player_color, game.start_params);
+		// innerText: a name is never HTML
+		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${settings}${opening}${timeLeft}`;
 		listElement.append(gameLink);
 		rows.push(listElement);
 	}
-	gameList.replaceChildren(...rows); // REDRAWN WHEN THE SOCKET SAYS A GAME CHANGED: BUILT FIRST, THEN SWAPPED IN ONE STEP (#240)
+	gameList.replaceChildren(...rows); // Redrawn when the socket says a game changed: built first, then swapped in one step
 	loadingDiv.hidden = openGames.length > 0;
 	if (!openGames.length) { loadingDiv.innerText = "No open games yet. Start one with the AI or a friend."; }
 }
 
 /**
- * @description How a game's opponent reads in Your games & Finished games: "Chess Cards" (always vs Card Guy), the AI level's bot or the friend
+ * @description How a game's opponent reads in Your games & Finished games: "Chess Cards" (always vs Card Guy), the AI level's bot
+ * or the friend
  * @param  {[object]} game [one of GET /api/chess/user/:userId's game lists]
  * @param  {[object]} levels [GET /levels, botLevels()]
  * @return {[string]} text ["Chess Cards", "vs Ada", "vs AI // Level 1300" when the levels didn't load, "vs Bob"]
@@ -257,32 +278,35 @@ function opponentText(game, levels) {
 // Finished Games
 /* ---------------------------------------------------------------- */
 /**
- * @description Lists the player's last 20 finished games, newest first, each one is a link to its replay (/replay/:gameId), which opens on its final board:
- * "Won" & "vs Ada // You play white (random) // Checkmate"
+ * @description Lists the player's last 20 finished games, newest first, each one is a link to its replay (/replay/:gameId),
+ * which opens on its final board: "Won" & "vs Ada // You play white (random) // Checkmate"
  * @param  {[object]} gameData [GET /api/chess/user/:userId response]
  * @param  {[object]} levels [GET /levels, botLevels(): an AI game shows its bot's name]
  */
 function listFinishedGames(gameData, levels) {
-	const games = gameData?.closed_game_list || []; // NEW USERS HAVE NO GAMES YET
+	const games = gameData?.closed_game_list || []; // New users have no games yet
 	const rows = games.map(function (game) {
 		const listElement = document.createElement("li");
 		const gameLink = document.createElement("a");
 		const opponent = opponentText(game, levels);
 		const reason = reasonText(game.reason);
-		gameLink.href = game.mode === "cards" ? `/play/${encodeURIComponent(game.game_id)}` : `/replay/${encodeURIComponent(game.game_id)}`; // STEP THROUGH IT (#78). A CARD GAME OPENS ON ITS FINAL BOARD, THE REPLAY DOESN'T KNOW THE CARDS
+		// Step through it. A card game opens on its final board, the replay doesn't know the cards
+		gameLink.href = game.mode === "cards" ? `/play/${encodeURIComponent(game.game_id)}` : `/replay/${encodeURIComponent(game.game_id)}`;
 		gameLink.innerHTML = `<span class="label"></span><span class="spec gameInfo"></span>`;
 		gameLink.querySelector(".label").innerText = game.winner == "draw" ? "Draw" : game.winner == game.player_color ? "Won" : "Lost";
-		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${colorText(game.player_color, game.start_params)}${reason}`; // innerText, THE NAME IS NEVER READ AS HTML
+		const settings = colorText(game.player_color, game.start_params);
+		gameLink.querySelector(".gameInfo").innerText = `${opponent} // ${settings}${reason}`; // innerText: a name is never HTML
 		listElement.append(gameLink);
 		return listElement;
 	});
-	finishedList.replaceChildren(...rows); // SAME AS listGames (#240)
+	finishedList.replaceChildren(...rows); // Built first, then swapped in one step, as in listGames
 	noFinished.hidden = games.length > 0;
 	if (!games.length) { noFinished.innerText = "No finished games yet. They show up here when a game ends."; }
 }
 
 /**
- * @description A finished game's reason after its color: the result screen's line ("by taking the King" -> " // By taking the King"), or the raw word when there is no line (a forfeit)
+ * @description A finished game's reason after its color: the result screen's line ("by taking the King" -> " // By taking the King"),
+ * or the raw word when there is no line (a forfeit)
  * @param  {[string]} reason [the stored reason or null]
  * @return {[string]} text [" // ..." or ""]
  */
@@ -296,13 +320,14 @@ function reasonText(reason) {
 // Current Game
 /* ---------------------------------------------------------------- */
 /**
- * @description The player's open AI game: its board & Continue current game go in Play the AI, & Play AI becomes New game. A Chess Cards game goes in its own box the same way
- * (it's the player's one open AI game: starting either kind forfeits it, both buttons ask first)
+ * @description The player's open AI game: its board & Continue current game go in Play the AI, & Play AI becomes New game.
+ * A Chess Cards game goes in its own box the same way (it's the player's one open AI game: starting either kind forfeits it,
+ * both buttons ask first)
  * @param  {[string]} gameId [ai_game_id from the server]
  */
 async function loadCurrentGame(gameId) {
 	const game = await openGame(gameId);
-	if (!game) { return; } // ENDED SINCE, PLAY AI STAYS AS IT IS
+	if (!game) { return; } // Ended since, Play AI stays as it is
 	CURRENT_GAME_ID = gameId;
 	const cards = game.mode === "cards";
 	const button = cards ? optNewCardsBtn : optNewSoloBtn;
@@ -322,23 +347,32 @@ async function loadCurrentGame(gameId) {
 async function handleNewSoloGame(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (CURRENT_GAME_ID && !confirmNewGame) { // FIRST PRESS
+	if (CURRENT_GAME_ID && !confirmNewGame) { // First press
 		confirmNewGame = true;
 		optNewSoloBtn.innerText = "Forfeit & start";
 		return soloNote.innerText = "This forfeits your current game. Press again to start a new one.";
 	}
-	startLoading(optNewSoloBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
+	startLoading(optNewSoloBtn); // "Loading" & the fill, one game per press
 	soloNote.innerText = "";
-	const response = await newAiGame(CHESS_URL, undefined, aiColorSelect.value, aiLevelSelect.value, confirmNewGame, aiFenInput.value); // CREATE NEW GAME AT THE PICKED LEVEL, COLOR & POSITION (THE SERVER MAKES THE ID)
-	if (response?.status == 400 || response?.status == 429) { stopLoading(); return soloNote.innerText = response.message; } // THE FEN CAN'T BE PLAYED, OR TOO MANY NEW GAMES: NOTHING WAS FORFEITED
-	if (response?.status == 503) { stopLoading(); return soloNote.innerText = confirmNewGame ? "Your other game couldn't be closed. Try again." : "A new game couldn't be started. Try again."; } // THE FORFEIT FAILED: NOTHING WAS CREATED (AS handleNewCardsGame)
-	if (response?.status == 409) { // AN AI GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
+	// The server makes the id
+	const response = await newAiGame(CHESS_URL, undefined, aiColorSelect.value, aiLevelSelect.value, confirmNewGame, aiFenInput.value);
+	// The FEN can't be played, or too many new games: nothing was forfeited
+	if (response?.status == 400 || response?.status == 429) {
+		stopLoading();
+		return soloNote.innerText = response.message;
+	}
+	// The forfeit failed: nothing was created (as in handleNewCardsGame)
+	if (response?.status == 503) { stopLoading(); return soloNote.innerText = confirmNewGame ? "Your other game couldn't be closed. Try again." : "A new game couldn't be started. Try again."; }
+	if (response?.status == 409) { // An AI game opened since (another tab): show it instead
 		stopLoading();
 		soloNote.innerText = "You already have an AI game open";
 		return loadCurrentGame(response.game_id);
 	}
-	if (response?.status != 200) { stopLoading(); return console.log(response); }
-	goToPage(`/play/${response.game_id}`); // ONCE THE IMAGES ARE IN
+	if (response?.status != 200) {
+		stopLoading();
+		return console.log(response);
+	}
+	goToPage(`/play/${response.game_id}`); // Once the images are in
 }
 
 
@@ -346,33 +380,49 @@ async function handleNewSoloGame(e) {
 // Chess Cards
 /* ---------------------------------------------------------------- */
 /**
- * @description New Chess Cards game vs Card Guy at the picked level & color, then opens it (Restart keeps both). The same flow as Play AI: while an AI or card game is open
- * the first press says it'll be forfeited, the second starts the new game, & one opened since (another tab) is shown instead. Off where 3D isn't available (cardsBlocked). A 503 (the open game couldn't be forfeited) creates nothing & says so
+ * @description New Chess Cards game vs Card Guy at the picked level & color, then opens it (Restart keeps both). The same flow
+ * as Play AI: while an AI or card game is open the first press says it'll be forfeited, the second starts the new game, & one
+ * opened since (another tab) is shown instead. Off where 3D isn't available (cardsBlocked). A 503 (the open game couldn't be
+ * forfeited) creates nothing & says so
  */
 async function handleNewCardsGame(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (CURRENT_GAME_ID && !confirmNewCards) { // FIRST PRESS
+	if (CURRENT_GAME_ID && !confirmNewCards) { // First press
 		confirmNewCards = true;
 		optNewCardsBtn.innerText = "Forfeit & start";
 		return cardsNote.innerText = "This forfeits your current game. Press again to start a new one.";
 	}
-	startLoading(optNewCardsBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
+	startLoading(optNewCardsBtn); // "Loading" & the fill, one game per press
 	cardsNote.innerText = "";
-	const response = await newCardsGame(CHESS_URL, cardsColorSelect.value, cardsLevelSelect.value, confirmNewCards); // THE SERVER MAKES THE ID & PICKS THE SIDES
-	if (response?.status === 400 || response?.status === 429) { stopLoading(); return cardsNote.innerText = response.message; } // TOO MANY NEW GAMES: NOTHING WAS FORFEITED
-	if (response?.status === 503) { stopLoading(); return cardsNote.innerText = confirmNewCards ? "Your other game couldn't be closed. Try again." : "A new game couldn't be started. Try again."; } // THE FORFEIT FAILED: NOTHING WAS CREATED, PRESS AGAIN. WITH NO REPLACE ASKED IT'S THE SERVER'S OWN 503 (THE DATA SERVICE DOWN, F10-m1)
-	if (response?.status === 409) { // AN AI OR CARD GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
+	// The server makes the id & picks the sides
+	const response = await newCardsGame(CHESS_URL, cardsColorSelect.value, cardsLevelSelect.value, confirmNewCards);
+	if (response?.status === 400 || response?.status === 429) { // Too many new games: nothing was forfeited
+		stopLoading();
+		return cardsNote.innerText = response.message;
+	}
+	// The forfeit failed: nothing was created, press again. With no replace asked it's the server's own 503 (the data service is down)
+	if (response?.status === 503) {
+		stopLoading();
+		return cardsNote.innerText = confirmNewCards
+			? "Your other game couldn't be closed. Try again."
+			: "A new game couldn't be started. Try again.";
+	}
+	if (response?.status === 409) { // An AI or card game opened since (another tab): show it instead
 		stopLoading();
 		cardsNote.innerText = "You already have an AI or Chess Cards game open";
 		return loadCurrentGame(response.game_id);
 	}
-	if (response?.status !== 200) { stopLoading(); return console.log(response); }
-	goToPage(`/play/${response.game_id}`); // ONCE THE IMAGES ARE IN, THE PLAY PAGE OPENS IT BY ITS MODE
+	if (response?.status !== 200) {
+		stopLoading();
+		return console.log(response);
+	}
+	goToPage(`/play/${response.game_id}`); // Once the images are in, the play page opens it by its mode
 }
 
 /**
- * @description Chess Cards is 3D only: off with no WebGL, & on a touch-first device, where the play page has no 3D (the renderer's can3D() uses the same media query; the renderer stays out of Home's bundle)
+ * @description Chess Cards is 3D only: off with no WebGL, & on a touch-first device, where the play page has no 3D (the renderer's
+ * can3D() uses the same media query; the renderer stays out of Home's bundle)
  * @return {[boolean]} blocked
  */
 function cardsBlocked() {
@@ -391,9 +441,12 @@ function cardsBlocked() {
  */
 async function loadFriendBox(gameData, friendGame) {
 	const friendGameId = friendGame ? gameData.friend_game_id : null;
-	if (friendGameId != FRIEND_GAME_ID) { // THE GAME A WARNING WAS ABOUT IS GONE
+	if (friendGameId != FRIEND_GAME_ID) { // The game a warning was about is gone
 		resetInviteBtn();
-		if (confirmAccept) { confirmAccept = null; inviteNote.innerText = ""; }
+		if (confirmAccept) {
+			confirmAccept = null;
+			inviteNote.innerText = "";
+		}
 	}
 	FRIEND_GAME_ID = friendGameId;
 	FRIEND_NAME = friendGame?.opponent_name || "Friend";
@@ -441,13 +494,19 @@ function playerResult(username) {
 	button.type = "button";
 	button.className = "btn btnLine";
 	button.textContent = username;
-	button.addEventListener("click", () => {
-		multiEmailInput.value = username;
-		clearPlayerSearch();
-		multiEmailInput.focus();
-	});
+	button.addEventListener("click", () => pickPlayer(username));
 	item.append(button);
 	return item;
+}
+
+/**
+ * @description A found player was pressed: their username goes in the field & the list closes
+ * @param  {[string]} username [as they wrote it]
+ */
+function pickPlayer(username) {
+	multiEmailInput.value = username;
+	clearPlayerSearch();
+	multiEmailInput.focus();
 }
 
 /**
@@ -476,20 +535,22 @@ export function validateUsername(username) {
 export async function handleAccept(e, gameId, acceptBtn) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (FRIEND_GAME_ID && confirmAccept != gameId) { // FIRST PRESS
-		inviteList.querySelectorAll(".btnCream").forEach((btn) => btn.innerText = "Accept"); // ONE WARNING AT A TIME
+	if (FRIEND_GAME_ID && confirmAccept != gameId) { // First press
+		inviteList.querySelectorAll(".btnCream").forEach((button) => button.innerText = "Accept"); // One warning at a time
 		confirmAccept = gameId;
 		acceptBtn.innerText = "Forfeit & accept";
 		return inviteNote.innerText = `This forfeits your game vs ${FRIEND_NAME}, they win. Press again to accept.`;
 	}
-	startLoading(acceptBtn); // "Loading" & THE FILL, ONE GAME PER PRESS
+	startLoading(acceptBtn); // "Loading" & the fill, one game per press
 	inviteNote.innerText = "";
 	const response = await acceptInvite(CHESS_URL, gameId, confirmAccept == gameId);
-	if (response?.status == 200) { return goToPage(`/play/${encodeURIComponent(gameId)}`); } // ONCE THE IMAGES ARE IN
+	if (response?.status == 200) { return goToPage(`/play/${encodeURIComponent(gameId)}`); } // Once the images are in
 	stopLoading();
-	await refreshHome(); // THE INVITE OR THE OPEN GAME CHANGED SINCE
+	await refreshHome(); // The invite or the open game changed since
 	if (response?.status == 409) { inviteNote.innerText = "You already have a friend game open"; }
-	else if (response?.message == "They're in another game now") { inviteNote.innerText = "They're in another game now, the invite was removed"; }
+	else if (response?.message == "They're in another game now") {
+		inviteNote.innerText = "They're in another game now, the invite was removed";
+	}
 	else if (response?.message == "Invite not found") { inviteNote.innerText = "That invite was cancelled"; }
 	else { inviteNote.innerText = "Couldn't accept, try again"; }
 }

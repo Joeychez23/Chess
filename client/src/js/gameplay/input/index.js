@@ -1,33 +1,37 @@
 /*
  *  index.js  --  chess frontend
  *	Input
- *	The board's controls: the mouse (hover, click to pick up & put down, drag & drop), touch on phones (tap & drag, mapped onto
- *	the mouse handlers) & remote-only mode (arrow keys or W, A, S & D move a select box, enter clicks, right from the last column reaches the menu).
- *	startGame (gameplay/index.js) adds their listeners to both boards. The only thing that differs on the 3D board is the square under
- *	the pointer (pointerTile), camera gestures there never reach the pieces. The keyboard, remote-only mode & the promotion keys are in keys.js
+ *	The board's controls: the mouse (hover, click to pick up & put down, drag & drop), touch on phones (tap & drag, mapped
+ *	onto the mouse handlers) & remote-only mode (arrow keys or W, A, S & D move a select box, enter clicks, right from the
+ *	last column reaches the menu).
+ *	startGame (gameplay/index.js) adds their listeners to both boards. The only thing that differs on the 3D board is the
+ *	square under the pointer (pointerTile), camera gestures there never reach the pieces. The keyboard, remote-only mode &
+ *	the promotion keys are in keys.js
  *
  */
 
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, canvas, validateState } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE SCRATCH BOARD
-const { playerMove } = require("../user/index.js"); // TURNS A DROPPED TILE INTO A { from, to, promotion } MOVE
-const { tileToSquare, squareToTile, toggleAnnotation } = require("../utils/index.js"); // THE SQUARE AT A SCREEN POSITION & BACK, ADDS OR REMOVES A MARK OR ARROW
-const { currentView, VIEWS, squareUnder3D, isCameraGesture, monitorState3D } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SQUARE LOOKUP, THE MONITOR'S STATE
-const { validateMove, refreshData } = require("../moves/index.js"); // SENDS THE PLAYER'S MOVE, RESETS THE BOARD TO A SERVER GAME
-const { closeMenu } = require("../menu/index.js"); // A CLICK ON THE BOARD CLOSES THE MENU
-const { CARD_ORDER } = require("../three/cardLayout.js"); // THE PROMOTION CARDS' ORDER & HOW THE ARROWS WALK THEM (NO three.js IN IT: THE 3D CHUNK STAYS LAZY)
+const { game, canvas, validateState } = require("../state/index.js");
+const { playerMove } = require("../user/index.js"); // Turns a dropped tile into a { from, to, promotion } move
+const { tileToSquare, squareToTile, toggleAnnotation } = require("../utils/index.js");
+const { currentView, VIEWS, squareUnder3D, isCameraGesture, monitorState3D } = require("../renderer/index.js");
+const { validateMove, refreshData } = require("../moves/index.js");
+const { closeMenu } = require("../menu/index.js");
+// Only the order: cardLayout.js has no three.js in it, so the 3D chunk stays lazy
+const { CARD_ORDER } = require("../three/cardLayout.js");
 import { choosePromotion, remoteNavBox } from "./keys.js";
 
-export const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), OPENS THE MENU
+export const optBtn = document.getElementById("optBtn"); // Menu button (3 lines, top right), opens the menu
 
-let offBoardRefresh = true; // REDRAW WHEN THE MOUSE LEAVES THE BOARD (CLEARS HOVER EFFECTS)
-let touchState = null; // ACTIVE TOUCH (MOBILE): { id, startX, startY, dragging, point }
-const OFF_3D_BOARD = { x: -100, y: 0 }; // OFF THE 3D BOARD: A COLUMN NO TILE OR TRAY IS IN, ROW INSIDE SO handleMouseMove STILL CLEARS THE HOVER
-const touchDragThreshold = 10; // PX A FINGER MUST MOVE BEFORE A TAP BECOMES A DRAG
-let audioUnlocked = false; // THE MOVE SOUND WAS UNLOCKED BY A TAP (IOS)
-let annotationStart = null; // SQUARE THE RIGHT BUTTON WENT DOWN ON, null WHEN IT'S UP OR WENT DOWN OFF THE BOARD
+let offBoardRefresh = true; // Redraw when the mouse leaves the board (clears the hover effects)
+let touchState = null; // The active touch (mobile): { id, startX, startY, dragging, point }
+// Off the 3D board: a column no tile or tray is in, and a row inside so handleMouseMove still clears the hover
+const OFF_3D_BOARD = { x: -100, y: 0 };
+const TOUCH_DRAG_THRESHOLD = 10; // Pixels a finger must move before a tap becomes a drag
+let audioUnlocked = false; // A tap unlocked the move sound (iOS)
+let annotationStart = null; // The square the right button went down on, null when it's up or went down off the board
 
 /* ---------------------------------------------------------------- */
 // Get Canvas Point
@@ -44,7 +48,8 @@ function getCanvasPoint(e) {
 
 /**
  * @description The screen column & row under the pointer, the same on both boards (off the board is below 0 or above 7).
- * 2D: from the canvas position, 3D: from the square the 3D board reports, or the promotion picker's tile (drawn on the canvas over it)
+ * 2D: from the canvas position, 3D: from the square the 3D board reports, or the promotion picker's tile (drawn on the
+ * canvas over it)
  * @param  {[object]} e [mouse event, or a touch made to look like one]
  * @return {[object]} { x, y } [screen column & row]
  */
@@ -58,25 +63,32 @@ function pointerTile(e) {
 	return canvasTile(e);
 }
 
-function canvasTile(e) { // THE SCREEN COLUMN & ROW AT THE POINTER ON THE 2D CANVAS
+// The screen column & row at the pointer on the 2D canvas
+function canvasTile(e) {
 	const point = getCanvasPoint(e);
-	return { x: Math.floor((point.x - game.xBoardOff) / game.tileWidth), y: Math.floor((point.y - game.yBoardOff) / game.tileHeight) };
+	return {
+		x: Math.floor((point.x - game.xBoardOff) / game.tileWidth),
+		y: Math.floor((point.y - game.yBoardOff) / game.tileHeight)
+	};
 }
 
-function pickerTile(e) { // 3D: THE CANVAS TILE WHEN IT'S ON A PIECE OF THE OPEN PROMOTION PICKER, null OTHERWISE
-	if (!game.currPromotion || game.cards3D) { return null; } // THE ROOM'S CARDS ARE THE PICKER, NO FLAT ONE TO FIND
+// 3D: the canvas tile when it's on a piece of the open promotion picker, null otherwise
+function pickerTile(e) {
+	if (!game.currPromotion || game.cards3D) { return null; } // The room's cards are the picker, there's no flat one to find
 	const tile = canvasTile(e);
 	const picker = (game.playerColor == 'w' ? game.bTakenPieces : game.wTakenPieces) || [];
-	return picker.some((p) => p.x === tile.x && p.y === tile.y) ? tile : null;
+	return picker.some((piece) => piece.x === tile.x && piece.y === tile.y) ? tile : null;
 }
 
-function setPointerTile(e) { // game.tileX & game.tileY = THE SCREEN COLUMN & ROW UNDER THE POINTER
+// Sets game.tileX & game.tileY to the screen column & row under the pointer
+function setPointerTile(e) {
 	const tile = pointerTile(e);
 	game.tileX = tile.x;
 	game.tileY = tile.y;
 }
 
-function squareUnder(e) { // THE BOARD SQUARE UNDER THE MOUSE, null OFF THE BOARD
+// The board square under the mouse, null off the board
+function squareUnder(e) {
 	const tile = pointerTile(e);
 	return tileToSquare(tile.x, tile.y, game.viewColor);
 }
@@ -93,36 +105,45 @@ function squareUnder(e) { // THE BOARD SQUARE UNDER THE MOUSE, null OFF THE BOAR
 export async function handleCanvasClick(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (game.menuToggled) { // THE CLICK ONLY CLOSES THE MENU (IF IT CAN), THE HOVER IS SET SO THE NEXT CLICK PLAYS WITHOUT MOVING THE MOUSE
+	// The click only closes the menu (if it can). The hover is set so the next click plays without moving the mouse
+	if (game.menuToggled) {
 		closeMenu();
 		handleMouseMove(e);
 		return;
 	}
-	if (e.clientX !== undefined && isCameraGesture()) { return; } // THE CLICK ENDING A CAMERA GESTURE (REMOTE-ONLY MODE'S ENTER HAS NO clientX)
-	if (game.currPromotion && game.cards3D) { // THE ROOM'S CARDS ARE THE PICKER: A POINTER CLICK IS THEIRS (three/index.js), THE BOARD & THE FLAT PICKER'S TILES ARE NOT TOUCHED
+	// The click that ends a camera gesture (remote-only mode's enter has no clientX)
+	if (e.clientX !== undefined && isCameraGesture()) { return; }
+	// The room's cards are the picker: a pointer click is theirs (three/index.js), the board & the flat picker's tiles aren't touched
+	if (game.currPromotion && game.cards3D) {
 		if (e.clientX === undefined && game.cardFocus !== null) { return choosePromotion(CARD_ORDER[game.cardFocus]); }
 		return;
 	}
-	setPointerTile(e); // SCREEN COLUMN & ROW CLICKED
+	setPointerTile(e);
 
-	if (e.clientX === undefined && remoteNavBox) { // KEYBOARD (REMOTE-ONLY MODE) ENTER HAS NO POINTER POSITION
-		game.tileX = remoteNavBox.x; game.tileY = remoteNavBox.y;
+	if (e.clientX === undefined && remoteNavBox) { // Remote-only mode's enter has no pointer position
+		game.tileX = remoteNavBox.x;
+		game.tileY = remoteNavBox.y;
 	}
 
-	if (game.currPromotion) { // IF PROMOTION IS TRUE LOOK FOR USER TO CLICK ON TAKEN PIECES TO UPDATE BOARD
+	if (game.currPromotion) { // Look for a click on a piece in the picker
 		game.revert = game.response;
-		let takenPieces // THE PICKER (drawScreen PUTS IT IN THIS LIST WHILE PROMOTING)
+		let takenPieces // The picker (drawScreen puts it in this list while promoting)
 		if (game.playerColor == 'w') { takenPieces = game.bTakenPieces }
 		else if (game.playerColor == 'b') { takenPieces = game.wTakenPieces }
 		for (let i = 0; i < takenPieces.length; i++) {
 			let takenPiece = takenPieces[i];
-			if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color))) && takenPiece.type && takenPiece.color == game.playerColor) { // CLICKED THIS PIECE IN THE PICKER
+			if (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color)))
+				&& takenPiece.type && takenPiece.color == game.playerColor) {
 				await choosePromotion(takenPiece.type);
 			}
 		}
 	} else if (!game.currSlide) {
-		if (e.clientX !== undefined && !tileToSquare(game.tileX, game.tileY, game.viewColor)) { // LET GO OR CLICKED OFF THE BOARD: NOT A MOVE, THE PIECE GOES BACK TO ITS SQUARE
-			for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].isClicked = false; game.tiles[i].isMousedown = false; }
+		// Let go or clicked off the board: not a move, the piece goes back to its square
+		if (e.clientX !== undefined && !tileToSquare(game.tileX, game.tileY, game.viewColor)) {
+			for (let i = 0; i < game.tiles.length; i++) {
+				game.tiles[i].isClicked = false;
+				game.tiles[i].isMousedown = false;
+			}
 			game.clickedTile = false;
 			game.mousedownTile = false;
 			game.refresh = true;
@@ -131,8 +152,8 @@ export async function handleCanvasClick(e) {
 		game.revert = game.response;
 		for (let i = 0; i < game.tiles.length; i++) {
 			let tile = game.tiles[i];
-			if (tile.isHovering && tile.type && tile.color == game.playerColor) { // DRAG AND DROP && IF HOVER IS TRUE
-				if (tile.isClicked && game.tileX == tile.originX && game.tileY == tile.originY) { // IF TILE IS CLICKED AND SET BACK IN ORIGINAL POSITION
+			if (tile.isHovering && tile.type && tile.color == game.playerColor) { // Drag & drop, or a click on the hovered piece
+				if (tile.isClicked && game.tileX == tile.originX && game.tileY == tile.originY) { // Put back down on its own square
 					tile.isClicked = false;
 					game.clickedTile = false;
 					game.mousedownTile = false;
@@ -140,16 +161,21 @@ export async function handleCanvasClick(e) {
 					return;
 				}
 
-				if (tile.isClicked && tile.color == game.playerColor && (game.tileX != tile.originX || game.tileY != tile.originY)) { // IF PIECE IS CLICKED AND SET IN A NEW POSITION
-					try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
-						game.moveObj = playerMove(game.playerColor, game.viewColor, tile); // { from, to } FROM WHERE IT WAS DROPPED
-						if (game.moveObj.promotion) { game.currPromotion = true; game.refresh = true; return; } // PAWN ON THE LAST RANK: OPEN THE PICKER
+				// Dropped on a new square
+				if (tile.isClicked && tile.color == game.playerColor && (game.tileX != tile.originX || game.tileY != tile.originY)) {
+					try { // Tested here first so a move that can't be played never reaches the server
+						game.moveObj = playerMove(game.playerColor, game.viewColor, tile); // { from, to } from where it was dropped
+						if (game.moveObj.promotion) { // A pawn on the last rank: open the picker
+							game.currPromotion = true;
+							game.refresh = true;
+							return;
+						}
 						tile.isClicked = false;
 						game.clickedTile = false;
 						game.mousedownTile = false;
 						game.opposingMove = true;
 						game.refresh = true;
-						return await validateMove(); // DROPPED, SO NO SLIDE: SEND IT NOW
+						return await validateMove(); // Dropped, so there's no slide: send it now
 					} catch (err) {
 						console.log(err);
 						game.opposingMove = false;
@@ -157,25 +183,33 @@ export async function handleCanvasClick(e) {
 					}
 				}
 
-				tile.isClicked = true; // PICK IT UP
+				tile.isClicked = true; // Pick it up
 				game.clickedTile = tile;
 				game.refresh = true;
-			} else if (!tile.isHovering && (tile.isClicked && tile.color == game.playerColor && (game.tileX != tile.originX || game.tileY != tile.originY))) { // CLICK PIECE WHILE MAINTAINING POSITION
+			} else if (!tile.isHovering
+				&& (tile.isClicked && tile.color == game.playerColor && (game.tileX != tile.originX || game.tileY != tile.originY))) {
+				// A piece is picked up & the click is on another square
 				try {
-					for (let z = 0; z < game.tiles.length; z++) { game.tiles[z].isClicked = false; game.clickedTile = false; }
-					for (let j = 0; j < game.tiles.length; j++) { // CLICKED ANOTHER OF THE PLAYER'S PIECES: PICK THAT ONE UP INSTEAD
-						if ((game.tiles[j].isHovering && game.tiles[j].x == game.tileX && game.tiles[j].y == game.tileY) && game.tiles[j].color == game.playerColor) {
-							game.tiles[j].isClicked = true
-							game.clickedTile = game.tiles[j];
+					for (let z = 0; z < game.tiles.length; z++) {
+						game.tiles[z].isClicked = false;
+						game.clickedTile = false;
+					}
+					for (let j = 0; j < game.tiles.length; j++) { // Clicked another of the player's pieces: pick that one up instead
+						const otherTile = game.tiles[j];
+						if ((otherTile.isHovering && otherTile.x == game.tileX && otherTile.y == game.tileY)
+							&& otherTile.color == game.playerColor) {
+							otherTile.isClicked = true
+							game.clickedTile = otherTile;
 							game.refresh = true;
 							return;
 						}
 					}
-					tile.x = game.tileX; // CLICKED A SQUARE: SLIDE THE PICKED UP PIECE THERE (THE MOVE IS SENT WHEN IT LANDS)
+					tile.x = game.tileX; // Clicked a square: slide the picked up piece there (the move is sent when it lands)
 					tile.y = game.tileY;
 					game.moveObj = playerMove(game.playerColor, game.viewColor, tile);
 					validateState.load(game.response.game_board);
-					validateState.move(game.moveObj); // CHECK MOVE WITHOUT UPDATING THE BOARD SO THE DRAWSCREEN FUNCTION CAN OPERATE WITH THE PREVIOUS MOVE WHILE CHECKING IF THE MOVE IS ALLOWED
+					// Checked on the scratch board, so drawScreen keeps drawing the board from before the move while it's checked
+					validateState.move(game.moveObj);
 					game.currSlide = true;
 					game.slideStart = true;
 					tile.isSliding = true;
@@ -183,15 +217,23 @@ export async function handleCanvasClick(e) {
 					tile.ySlideTo = game.tileY;
 					tile.xDiff = 0;
 					tile.yDiff = 0;
-					tile.slideStartTime = null; // ITS CLOCK STARTS ON ITS FIRST FRAME (stepSlide)
-					for (let j = 0; j < game.tiles.length; j++) { game.tiles[j].isClicked = false; game.tiles[j].isMousedown = false }
+					tile.slideStartTime = null; // Its clock starts on its first frame (stepSlide)
+					for (let j = 0; j < game.tiles.length; j++) {
+						game.tiles[j].isClicked = false;
+						game.tiles[j].isMousedown = false
+					}
 					game.clickedTile = false;
 					game.mousedownTile = false;
 					game.opposingMove = true;
 					game.refresh = true;
 
 					return;
-				} catch (err) { console.log(err); game.clickedTile = false; game.opposingMove = false; return refreshData(game.revert); }
+				} catch (err) {
+					console.log(err);
+					game.clickedTile = false;
+					game.opposingMove = false;
+					return refreshData(game.revert);
+				}
 			}
 		}
 	}
@@ -208,22 +250,29 @@ export async function handleCanvasClick(e) {
 export function handleMouseMove(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (isCameraGesture()) { if (game.mousedownTile) { letGo(); } return; } // THE CAMERA OWNS THE POINTER: A PIECE PRESSED AS IT TOOK OVER GOES BACK TO ITS SQUARE, NOT LEFT IN HAND
-	setPointerTile(e); // IF PIECE IS CLICK TO BE MOVED MOUSE POSITION (OFF THE BOARD IS BELOW 0 OR ABOVE 7)
-	if (!((game.tileX < 0 || game.tileX > 7) && (game.tileY < 0 || game.tileY > 7))) { // MOUSE INSIDE THE BOARD (OR BESIDE IT, WHERE THE TRAYS ARE)
+	if (isCameraGesture()) { // The camera owns the pointer: a piece pressed as it took over goes back to its square, not left in hand
+		if (game.mousedownTile) { letGo(); }
+		return;
+	}
+	setPointerTile(e); // Off the board is below 0 or above 7
+	if (!((game.tileX < 0 || game.tileX > 7) && (game.tileY < 0 || game.tileY > 7))) { // On the board (or beside it, where the trays are)
 		if (game.currPromotion && game.cards3D) {
-			// THE ROOM'S CARDS ARE THE PICKER (THEY HOVER THEMSELVES): NOTHING ON THE BOARD OR IN THE FLAT PICKER'S LISTS
-		} else if (game.currPromotion) { // HOVER THE PICKER
+			// The room's cards are the picker (they hover themselves): nothing on the board or in the flat picker's lists
+		} else if (game.currPromotion) { // Hover the picker
 			let takenPieces
 			if (game.playerColor == 'w') { takenPieces = game.bTakenPieces }
 			else if (game.playerColor == 'b') { takenPieces = game.wTakenPieces }
 			for (let i = 0; i < takenPieces.length; i++) {
 				let takenPiece = takenPieces[i];
-				takenPiece.isHovering = (((takenPiece.x === game.tileX && takenPiece.y === game.tileY && (takenPiece.color == game.playerColor || !takenPiece.color)))) && !game.menuToggled
-				if (takenPiece.isHovering || takenPiece.isClicked) { game.refresh = true; offBoardRefresh = true; }
+				takenPiece.isHovering = (((takenPiece.x === game.tileX && takenPiece.y === game.tileY
+					&& (takenPiece.color == game.playerColor || !takenPiece.color)))) && !game.menuToggled
+				if (takenPiece.isHovering || takenPiece.isClicked) {
+					game.refresh = true;
+					offBoardRefresh = true;
+				}
 				if (takenPiece.color != game.playerColor && takenPiece.color) { game.refresh = true }
 			}
-		} else { // HOVER THE PLAYER'S PIECE UNDER THE MOUSE (ONLY ON THEIR TURN, WITH THE MENU CLOSED)
+		} else { // Hover the player's piece under the mouse (only on their turn, with the menu closed)
 			for (let i = 0; i < game.tiles.length; i++) {
 				let tile = game.tiles[i];
 				tile.isHovering =
@@ -231,12 +280,15 @@ export function handleMouseMove(e) {
 					(tile.x === game.tileX && tile.y === game.tileY) &&
 					((tile.color == game.playerColor || !tile.color) || tile.isMousedown) &&
 					(!game.opposingMove && !game.menuToggled)
-				if (tile.isHovering || tile.isClicked) { game.refresh = true; offBoardRefresh = true; }
+				if (tile.isHovering || tile.isClicked) {
+					game.refresh = true;
+					offBoardRefresh = true;
+				}
 				if (tile.color != game.playerColor && tile.color) { game.refresh = true }
 			}
 		}
 	}
-	if (game.tileX < 0 || game.tileX > 7 || game.tileY < 0 || game.tileY > 7) { // MOUSE OUTSIDE THE BOARD
+	if (game.tileX < 0 || game.tileX > 7 || game.tileY < 0 || game.tileY > 7) { // Off the board
 		if (offBoardRefresh) { game.refresh = true }
 	}
 }
@@ -252,21 +304,28 @@ export function handleMouseMove(e) {
 export async function handleMouseDown(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	if (isCameraGesture()) { return; } // THE CAMERA OWNS THE POINTER
-	if (e.button == 2) { annotationStart = game.menuToggled ? null : squareUnder(e); return; }
-	if (game.annotations.length) { game.annotations = []; game.refresh = true; }
-	setPointerTile(e); // IF HOVER IS TRUE
+	if (isCameraGesture()) { return; } // The camera owns the pointer
+	if (e.button == 2) {
+		annotationStart = game.menuToggled ? null : squareUnder(e);
+		return;
+	}
+	if (game.annotations.length) {
+		game.annotations = [];
+		game.refresh = true;
+	}
+	setPointerTile(e);
 	for (let i = 0; i < game.tiles.length; i++) {
 		let tile = game.tiles[i];
-		if ((tile.isHovering && tile.type && tile.color == game.playerColor)) { // GRAB THE HOVERED PIECE
+		if ((tile.isHovering && tile.type && tile.color == game.playerColor)) { // Grab the hovered piece
 			tile.isMousedown = true;
 			game.mousedownTile = tile;
 			game.mouseDownTime = null;
-			window.addEventListener("mouseup", releaseOffBoard); // A RELEASE OFF THE BOARD NEVER REACHES handleMouseUp
-			game.refresh = true; // DRAWN LIFTED NOW, NOT ON THE FIRST MOVE (3D LIFTS IT ON THIS FRAME)
-			for (let j = 0; j < game.tiles.length; j++) { // A DIFFERENT PIECE WAS PICKED UP: PUT IT DOWN
-				if (game.tiles[j].isClicked && (game.tiles[j].x != game.tileX || game.tiles[j].y != game.tileY) && game.tiles[j].color == game.playerColor) {
-					game.tiles[j].isClicked = false
+			window.addEventListener("mouseup", releaseOffBoard); // A release off the board never reaches handleMouseUp
+			game.refresh = true; // Drawn lifted now, not on the first move (3D lifts it on this frame)
+			for (let j = 0; j < game.tiles.length; j++) { // A different piece was picked up: put it down
+				const otherTile = game.tiles[j];
+				if (otherTile.isClicked && (otherTile.x != game.tileX || otherTile.y != game.tileY) && otherTile.color == game.playerColor) {
+					otherTile.isClicked = false
 					game.clickedTile = false;
 					game.refresh = true;
 					return
@@ -287,19 +346,25 @@ export async function handleMouseDown(e) {
 export async function handleMouseUp(e) {
 	e.preventDefault();
 	e.stopPropagation();
-	window.removeEventListener("mouseup", releaseOffBoard); // RELEASED ON THE BOARD
-	if (isCameraGesture()) { return; } // THE CAMERA OWNS THE POINTER
+	window.removeEventListener("mouseup", releaseOffBoard); // Released on the board
+	if (isCameraGesture()) { return; } // The camera owns the pointer
 	if (e.button == 2) {
 		const to = squareUnder(e);
-		if (annotationStart && to) { game.annotations = toggleAnnotation(game.annotations, annotationStart, to); game.refresh = true; }
+		if (annotationStart && to) {
+			game.annotations = toggleAnnotation(game.annotations, annotationStart, to);
+			game.refresh = true;
+		}
 		annotationStart = null;
 		return;
 	}
-	setPointerTile(e); // IF HOVER IS TRUE
-	letGo(); // NOT ONLY WHEN IT'S HOVERED: A FLICK INTO A NEW SQUARE RELEASED BEFORE THE NEXT MOVE LEAVES isHovering STALE (FALSE) & THE PIECE WOULD STAY IN HAND
+	setPointerTile(e);
+	// Not only when it's hovered: a flick into a new square released before the next move leaves isHovering stale (false)
+	// & the piece would stay in hand
+	letGo();
 }
 
-// THE MOUSE WAS LET GO OFF THE BOARD (THE MENU, THE PAGE, OUTSIDE THE WINDOW): THE PIECE GOES BACK TO ITS SQUARE, LIKE A CLICK OFF THE BOARD
+// The mouse was let go off the board (the menu, the page, outside the window): the piece goes back to its square, like a
+// click off the board
 function releaseOffBoard() {
 	window.removeEventListener("mouseup", releaseOffBoard);
 	if (!game.mousedownTile) { return; }
@@ -308,7 +373,8 @@ function releaseOffBoard() {
 	game.clickedTile = false;
 }
 
-function letGo() { // LETS GO OF THE HELD PIECE, BACK TO ITS SQUARE UNTIL A CLICK DROPS IT
+// Lets go of the held piece, it's back on its square until a click drops it
+function letGo() {
 	for (let i = 0; i < game.tiles.length; i++) {
 		let tile = game.tiles[i];
 		if (tile.isMousedown && tile.type && tile.color == game.playerColor) {
@@ -328,46 +394,66 @@ function letGo() { // LETS GO OF THE HELD PIECE, BACK TO ITS SQUARE UNTIL A CLIC
  * @description Maps touch input onto the mouse handlers so pieces can be tapped or dragged on mobile browsers
  */
 
-function touchToMouseEvent(touch) { // A TOUCH WITH THE FIELDS THE MOUSE HANDLERS USE
+// A touch with the fields the mouse handlers use
+function touchToMouseEvent(touch) {
 	return { clientX: touch.clientX, clientY: touch.clientY, preventDefault() { }, stopPropagation() { } };
 }
 
-function findActiveTouch(touchList) { // THE FINGER THAT STARTED (touchState.id), OTHER FINGERS ARE IGNORED
-	for (let i = 0; i < touchList.length; i++) { if (touchList[i].identifier == touchState.id) { return touchList[i]; } }
+// The finger that started (touchState.id), other fingers are ignored
+function findActiveTouch(touchList) {
+	for (let i = 0; i < touchList.length; i++) {
+		if (touchList[i].identifier == touchState.id) { return touchList[i]; }
+	}
 	return null;
 }
 
-function unlockAudio() { // IOS ONLY PLAYS AUDIO STARTED BY A USER GESTURE, PLAY MUTED ONCE SO LATER MOVE SOUNDS (AI / OPPONENT) CAN PLAY
+// iOS only plays audio a user gesture started: it plays muted once so later move sounds (the AI's, the opponent's) can play
+function unlockAudio() {
 	if (audioUnlocked) { return; }
 	audioUnlocked = true;
 	game.moveAudio.muted = true;
-	game.moveAudio.play().then(() => { game.moveAudio.pause(); game.moveAudio.currentTime = 0; game.moveAudio.muted = false; }).catch(() => { game.moveAudio.muted = false; });
+	game.moveAudio.play().then(() => {
+		game.moveAudio.pause();
+		game.moveAudio.currentTime = 0;
+		game.moveAudio.muted = false;
+	}).catch(() => { game.moveAudio.muted = false; });
 }
 
-export function handleTouchStart(e) { // FINGER DOWN = HOVER + MOUSE DOWN
-	e.preventDefault(); // STOPS SCROLL / ZOOM & THE BROWSER'S EMULATED MOUSE EVENTS
-	if (currentView() === VIEWS.THREE_D && (e.touches.length > 1 || isCameraGesture())) { handleTouchCancel(); return; } // 3D: A SECOND FINGER IS A CAMERA GESTURE, LET GO OF THE PIECE WITHOUT A CLICK
-	if (touchState) { return; } // IGNORE EXTRA FINGERS
+// Finger down = hover + mouse down
+export function handleTouchStart(e) {
+	e.preventDefault(); // Stops scroll & zoom, & the browser's emulated mouse events
+	// 3D: a second finger is a camera gesture, let go of the piece without a click
+	if (currentView() === VIEWS.THREE_D && (e.touches.length > 1 || isCameraGesture())) {
+		handleTouchCancel();
+		return;
+	}
+	if (touchState) { return; } // Ignore extra fingers
 	const touch = e.changedTouches[0];
 	const point = touchToMouseEvent(touch);
 	touchState = { id: touch.identifier, startX: touch.clientX, startY: touch.clientY, dragging: false, point };
-	handleMouseMove(point); // TOUCH HAS NO HOVER, SO SET IT BEFORE MOUSEDOWN
+	handleMouseMove(point); // Touch has no hover, so it's set before the mouse down
 	handleMouseDown(point);
 }
 
-export function handleTouchMove(e) { // FINGER MOVES = MOUSE MOVE, ONCE IT'S MOVED FAR ENOUGH TO BE A DRAG
+// Finger moves = mouse move, once it's moved far enough to be a drag
+export function handleTouchMove(e) {
 	e.preventDefault();
 	if (!touchState) { return; }
-	if (isCameraGesture()) { handleTouchCancel(); return; } // THE CAMERA TOOK THIS FINGER
+	if (isCameraGesture()) { // The camera took this finger
+		handleTouchCancel();
+		return;
+	}
 	const touch = findActiveTouch(e.changedTouches);
 	if (!touch) { return; }
 	touchState.point = touchToMouseEvent(touch);
-	if (!touchState.dragging && Math.hypot(touch.clientX - touchState.startX, touch.clientY - touchState.startY) < touchDragThreshold) { return; } // SMALL FINGER JITTER IS STILL A TAP
+	const moved = Math.hypot(touch.clientX - touchState.startX, touch.clientY - touchState.startY);
+	if (!touchState.dragging && moved < TOUCH_DRAG_THRESHOLD) { return; } // Small finger jitter is still a tap
 	touchState.dragging = true;
 	handleMouseMove(touchState.point);
 }
 
-export function handleTouchEnd(e) { // FINGER UP = MOUSE UP + CLICK
+// Finger up = mouse up + click
+export function handleTouchEnd(e) {
 	e.preventDefault();
 	if (!touchState) { return; }
 	const touch = findActiveTouch(e.changedTouches);
@@ -377,9 +463,14 @@ export function handleTouchEnd(e) { // FINGER UP = MOUSE UP + CLICK
 	touchState = null;
 	unlockAudio();
 	handleMouseMove(point);
-	if (dragging) { // DROP THE DRAGGED PIECE ON THE RELEASE TILE (THE RENDER LOOP ONLY DOES THIS ON ITS NEXT FRAME)
+	if (dragging) { // Drop the dragged piece on the release tile (the render loop only does this on its next frame)
 		for (let i = 0; i < game.tiles.length; i++) {
-			if (game.tiles[i].isMousedown && game.tiles[i].color == game.playerColor) { game.tiles[i].x = game.tileX; game.tiles[i].y = game.tileY; game.tiles[i].isClicked = true; }
+			const tile = game.tiles[i];
+			if (tile.isMousedown && tile.color == game.playerColor) {
+				tile.x = game.tileX;
+				tile.y = game.tileY;
+				tile.isClicked = true;
+			}
 		}
 		handleMouseMove(point);
 	}
@@ -387,31 +478,38 @@ export function handleTouchEnd(e) { // FINGER UP = MOUSE UP + CLICK
 	handleCanvasClick(point);
 }
 
-export function clearTouch() { touchState = null; } // THE MENU OPENED: THIS FINGER'S RELEASE ISN'T A CLICK
+export function clearTouch() { touchState = null; } // The menu opened: this finger's release isn't a click
 
-export function handleTouchCancel() { // THE BROWSER (A SYSTEM GESTURE) OR THE 3D CAMERA TOOK THE TOUCH: LET GO WITHOUT A CLICK
+// The browser (a system gesture) or the 3D camera took the touch: let go without a click
+export function handleTouchCancel() {
 	if (!touchState) { return; }
-	letGo(); // NOT handleMouseUp: IT SITS OUT CAMERA GESTURES, WHICH WOULD LEAVE THE PIECE HELD
+	letGo(); // Not handleMouseUp: it sits out camera gestures, which would leave the piece held
 	touchState = null;
 }
 
 /**
- * @description A Chess Cards game's keys (gameplay/cards/flow.js handKey): the arrows step through the hand, or while a card is being played through the squares that glow,
- * Enter lifts the card or picks the square, Escape puts the card down, then closes an opened pile. Off the player's turn the arrows still step & Enter does nothing, so the page's nav never gets them (N1).
- * Run in the capture phase on the window (gameplay/index.js), like handleCardKey, so the page's nav never sees a key it used. A held Enter is stopped whatever has the focus
- * (a prompt's button, the menu's Restart: N3). Nothing else while the menu is open, the monitor is off the desk, a field has the keys or a modifier
- * is down; a focused button or link keeps Enter, an arrow takes the focus off it first
+ * @description A Chess Cards game's keys (gameplay/cards/flow.js handKey): the arrows step through the hand, or while a card
+ * is being played through the squares that glow, Enter lifts the card or picks the square, Escape puts the card down, then
+ * closes an opened pile. Off the player's turn the arrows still step & Enter does nothing, so the page's nav never gets them.
+ * Run in the capture phase on the window (gameplay/index.js), like handleCardKey, so the page's nav never sees a key it used.
+ * A held Enter is stopped whatever has the focus (a prompt's button, the menu's Restart). Nothing else while the menu is
+ * open, the monitor is off the desk, a field has the keys or a modifier is down; a focused button or link keeps Enter, an
+ * arrow takes the focus off it first
  * @param  {[KeyboardEvent]} e [a keydown]
  * @return {[boolean]} [the key was used or stopped, & its default & other handlers are stopped]
  */
 export function handleHandKey(e) {
 	if (!game.cardGame || e.altKey || e.ctrlKey || e.metaKey) { return false; }
-	if (e.key === "Enter" && e.repeat) { e.preventDefault(); e.stopPropagation(); return true; } // A HELD ENTER PRESSES NOTHING MORE: NOT A PROMPT'S BUTTON, NOT RESTART'S SECOND, FORFEITING PRESS (N3)
+	if (e.key === "Enter" && e.repeat) { // A held Enter presses nothing more: not a prompt's button, not Restart's second, forfeiting press
+		e.preventDefault();
+		e.stopPropagation();
+		return true;
+	}
 	if (game.menuToggled || isCameraGesture()) { return false; }
 	if (!/^(Arrow(Up|Down|Left|Right)|Enter|Escape)$/.test(e.key) || (monitorState3D() || "idle") !== "idle") { return false; }
 	const target = e.target;
 	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return false; }
-	const { handKey } = require("../cards/flow.js"); // HERE, NOT ABOVE: flow.js REACHES THE MENU, WHICH REQUIRES THIS FILE
+	const { handKey } = require("../cards/flow.js"); // Here, not at the top: flow.js reaches the menu, which requires this file
 	if (!handKey(e.key, e.repeat, Boolean(target && /^(BUTTON|A)$/.test(target.tagName)))) { return false; }
 	e.preventDefault();
 	e.stopPropagation();

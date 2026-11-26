@@ -1,4 +1,4 @@
-// TASK 24: SHAKEN'S BRANCHING BOLTS, GLOW, HALO & CAGES (shaken.js) AND ITS STRIKE FLASH (shakenFlash.js), ALONE AND DRIVEN BY SHAKEN'S STRIKES, WITHOUT WebGL
+// TASK 24: SHAKEN'S BRANCHING BOLTS, GLOW, HALO & CAGES (shaken.js) AND ITS STRIKE_SECONDS FLASH_SECONDS (shakenFlash.js), ALONE AND DRIVEN BY SHAKEN'S STRIKES, WITHOUT WebGL
 const { test, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -10,7 +10,7 @@ const shaken = require("../src/js/gameplay/three/statusFx/shaken.js");
 const flashFx = require("../src/js/gameplay/three/statusFx/shakenFlash.js");
 const { BLOOM_LAYER, FOV, CELL_SIZE } = require("../src/js/gameplay/three/constants.js");
 const { openingCamera } = require("../src/js/gameplay/three/openingCamera.js");
-const { STRIKE, FLASH, OVER, cageLayout } = shaken;
+const { STRIKE_SECONDS, FLASH_SECONDS, CAGE_LIFT, cageLayout } = shaken;
 
 const alive = new Set();
 afterEach(() => { alive.forEach((fx) => fx.dispose()); });
@@ -40,7 +40,7 @@ function setupScaled(left, extra = {}) { // AS setup, ON A PIECE SCALED 0.5
 const cage = (opts, i = 0) => opts.root.getObjectByName("shakenCages").children[i];
 const MAIN = shaken.MAIN_VERTS;
 
-// THE FLASH ALONE: shaken.js TELLS IT WHEN & WHICH CAGE STRIKES (strike(i, n)); IT ONLY FADES. FREEING IS COUNTED THROUGH three's "dispose" EVENTS
+// THE FLASH_SECONDS ALONE: shaken.js TELLS IT WHEN & WHICH CAGE_HEIGHT STRIKES (strike(i, n)); IT ONLY FADES. FREEING IS COUNTED THROUGH three's "dispose" EVENTS
 const map = new Texture(); // shaken.js's REFCOUNTED DOT, PASSED IN
 const setupFlash = (more = {}) => {
 	const mesh = new Object3D();
@@ -51,45 +51,45 @@ const join = (fx, opts) => { opts.root.add(fx.object); opts.squareRoot.add(fx.gr
 const shown = (fx) => fx.object.visible || fx.ground.visible;
 const near = (a, b) => Math.abs(a - b) < 1e-9;
 
-// THE FLASH DRIVEN BY SHAKEN FROM ITS OWN STRIKE BRANCH: ONE CLOCK
+// THE FLASH_SECONDS DRIVEN BY SHAKEN FROM ITS OWN STRIKE_SECONDS BRANCH: ONE CLOCK
 const burstOf = (opts) => opts.root.getObjectByName("shakenFlash");
 const groundOf = (opts) => opts.squareRoot.getObjectByName("shakenFlashGround");
 const cages = (opts) => opts.root.getObjectByName("shakenCages").children;
-const lit = (opts) => cages(opts).findIndex((c) => c.getObjectByName("bolts").geometry.drawRange.count > shaken.MAIN_VERTS); // THE CAGE SHAKEN STRUCK (ITS FORKS SHOW)
+const lit = (opts) => cages(opts).findIndex((c) => c.getObjectByName("bolts").geometry.drawRange.count > shaken.MAIN_VERTS); // THE CAGE_HEIGHT SHAKEN STRUCK (ITS STRIKE_FORKS SHOW)
 const world = (o) => o.getWorldPosition(new Vector3());
 
 test("forks: all of them right at a strike, half (rounded up) when cheap, gone before the flash fades", () => {
-	assert.ok(shaken.FORKS >= 2);
-	assert.equal(shaken.forks(0, false), shaken.FORKS);
-	assert.equal(shaken.forks(0, true), Math.ceil(shaken.FORKS / 2));
-	assert.ok(shaken.FORK_S < shaken.FLASH, "shorter lived than the main bolt's flash");
+	assert.ok(shaken.STRIKE_FORKS >= 2);
+	assert.equal(shaken.forks(0, false), shaken.STRIKE_FORKS);
+	assert.equal(shaken.forks(0, true), Math.ceil(shaken.STRIKE_FORKS / 2));
+	assert.ok(shaken.FORK_S < shaken.FLASH_SECONDS, "shorter lived than the main bolt's flash");
 	assert.equal(shaken.forks(shaken.FORK_S, false), 0);
-	assert.equal(shaken.forks(shaken.FLASH, false), 0);
+	assert.equal(shaken.forks(shaken.FLASH_SECONDS, false), 0);
 });
 
 test("a strike draws the forks, then they drop off after FORK_S leaving the main bolts", () => {
 	const { opts, fx } = setup(1);
 	const bolts = cage(opts).getObjectByName("bolts");
 	assert.equal(bolts.geometry.drawRange.count, MAIN, "no forks between strikes");
-	fx.update(shaken.STRIKE);
-	assert.equal(bolts.geometry.drawRange.count, MAIN + shaken.FORKS * shaken.FORK_VERTS);
+	fx.update(shaken.STRIKE_SECONDS);
+	assert.equal(bolts.geometry.drawRange.count, MAIN + shaken.STRIKE_FORKS * shaken.FORK_VERTS);
 	fx.update(shaken.FORK_S);
 	assert.equal(bolts.geometry.drawRange.count, MAIN);
 });
 
 test("cheap: half the forks", () => {
 	const { opts, fx } = setup(1, { cheap: true });
-	fx.update(shaken.STRIKE);
-	assert.equal(cage(opts).getObjectByName("bolts").geometry.drawRange.count, MAIN + Math.ceil(shaken.FORKS / 2) * shaken.FORK_VERTS);
+	fx.update(shaken.STRIKE_SECONDS);
+	assert.equal(cage(opts).getObjectByName("bolts").geometry.drawRange.count, MAIN + Math.ceil(shaken.STRIKE_FORKS / 2) * shaken.FORK_VERTS);
 });
 
 test("each fork starts on a joint of the main bolt and is dimmer (thinner looking) than it", () => {
 	const { opts, fx } = setup(1);
-	fx.update(shaken.STRIKE);
+	fx.update(shaken.STRIKE_SECONDS);
 	const geo = cage(opts).getObjectByName("bolts").geometry, p = geo.attributes.position.array, c = geo.attributes.color.array;
 	const joints = [];
 	for (let v = 0; v < MAIN; v++) { joints.push(p.slice(v * 3, v * 3 + 3).join()); }
-	for (let f = 0; f < shaken.FORKS; f++) {
+	for (let f = 0; f < shaken.STRIKE_FORKS; f++) {
 		const v = MAIN + f * shaken.FORK_VERTS;
 		assert.ok(joints.includes(p.slice(v * 3, v * 3 + 3).join()), `fork ${f} branches off the bolt`);
 		assert.ok(c[v * 3] < c[0], "dimmer than the main bolt");
@@ -119,18 +119,18 @@ test("the halo is one Points draw sharing the bolts' positions, steel blue, and 
 
 test("reduced motion: no strikes, so no forks", () => {
 	const { opts, fx } = setup(2, { reduce: true });
-	fx.update(shaken.STRIKE * 3);
+	fx.update(shaken.STRIKE_SECONDS * 3);
 	assert.equal(cage(opts).getObjectByName("bolts").geometry.drawRange.count, MAIN);
 });
 
 const px = (world) => { const view = openingCamera({ fov: FOV, width: 1440, height: 900 }); return (world / (2 * view.distance * Math.tan((FOV * Math.PI) / 360))) * 900; };
-test("legible from the Chess Cards opening camera on a 1440x900 window: one or two cages at least 30 px tall, a full row of 3 at least 23 px (T24-R10, R11)", () => {
-	for (const n of [1, 2]) { assert.equal(shaken.cageLayout(n).size, shaken.CAGE, `${n} cage(s) keep the full size`); }
-	assert.ok(px(shaken.CAGE) >= 30, `${px(shaken.CAGE).toFixed(1)} px`);
+test("legible from the Chess Cards opening camera on a 1440x900 window: one or two cages at least 30 px tall, a full row of 3 at least 23 px", () => {
+	for (const n of [1, 2]) { assert.equal(shaken.cageLayout(n).size, shaken.CAGE_HEIGHT, `${n} cage(s) keep the full size`); }
+	assert.ok(px(shaken.CAGE_HEIGHT) >= 30, `${px(shaken.CAGE_HEIGHT).toFixed(1)} px`);
 	assert.ok(px(shaken.cageLayout(3).size) >= 23, `${px(shaken.cageLayout(3).size).toFixed(1)} px`);
 });
 
-test("T24-R10: a cage row of any count fits within 0.95 cell, and the drawn row matches cageLayout", () => {
+test("a cage row of any count fits within 0.95 cell, and the drawn row matches cageLayout", () => {
 	for (let n = 1; n <= 3; n++) {
 		const { size } = shaken.cageLayout(n), first = shaken.cageLayout(n, 0).x, last = shaken.cageLayout(n, n - 1).x;
 		assert.ok(last - first + 1.12 * size <= CELL_SIZE * 0.95 + 1e-9, `${n} cages: ${((last - first + 1.12 * size) / CELL_SIZE).toFixed(2)} cell`); // 1.12: BOLTS TO 0.48 EITHER SIDE, HALO DOTS 0.08 MORE
@@ -140,13 +140,13 @@ test("T24-R10: a cage row of any count fits within 0.95 cell, and the drawn row 
 	}
 	const { opts, fx } = setup(1);
 	for (let k = 0; k < 50; k++) {
-		fx.update(shaken.STRIKE);
+		fx.update(shaken.STRIKE_SECONDS);
 		const p = cage(opts).getObjectByName("bolts").geometry.attributes.position.array;
 		for (let v = 0; v < MAIN; v++) { assert.ok(Math.abs(p[v * 3]) <= 0.48 + 1e-6, "a bar bows out 0.48 at most"); }
 	}
 });
 
-test("T24-R9: the halo is hidden under cheap and back when cheap clears", () => {
+test("the halo is hidden under cheap and back when cheap clears", () => {
 	const { opts, fx } = setup(2);
 	const halos = () => [0, 1].map((i) => cage(opts, i).getObjectByName("halo"));
 	assert.ok(halos().every((h) => h.visible));
@@ -158,9 +158,9 @@ test("T24-R9: the halo is hidden under cheap and back when cheap clears", () => 
 	assert.ok(halos().every((h) => h.visible));
 });
 
-test("M2: the halo draws each joint once (no doubled interior joints), forks' dots only while the forks show", () => {
+test("the halo draws each joint once (no doubled interior joints), forks' dots only while the forks show", () => {
 	const { opts, fx } = setup(1);
-	fx.update(shaken.STRIKE);
+	fx.update(shaken.STRIKE_SECONDS);
 	const halo = cage(opts).getObjectByName("halo"), g = halo.geometry, p = g.attributes.position.array, idx = g.index.array;
 	const key = (v) => Array.from(p.slice(v * 3, v * 3 + 3), (x) => Math.round(x * 1e5) || 0).join(); // sin(PI) ISN'T QUITE 0: THE BARS' BOTTOM TIPS DIFFER BY ~1e-17 (|| 0: NO -0)
 	const drawn = Array.from(idx.slice(0, g.drawRange.count), key);
@@ -172,8 +172,8 @@ test("M2: the halo draws each joint once (no doubled interior joints), forks' do
 	assert.equal(g.drawRange.count, joints.size, "forks gone: main joints only");
 });
 
-test("flashLook: bright at the strike, gone by FLASH; the burst swells as it fades; it writes into the object it's given", () => {
-	const a = { ...flashFx.flashLook(0) }, b = { ...flashFx.flashLook(FLASH / 2) }, c = flashFx.flashLook(FLASH);
+test("flashLook: bright at the strike, gone by FLASH_SECONDS; the burst swells as it fades; it writes into the object it's given", () => {
+	const a = { ...flashFx.flashLook(0) }, b = { ...flashFx.flashLook(FLASH_SECONDS / 2) }, c = flashFx.flashLook(FLASH_SECONDS);
 	assert.equal(a.burst, 1);
 	assert.ok(a.ground > 0.5);
 	assert.ok(b.burst > 0 && b.burst < 1);
@@ -184,18 +184,18 @@ test("flashLook: bright at the strike, gone by FLASH; the burst swells as it fad
 	assert.equal(flashFx.flashLook(0, out), out, "no new object per frame");
 });
 
-test("it has no clock of its own: idle stays idle however long; a strike shows it until FLASH", () => {
+test("it has no clock of its own: idle stays idle however long; a strike shows it until FLASH_SECONDS", () => {
 	const opts = setupFlash();
 	const fx = join(flashFx.make(opts.mesh, opts, map), opts);
 	fx.update(0, opts);
-	for (let i = 0; i < 5; i++) { fx.update(STRIKE, opts); }
+	for (let i = 0; i < 5; i++) { fx.update(STRIKE_SECONDS, opts); }
 	assert.equal(shown(fx), false, "no strike from shaken: no flash");
 	fx.strike(0, 2);
 	assert.ok(fx.object.visible && fx.ground.visible, "the strike flashes at once");
-	fx.update(FLASH / 2, opts);
+	fx.update(FLASH_SECONDS / 2, opts);
 	assert.ok(shown(fx));
-	fx.update(FLASH / 2, opts);
-	assert.equal(shown(fx), false, "gone by FLASH");
+	fx.update(FLASH_SECONDS / 2, opts);
+	assert.equal(shown(fx), false, "gone by FLASH_SECONDS");
 	fx.dispose();
 });
 
@@ -208,7 +208,7 @@ test("the burst sits on cage i of n (cageLayout / the piece's scale), just over 
 		fx.strike(i, n);
 		const { size, x } = cageLayout(n, i), s = size / 0.5;
 		assert.ok(near(fx.object.position.x, x / 0.5), `x of cage ${i} of ${n}`);
-		assert.ok(near(fx.object.position.y, 0.83 + OVER + s / 2), `y of cage ${i} of ${n}`);
+		assert.ok(near(fx.object.position.y, 0.83 + CAGE_LIFT + s / 2), `y of cage ${i} of ${n}`);
 		assert.ok(near(fx.object.material.opacity, 0.5));
 		assert.ok(fx.ground.material.opacity > 0 && fx.ground.material.opacity <= 0.5);
 	}
@@ -268,13 +268,13 @@ test("the flash's burst sits on opts.root, its ground on opts.squareRoot", () =>
 for (const n of [1, 2, 3]) {
 	test(`${n} cage(s): the flash fires exactly when shaken strikes, at the cage shaken drew`, () => {
 		const { opts, fx } = setupScaled(n);
-		const step = shaken.STRIKE / 4;
+		const step = shaken.STRIKE_SECONDS / 4;
 		let strikes = 0;
 		for (let f = 0; f < 4 * 7; f++) {
 			fx.update(step);
 			const i = lit(opts), on = burstOf(opts).visible, strikeFrame = f % 4 === 3;
 			assert.equal(i >= 0, strikeFrame, `shaken strikes on frame ${f}?`);
-			assert.equal(on, strikeFrame, `flash on frame ${f}`); // FLASH = STRIKE / 4: GONE BY THE NEXT FRAME
+			assert.equal(on, strikeFrame, `flash on frame ${f}`); // FLASH_SECONDS = STRIKE_SECONDS / 4: GONE BY THE NEXT FRAME
 			if (strikeFrame) {
 				strikes++;
 				assert.ok(groundOf(opts).visible, `ground on at strike ${strikes}`);
@@ -287,22 +287,22 @@ for (const n of [1, 2, 3]) {
 	});
 }
 
-test("no flash between strikes, and it fades by FLASH", () => {
+test("no flash between strikes, and it fades by FLASH_SECONDS", () => {
 	const { opts, fx } = setupScaled(2);
-	fx.update(shaken.STRIKE / 2);
+	fx.update(shaken.STRIKE_SECONDS / 2);
 	assert.equal(burstOf(opts).visible, false);
-	fx.update(shaken.STRIKE / 2);
+	fx.update(shaken.STRIKE_SECONDS / 2);
 	assert.equal(burstOf(opts).visible, true);
-	fx.update(shaken.FLASH / 2);
+	fx.update(shaken.FLASH_SECONDS / 2);
 	assert.ok(burstOf(opts).material.opacity > 0 && burstOf(opts).material.opacity < 1);
-	fx.update(shaken.FLASH / 2);
+	fx.update(shaken.FLASH_SECONDS / 2);
 	assert.equal(burstOf(opts).visible, false);
 	assert.equal(groundOf(opts).visible, false);
 });
 
 test("driven by shaken: reduced motion: no flash", () => {
 	const { opts, fx } = setupScaled(2, { reduce: true });
-	for (let i = 0; i < 4; i++) { fx.update(shaken.STRIKE); }
+	for (let i = 0; i < 4; i++) { fx.update(shaken.STRIKE_SECONDS); }
 	assert.ok(!burstOf(opts) || !burstOf(opts).visible);
 	assert.ok(!groundOf(opts) || !groundOf(opts).visible);
 });
@@ -310,13 +310,13 @@ test("driven by shaken: reduced motion: no flash", () => {
 test("burst() and dispose() take the flash off and free its materials", () => {
 	for (const end of ["burst", "dispose"]) {
 		const { opts, fx } = setupScaled(2);
-		fx.update(shaken.STRIKE);
+		fx.update(shaken.STRIKE_SECONDS);
 		const mats = [burstOf(opts).material, groundOf(opts).material], freed = new Set();
 		mats.forEach((m) => m.addEventListener("dispose", () => freed.add(m)));
 		fx[end]();
 		assert.equal(burstOf(opts), undefined, end);
 		assert.equal(opts.squareRoot.children.length, 0, end);
 		assert.equal(freed.size, 2, end);
-		if (end === "burst") { fx.update(shaken.STRIKE); fx.update(0.1); } // BURSTING ON WITHOUT THE FLASH: NOTHING THROWS
+		if (end === "burst") { fx.update(shaken.STRIKE_SECONDS); fx.update(0.1); } // BURSTING ON WITHOUT THE FLASH_SECONDS: NOTHING THROWS
 	}
 });

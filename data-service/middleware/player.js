@@ -14,7 +14,7 @@
 const config = require("../config");
 const { readSessionToken } = require("../utils/sessionKeys.js");
 const { refuse } = require("../utils/refuse.js");
-const { retrieveUser } = require("../dynamoDB.js");
+const { retrieveUser } = require("../db/index.js");
 
 /* ---------------------------------------------------------------- */
 // Read Player

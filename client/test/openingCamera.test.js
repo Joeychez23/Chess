@@ -100,7 +100,7 @@ for (const fov of FOVS) {
 // RULING T23-11 (WITH T23-7, T23-8 & T23-10): WHERE NO CAMERA INSIDE THE ROOM HOLDS THE HAND AT 40 DEGREES, THE FIRST SHALLOWER TILT THAT DOES, IN 1 DEGREE STEPS: EVERY STEEPER ONE FROM 40 GIVES
 // null. AT IT THE BIGGEST BOARD: THE CAMERA AS CLOSE AS THE HAND LETS IT (ITS OUTER CORNER AT FIT_NDC), THE TARGET PAST THE BOARD AS FAR AS THAT NEEDS
 const DEG = Math.PI / 180;
-test("T23-11: 390x844, 520x1000 & 540x1000 at fov 45 open at the first tilt past 40 degrees that holds the whole hand inside the room, the bottom inside the desk, the camera as close as it can come", () => {
+test("390x844, 520x1000 & 540x1000 at fov 45 open at the first tilt past 40 degrees that holds the whole hand inside the room, the bottom inside the desk, the camera as close as it can come", () => {
 	for (const [w, h] of [[390, 844], [520, 1000], [540, 1000]]) {
 		for (const angle of [0, Math.PI]) {
 			const spot = openingCamera({ fov: FOV, width: w, height: h, angle });
@@ -115,7 +115,7 @@ test("T23-11: 390x844, 520x1000 & 540x1000 at fov 45 open at the first tilt past
 
 // RULING T23-12: WHERE NO TILT FROM 40 TO MAX_TILT HOLDS THE HAND INSIDE THE ROOM (ASPECT ABOUT 0.41 OR NARROWER AT FOV 45, ABOUT 0.63 AT FOV 30): null, & camera.js KEEPS THE LIBRARY'S VIEW (BELOW).
 // AT THE OPENING TILT ITSELF THE ROOM STILL CAPS THE CAMERA (T23-10): THE NARROW PORTRAIT SIZES GIVE null THERE, NOT A CAMERA PAST THE CEILING OR THE SOUTH WALL
-test("T23-12 & T23-10: 300x1000, 250x1000 & 150x1000 at both fovs & 390x844 & 540x1000 at fov 30 give null; at 40 degrees 540, 520 & 390 wide give null at both fovs", () => {
+test("300x1000, 250x1000 & 150x1000 at both fovs & 390x844 & 540x1000 at fov 30 give null; at 40 degrees 540, 520 & 390 wide give null at both fovs", () => {
 	for (const fov of FOVS) {
 		for (const [w, h] of [[300, 1000], [250, 1000], [150, 1000]]) { assert.equal(openingCamera({ fov, width: w, height: h }), null, `${w}x${h} fov ${fov}`); }
 		for (const [w, h] of [[540, 1000], [520, 1000], [390, 844]]) { assert.equal(openingCamera({ fov, width: w, height: h, tilt: OPENING_TILT }), null, `${w}x${h} fov ${fov} at 40 degrees`); }
@@ -147,7 +147,7 @@ test("opening camera: steeper than today's angle, so the board is bigger on scre
 function mounted(w, h, cards) {
 	const cam = new THREE.PerspectiveCamera(FOV, 1, 0.1, 1000);
 	const controls = { target: new THREE.Vector3(), maxDistance: MAX_DISTANCE, maxTargetRadius: BOARD_SIZE / 2, minDistance: 12, update() { cam.lookAt(this.target); } };
-	const v = { camera: cam, controls, container: { clientWidth: w, clientHeight: h }, renderer: { setPixelRatio() {}, setSize() {} }, small: null, phone: false, side: "w", tableArgs: cards ? [hand(false), [], {}] : null, table: cards ? {} : null, cards: null, dealHome: null, pileBox: null, tweens: { add() {} }, leaving: [] };
+	const v = { camera: cam, controls, container: { clientWidth: w, clientHeight: h }, renderer: { setPixelRatio() {}, setSize() {} }, small: null, phone: false, side: "w", tableArgs: cards ? [hand(false), [], {}] : null, table: cards ? {} : null, cards: null, dealHome: null, pileBox: null, animations: { add() {} }, leaving: [] };
 	board.setView(v);
 	camera.resize();
 	camera.placeCamera(0);
@@ -155,7 +155,7 @@ function mounted(w, h, cards) {
 }
 const at = (vec) => [vec.x, vec.y, vec.z].map((n) => Math.round(n * 1000) / 1000 + 0); // + 0: NO -0
 
-test("R2-m1: a Chess Cards game's window drag keeps the last opening spot's limits & solves the new size once it settles", async () => {
+test("a Chess Cards game's window drag keeps the last opening spot's limits & solves the new size once it settles", async () => {
 	const v = mounted(1440, 900, true), wide = v.controls.maxDistance;
 	v.container = { clientWidth: 540, clientHeight: 1000 };
 	camera.resize([]); // THE ResizeObserver'S CALL, MID-DRAG
@@ -188,7 +188,7 @@ test("a Chess Cards game opens at openingCamera for its size, its limits let the
 	}
 });
 
-test("I1 & T23-12: a Chess Cards game on a canvas too narrow for the hand in the room at any tilt (150x1000, 300x1000) doesn't throw in resize or placeCamera: the library's view & limits", () => {
+test("a Chess Cards game on a canvas too narrow for the hand in the room at any tilt (150x1000, 300x1000) doesn't throw in resize or placeCamera: the library's view & limits", () => {
 	for (const [w, h] of [[150, 1000], [300, 1000]]) {
 		const v = mounted(w, h, true);
 		assert.deepEqual(at(v.camera.position), [0, 24.5, 30.5]);
@@ -208,7 +208,7 @@ test("the card state before the room's table (the baize stage, fogged far off) k
 	assert.deepEqual(at(v.camera.position), at(openingCamera({ fov: FOV, width: 1024, height: 768 }).position));
 });
 
-test("T23-9: the card state arriving at the monitor makes the hand's view the spot the camera comes back to, & leaving the monitor lands there", () => {
+test("the card state arriving at the monitor makes the hand's view the spot the camera comes back to, & leaving the monitor lands there", () => {
 	const v = mounted(1440, 900, false), spot = openingCamera({ fov: FOV, width: 1440, height: 900, angle: 0 });
 	v.monitor = { state: "zooming", reset() { throw new Error("pulled off the monitor"); } };
 	v.camera.position.set(1, 2, 3);
@@ -225,7 +225,7 @@ test("T23-9: the card state arriving at the monitor makes the hand's view the sp
 	assert.deepEqual(at(v.controls.target), at(spot.target));
 });
 
-test("T23-6: the card state arriving on a mounted board opens the hand's view only when the camera isn't at the monitor", () => {
+test("the card state arriving on a mounted board opens the hand's view only when the camera isn't at the monitor", () => {
 	const v = mounted(1440, 900, false), spot = openingCamera({ fov: FOV, width: 1440, height: 900, angle: 0 });
 	v.monitor = { state: "zooming", reset() { throw new Error("pulled off the monitor"); } }; // NOT "zoomed": resize WOULD REFIT THE GLASS (refitZoom), NOT WHAT THIS TESTS
 	v.camera.position.set(1, 2, 3);
@@ -242,11 +242,11 @@ test("T23-6: the card state arriving on a mounted board opens the hand's view on
 
 // FINAL RE-REVIEW 1, N1: A WINDOW DRAG FROM NARROW TO WIDE. camera.js's SETTLE (resize(true), CARD_SETTLE_MS AFTER THE LAST EVENT) SETS THE WIDE SIZE'S LIMITS & THE CONTROLS PULL THE CAMERA IN
 // (AS OrbitControls' update, three 0.187: THE OFFSET'S TILT & DISTANCE CLAMPED, THE TARGET WITHIN maxTargetRadius). THE PLAQUES ARE LAID AGAIN ONLY ONCE IT HAS: ON SCREEN, OR NONE UP (THE 2D BUTTONS)
-test("N1: a narrow-to-wide resize lays the plaques again after the settle moves the camera: on screen, or none up", async (t) => {
+test("a narrow-to-wide resize lays the plaques again after the settle moves the camera: on screen, or none up", async (t) => {
 	t.mock.method(console, "warn", () => {});
 	global.document = { createElement: (tag) => (tag === "canvas" ? { width: 0, height: 0, getContext: () => new Proxy({}, { get: (o, k) => (k === "measureText" ? (x) => ({ width: String(x).length }) : k in o ? o[k] : () => {}), set: (o, k, val) => { o[k] = val; return true; } }) } : { setAttribute() {}, remove() {}, textContent: "" }), body: { append() {} } }; // AS cardButtons.test.js's
 	const { createCardTable, deskInView } = require("../src/js/gameplay/three/cardTable.js");
-	const { createTweens } = require("../src/js/gameplay/three/tween.js");
+	const { createAnimations } = require("../src/js/gameplay/three/animations.js");
 	const { plaqueAnchor } = require("../src/js/gameplay/three/tableLayout.js");
 	const S = require("../src/js/gameplay/cards/select.js");
 	const { fromFen } = require("../../cards-engine/board.js");
@@ -270,7 +270,7 @@ test("N1: a narrow-to-wide resize lays the plaques again after the settle moves 
 				cam.position.copy(this.target).add(new THREE.Vector3().setFromSpherical(sph));
 				cam.lookAt(this.target);
 			};
-			const table = createCardTable({ template: template(), room, tweens: createTweens(() => {}), requestRender() {}, inView: () => deskInView(cam, room), camera: cam });
+			const table = createCardTable({ template: template(), room, animations: createAnimations(() => {}), requestRender() {}, inView: () => deskInView(cam, room), camera: cam });
 			s.table = table;
 			s.cardSpotFor = table; // camera.js resize: THE OPENING SPOT IS THIS TABLE'S (openCardCamera)
 			let relays = 0;
@@ -302,11 +302,11 @@ test("N1: a narrow-to-wide resize lays the plaques again after the settle moves 
 // FINAL RE-REVIEW 2, R2-1 (CALL T23-30): FLIP BOARD WITH A SQUARE-ANCHORED PROMPT UP. flow.js LAYS IT ON THE NEW SIDE AS THE TURN BEGINS (renderer drawBoard: setSide, THEN tableUp),
 // AGAINST THE CAMERA BEFORE THE TURN. FROM AN ORBITED CAMERA THE TURN LANDS ELSEWHERE, SO THE PLAQUES ARE LAID AGAIN ONCE IT LANDS (stepCamera'S END, OR landTurn): ON SCREEN, OR NONE UP & THE 2D BUTTONS SHOWN.
 // THE CASES ARE THE REVIEW'S fuzz3.cjs FAILURES, EACH ALSO FLIPPED STRAIGHT
-test("R2-1: a Flip Board turn from an orbited camera lays the plaques again where it lands: on screen, or none up & the 2D buttons shown; a straight flip keeps them", (t) => {
+test("a Flip Board turn from an orbited camera lays the plaques again where it lands: on screen, or none up & the 2D buttons shown; a straight flip keeps them", (t) => {
 	t.mock.method(console, "warn", () => {});
 	global.document = { createElement: (tag) => (tag === "canvas" ? { width: 0, height: 0, getContext: () => new Proxy({}, { get: (o, k) => (k === "measureText" ? (x) => ({ width: String(x).length }) : k in o ? o[k] : () => {}), set: (o, k, val) => { o[k] = val; return true; } }) } : { setAttribute() {}, remove() {}, textContent: "" }), body: { append() {} } }; // AS cardButtons.test.js's
 	const { createCardTable, deskInView } = require("../src/js/gameplay/three/cardTable.js");
-	const { createTweens } = require("../src/js/gameplay/three/tween.js");
+	const { createAnimations } = require("../src/js/gameplay/three/animations.js");
 	const { plaqueAnchor } = require("../src/js/gameplay/three/tableLayout.js");
 	const { FLIP_MS } = require("../src/js/gameplay/three/constants.js");
 	const S = require("../src/js/gameplay/cards/select.js");
@@ -327,7 +327,7 @@ test("R2-1: a Flip Board turn from an orbited camera lays the plaques again wher
 				s.controls.maxPolarAngle = Math.PI;
 				s.room = room;
 				s.side = from;
-				const table = createCardTable({ template: template(), room, tweens: createTweens(() => {}), requestRender() {}, inView: () => deskInView(cam, room), camera: cam });
+				const table = createCardTable({ template: template(), room, animations: createAnimations(() => {}), requestRender() {}, inView: () => deskInView(cam, room), camera: cam });
 				s.table = table;
 				s.cardSpotFor = table;
 				camera.resize(true);

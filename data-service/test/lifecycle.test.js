@@ -1,6 +1,6 @@
 /*
  *  lifecycle.test.js  --  data service tests
- *	Starting & Ending Games (controllers/gameController.js)
+ *	Starting & Ending Games (controllers/game/)
  *  New AI games, guest games, invites, accepts, declines & rematches: each only for the player in the request, only on
  *  games they can act on, with only the fields the route names. A refused request makes or changes nothing
  *
@@ -11,7 +11,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const service = require("./helpers/service.js");
 const { call, player, peek } = service;
-const db = require("../dynamoDB.js");
+const db = require("../db/index.js");
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 
 let server;
@@ -30,7 +30,7 @@ const mallory = player("mallory");
 
 const SET_POSITION = "4k3/8/8/8/8/8/8/R3K3 w - - 0 1";
 const list = (userId, name) => JSON.parse(peek("user_db", userId)?.[name]?.S || "[]");
-const friendGame = (gameId, white, black, pending) => db.initalizeGame(gameId, white, black, false, { names: { w: white, b: black }, pending, start_params: { color: "w" }, inviter_id: white });
+const friendGame = (gameId, white, black, pending) => db.initializeGame(gameId, white, black, false, { names: { w: white, b: black }, pending, start_params: { color: "w" }, inviter_id: white });
 
 async function closedFriendGame(gameId, white, black) {
 	const created = (await friendGame(gameId, white, black)).game_data;
@@ -86,7 +86,7 @@ describe("new AI game", () => {
 	});
 
 	test("only for a signed in player, with a real level and a playable position", async () => {
-		await db.initalizeGame("game1", "bob", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game1", "bob", "CHESS_AI", 3, { start_params: { color: "w" } });
 		const made = [["user_db", "alice"]];
 		await refused(made, "POST", "/games/ai", { body: {} }, 401);
 		await refused(made, "POST", "/games/ai", { guest: "game2", body: {} }, 403);
@@ -101,8 +101,8 @@ describe("new AI game", () => {
 describe("game ids are made here", () => {
 	const ID = /^[A-Za-z0-9_-]{22}$/; // 16 RANDOM BYTES, BASE64URL
 
-	test("a body can't name the id of a new AI game or invite (#304)", async () => {
-		await db.initalizeGame("game1", "bob", "CHESS_AI", 3, { start_params: { color: "w" } });
+	test("a body can't name the id of a new AI game or invite", async () => {
+		await db.initializeGame("game1", "bob", "CHESS_AI", 3, { start_params: { color: "w" } });
 		await refused([["chess_db", "game1"], ["chess_db", "game2"], ["user_db", "alice"]], "POST", "/games/ai", { as: alice, body: { game_id: "game2" } }, 400);
 		await refused([["chess_db", "game1"], ["user_db", "alice"]], "POST", "/games/ai", { as: alice, body: { game_id: "game1" } }, 400); // BOB'S GAME ISN'T RESET
 		await refused([["chess_db", "game2"], ["user_db", "bob"]], "POST", "/games/invite", { as: alice, body: { opponent_id: "bob", game_id: "game2" } }, 400);
@@ -160,7 +160,7 @@ describe("guest game", () => {
 
 	test("an id that isn't the guest's own gets a new game, and that game isn't touched", async () => {
 		await call("POST", "/games/guest", { body: { game_id: "guest1", color: "w" } });
-		await db.initalizeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		for (const [gameId, options] of [["guest1", { guest: "other" }], ["guest1", {}], ["game1", {}], ["game1", { guest: "alice" }]]) {
 			const before = peek("chess_db", gameId);
 			const made = (await call("POST", "/games/guest", { ...options, body: { game_id: gameId, color: "w" } })).game_data;
@@ -571,7 +571,7 @@ describe("rematch", () => {
 	test("not for an open game, an AI game, someone else, or a player in another friend game", async () => {
 		await friendGame("game1", "alice", "bob");
 		await refused([["chess_db", "game1"]], "POST", "/games/game1/rematch", { as: alice }, 409);
-		await db.initalizeGame("game2", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
+		await db.initializeGame("game2", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		await db.closeGame((await db.retrieveGame("game2")).game_data, "b", "forfeit");
 		await refused([["chess_db", "game2"]], "POST", "/games/game2/rematch", { as: alice }, 409);
 		await closedFriendGame("game3", "carol", "dave");

@@ -9,7 +9,7 @@
 /* ---------------------------------------------------------------- */
 
 const { retrieveUser, updateUserSettings, claimUsername, searchUsernames, retrieveFriends, changeFriend, deleteUser } = require("../dataClient.js");
-const { leaveAllGames, readSettings, isStatusDisplay, userPlayerId, httpStatus } = require("./chessController.js");
+const { leaveAllGames, readSettings, isStatusDisplay, userPlayerId, httpStatus } = require("./chess/index.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { disconnectPlayer, emitToPlayer, isOnline } = require("../socket.js");
 const { deleteAuth0User } = require("../utils/auth0.js");

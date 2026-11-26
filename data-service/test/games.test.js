@@ -1,6 +1,6 @@
 /*
  *  games.test.js  --  data service tests
- *	Game Routes (controllers/gameController.js)
+ *	Game Routes (controllers/game/)
  *  Each route only acts for the player in the request, only on a game they're in, and only saves what the action allows.
  *  Every refused request leaves the stored game exactly as it was
  *
@@ -11,7 +11,7 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const service = require("./helpers/service.js");
 const { call, player, sessionToken, guestCookie, peek } = service;
-const db = require("../dynamoDB.js");
+const db = require("../db/index.js");
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const { tamper } = require("./helpers/keys.js");
 
@@ -28,8 +28,8 @@ const mallory = player("mallory");
 // Helpers
 /* ---------------------------------------------------------------- */
 
-const aiGame = (gameId, playerId, color) => db.initalizeGame(gameId, color == "b" ? "CHESS_AI" : playerId, color == "b" ? playerId : "CHESS_AI", 3, { start_params: { color: color || "w" } });
-const friendGame = (gameId, white, black, pending) => db.initalizeGame(gameId, white, black, false, { names: { w: white, b: black }, pending, start_params: { color: "w" }, inviter_id: white });
+const aiGame = (gameId, playerId, color) => db.initializeGame(gameId, color == "b" ? "CHESS_AI" : playerId, color == "b" ? playerId : "CHESS_AI", 3, { start_params: { color: color || "w" } });
+const friendGame = (gameId, white, black, pending) => db.initializeGame(gameId, white, black, false, { names: { w: white, b: black }, pending, start_params: { color: "w" }, inviter_id: white });
 const board = (gameId) => peek("chess_db", gameId).game_board.S;
 
 /**
@@ -99,7 +99,7 @@ describe("who's asking", () => {
 		await refused("game1", "GET", "/games/game1", { cookie: tamper(guestCookie("game2"), { game_id: "game1" }) }, 401);
 	});
 
-	test("only a token this service signed: another key's, an HS256 or a none token is refused (#252)", async () => {
+	test("only a token this service signed: another key's, an HS256 or a none token is refused", async () => {
 		await aiGame("game1", "alice");
 		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { key: "stranger" }) }, 401);
 		await refused("game1", "GET", "/games/game1", { token: sessionToken(alice.user, { key: "next" }) }, 401); // ONLY THE CHESS SERVER HAS THE NEXT KEY, THIS SERVICE SIGNS WITH IT ONCE IT'S CHANGED
@@ -234,7 +234,7 @@ describe("move", () => {
 	});
 
 	test("a promotion is saved as the piece picked", async () => {
-		await db.initalizeGame("game1", "alice", "bob", false, { start_params: { color: "w", fen: "8/4P3/8/8/8/k7/8/4K3 w - - 0 1" }, inviter_id: "alice" });
+		await db.initializeGame("game1", "alice", "bob", false, { start_params: { color: "w", fen: "8/4P3/8/8/8/k7/8/4K3 w - - 0 1" }, inviter_id: "alice" });
 		const moved = await call("POST", "/games/game1/move", { as: alice, body: { from: "e7", to: "e8", promotion: "n" } });
 		assert.equal(moved.http, 200);
 		assert.deepEqual(moved.game_data.moves.S, ["e8=N"]);

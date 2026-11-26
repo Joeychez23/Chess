@@ -57,7 +57,7 @@ test("group 3, a move's two forms under fog: both forms & Cancel beside the movi
 	assert.equal(S.promptFocus(forms), 0);
 });
 
-test("T23-26: only the fog's two forms are group 3; any other prompt of moves keeps the 2D box", () => {
+test("only the fog's two forms are group 3; any other prompt of moves keeps the 2D box", () => {
 	const forms = [{ type: "move", card: "c1", from: "e2", to: "e4" }, { type: "move", card: null, from: "e2", to: "e4" }];
 	assert.equal(S.plaquePrompt({ pick: forms, card: "c1" }), null, "the same forms with no fog: the 2D box");
 	assert.deepEqual(S.plaquePrompt({ pick: [forms[1], forms[0]], hidden: true }), { square: "e2" }, "either order");
@@ -91,7 +91,7 @@ test("every other prompt keeps the 2D prompt: a curse's Pay, a choice's options,
 	assert.equal(S.plaquePrompt({ pick: [] }), null, "no prompt: the plaques go (showButtons([]))");
 });
 
-test("the keys over the plaques are the 2D buttons' (Task 19): Enter on the focused one presses it, a held Enter never does, Escape cancels a pick", () => {
+test("the keys over the plaques are the 2D buttons': Enter on the focused one presses it, a held Enter never does, Escape cancels a pick", () => {
 	const base = { on: true, yours: true, picked: true };
 	assert.equal(S.keyPlan({ ...base, key: "Enter", button: true }), "page", "the focused button (its plaque's) is pressed");
 	assert.equal(S.keyPlan({ ...base, key: "Enter", button: true, repeat: true }), "stop", "a held Enter presses nothing");
@@ -99,7 +99,7 @@ test("the keys over the plaques are the 2D buttons' (Task 19): Enter on the focu
 	assert.equal(S.keyPlan({ ...base, key: "ArrowRight", button: true }), "blur", "an arrow leaves the buttons, as today (Tab walks them: the browser's own)");
 });
 
-test("review M2: a mixed move & discard prompt & a discard with no lifted card keep the 2D prompt (plaquePrompt's every & card guards)", () => {
+test("a mixed move & discard prompt & a discard with no lifted card keep the 2D prompt (plaquePrompt's every & card guards)", () => {
 	assert.equal(S.plaquePrompt({ pick: [{ type: "move", card: "c1", from: "e2", to: "e4" }, { type: "discard", cards: ["c1"] }], card: null }), null, "not only moves: no square plaques");
 	assert.equal(S.plaquePrompt({ pick: [{ type: "discard", cards: ["c1"] }], card: null }), null, "no lifted card: nothing to lay them by");
 });
@@ -109,7 +109,7 @@ const fs = require("node:fs"), path = require("node:path");
 const src = (f) => fs.readFileSync(path.join(__dirname, "../src/js/gameplay", f), "utf8");
 const body = (f, head) => { const s = src(f), i = s.indexOf(head); assert.ok(i >= 0, `${head} in ${f}`); return s.slice(i, s.indexOf("\n}", i) + 2); };
 
-test("review I1 & ruling T23-23: every showPrompt call lays its plaques (or none) & sets the hiding flag from whether they're up, before the unchanged prompt returns; hidden, the flag clears (M3)", () => {
+test("every showPrompt call lays its plaques (or none) & sets the hiding flag from whether they're up, before the unchanged prompt returns; hidden, the flag clears", () => {
 	const fn = body("cards/flow.js", "function showPrompt(ready, glow) {");
 	const lay = fn.indexOf("showTableButtons3D("), flag = fn.indexOf('promptBox?.toggleAttribute("data-plaques", plaques)'), same = fn.indexOf("if (key === shownPrompt) { return; }");
 	assert.ok(lay >= 0 && flag > lay && same > flag, "laid & flagged on every call, the same key too");
@@ -122,7 +122,7 @@ test("review I1 & ruling T23-23: every showPrompt call lays its plaques (or none
 	assert.match(pick, /if \(hit\.kind === "button"\) \{ promptBox\?\.querySelector\(`\[data-plaque="\$\{hit\.id\}"\]`\)\?\.click\(\); return; \}/, "a plaque presses its own 2D button");
 });
 
-test("review I1 & T23-23: the table coming up (a room loaded after a view switch, a rebuild, or mid-prompt) & a new 3D board tell flow.js", () => {
+test("the table coming up (a room loaded after a view switch, a rebuild, or mid-prompt) & a new 3D board tell flow.js", () => {
 	const set = body("three/index.js", "export function setCardTable(state, legal, opts = {}) {");
 	assert.ok(set.indexOf('if (made && view.table) { view.cardOptions.onTable({ kind: "table" }); }') > set.indexOf("view.table.set(state, opts)"), "once it's set: the prompt's plaques lie by its cards");
 	const show = body("renderer/index.js", "async function show3D() {");
@@ -130,7 +130,7 @@ test("review I1 & T23-23: the table coming up (a room loaded after a view switch
 	assert.match(body("renderer/index.js", "function tableUp() {"), /tableSide = game\.viewColor;\s*tablePick\?\.\(\{ kind: "table" \}\);/);
 });
 
-test("T23-27: showTableButtons says whether plaques are up (none when blocked in the view), & a resize that brings them back or takes them away tells flow.js", () => {
+test("showTableButtons says whether plaques are up (none when blocked in the view), & a resize that brings them back or takes them away tells flow.js", () => {
 	assert.match(body("three/index.js", "export function showTableButtons(list, anchor) {"), /const up = view\.table\.showButtons\(list, anchor\);[\s\S]*return up;/, "flow.js's data-plaques follows the table's answer");
 	const resize = body("three/index.js", "export function relayPlaques() {");
 	assert.match(resize, /const up = view\.table\.buttonCount\(\) > 0;/);
@@ -139,13 +139,13 @@ test("T23-27: showTableButtons says whether plaques are up (none when blocked in
 	assert.match(src("three/index.js"), /inView: \(\) => deskInView\(view\.camera, view\.room\), camera: view\.camera \}\);/, "the table checks its plaques on screen through the live camera (ruling T23-28)");
 });
 
-test("review I2: Flip Board turns the room, so a prompt's plaques by a square are laid again on the side the player now looks from", () => {
+test("Flip Board turns the room, so a prompt's plaques by a square are laid again on the side the player now looks from", () => {
 	const draw = body("renderer/index.js", "export function drawBoard() {");
 	assert.ok(draw.indexOf("if (game.viewColor !== tableSide) { tableUp(); }") > draw.indexOf("board3D.setSide(game.viewColor"), "after the room turns");
 	assert.notDeepEqual(plaqueAnchor({ square: "e1" }, view(), false), plaqueAnchor({ square: "e1" }, view(), true), "the anchor differs by side");
 });
 
-test("review I3 & ruling T23-22: a tap or click on a plaque presses it through a zoom or an open pile in one tap", () => {
+test("a tap or click on a plaque presses it through a zoom or an open pile in one tap", () => {
 	const fn = body("three/pointer.js", "function pickTable(e, stop) {");
 	const button = fn.indexOf('if (at && at.kind === "button") {'), open = fn.indexOf("if (view.table.open() &&"), zoom = fn.indexOf("if (view.table.zoomed())");
 	assert.ok(button >= 0 && button < open && button < zoom, "before the open pile's & the zoom's tap that does nothing more");
@@ -155,7 +155,7 @@ test("review I3 & ruling T23-22: a tap or click on a plaque presses it through a
 	assert.match(body("cards/flow.js", "function showPrompt(ready, glow) {"), /b\.addEventListener\("click", \(\) => \{ endZoom\(\); pressTableButton3D\(id\); onClick\(\); \}\);/);
 });
 
-test("review M1 & M2: a new prompt's plaque under a still mouse lights; a plaque is never grabbed; the keys' focus is the plaque's", () => {
+test("a new prompt's plaque under a still mouse lights; a plaque is never grabbed; the keys' focus is the plaque's", () => {
 	assert.ok(body("three/index.js", "export function showTableButtons(list, anchor) {").indexOf("rehoverPlaque();") > 0, "after showButtons, which unlights another list (ruling T23-20)");
 	const re = body("three/pointer.js", "export function rehoverPlaque() {");
 	assert.match(re, /plaqueLit = undefined;/, "the cache forgets what it lit: the table may have unlit it");
@@ -167,7 +167,7 @@ test("review M1 & M2: a new prompt's plaque under a still mouse lights; a plaque
 });
 
 // RE-REVIEW 1 N1: PLAQUES LAID ON A NEW TABLE UNDER A 2D BUTTON THAT KEPT THE KEYBOARD'S FOCUS SHOW ITS RING (flow.js CAN'T LOAD IN NODE: A TRIPWIRE ON ITS SOURCE)
-test("N1: showPrompt rings the plaque of the focused 2D button whenever its plaques are up", () => {
+test("showPrompt rings the plaque of the focused 2D button whenever its plaques are up", () => {
 	const flow = src("cards/flow.js"), lay = flow.indexOf("toggleAttribute(\"data-plaques\"");
 	const ring = flow.indexOf("promptBox.contains(document.activeElement)) { focusTableButton3D(");
 	assert.ok(ring > lay && ring < flow.indexOf("if (key === shownPrompt)"), "after the lay, before the early return");

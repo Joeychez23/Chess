@@ -53,7 +53,7 @@ engine are answered from test data.
 | `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
 | `ai.test.js` | The 27 AI levels and their settings, the 8 old levels mapping to them, the low levels overlooking moves (only seen moves are searched, always a legal move), the engine call, mixed depths and the js-chess-engine fallback |
 | `analysis.test.js` | The analysis route: the engine's move and evaluation, AI and finished games only, the cache by FEN, one request at a time per game, finished boards without the engine, the engine failing, and the limit |
-| `draw.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
+| `drawOffers.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
 | `openings.test.js` | Opening names (`utils/openings.js`, the data in `data/openings/`): the lookup, other move orders, the name getting more specific and staying once the game leaves the book, player and AI moves, a move that ends the game, a failed save, a new game, and Home's rows |
 | `takeback.test.js` | The takeback route: two moves or one, guests, set positions, the opening going back, and each refusal changing nothing. Friend games: request, accept and decline, once per move, a move cancelling, the limit and the invite's setting |
 | `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
@@ -363,7 +363,7 @@ server/
     pageController.js        Picks the page (home, guest, play, settings) from the session cookie, PENDING invites go Home, no username yet goes to settings
     authController.js        login, callback, logout, refresh, resume
     userController.js        getUser (with the username), saveSettings, saveUsername, deleteUserData (Delete my data)
-    chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
+    chess/                   get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
     monitorController.js     The health route & browser error reports
   middleware/auth.js         Session cookies (checked with the public key), requireAuth, optionalAuth, the guest_game cookie
   middleware/rateLimit.js    New game limits per session, IP and site (429)

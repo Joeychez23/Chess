@@ -1,4 +1,4 @@
-// Task 23 S3: the brass plaque buttons on the table. Their placement (tableLayout.js buttonLayout), & createCardTable's showButtons, hit, focusButton & dispose with real three.js in node, as cardTableDuel.test.js
+// Task 23 S3: the brass plaque buttons on the table. Their placement (tableLayout.js buttonLayout), & createCardTable's showButtons, hit, focusButton & dispose with real three.js in node, as cardTable-duel.test.js
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -17,7 +17,7 @@ global.document = {
 };
 const THREE = require("../../node_modules/three/build/three.module.js"); // THE SAME COPY cardTable.js IMPORTS
 const { createCardTable, deskInView } = require("../src/js/gameplay/three/cardTable.js");
-const { createTweens } = require("../src/js/gameplay/three/tween.js");
+const { createAnimations } = require("../src/js/gameplay/three/animations.js");
 const { buttonLayout, plaqueAnchor, tableSpots, duelLayout, DUEL_STACK, BOARD_RECT, DESK_AVOID, HAND_Z } = require("../src/js/gameplay/three/tableLayout.js");
 const { CARD_SIZE, CARD_Y, DECK, GREEN_DECK } = require("../src/js/gameplay/three/cardLayout.js");
 const { openingCamera } = require("../src/js/gameplay/three/openingCamera.js");
@@ -35,11 +35,11 @@ function template() { // A CARD: ITS FACE ON TOP LOOKING UP, ITS BACK UNDER IT L
 	return g;
 }
 function setup(still, inView, camera) {
-	const room = new THREE.Group(), tweens = createTweens(() => {});
+	const room = new THREE.Group(), animations = createAnimations(() => {});
 	let now = 0;
-	const table = createCardTable({ template: template(), room, tweens, requestRender() {}, still, inView, camera });
-	const run = () => { while (tweens.step((now += 16))) { /* TO THE END */ } room.updateMatrixWorld(true); };
-	const step = (ms) => { for (const end = now + ms; now < end;) { tweens.step((now += 16)); } };
+	const table = createCardTable({ template: template(), room, animations, requestRender() {}, still, inView, camera });
+	const run = () => { while (animations.step((now += 16))) { /* TO THE END */ } room.updateMatrixWorld(true); };
+	const step = (ms) => { for (const end = now + ms; now < end;) { animations.step((now += 16)); } };
 	return { room, run, step, table };
 }
 const view = () => ({ you: "w", effects: [], players: { w: { king: false, moves: [{ id: "m1", key: "move", piece: "n" }], actives: [], passive: null, curses: [], spot: [], pile: { n: 0, top: null }, kept: null }, b: { king: false, hand: { count: 0, shown: [] }, spot: [], pile: { n: 0, top: null }, kept: null } } });
@@ -208,14 +208,14 @@ const DESK_THINGS = [PILE_AREA, { x0: -PILE_AREA.x1, x1: -PILE_AREA.x0, z0: -PIL
 const laidBoxes = (room) => plaques(room).map((m) => { m.geometry.computeBoundingBox(); const b = m.geometry.boundingBox; return { x0: m.position.x + b.min.x, x1: m.position.x + b.max.x, z0: m.position.z + b.min.z, z1: m.position.z + b.max.z }; });
 const clearOfDesk = (room) => { for (const b of laidBoxes(room)) { for (const r of DESK_THINGS) { assert.ok(!overlaps(b, r), `${JSON.stringify(b)} clear of ${JSON.stringify(r)}`); } } };
 
-test("I1: plaques 'right' of a piece on the right half stay clear of the desk's things", () => {
+test("plaques 'right' of a piece on the right half stay clear of the desk's things", () => {
 	const { room, table } = setup();
 	table.showButtons(LIST, { x: 10.5, z: -7.5, side: "right" });
 	assert.equal(table.buttonCount(), 2);
 	clearOfDesk(room);
 });
 
-test("I1: plaques 'right' of a mid-row card of a 9-card hand stay off the near taken pieces", () => {
+test("plaques 'right' of a mid-row card of a 9-card hand stay off the near taken pieces", () => {
 	const { room, run, table } = setup();
 	const v = view();
 	v.players.w.moves = Array.from({ length: 9 }, (_, i) => ({ id: `m${i}`, key: "move", piece: "n" }));
@@ -226,7 +226,7 @@ test("I1: plaques 'right' of a mid-row card of a 9-card hand stay off the near t
 	clearOfDesk(room);
 });
 
-test("I1: a row 'below' a point just beyond either deck stays off the deck", () => {
+test("a row 'below' a point just beyond either deck stays off the deck", () => {
 	const { room, table } = setup();
 	for (const x of [DECK.x, GREEN_DECK.x]) {
 		table.showButtons([{ id: "k", label: "Knight" }, { id: "x", label: "Cancel" }], { x, z: -4.5, side: "below" });
@@ -269,14 +269,14 @@ function clearOfAll(laid, avoid = []) { // CLEAR OF THE BOARD, WHAT ELSE IS ON T
 	}
 }
 
-test("N1: plaques 'right' of a piece on the right half land clear & on the desk", () => {
+test("plaques 'right' of a piece on the right half land clear & on the desk", () => {
 	const { room, table } = setup();
 	table.showButtons(LIST, { x: 10.5, z: -7.5, side: "right" });
 	assert.equal(table.buttonCount(), 2);
 	clearOfAll(laidAt(room));
 });
 
-test("N1: plaques 'right' of a piece far up the right half land clear & on the desk, two plaques or four long ones", (t) => {
+test("plaques 'right' of a piece far up the right half land clear & on the desk, two plaques or four long ones", (t) => {
 	const warn = t.mock.method(console, "warn", () => {});
 	const four = [{ id: "a", label: "Discard the active (draw 1)" }, { id: "b", label: "Discard both (draw 1)" }, { id: "c", label: "With the card" }, { id: "x", label: "Cancel" }];
 	for (const list of [LIST, four]) {
@@ -290,7 +290,7 @@ test("N1: plaques 'right' of a piece far up the right half land clear & on the d
 	assert.equal(warn.mock.callCount(), 0);
 });
 
-test("N1: every piece's square, every side, one to four plaques: clear of everything & on the desk", (t) => {
+test("every piece's square, every side, one to four plaques: clear of everything & on the desk", (t) => {
 	const warn = t.mock.method(console, "warn", () => {});
 	const row = (z) => Array.from({ length: 9 }, (_, i) => cardRect({ x: (i - 4) * 4.6, z }));
 	const hands = [...row(HAND_Z), ...row(-HAND_Z)];
@@ -306,13 +306,13 @@ test("N1: every piece's square, every side, one to four plaques: clear of everyt
 	assert.equal(warn.mock.callCount(), 0);
 });
 
-test("N2: plaques 'left' of a mid-row card of Card Guy's 9-card row stay off the far taken pieces", () => {
+test("plaques 'left' of a mid-row card of Card Guy's 9-card row stay off the far taken pieces", () => {
 	const row = Array.from({ length: 9 }, (_, i) => cardRect({ x: (i - 4) * 4.6, z: -HAND_Z }));
 	const laid = buttonLayout(LIST, { x: -2.15, z: -HAND_Z, side: "left" }, [BOARD_RECT, ...DESK_AVOID, ...row]);
 	clear(laid, [PILE_AREA, ...row]);
 });
 
-test("N3: a card moving elsewhere rebuilds nothing; a rebuild keeps the focused & hovered plaque", () => {
+test("a card moving elsewhere rebuilds nothing; a rebuild keeps the focused & hovered plaque", () => {
 	const { room, run, table } = setup();
 	const framed = () => plaques(room).filter((m) => m.children.some((f) => f.visible)).map((m) => m.userData.button);
 	const lit = () => plaques(room).filter((m) => m.material[0].color.getHex() !== m.material[1].color.getHex()).map((m) => m.userData.button);
@@ -354,7 +354,7 @@ const FOUR_LONG = [{ id: "a", label: "Discard the active (draw 1)" }, { id: "b",
 const PLAY = [{ id: "p", label: "Play" }, { id: "x", label: "Cancel" }];
 const handRows = (n) => [HAND_Z, -HAND_Z].flatMap((z) => Array.from({ length: n }, (_, i) => cardRect({ x: (i - (n - 1) / 2) * 4.6, z })));
 
-test("T23-19: far-right piece prompts land at the nearest clear spot, not across the desk", (t) => {
+test("far-right piece prompts land at the nearest clear spot, not across the desk", (t) => {
 	const warn = t.mock.method(console, "warn", () => {});
 	const cases = [ // [list, anchor z, cards (a hand of n each side), bound]
 		[PLAY, -13.5, 0, 6], [PLAY, -13.5, 9, 6], // WITHOUT THE CABLES (T23-21) EVERY CASE KEEPS ITS ASKED RIGHT WITHIN PLAQUE_NEAR (6)
@@ -371,7 +371,7 @@ test("T23-19: far-right piece prompts land at the nearest clear spot, not across
 	assert.equal(warn.mock.callCount(), 0);
 });
 
-test("T23-19: an asked side clear within about 6 of the anchor keeps its side, though another is nearer", () => {
+test("an asked side clear within about 6 of the anchor keeps its side, though another is nearer", () => {
 	const anchor = { x: 0, z: 25, side: "right" }, block = { x0: 0.1, x1: 3, z0: 20, z1: 30 }; // THE RIGHT PUSHED ABOUT 3.3 OUT; THE LEFT IS CLEAR AT 0.3
 	const laid = buttonLayout(LIST, anchor, [block]);
 	assert.ok(laid.every((p) => p.x - p.w / 2 >= block.x1), "still on the right, past what's in the way");
@@ -380,7 +380,7 @@ test("T23-19: an asked side clear within about 6 of the anchor keeps its side, t
 	assert.ok(gapTo(far, anchor) < 1, `gap ${gapTo(far, anchor).toFixed(2)}`);
 });
 
-test("T23-20: a new list comes up unhovered; the same list laid again keeps its hover & focus", () => {
+test("a new list comes up unhovered; the same list laid again keeps its hover & focus", () => {
 	const { room, run, table } = setup();
 	const lit = () => plaques(room).filter((m) => m.material[0].color.getHex() !== m.material[1].color.getHex()).map((m) => m.userData.button);
 	const framed = () => plaques(room).filter((m) => m.children.some((f) => f.visible)).map((m) => m.userData.button);
@@ -405,7 +405,7 @@ test("T23-20: a new list comes up unhovered; the same list laid again keeps its 
 	assert.deepEqual(framed(), [], "another list: no focus carried, so a held Enter can't press its Play");
 });
 
-test("re-review 3 m3: the same list, anchor & cards again lays nothing out (a blocked desk's search is slow)", (t) => {
+test("the same list, anchor & cards again lays nothing out (a blocked desk's search is slow)", (t) => {
 	t.mock.method(console, "warn", () => {});
 	const { room, table } = setup();
 	const anchor = { x: 0, z: HAND_Z, side: "below" };
@@ -418,7 +418,7 @@ test("re-review 3 m3: the same list, anchor & cards again lays nothing out (a bl
 	assert.ok(performance.now() - started < 5, "50 repeats cost nothing");
 });
 
-test("M3: no clear place warns once per rebuild, not on every showButtons", (t) => {
+test("no clear place warns once per rebuild, not on every showButtons", (t) => {
 	const warn = t.mock.method(console, "warn", () => {});
 	const { table } = setup();
 	const many = Array.from({ length: 40 }, (_, i) => ({ id: `b${i}`, label: "Stop" })); // A ROW WIDER THAN THE DESK
@@ -433,7 +433,7 @@ test("M3: no clear place warns once per rebuild, not on every showButtons", (t) 
 const inside = (laid, r) => laid.every((p) => { const b = box(p); return b.x0 >= r.x0 - 1e-5 && b.x1 <= r.x1 + 1e-5 && b.z0 >= r.z0 - 1e-5 && b.z1 <= r.z1 + 1e-5; }); // 1e-5: A MESH'S GEOMETRY IS 32-BIT
 const LONG = [{ id: "a", label: "Discard your Pawn card & Knight card (the next one discarded draws 1)" }, { id: "b", label: "Discard your Pawn card & Bishop card (the next one discarded draws 1)" }, { id: "c", label: "Discard your Pawn card (draw 1)" }, { id: "x", label: "Cancel" }];
 
-test("T23-24: a row past the view's side shifts inside it, on one line while it fits", () => {
+test("a row past the view's side shifts inside it, on one line while it fits", () => {
 	const within = { x0: -19, x1: 19, z0: -40, z1: 27 }, anchor = { x: -18.4, z: HAND_Z + CARD_SIZE.h / 2, side: "below" };
 	const laid = buttonLayout(LIST, anchor, [BOARD_RECT, ...handRows(9)], within);
 	assert.ok(!laid.blocked);
@@ -444,7 +444,7 @@ test("T23-24: a row past the view's side shifts inside it, on one line while it 
 	assert.ok(Math.abs(laid[0].x - laid[0].w / 2 - within.x0) < 1e-9, `slid flush to the view's side, not to the nearest-spot search's 0.25 grid: ${laid[0].x - laid[0].w / 2}`); // REVIEW N3
 });
 
-test("T23-24: a row wider than the view wraps to two rows, then to a column; in order, inside, clear of the cards", () => {
+test("a row wider than the view wraps to two rows, then to a column; in order, inside, clear of the cards", () => {
 	const anchor = { x: 0, z: HAND_Z + CARD_SIZE.h / 2, side: "below" }, cards = handRows(9);
 	const SHORT = [{ id: "a", label: "Knight" }, { id: "b", label: "Bishop" }, { id: "c", label: "Rook" }, { id: "x", label: "Cancel" }];
 	for (const [list, width, rows] of [[LONG, 38, 2], [LONG, 20, 3], [SHORT, 5, 4]]) { // 38: BOTH PAIRS, THEN THE REST. 20: ONE LONG PLAQUE A ROW. 5: A COLUMN
@@ -458,7 +458,7 @@ test("T23-24: a row wider than the view wraps to two rows, then to a column; in 
 	}
 });
 
-test("M1: the nearest-spot search stays inside the view too", () => {
+test("the nearest-spot search stays inside the view too", () => {
 	const duel = { player: "w", piece: "w12", step: "decide", round: 1, hands: { w: [null, null, null], b: [null, null, null] }, picked: { w: [], b: [] }, spades: { hands: { w: [null, null, null], b: [null, null, null] }, picked: { w: [], b: [] } } }; // THE SPADES SET UP: THE ROW'S RIGHT END AT x 15.95
 	const cards = [...duelLayout(duel, "w").map(cardRect), cardRect(DUEL_STACK.mine), cardRect(DUEL_STACK.his)];
 	const right = Math.max(...duelLayout(duel, "w").map((d) => d.x)) + CARD_SIZE.w / 2, within = { x0: -19, x1: 19, z0: -30, z1: 23.5 };
@@ -494,7 +494,7 @@ function promptCases() { // [what, view, at, turned, ask]
 	return out;
 }
 
-test("I1 & M1 (T23-24, T23-27): in the opening view at desktop, 4:3 & narrow portrait sizes (FOV 45 & 30) every plaque of a lifted card's free discards & the duel's lies on screen, or none is up", (t) => {
+test("in the opening view at desktop, 4:3 & narrow portrait sizes (FOV 45 & 30) every plaque of a lifted card's free discards & the duel's lies on screen, or none is up", (t) => {
 	t.mock.method(console, "warn", () => {});
 	const SIZES = [[1920, 1080], [1440, 900], [1024, 768], [540, 1000], [700, 1000]], cases = promptCases();
 	// THESE UNPINNED NARROW VIEWS SHOW UNDER 2.5 OF DESK BELOW THE HAND & NO OTHER CLEAR SPOT WIDE ENOUGH: A LIFTED CARD'S PROMPT LAYS NO PLAQUES & KEEPS ITS 2D BUTTONS (RULING T23-27)
@@ -541,7 +541,7 @@ test("I1 & M1 (T23-24, T23-27): in the opening view at desktop, 4:3 & narrow por
 	assert.ok(kept2D >= 4 * 8, `${kept2D} lifted-card prompts kept their 2D buttons`); // 2 VIEWS x 2 SIDES x 8 CARD CASES (n 5 & 6)
 });
 
-test("T23-24: the plaques keep their place when the camera moves; a new prompt, or relayButtons (a resize), lays them inside the view then", () => {
+test("the plaques keep their place when the camera moves; a new prompt, or relayButtons (a resize), lays them inside the view then", () => {
 	let rect = { x0: -12, x1: 12, z0: -40, z1: 30 };
 	const { room, table } = setup(undefined, () => rect);
 	const anchor = { x: -16, z: HAND_Z + CARD_SIZE.h / 2, side: "below" }; // AN EMPTY TABLE
@@ -562,7 +562,7 @@ test("T23-24: the plaques keep their place when the camera moves; a new prompt, 
 	assert.equal(table.buttonCount(), 0, "nothing to lay again");
 });
 
-test("T23-27: no clear place inside the view lays no plaques & says so (showButtons false: the 2D buttons stay); a resize or another prompt with room brings them back", (t) => {
+test("no clear place inside the view lays no plaques & says so (showButtons false: the 2D buttons stay); a resize or another prompt with room brings them back", (t) => {
 	const warn = t.mock.method(console, "warn", () => {});
 	const TINY = { x0: -2, x1: 2, z0: 24, z1: 25 }, ROOMY = { x0: -30, x1: 30, z0: -40, z1: 32 };
 	let rect = TINY;
@@ -589,7 +589,7 @@ test("T23-27: no clear place inside the view lays no plaques & says so (showButt
 
 // FINAL RE-REVIEW 1, N2 (RULING T23-28): GIVEN THE CAMERA, EVERY PLAQUE LAID (ITS MESH'S BOX, BEVEL INCLUDED, NOT ITS HIDDEN FOCUS FRAME: REVIEW N4 AWAITS A RULING) PROJECTS INSIDE THE SCREEN, OR NONE IS UP
 // & showButtons SAYS false (THE 2D BUTTONS SHOW). THE OPENING VIEW & THE REVIEW'S probe-orbit.cjs: IT ORBITED ABOUT ITS TARGET BEFORE THE PROMPT CAME UP
-test("T23-28: in the opening view & orbited about its target, a prompt's plaques lie on screen, or none is up", (t) => {
+test("in the opening view & orbited about its target, a prompt's plaques lie on screen, or none is up", (t) => {
 	t.mock.method(console, "warn", () => {});
 	let seed = 23, up = 0, orbitedUp = 0, shown2D = 0;
 	const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647), one = (a) => a[Math.floor(rnd() * a.length)], cases = promptCases(), UP = new THREE.Vector3(0, 1, 0);
@@ -625,7 +625,7 @@ test("T23-28: in the opening view & orbited about its target, a prompt's plaques
 });
 
 // FINAL RE-REVIEW 2, R2-3: onScreen'S |z| <= 1 (IN FRONT OF THE CAMERA). A CAMERA LOOKING STRAIGHT AWAY FROM THE PLAQUES SEES THEIR CORNERS MIRRORED INSIDE |x|, |y| <= 1, BUT BEHIND IT
-test("R2-3: a camera looking away from where the plaques would lie lays none (the 2D buttons show); turned toward them, they're up", () => {
+test("a camera looking away from where the plaques would lie lays none (the 2D buttons show); turned toward them, they're up", () => {
 	const cam = new THREE.PerspectiveCamera(45, 1.6, 0.1, 1000), s = setup(undefined, () => ({ x0: -100, x1: 100, z0: -100, z1: 100 }), cam); // A VIEW THAT ALLOWS ANY LAYOUT: ONLY THE PROJECTION DECIDES
 	cam.position.set(12, 2, 40);
 	cam.lookAt(12, 2, 100); // AWAY FROM THE BOARD, THE PLAQUES ABOUT 48 BEHIND
@@ -635,7 +635,7 @@ test("R2-3: a camera looking away from where the plaques would lie lays none (th
 	assert.equal(s.table.showButtons(LIST.slice(0, 1), { x: 10.5, z: -7.5, side: "right" }), true, "in front: up"); // ANOTHER PROMPT: A FRESH LAYOUT
 });
 
-test("M2: a plaque on the baize lies on it; one off the baize lies on the desk, not floating", () => {
+test("a plaque on the baize lies on it; one off the baize lies on the desk, not floating", () => {
 	const { room, table } = setup();
 	const bottom = (m) => { m.geometry.computeBoundingBox(); return m.position.y + m.geometry.boundingBox.min.y; };
 	table.showButtons(LIST, { x: 10.5, z: -7.5, side: "right" }); // BESIDE THE BOARD, ON THE BAIZE (x, z INSIDE ±21.2)

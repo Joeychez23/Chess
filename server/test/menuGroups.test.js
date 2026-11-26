@@ -1,6 +1,6 @@
 /*
  *  menuGroups.test.js  --  chess server tests
- *	Every page's menu (client/*.html): the groups, their order & no numbers on the buttons (nav.css)
+ *	Every page's menu (client/src/js/pages/<page>/*.html): the groups, their order & no numbers on the buttons (nav.css)
  *
  */
 
@@ -10,10 +10,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const client = path.join(__dirname, "../../client");
+// Each page's .html sits in its page folder (signup with login, privacy and terms with legal)
+const PAGE_FOLDERS = { signup: "login", privacy: "legal", terms: "legal" };
+const pageFile = (page) => path.join(client, "src/js/pages", PAGE_FOLDERS[page] || page, `${page}.html`);
 
 /** The menu's groups: [[label, [every item's words or id]]] */
 function menuGroups(page) {
-	const html = fs.readFileSync(path.join(client, `${page}.html`), "utf8");
+	const html = fs.readFileSync(pageFile(page), "utf8");
 	const list = html.match(/<div id="menuButtonList">([\s\S]*?)<\/div>/)[1];
 	return [...list.matchAll(/<ul role="group" aria-label="([^"]+)">([\s\S]*?)<\/ul>/g)].map(([, label, items]) => [
 		label,
@@ -74,7 +77,7 @@ describe("the menus' groups", () => {
 });
 
 describe("the menus' labels & link types", () => {
-	const read = (file) => fs.readFileSync(path.join(client, file), "utf8");
+	const read = (file) => fs.readFileSync(/^[a-z]+\.html$/.test(file) ? pageFile(file.replace(".html", "")) : path.join(client, file), "utf8");
 
 	test("Play's Home & Settings are links, Settings starts hidden", () => {
 		const play = read("play.html");

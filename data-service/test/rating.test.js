@@ -1,6 +1,6 @@
 /*
  *  rating.test.js  --  data service tests
- *	Elo Ratings (utils/rating.js, rateGame in dynamoDB.js)
+ *	Elo Ratings (utils/rating.js, rateGame in db/)
  *  The rating math, which games count, and two games ending at once. The ratings Home & the game menu show are in the server's rating.test.js
  *
  */
@@ -11,7 +11,7 @@ const assert = require("node:assert/strict");
 const { DynamoDB } = require("@aws-sdk/client-dynamodb");
 const fakeDynamo = require("./helpers/fakeDynamo.js");
 fakeDynamo.install();
-const db = require("../dynamoDB.js");
+const db = require("../db/index.js");
 const { expectedScore, newRating, isRated, PROVISIONAL_GAMES } = require("../utils/rating.js");
 
 beforeEach(() => fakeDynamo.reset());
@@ -75,7 +75,7 @@ describe("which games are rated", () => {
 
 describe("rateGame", () => {
 	async function closedFriendGame(gameId, white, black) {
-		const created = (await db.initalizeGame(gameId, white, black, false, { start_params: { color: "w" } })).game_data;
+		const created = (await db.initializeGame(gameId, white, black, false, { start_params: { color: "w" } })).game_data;
 		created.moves.S = ["e4", "e5"];
 		return created;
 	}

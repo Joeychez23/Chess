@@ -1,6 +1,6 @@
 /*
  *  games.test.js  --  chess server tests
- *	Game Routes (/api/chess, server/controllers/chessController.js)
+ *	Game Routes (/api/chess, server/controllers/chess/)
  *  Real requests to the API, with the tables in memory (data-service/test/helpers/fakeDynamo.js) and a stand-in Auth0 & engine (helpers/server.js)
  *
  */

@@ -429,7 +429,7 @@ if (isMainThread) {
 		assert.ok(r.stats["x:through"] >= 5, "only " + (r.stats["x:through"] || 0) + " castles through check");
 	});
 
-	test("T21 m3: a Tremor held by each side from the start: the veiled Frozen's told-list check (x:veil-legal) is reached, not only written", (t) => {
+	test("a Tremor held by each side from the start: the veiled Frozen's told-list check (x:veil-legal) is reached, not only written", (t) => {
 		const r = soak(SEEDS, { plies: 30, setup(s) { for (const c of ["w", "b"]) s.players[c].curses.push(hand.newCard(s, "tremor")); } });
 		clean(r, t);
 		assert.ok((r.stats["x:veil-legal"] || 0) + (r.stats["x:veil-dead-end"] || 0) >= 20, "the veil check ran only " + ((r.stats["x:veil-legal"] || 0) + (r.stats["x:veil-dead-end"] || 0)) + " times");

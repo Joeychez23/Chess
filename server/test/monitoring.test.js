@@ -128,7 +128,7 @@ describe("the lines the alarms match", () => {
 	});
 });
 
-describe("a request can't add a line to the log (#339)", () => {
+describe("a request can't add a line to the log", () => {
 	const FORGED = "x\nSTOCKFISH FAILED\r\nHTTP 500 GET /";
 	const LOGIN_HEADERS = { "Content-Type": "application/json", Origin: new URL(config.clientUrl).origin };
 	const failures = () => logged.filter((line) => line.startsWith("Login failed: "));

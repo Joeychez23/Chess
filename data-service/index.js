@@ -15,13 +15,13 @@ const config = require("./config");
 const { readPlayer } = require("./middleware/player.js");
 const { checkSignature, keepRawBody } = require("./middleware/signature.js");
 const { refuse } = require("./utils/refuse.js");
-const { checkTables } = require("./dynamoDB.js");
+const { checkTables } = require("./db/index.js");
 const gameRoutes = require("./routes/gameRoutes.js");
 const userRoutes = require("./routes/userRoutes.js");
 const sessionRoutes = require("./routes/sessionRoutes.js");
 
 const BODY_LIMIT = "16kb"; // THE BIGGEST REAL BODY IS A FEW HUNDRED BYTES
-const CARDS_BODY_LIMIT = "640kb"; // A CARD GAME'S ENGINE STATE, UP TO 300 000 BYTES (gameController.js CARDS_STATE_BYTES). IT TRAVELS AS A JSON STRING INSIDE THE BODY, SO EVERY " IN IT COSTS 2 BYTES: TWICE THE CAP, PLUS THE OTHER FIELDS
+const CARDS_BODY_LIMIT = "640kb"; // A CARD GAME'S ENGINE STATE, UP TO 300 000 BYTES (controllers/game/game.shared.js CARDS_STATE_BYTES). IT TRAVELS AS A JSON STRING INSIDE THE BODY, SO EVERY " IN IT COSTS 2 BYTES: TWICE THE CAP, PLUS THE OTHER FIELDS
 
 /* ---------------------------------------------------------------- */
 // App

@@ -11,15 +11,15 @@ const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const service = require("./helpers/service.js");
 const { call, player, peek, signatureHeaders } = service;
-const db = require("../dynamoDB.js");
+const db = require("../db/index.js");
 
 let server;
 before(async () => { server = await service.start(); });
 after(() => server.close());
 beforeEach(async () => {
 	service.reset();
-	await db.initalizeGame("game1", "alice", "bob", false, { start_params: { color: "w" }, inviter_id: "alice" });
-	await db.initalizeGame("game2", "alice", "bob", false, { start_params: { color: "w" }, inviter_id: "alice" });
+	await db.initializeGame("game1", "alice", "bob", false, { start_params: { color: "w" }, inviter_id: "alice" });
+	await db.initializeGame("game2", "alice", "bob", false, { start_params: { color: "w" }, inviter_id: "alice" });
 });
 
 const alice = player("alice");
@@ -112,7 +112,7 @@ describe("signatures", () => {
 
 describe("a signed request still only acts for its player", () => {
 	test("a token for another player gets nothing more than that player has", async () => {
-		await db.initalizeGame("game3", "carol", "dave", false, { start_params: { color: "w" }, inviter_id: "carol" });
+		await db.initializeGame("game3", "carol", "dave", false, { start_params: { color: "w" }, inviter_id: "carol" });
 		const before = peek("chess_db", "game3");
 		assert.equal((await call("POST", "/games/game3/move", { as: bob, body: MOVE })).http, 403);
 		assert.deepEqual(peek("chess_db", "game3"), before);

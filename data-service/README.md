@@ -99,7 +99,7 @@ take here too.
 
 Each route lists the body fields it takes, and anything else is refused with
 a 400. Bodies must be JSON and 16kb at most (640kb on the two card game routes). A request the data service
-handles answers 200 with `dynamoDB.js`'s `{ status, game_data, message }`. A
+handles answers 200 with `db/`'s `{ status, game_data, message }`. A
 refused one answers with its own status (400, 401, 403, 404, 409, 413 or 415)
 and logs one line, `REFUSED <method> <path> <status> <why>`, without the body
 or the token.
@@ -189,7 +189,7 @@ signed out, and guests start a new game.
 
 ## Stored data
 
-**Stored data** (details in `data-service/dynamoDB.js`):
+**Stored data** (details in `data-service/db/`):
 
 - **`opening`** (JSON `{ eco, name }`) is the latest named position the game reached. Games that haven't reached one don't have it.
 - **`move_deadline`** (epoch seconds) is when the next move is due in a friend game with `days_per_move`, saved with every move and when the game starts. Any read of the game or its player's open games after it passes closes the game as `timeout` (`retrieveGame`, `pruneOpenGames`), with no timer, so a game nobody opens stays open until its TTL.
@@ -243,7 +243,7 @@ The data service has its own tests, the same way as the [server's](../server/REA
 | `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
 | `cardsGame.test.js` | Chess Cards games: a new one starts at version 1 with the state as sent, a save lands only on the version it names (409 and nothing changes otherwise), a save with a winner closes the game, and bad fields, versions, states, boards and results are refused. The two card routes' larger body limit, and every other route keeping 16kb |
 | `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, draw offers (one per player per move, ended by a move, an accept losing to a move), invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `db-conditionalWrites.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, draw offers (one per player per move, ended by a move, an accept losing to a move), invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
 | `rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
 | `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
 | `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are the same files as the server's, and both pin the same `chess.js` |
@@ -254,11 +254,11 @@ The data service has its own tests, the same way as the [server's](../server/REA
 data-service/                The only code that reads and writes DynamoDB (#245), the chess server calls it; on a private instance on AWS
   index.js                   Express: /health, JSON bodies (16kb, 640kb for the card game routes), the signature, /health/tables, the player, the routes. Listens on DATA_SERVICE_HOST
   config.js                  Reads data-service/.env
-  dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js, then server/dynamoDB.js)
+  db/                        chess_db / user_db reads and writes (was the lambda's database-controller.js, then server/dynamoDB.js)
   routes/gameRoutes.js       /games/ai, guest, cards, invite & /games/:gameId, cards, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
   routes/userRoutes.js       /users/me, settings, username, delete: only the signed-in requester's own row
   routes/sessionRoutes.js    /session/login, refresh, logout: the only place session tokens are made
-  controllers/gameController.js  Each game action, checked against the stored game before it saves
+  controllers/game/          Each game action, checked against the stored game before it saves
   controllers/userController.js  getMe (with games), saveSettings, saveUsername, deleteMe (only once every game is left)
   controllers/sessionController.js  login (checks Auth0's id_token), refresh & logout (the session id on the player's row)
   middleware/signature.js    checkSignature(): only signed requests, sent within 30 seconds, once; keepRawBody()

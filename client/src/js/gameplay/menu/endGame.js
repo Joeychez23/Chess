@@ -62,7 +62,7 @@ export async function handleRestart(e) {
 
 /**
  * @description Chess Cards' Restart: a new card game at the same level & color, then its page opens. While another AI or card game is open the server answers 409:
- * the first press says it'll be forfeited, the second sends replace_current (like Home's Start). The restart route refuses card games (server/controllers/chessController.js).
+ * the first press says it'll be forfeited, the second sends replace_current (like Home's Start). The restart route refuses card games (server/controllers/chess/).
  * Restart says Loading & fills while the new game is made, like an AI game's
  */
 async function restartCards() {

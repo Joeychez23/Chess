@@ -127,10 +127,10 @@ function fade(h) {
 	}
 }
 
-// EASES A PIECE'S OPACITY FROM WHAT IT IS NOW (view.tweens, STEPPED BY THE FRAME). A LATER fadeTo() OF THE SAME PIECE TAKES OVER, & ONE THAT LEFT THE BOARD (TAKEN, REMOVED) IS LEFT ALONE
+// EASES A PIECE'S OPACITY FROM WHAT IT IS NOW (view.animations, STEPPED BY THE FRAME). A LATER fadeTo() OF THE SAME PIECE TAKES OVER, & ONE THAT LEFT THE BOARD (TAKEN, REMOVED) IS LEFT ALONE
 function fadeTo(mesh, to) {
 	const from = mesh.userData.opacity ?? 1, id = mesh.userData.fadeId = (mesh.userData.fadeId || 0) + 1;
-	view.tweens.add({ duration: fadeMs(from, to, REDUCE.matches), update(k) {
+	view.animations.add({ duration: fadeMs(from, to, REDUCE.matches), update(k) {
 		if (view && mesh.userData.fadeId === id && view.pieces.get(mesh.userData.square) === mesh) { setOpacity(mesh, from + (to - from) * k); }
 	} });
 }

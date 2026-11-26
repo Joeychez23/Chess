@@ -202,7 +202,7 @@ describe("Traitor's Mark", () => {
 });
 
 describe("Tremor", () => {
-	test("under its holder's Fog of War the Frozen it gives a fogged pawn, and its given and ended events, stay hidden from the opponent; the holder (the pawn's owner) never sees them (#493)", () => {
+	test("under its holder's Fog of War the Frozen it gives a fogged pawn, and its given and ended events, stay hidden from the opponent; the holder (the pawn's owner) never sees them", () => {
 		const s = game("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"), ctx = makeCtx(s);
 		s.enchant.push({ id: "e990", key: "fog-of-war", owner: "w", pieces: [], left: null, data: {} });
 		const t = curse(s, "w", "tremor"), id = at(s, "a2").id;
@@ -222,7 +222,7 @@ describe("Tremor", () => {
 		assert.ok(ofType(playerEvents(open, octx.events, "b"), "status").length === 1 && !JSON.stringify(playerEvents(open, octx.events, "b")).includes("veiled"));
 	});
 
-	test("T25-M1: a second Tremor on a pawn whose Frozen is veiled keeps it veiled: the pawn's owner and the opponent still see nothing", () => {
+	test("a second Tremor on a pawn whose Frozen is veiled keeps it veiled: the pawn's owner and the opponent still see nothing", () => {
 		const s = game("4k3/8/8/8/8/8/P7/4K3 w - - 0 1"), ctx = makeCtx(s), id = at(s, "a2").id;
 		s.enchant.push({ id: "e990", key: "fog-of-war", owner: "w", pieces: [], left: null, data: {} });
 		const draw = () => CARDS.tremor.on.draw(ctx, "w", { type: "draw", player: "w", card: moveCard(s, "p") }, { owner: "w", card: curse(s, "w", "tremor") });
@@ -376,7 +376,7 @@ describe("Cleanse (base)", () => {
 	});
 });
 
-describe("seg 1 review fixes", () => {
+describe("Traitor's Mark and Shackles edge cases", () => {
 	test("Traitor's Mark never Marks a king: a castle or king move leaves it waiting; the holder's next non-king move fires it", () => {
 		const s = game("4k3/8/8/8/8/8/P7/R3K2R w KQ - 0 1");
 		Object.assign(s.players.w, { moves: [moveCard(s, "p")], actives: [] });
@@ -615,7 +615,7 @@ describe("Mirage", () => {
 		assert.ok(hits <= tries * 0.35, hits + " of " + tries); // CHANCE IS 1 IN 6
 	});
 
-	test("D9 (hand.js refill): when an entered Mirage trades ids with a move card, the opponent's real Foresight entry (data.ids) follows the card, not the id", () => {
+	test("the refill (hand.js): when an entered Mirage trades ids with a move card, the opponent's real Foresight entry (data.ids) follows the card, not the id", () => {
 		let traded = 0;
 		for (let seed = 1; seed <= 12; seed++) {
 			const s = fresh(seed), m = curse(s, "w", "mirage", { piece: "p" }), ctx = makeCtx(s);
@@ -807,7 +807,7 @@ describe("Hunger", () => {
 		r = step(r);
 		assert.deepEqual([lost(r), r.state.board.turn, r.state.players.b.lostTurns], [1, "w", 0]); // TURN 3 LOST
 		assert.deepEqual(ofType(r.events, "curse-fired").map((e) => e.card.key), ["hunger"]);
-		assert.equal(r.state.players.b.moves.length, hand.MOVES + hand.big(r.state, "b"));
+		assert.equal(r.state.players.b.moves.length, hand.HAND_MOVES + hand.big(r.state, "b"));
 		assert.deepEqual(r.state.players.b.curses.map((c) => [c.id, c.left]), [[h.id, 2]]); // IT STAYS, DUE AGAIN ON THE 3RD TURN FROM HERE
 		for (const n of [4, 5]) {
 			r = step(r);
@@ -830,7 +830,7 @@ describe("Hunger", () => {
 		assert.deepEqual([r.state.board.turn, r.state.players.b.lostTurns, r.state.players.b.curses.map((c) => [c.id, c.left])], ["b", 0, [[h.id, 2]]]);
 	});
 
-	test("C8 (user ruling 2026-11-25): in check with no King skull left, or with the King card gone, it takes no turn (the king would be taken): nothing fires, the turn is played, it is due again on the 3rd turn after", () => {
+	test("in check with no King skull left, or with the King card gone, it takes no turn (the king would be taken): nothing fires, the turn is played, it is due again on the 3rd turn after", () => {
 		for (const gone of [{ kingSkulls: 0 }, { king: false }]) {
 			const s = game("4k3/1r6/8/8/8/8/8/R3K3 w - - 0 1");
 			s.players.w.moves = [moveCard(s, "r")];
@@ -1369,7 +1369,7 @@ describe("Mirage: no tell from a card's age", () => {
 	});
 });
 
-describe("a cancelled Mulligan (user ruling R3)", () => {
+describe("a cancelled Mulligan", () => {
 	const cancelled = (arm) => {
 		const s = fresh(), c = hand.newCard(s, "mulligan");
 		s.players.w.actives = [c];

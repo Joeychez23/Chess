@@ -257,7 +257,7 @@ test("dispose takes the object off its parent & frees the instance's geometry & 
 	other.dispose();
 });
 
-test("R6: the mist eases to rest SETTLE_S after the spread, then animating() is false & a still mist remains", () => {
+test("the mist eases to rest SETTLE_S after the spread, then animating() is false & a still mist remains", () => {
 	const opts = setupGround();
 	const fx = frost.make(opts.mesh, opts);
 	const mist = find(fx, "isPoints")[0], pos = mist.geometry.attributes.position;
@@ -277,7 +277,7 @@ test("R6: the mist eases to rest SETTLE_S after the spread, then animating() is 
 	fx.dispose();
 });
 
-test("I2: update's fade multiplies into both opacities; M3: the mist's opacity follows the piece's", () => {
+test("update's fade multiplies into both opacities; the mist's opacity follows the piece's", () => {
 	const opts = setupGround();
 	const fx = frost.make(opts.mesh, opts);
 	const decal = find(fx, "isMesh")[0], mist = find(fx, "isPoints")[0];
@@ -295,7 +295,7 @@ test("I2: update's fade multiplies into both opacities; M3: the mist's opacity f
 	fx.dispose();
 });
 
-test("M3: cheap mode asks for frames while the frost spreads, then stops", () => {
+test("cheap mode asks for frames while the frost spreads, then stops", () => {
 	const opts = setupGround({ cheap: true });
 	const fx = frost.make(opts.mesh, opts);
 	assert.equal(fx.animating(), true, "spreading at t=0");
@@ -306,14 +306,14 @@ test("M3: cheap mode asks for frames while the frost spreads, then stops", () =>
 	fx.dispose();
 });
 
-test("M1: mistPuff writes into a reused out object", () => {
+test("mistPuff writes into a reused out object", () => {
 	const out = {};
 	const p = frost.mistPuff(1, 2, frost.MIST, false, out);
 	assert.equal(p, out);
 	assert.deepEqual({ ...out }, frost.mistPuff(1, 2, frost.MIST, false));
 });
 
-test("M4: the frost texture is mipmapped (no shimmer from far away)", () => {
+test("the frost texture is mipmapped (no shimmer from far away)", () => {
 	const opts = setupGround();
 	const fx = frost.make(opts.mesh, opts);
 	const map = find(fx, "isMesh")[0].material.map;
@@ -324,7 +324,7 @@ test("M4: the frost texture is mipmapped (no shimmer from far away)", () => {
 
 // frozen.js WIRES frostGround.js: ITS OBJECT ON opts.squareRoot, THE RUNNING CLOCK, THE BURST FADE, animating() & dispose; RULING T24-R13 (THE FOOT HAZE ONLY WHEN CHEAP)
 
-test("J2: the frost ground goes on opts.squareRoot, & dispose takes it off & frees its own materials", () => {
+test("the frost ground goes on opts.squareRoot, & dispose takes it off & frees its own materials", () => {
 	const opts = setupWired();
 	const fx = frozen.create(opts.mesh, opts);
 	assert.equal(opts.squareRoot.children.length, 1);
@@ -337,7 +337,7 @@ test("J2: the frost ground goes on opts.squareRoot, & dispose takes it off & fre
 	assert.equal(freed.size, 3);
 });
 
-test("J2: the ground runs on frozen's summed clock (dt adds up), so the frost spreads to full", () => {
+test("the ground runs on frozen's summed clock (dt adds up), so the frost spreads to full", () => {
 	const opts = setupWired({ fresh: true });
 	const fx = frozen.create(opts.mesh, opts);
 	assert.ok(Math.abs(decalOf(opts).scale.x - spread(0)) < 1e-9);
@@ -348,7 +348,7 @@ test("J2: the ground runs on frozen's summed clock (dt adds up), so the frost sp
 	fx.dispose();
 });
 
-test("T24-R15: a status that isn't a real gain (load, reconnect, mode switch) starts settled: full frost, no frames", () => {
+test("a status that isn't a real gain (load, reconnect, mode switch) starts settled: full frost, no frames", () => {
 	const opts = setupWired({ fresh: false });
 	const fx = frozen.create(opts.mesh, opts);
 	assert.equal(decalOf(opts).scale.x, 1);
@@ -356,7 +356,7 @@ test("T24-R15: a status that isn't a real gain (load, reconnect, mode switch) st
 	fx.dispose();
 });
 
-test("J2 review M1: reduce on at create then off never replays the spread", () => {
+test("reduce on at create then off never replays the spread", () => {
 	const opts = setupWired({ fresh: true, reduce: true });
 	const fx = frozen.create(opts.mesh, opts);
 	fx.update(0);
@@ -366,7 +366,7 @@ test("J2 review M1: reduce on at create then off never replays the spread", () =
 	fx.dispose();
 });
 
-test("J2: animating() ORs the ground's: true while the frost spreads & the mist settles, then still until the burst", () => {
+test("animating() ORs the ground's: true while the frost spreads & the mist settles, then still until the burst", () => {
 	const opts = setupWired({ fresh: true });
 	const fx = frozen.create(opts.mesh, opts);
 	assert.equal(fx.animating(), true);
@@ -382,7 +382,7 @@ test("J2: animating() ORs the ground's: true while the frost spreads & the mist 
 	fr.dispose();
 });
 
-test("J2: the burst fades the frost with the shards (fall(burstT).a), down to 0", () => {
+test("the burst fades the frost with the shards (fall(burstT).a), down to 0", () => {
 	const opts = setupWired();
 	const fx = frozen.create(opts.mesh, opts);
 	run(fx, SPREAD_S + 0.2);
@@ -397,7 +397,7 @@ test("J2: the burst fades the frost with the shards (fall(burstT).a), down to 0"
 	fx.dispose();
 });
 
-test("T24-R13: frozen's own foot haze draws only when cheap (the ground's mist replaces it otherwise), & follows a switch", () => {
+test("frozen's own foot haze draws only when cheap (the ground's mist replaces it otherwise), & follows a switch", () => {
 	const opts = setupWired();
 	const fx = frozen.create(opts.mesh, opts);
 	assert.equal(opts.root.getObjectByName("frozenMist").visible, false);

@@ -3,53 +3,41 @@
  *	Draw
  *	Draws each frame of the game (drawScreen, set by handleInitialData): the pieces row by row with their reflections & shadows,
  *	the selected piece's moves, a piece sliding or a knight hopping to its new square, and the promotion picker while promoting.
- *	See draw/facing.js for facing rules, draw/pieceSprites.js for sprite setters, and draw/taken.js for taken-piece trays.
+ *	draw.tile.js draws one square's moves & piece, draw.slide.js a sliding or hopping piece. See draw/facing.js for facing rules,
+ *	draw/pieceSprites.js for sprite setters, and draw/taken.js for taken-piece trays.
  *
  */
 
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, ctx, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE BOARD THAT'S DRAWN
-const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
-const { renderBoard } = require("../layout/index.js"); // SIZES THE CANVAS & BOARD TO THE WINDOW & DRAWS THE TABLE & BOARD
-const {
-	tableShdw, // BOARD
-	wRightKnightImg, wLeftKnightImg, // WHITE KNIGHT IMAGES
-	wRightKnightShdw, wLeftKnightShdw, // WHITE KNIGHT SHADOWS
-	wRightKnightRefl, wLeftKnightRefl, // WHITE KNIGHT REFLECTIONS
-	bRightKnightImg, bLeftKnightImg, // BLACK KNIGHT IMAGES
-	bRightKnightShdw, bLeftKnightShdw, // BLACK KNIGHT SHADOWS
-	bRightKnightRefl, bLeftKnightRefl, // BLACK KNIGHT REFLECTIONS
-	moveHighlight, takeableHighlight, checkHighlight // UI HIGHLIGHTS
-} = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
-const { handleKnightHop, stepSlide } = require("../animate/index.js"); // HOW HIGH A HOPPING KNIGHT IS, WHERE A SLIDING PIECE IS FROM THE TIME
-const { KNIGHT_PAUSE_MS } = require("../animate/timing.js"); // HOW LONG A KNIGHT STOPS BEFORE ITS HOP (NOT VIA animate/index.js: IT IS STILL LOADING WHEN THIS FILE LOADS)
-const { overlayShows } = require("./overlay.js"); // WHAT THE FLAT OVERLAY DRAWS ON 2D & ON 3D
-const { landSlide } = require("../moves/index.js"); // A SLIDE LANDED: SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S
-const { parseList, awayFromRows, rightFromFiles, facesAway, knightFacesRight } = require("./facing.js"); // SHARED PIECE & KNIGHT FACING RULES
-const { setPieceSprites, handlePawnDirection, setKnightSide } = require("./pieceSprites.js");
+const { game, ctx, chessInst } = require("../state/index.js"); // The game's shared state, the canvas, the board that's drawn
+const { images } = require("../images/index.js"); // The loaded images by image number
+const { renderBoard } = require("../layout/index.js"); // Sizes the canvas & board to the window & draws the table & board
+const { tableShdw, moveHighlight, checkHighlight } = require("../sprites/index.js"); // Image numbers, images[number].image is the image
+const { stepSlide } = require("../animate/index.js"); // Where a sliding piece is from the time
+// The two private files are required where this file used to require what they now use (animate/timing.js, moves/index.js),
+// so the modules still load in the same order
+const drawSlide = require("./draw.slide.js");
+const { overlayShows } = require("./overlay.js"); // What the flat overlay draws on 2D & on 3D
+const drawTile = require("./draw.tile.js");
+const { rightFromFiles } = require("./facing.js"); // Shared piece & knight facing rules
+const { setKnightSide } = require("./pieceSprites.js");
 const { setTakenPieceArr, renderTakenPieces } = require("./taken.js");
 
-const DRAG_HOLD_MS = 120; // MOVING A HELD PIECE FOR LONGER THAN THIS MAKES IT A DRAG
+const DRAG_HOLD_MS = 120; // Moving a held piece for longer than this makes it a drag
 
-let clickX; // PIXEL X OF tileX, A HELD PIECE IS DRAWN THERE
-let clickY; // PIXEL Y OF tileY
-let slidePos; // SQUARE THE SLIDING PIECE IS CROSSING (trackSlidePosition)
-let knightPause = false; // TRUE FOR THE 100MS A KNIGHT STOPS BEFORE ITS HOP (currSlide IS OFF), SO A FRAME DRAWN THEN STILL PUTS IT ON TOP
-let availableMoves; // LEGAL MOVES OF THE SELECTED PIECE (chess.js VERBOSE MOVES)
-let currInst; // 8 x 8 BOARD FROM chessInst.board(), FLIPPED WHEN VIEWING FROM BLACK'S SIDE
-let overlapSlideObj = null; // ONLY THE SLIDING PIECE'S OWN SQUARE IS KEPT (drawActivePiece), FOR A HOPPING OR LANDED KNIGHT (drawSlideBox)
-
-/**
- * @description The two squares a sliding piece faces the way of: its move (moveObj), or, stepping back in a replay, the pair that keeps the
- * facing it had before the move (moveObj.face, replay/positions.js facePair) so it slides back without turning. Landing & draw order still
- * use moveObj, the squares it actually slides between
- * @return {[object]} { from, to }
- */
-function slideFace() {
-	return game.moveObj.face || game.moveObj;
-}
+let clickX; // Pixel x of tileX, a held piece is drawn there
+let clickY; // Pixel y of tileY
+let availableMoves; // Legal moves of the selected piece (chess.js verbose moves), found once per piece
+let currInst; // 8 x 8 board from chessInst.board(), flipped when viewing from black's side
+const drawState = { // Shared with draw.tile.js & draw.slide.js, which change it
+	lightObstruction: true, // True draws the reflections & shadows (renderPiecesToBoard sets it each frame)
+	// True for the 100ms a knight stops before its hop (currSlide is off), so a frame drawn then still puts it on top
+	knightPause: false,
+	// Only the sliding piece's own square is kept (draw.slide.js layer), for a hopping or landed knight (draw.slide.js redrawInFront)
+	overlapSlideObj: null,
+};
 
 /* ---------------------------------------------------------------- */
 // Handle Initial Data Response
@@ -60,140 +48,73 @@ function slideFace() {
  * Black's side at the bottom (viewColor) flips the board (rows & columns reversed)
  */
 export function handleInitialData() {
-	if (game.viewColor == "w") { // DRAW SCREEN W
-		currInst = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
+	if (game.viewColor == "w") { // Draw screen w
+		currInst = chessInst.board(); // Row 0 is rank 8, column 0 is the a file
 		game.drawScreen = async function () {
 			const boardData = renderBoard();
 			clickX = boardData.clickX;
 			clickY = boardData.clickY;
 			currInst = chessInst.board();
-			overlapSlideObj = null
+			drawState.overlapSlideObj = null
 			renderPiecesToBoard(currInst, clickX, clickY, true);
-			const overlay = overlayShows(game); // 2D: "all", 3D: ONLY THE FLAT PROMOTION PICKER ("picker") OR NOTHING ("none")
-			if (overlay !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD, THE TAKEN PIECES & THE SCORE ARE IN THE 3D ROOM
+			const overlay = overlayShows(game); // 2D: "all", 3D: only the flat promotion picker ("picker") or nothing ("none")
+			if (overlay !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: the board, taken pieces & score are in the 3D room
 			if (overlay === "none") { return; }
-			if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
-				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor, currInst); }
-				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor, currInst); }
-			} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
+			if (game.currPromotion) { // A pawn promotion of the player's is up
+				if (game.playerColor == 'w') {
+					game.bTakenPieces = setTakenPieceArr(game.playerColor);
+					renderTakenPieces(game.bTakenPieces, game.opponentColor, currInst);
+				} else if (game.playerColor == 'b') {
+					game.wTakenPieces = setTakenPieceArr(game.playerColor);
+					renderTakenPieces(game.wTakenPieces, game.opponentColor, currInst);
+				}
+			} else { // Taken pieces sit on the side of the player who took them
 				game.wTakenPieces = setTakenPieceArr('w');
 				game.bTakenPieces = setTakenPieceArr('b');
 				renderTakenPieces(game.wTakenPieces, 'b', currInst);
 				renderTakenPieces(game.bTakenPieces, 'w', currInst);
 			}
 
-			if (overlay !== "all") { return; } // NO TABLE SHADOW OVER THE 3D BOARD
+			if (overlay !== "all") { return; } // No table shadow over the 3D board
 			ctx.globalAlpha = 0.05
-			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
+			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // Table shadow
 			ctx.globalAlpha = 1;
 		}
-	} else if (game.viewColor == "b") { // DRAW SCREEN B
-		currInst = chessInst.board().reverse(); // ROW 0 IS RANK 1
-		for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); } // COLUMN 0 IS THE h FILE
+	} else if (game.viewColor == "b") { // Draw screen b
+		currInst = chessInst.board().reverse(); // Row 0 is rank 1
+		for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); } // Column 0 is the h file
 		game.drawScreen = async function () {
 			const boardData = renderBoard();
 			clickX = boardData.clickX;
 			clickY = boardData.clickY;
 			currInst = chessInst.board().reverse();
 			for (let i = currInst.length - 1; i >= 0; i--) { currInst[i] = currInst[i].reverse(); }
-			overlapSlideObj = null
+			drawState.overlapSlideObj = null
 			renderPiecesToBoard(currInst, clickX, clickY, true);
-			const overlay = overlayShows(game); // 2D: "all", 3D: ONLY THE FLAT PROMOTION PICKER ("picker") OR NOTHING ("none")
-			if (overlay !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: THE BOARD, THE TAKEN PIECES & THE SCORE ARE IN THE 3D ROOM
+			const overlay = overlayShows(game); // 2D: "all", 3D: only the flat promotion picker ("picker") or nothing ("none")
+			if (overlay !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); } // 3D: the board, taken pieces & score are in the 3D room
 			if (overlay === "none") { return; }
-			if (game.currPromotion) { // IF A USER PAWN PROMOTION IS ACTIVE
-				if (game.playerColor == 'w') { game.bTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.bTakenPieces, game.opponentColor, currInst); }
-				else if (game.playerColor == 'b') { game.wTakenPieces = setTakenPieceArr(game.playerColor); renderTakenPieces(game.wTakenPieces, game.opponentColor, currInst); }
-			} else { // TAKEN PIECES SIT ON THE SIDE OF THE PLAYER WHO TOOK THEM
+			if (game.currPromotion) { // A pawn promotion of the player's is up
+				if (game.playerColor == 'w') {
+					game.bTakenPieces = setTakenPieceArr(game.playerColor);
+					renderTakenPieces(game.bTakenPieces, game.opponentColor, currInst);
+				} else if (game.playerColor == 'b') {
+					game.wTakenPieces = setTakenPieceArr(game.playerColor);
+					renderTakenPieces(game.wTakenPieces, game.opponentColor, currInst);
+				}
+			} else { // Taken pieces sit on the side of the player who took them
 				game.wTakenPieces = setTakenPieceArr('w');
 				game.bTakenPieces = setTakenPieceArr('b');
 				renderTakenPieces(game.wTakenPieces, 'b', currInst);
 				renderTakenPieces(game.bTakenPieces, 'w', currInst);
 			}
 
-			if (overlay !== "all") { return; } // NO TABLE SHADOW OVER THE 3D BOARD
+			if (overlay !== "all") { return; } // No table shadow over the 3D board
 			ctx.globalAlpha = 0.05
-			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
+			ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // Table shadow
 			ctx.globalAlpha = 1;
 		}
 	}
-}
-
-/* ---------------------------------------------------------------- */
-// Last Move Highlight
-/* ---------------------------------------------------------------- */
-/**
- * @description Tints the from & to squares of the opponent's last move (game.lastOpponentMove), it stays until their next move lands
- */
-function drawLastMove() {
-	const lastMove = game.lastOpponentMove || [];
-	ctx.globalAlpha = 0.30;
-	for (let s = 0; s < lastMove.length; s++) {
-		const column = lastMove[s].charCodeAt(0) - 97; // a FILE IS 0
-		const rank = Number(lastMove[s][1]);
-		const x = game.viewColor == 'b' ? 7 - column : column; // FLIPPED BOARD: h1 IS 0, 0
-		const y = game.viewColor == 'b' ? rank - 1 : 8 - rank;
-		ctx.drawImage(images[checkHighlight].image, (x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
-	}
-	ctx.globalAlpha = 1.00;
-}
-
-/* ---------------------------------------------------------------- */
-// Hint
-/* ---------------------------------------------------------------- */
-/**
- * @description Highlights the from & to squares of the hint (game.hint) with the move highlight
- */
-function drawHint() {
-	const hint = game.hint || [];
-	ctx.globalAlpha = 0.50;
-	for (let s = 0; s < hint.length; s++) {
-		const column = hint[s].charCodeAt(0) - 97; // a FILE IS 0
-		const rank = Number(hint[s][1]);
-		const x = game.viewColor == 'b' ? 7 - column : column; // FLIPPED BOARD: h1 IS 0, 0
-		const y = game.viewColor == 'b' ? rank - 1 : 8 - rank;
-		ctx.drawImage(images[moveHighlight].image, x * game.tileWidth + game.xBoardOff, y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff, game.tileWidth, game.tileHeight);
-	}
-	ctx.globalAlpha = 1.00;
-}
-
-/* ---------------------------------------------------------------- */
-// Marks & Arrows
-/* ---------------------------------------------------------------- */
-/**
- * @description Draws the player's right-click marks (a ring) & arrows (game.annotations) from square centers
- */
-function drawAnnotations() {
-	const center = function (square) { // COLUMN & ROW OF A SQUARE'S CENTER ON SCREEN
-		const column = square.charCodeAt(0) - 97; // a FILE IS 0
-		const rank = Number(square[1]);
-		return game.viewColor == 'b' ? [7 - column + 0.5, rank - 0.5] : [column + 0.5, 8.5 - rank]; // FLIPPED BOARD: h1 IS 0, 0
-	};
-	ctx.save();
-	ctx.translate(game.xBoardOff, game.yBoardOff);
-	ctx.scale(game.tileWidth, game.tileHeight); // ONE UNIT IS ONE SQUARE: LINE WIDTHS & HEADS STRETCH WITH THE WIDE SQUARES IN EVERY DIRECTION
-	ctx.globalAlpha = 0.7;
-	ctx.strokeStyle = "#e8792b";
-	ctx.fillStyle = "#e8792b";
-	ctx.lineWidth = 0.12;
-	for (const { from, to } of game.annotations) {
-		const [x1, y1] = center(from);
-		const [x2, y2] = center(to);
-		ctx.beginPath();
-		if (from == to) { ctx.arc(x1, y1, 0.42, 0, Math.PI * 2); ctx.stroke(); continue; }
-		const length = Math.hypot(x2 - x1, y2 - y1);
-		const ux = (x2 - x1) / length; // ONE SQUARE ALONG THE ARROW
-		const uy = (y2 - y1) / length;
-		ctx.moveTo(x1 + ux * 0.3, y1 + uy * 0.3); // STARTS AT THE EDGE OF THE FROM SQUARE'S PIECE, STOPS AT THE HEAD SO THE SEE-THROUGH COLORS DON'T OVERLAP
-		ctx.lineTo(x2 - ux * 0.5, y2 - uy * 0.5);
-		ctx.stroke();
-		ctx.beginPath();
-		ctx.moveTo(x2 - ux * 0.1, y2 - uy * 0.1); // TIP
-		ctx.lineTo(x2 - ux * 0.5 - uy * 0.25, y2 - uy * 0.5 + ux * 0.25);
-		ctx.lineTo(x2 - ux * 0.5 + uy * 0.25, y2 - uy * 0.5 - ux * 0.25);
-		ctx.fill();
-	}
-	ctx.restore();
 }
 
 /* ---------------------------------------------------------------- */
@@ -211,698 +132,288 @@ function drawAnnotations() {
  * @param  {[boolean]} lightObstruction [true draws the reflections & shadows]
  */
 function renderPiecesToBoard(inst, clickX, clickY, lightObstruction) {
-	let x, y; // WHERE THIS SQUARE'S PIECE IS DRAWN (PIXELS)
-	let index = 0; // TILE BEING DRAWN, COUNTS UP WITH THE LOOP (THE FUNCTIONS BELOW READ IT)
+	let x, y; // Where this square's piece is drawn (pixels)
+	let index = 0; // Tile being drawn, counts up with the loop
+	drawState.lightObstruction = lightObstruction;
 
-	// MOVE THE SLIDING PIECE TO WHERE THE TIME SAYS IT IS, ONCE A FRAME BEFORE ANYTHING IS DRAWN
-	for (let q = 0; q < game.tiles.length; q++) {
-		if (game.tiles[q].isSliding) { stepSlide(game.tiles[q], q); }
-	}
+	stepSlides();
+	const hopTurn = findHopTurn();
+	const slideTurn = findSlideTurn();
 
-	// A HOPPING KNIGHT IS DRAWN IN THE TURN OF THE SQUARE IT'S OVER, NOT ITS START SQUARE, SO ITS REFLECTION & SHADOW GO UNDER THE PIECES
-	// IN FRONT OF IT & OVER THE ONES BEHIND IT, LIKE A PIECE STANDING THERE (ITS IMAGE IS DRAWN AGAIN ON TOP AT THE END OF THE FRAME, drawSlideBox)
-	// !NOTE: IN ITS START SQUARE'S TURN IT PAINTED ITS SHADOW OVER THE PAWNS IT JUMPED (DRAWN BEFORE IT) UNTIL IT LANDED, SO THEY FLASHED
-	let hopTurn = null; // { index: THE KNIGHT'S TILE, square: TILE OF THE SQUARE IT'S OVER (row * 8 + column) }, null WHEN IT'S OVER ITS OWN
-	for (let q = 0; q < game.tiles.length; q++) {
-		if (game.tiles[q].isSliding && game.tiles[q].type == 'n' && (game.tiles[q].xDiff || game.tiles[q].yDiff)) {
-			game.tiles[q].x = q % 8; // ITS START SQUARE, AS ITS OWN TURN SETS IT BELOW (THE CLICK THAT STARTED THE SLIDE LEFT x, y ON THE NEW SQUARE),
-			game.tiles[q].y = Math.floor(q / 8); // SO IT'S RIGHT IF IT'S DRAWN BEFORE ITS OWN TURN (WITH REDUCE MOTION ITS FIRST FRAME ALREADY HOPS, #354)
-			const row = Math.min(Math.max(Math.round(game.tiles[q].y - game.tiles[q].yDiff / game.tileHeight), 0), 7); // yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
-			// ITS START COLUMN, NOT THE ONE IT'S OVER: ONLY THE ROW CHANGES, SO EACH PIECE GOES OVER OR UNDER ITS SHADOW ONCE
-			// !NOTE: SWITCHING COLUMNS MID-ROW (b2 TO c2 ON Nc3) PUT b2'S PAWN UNDER, OVER, THEN UNDER THE SHADOW, SO IT FLASHED
-			const column = q % 8;
-			if (row * 8 + column != q) { hopTurn = { index: q, square: row * 8 + column }; }
-			break;
-		}
-	}
-
-	// A SLIDING KING, QUEEN, BISHOP, ROOK OR PAWN IS DRAWN ONCE, IN THE TURN OF THE FIRST SQUARE AFTER IT (PAINTER'S ORDER: LOWER ROWS IN FRONT,
-	// FURTHER RIGHT OVER FURTHER LEFT), NOT ITS START SQUARE'S, SO EVERY REFLECTION, SHADOW & PIECE IS DRAWN EXACTLY ONCE A FRAME
-	// !NOTE: DRAWING THE PIECES IN FRONT OF IT AGAIN AT THE END OF THE FRAME PUT THEM OVER THEIR RIGHT NEIGHBOUR'S SHADOW, SO THEY FLASHED (#239)
-	let slideTurn = null; // { index: THE SLIDING TILE, sx, sy: WHERE IT'S DRAWN THIS FRAME (IN SQUARES), drawn: ALREADY DRAWN THIS FRAME }
-	for (let q = 0; q < game.tiles.length; q++) {
-		const tile = game.tiles[q];
-		if (tile.isSliding && tile.type && tile.type.match(/[kqbrp]/)) {
-			tile.x = q % 8; // ITS START SQUARE, AS ITS OWN TURN SETS IT BELOW (THE CLICK THAT STARTED THE SLIDE LEFT x, y ON THE NEW SQUARE),
-			tile.y = Math.floor(q / 8); // SO IT'S RIGHT IF IT'S DRAWN BEFORE ITS OWN TURN (SLIDING UP OR LEFT)
-			const sx = tile.x + tile.xDiff / game.tileWidth; // WHERE IT IS THIS FRAME (stepSlide ABOVE), yDiff IS SUBTRACTED (UP THE SCREEN IS POSITIVE)
-			const sy = tile.y - tile.yDiff / game.tileHeight;
-			slideTurn = { index: q, sx, sy, drawn: false };
-			break;
-		}
-	}
-
-	drawLastMove(); // BEFORE THE LOOP SO IT'S UNDER EVERY PIECE, REFLECTION & SHADOW
+	drawLastMove(); // Before the loop so it's under every piece, reflection & shadow
 	drawHint();
 	drawAnnotations();
 
-	for (let i = 0; i < inst.length; i++) { // ROW
-		for (let j = 0; j < inst[i].length; j++, index++) { // COLUMN
-			game.tiles[index] = { ...inst[i][j], ...game.tiles[index], x: j, y: i }; // TILE[INDEX] = DECONSTRUCTED ARRAY OF CHESS BOARD ROW/COLUMN, TILE[INDEX] INIT VALUES, X, Y
-			if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
-				if (game.tiles[index].isMousedown) { // IF MOUSEDOWN SET PIECE TO MOUSE POSITION
-					if (game.mouseDownTime === null) { game.mouseDownTime = performance.now(); } else if (performance.now() - game.mouseDownTime > DRAG_HOLD_MS) { game.tiles[index].isClicked = true; } // FRAMES ONLY COME WHILE IT MOVES: MOVED FOR LONG ENOUGH = A DRAG, THE CLICK HANDLER DROPS IT
-					game.tiles[index].x = game.tileX;
-					game.tiles[index].y = game.tileY;
-					x = clickX + game.xBoardOff;
-					y = clickY - game.tileHeight / 5 + game.yBoardOff; // LIFTED (A FIFTH OF A SQUARE UP)
-				} else if (game.tiles[index].isClicked) { // IF CLICKED
-					x = game.tiles[index].x * game.tileWidth + game.xBoardOff;
-					y = game.tiles[index].y * game.tileHeight - game.tileHeight / 5 + game.yBoardOff; // LIFTED
-				} else { // IF CLICKED IS FALSE SET PIECE BASED ON POSITION DEFINED BY FEN
-					x = game.tiles[index].x * game.tileWidth + game.xBoardOff;
-					y = game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff; // RESTING PIECES SIT A TENTH OF A SQUARE UP SO THEIR BASE IS ON THE SQUARE
-				}
+	for (let i = 0; i < inst.length; i++) { // Row
+		for (let j = 0; j < inst[i].length; j++, index++) { // Column
+			game.tiles[index] = { ...inst[i][j], ...game.tiles[index], x: j, y: i }; // The board's piece, the tile's own state, its square
+			const piece = inst[i][j];
+			const tile = game.tiles[index];
+			if (piece && tile.isMousedown) { // Held: follows the mouse
+				handleDragHold(tile);
+				tile.x = game.tileX;
+				tile.y = game.tileY;
+				x = clickX + game.xBoardOff;
+				y = clickY - game.tileHeight / 5 + game.yBoardOff; // Lifted (a fifth of a square up)
+			} else if (piece && tile.isClicked) {
+				x = tile.x * game.tileWidth + game.xBoardOff;
+				y = tile.y * game.tileHeight - game.tileHeight / 5 + game.yBoardOff; // Lifted
+			} else if (piece) { // Where the board puts it, a tenth of a square up so its base is on the square
+				x = tile.x * game.tileWidth + game.xBoardOff;
+				y = tile.y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff;
 			}
 
-			/* ---------------------------------------------------------------- */
-			// Check & Render Available Moves
-			/* ---------------------------------------------------------------- */
-			/**
-			 * @description Renders Emply possible pieces moves & pressured piece moves. When this square is a legal move of the
-			 * selected piece it gets a move highlight (a takeable highlight if the move takes a piece). If the held piece is over
-			 * this square, the piece is drawn here as a preview
-			 */
-			function checkAvailableMoves() {
-				/* ---------------------------------------------------------------- */
-				// Draw Tiles (Available Moves)
-				/* ---------------------------------------------------------------- */
-				/**
-				 * @description Draws Tiles to Canvas. Draws the held piece on the legal square under the mouse (the drop preview),
-				 * knights face left while the mouse moves left, kings, queens, bishops & rooks face up or down the way they'd move.
-				 * Counts the piece, the main loop skips it
-				 * @param  {[object]} tile [the held tile]
-				 * @param  {[string]} pieceType [chess.js type 'k', 'q', 'b', 'n', 'r', 'p']
-				 * @param  {[string]} pieceColor ['w' | 'b']
-				 * @param  {[number]} x [pixel x]
-				 * @param  {[number]} y [pixel y]
-				 */
-				function drawTiles(tile, pieceType, pieceColor, x, y) {
-					if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
-						/* ---------------------------------------------------------------- */
-						// Draw Piece (Draw Tiles)
-						/* ---------------------------------------------------------------- */
-						/**
-						 * @description Draws the held king, queen, bishop or rook on the move under the mouse. The loops below pick the way it faces now,
-						 * a move up or down the board turns it the way it would go
-						 */
-						function drawPiece() {
-							if (tile.yAvailInt != tile.originY) { // UP OR DOWN: FACE THE WAY IT WOULD MOVE (SIDEWAYS FACES ITS LAST WAY)
-								setPieceSprites(pieceColor, awayFromRows(tile.originY, tile.yAvailInt, pieceColor, game.viewColor));
-							}
-							if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-								if (pieceColor == "w") { drawActivePiece([game.wKingRefl, game.wKingShdw, game.wKingImg], x, y, false); game.wPieceCount.king++; }
-								else if (pieceColor == "b") { drawActivePiece([game.bKingRefl, game.bKingShdw, game.bKingImg], x, y, false); game.bPieceCount.king++; }
-							} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-								if (pieceColor == "w") { drawActivePiece([game.wQueenRefl, game.wQueenShdw, game.wQueenImg], x, y, false); game.wPieceCount.queen++; }
-								else if (pieceColor == "b") { drawActivePiece([game.bQueenRefl, game.bQueenShdw, game.bQueenImg], x, y, false); game.bPieceCount.queen++; }
-							} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
-								if (pieceColor == "w") {
-									if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopWhiteSqImg], x, y, false); game.wPieceCount.bishop++; }
-									else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopBlackSqImg], x, y, false); game.wPieceCount.bishop++; }
-								} else if (pieceColor == "b") {
-									if (chessInst.squareColor(tile.square) == 'light') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopWhiteSqImg], x, y, false); game.bPieceCount.bishop++; }
-									else if (chessInst.squareColor(tile.square) == 'dark') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopBlackSqImg], x, y, false); game.bPieceCount.bishop++; }
-								}
-							} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-								if (pieceColor == "w") { drawActivePiece([game.wRookRefl, game.wRookShdw, game.wRookImg], x, y, false); game.wPieceCount.rook++; }
-								else if (pieceColor == "b") { drawActivePiece([game.bRookRefl, game.bRookShdw, game.bRookImg], x, y, false); game.bPieceCount.rook++; }
-							}
-						}
-						// THE WAY IT FACES NOW, SAME AS THE BOARD (w_piece / b_piece)
-						if (pieceColor == "w") {
-							const away = facesAway(parseList("w_piece", game.response.w_piece), tile.square, "w", { viewColor: game.viewColor, slide: null, landed: null });
-							if (away !== null) { setPieceSprites("w", away); drawPiece(); }
-						} else if (pieceColor == "b") {
-							const away = facesAway(parseList("b_piece", game.response.b_piece), tile.square, "b", { viewColor: game.viewColor, slide: null, landed: null });
-							if (away !== null) { setPieceSprites("b", away); drawPiece(); }
-						}
-					} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
-						if (pieceColor == "w") {
-							if (game.tileX < tile.x && game.playerColor == pieceColor) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false); }
-							else { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false); }
-							game.wPieceCount.knight++;
-						} else if (pieceColor == "b") {
-							if (game.tileX < tile.x && game.playerColor == pieceColor) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false); }
-							else { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false); }
-							game.bPieceCount.knight++;
-						}
-					} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
-						handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
-						if (pieceColor == "w") { drawActivePiece([game.wPawnRefl, game.wPawnShdw, game.wPawnImg], x, y, false); game.wPieceCount.pawn++; }
-						else if (pieceColor == "b") { drawActivePiece([game.bPawnRefl, game.bPawnShdw, game.bPawnImg], x, y, false); game.bPieceCount.pawn++; }
-					}
-				}
-
-				if ((game.clickedTile || game.mousedownTile) && !game.currSlide) { // MOVES FOR PIECE TOGGLED BY USER
-					let xLet;
-					let piecePos; // THIS SQUARE'S NAME (e4)
-					if (game.viewColor == 'w') {
-						xLet = String.fromCharCode(97 + j);
-						piecePos = `${xLet}${8 - i}`
-					} else if (game.viewColor == 'b') { // FLIPPED BOARD
-						xLet = String.fromCharCode(96 + (8 - j));
-						piecePos = `${xLet}${i + 1}`
-					}
-					let tile; // THE SELECTED PIECE, A HELD PIECE COMES FIRST
-					if (game.mousedownTile) { tile = game.mousedownTile }
-					else if (game.clickedTile) { tile = game.clickedTile }
-
-					if (game.availableMovesData.piece == tile.type && game.availableMovesData.square == tile.square) { } // SAME PIECE AS BEFORE, KEEP ITS MOVES
-					else {
-						game.availableMovesData = { piece: tile.type, square: tile.square }
-						availableMoves = chessInst.moves({ piece: tile.type, square: tile.square, verbose: true });
-					}
-					for (let r = 0; r < availableMoves.length; r++) { // RENDER ALL POSSIBLE MOVES
-						if (availableMoves[r].to == piecePos) { // THIS SQUARE IS A LEGAL MOVE
-							let xAvailInt; // SCREEN COLUMN & ROW OF THE MOVE
-							let yAvailInt;
-
-							if (game.viewColor == 'w') {
-								xAvailInt = availableMoves[r].to.split("")[0].charCodeAt(0) - 96 - 1;
-								yAvailInt = 8 - availableMoves[r].to.split("")[1];
-							} else if (game.viewColor == 'b') {
-								xAvailInt = 8 - (availableMoves[r].to.split("")[0].charCodeAt(0) - 96);
-								yAvailInt = availableMoves[r].to.split("")[1] - 1;
-							}
-
-							let availX = xAvailInt * game.tileWidth + game.xBoardOff;
-							let availY = yAvailInt * game.tileHeight - game.tileHeight / 10 + game.yBoardOff;
-							for (let a = 0; a < availableMoves.length; a++) { // CLEARS THE HELD PIECE'S PREVIEW SQUARE WHEN THE MOUSE ISN'T ON ANY LEGAL MOVE
-								let xAvailInt;
-								let yAvailInt;
-								if (game.viewColor == 'w') {
-									xAvailInt = availableMoves[a].to.split("")[0].charCodeAt(0) - 96 - 1;
-									yAvailInt = 8 - availableMoves[a].to.split("")[1];
-								} else if (game.viewColor == 'b') {
-									xAvailInt = 8 - (availableMoves[a].to.split("")[0].charCodeAt(0) - 96);
-									yAvailInt = availableMoves[a].to.split("")[1] - 1;
-								}
-								if (game.tileX == xAvailInt && game.tileY == yAvailInt && game.mousedownTile) { break }
-								else if ((a + 1) == availableMoves.length) { tile.xAvailInt = null; tile.yAvailInt = null; }
-							}
-							if (availableMoves[r].san.lastIndexOf("x") != -1) { // RENDERS TILE WHICH CAN BE MOVE TO THAT TAKE AN OPPOSING PIECES
-								ctx.globalAlpha = 0.50;
-								ctx.drawImage(images[takeableHighlight].image, availX, availY, game.tileWidth, game.tileHeight);
-								ctx.globalAlpha = 1.00;
-								if (game.tileX == xAvailInt && game.tileY == yAvailInt && game.mousedownTile) { // THE HELD PIECE IS OVER THIS MOVE: DRAW IT HERE (PREVIEW)
-									tile.xAvailInt = xAvailInt;
-									tile.yAvailInt = yAvailInt;
-									const pieceType = tile.type
-									const pieceColor = tile.color;
-									let x = xAvailInt * game.tileWidth + game.xBoardOff;
-									let y = yAvailInt * game.tileHeight - game.tileHeight / 6 + game.yBoardOff;
-									drawTiles(tile, pieceType, pieceColor, x, y);
-								}
-							} else { // RENDERS TILE WHICH CAN BE MOVED TO
-								ctx.globalAlpha = 0.50;
-								ctx.drawImage(images[moveHighlight].image, availX, availY, game.tileWidth, game.tileHeight);
-								ctx.globalAlpha = 1.00;
-								if (game.tileX == xAvailInt && game.tileY == yAvailInt && game.mousedownTile) { // THE HELD PIECE IS OVER THIS MOVE: DRAW IT HERE (PREVIEW)
-									tile.xAvailInt = xAvailInt;
-									tile.yAvailInt = yAvailInt;
-									const pieceType = tile.type
-									const pieceColor = tile.color;
-									let x = xAvailInt * game.tileWidth + game.xBoardOff;
-									let y = yAvailInt * game.tileHeight - game.tileHeight / 6 + game.yBoardOff;
-									drawTiles(tile, pieceType, pieceColor, x, y);
-								}
-							}
-						}
-					}
-				}
+			// The selected piece's moves, only on the player's turn
+			if (!game.currPromotion && !game.opposingMove && (game.clickedTile || game.mousedownTile) && !game.currSlide) {
+				availableMoves = selectedMoves(availableMoves);
+				drawTile.availableMoves(i, j, index, availableMoves, drawState);
 			}
-
-			if (!game.currPromotion && !game.opposingMove) { checkAvailableMoves() } // ONLY ON THE PLAYER'S TURN
-
-
-			/**
-			 * @description Draws active piece to canvas: the reflection (30%), shadow (75%) & piece, in that order. Held, clicked
-			 * & hovered pieces are a little see through. A sliding piece is drawn where the time says it is (stepSlide) & when it
-			 * arrives the move is sent (the player's) or finished (the opponent's). Knights hop over the board while they slide.
-			 * !NOTE: IT'S ASYNC & READS tiles[index], SO AFTER AN AWAIT index HAS MOVED ON & tiles MAY BE A NEW ARRAY (refreshData)
-			 * @param  {[array]} imgArr [image numbers: reflection, shadow, piece]
-			 * @param  {[number]} x [pixel x, when not sliding]
-			 * @param  {[number]} y [pixel y, when not sliding]
-			 * @param  {[boolean]} opacity [false = always solid (a clicked piece back on its own square, the drop preview)]
-			 */
-			async function drawActivePiece(imgArr, x, y, opacity) {
-				let completeSlide = false; // THE SLIDE REACHED ITS SQUARE THIS FRAME
-				for (let w = 0; w < imgArr.length; w++) { // w: 0 REFLECTION, 1 SHADOW, 2 PIECE
-					if ((game.tiles[index].isMousedown || game.tiles[index].isClicked || game.tiles[index].isHovering) && opacity && !game.tiles[index].isSliding && !game.opposingMove) { ctx.globalAlpha = 0.85 }
-					if (w == 0) { ctx.globalAlpha = 0.30 }
-					else if (w == 1) { ctx.globalAlpha = 0.75 }
-					if (game.tiles[index].isSliding) { // IF TILE IS SLIDING
-						// IF Y IS NEGITIVE ITS UNDER THE OVER PIECE
-						// IF Y IS POSITIVE ITS OVER THE UNDER PIECE
-						let slideOverlap = true;
-
-						/**
-						 * @description Tracks the position of the piece that's sliding which allows for a rerender once all the pieces are rendered
-						 * to the board. Sets slidePos (the square it's crossing, in white's file letters). Only diagonal slides overlap other pieces, straight slides & rooks turn slideOverlap off
-						 */
-						function trackSlidePosition() {
-							let xLet;
-							let xChange = 0; // SCREEN COLUMN BEING CROSSED
-							let yChange = 0; // SCREEN ROW BEING CROSSED
-							if (game.tiles[index].type == 'r') { // ROOKS SKIP THE OVERLAP REDRAW
-								slideOverlap = false;
-							} else if (game.tiles[index].xSlideTo > game.tiles[index].x) {
-								// X IS GOING TO THE RIGHT
-								if (game.tiles[index].ySlideTo > game.tiles[index].y) {
-									// Y GOING DOWN THE BOARD
-									let yTilesMoved = Math.floor(game.tiles[index].yDiff / game.tileHeight);
-									let xTilesMoved = Math.floor(game.tiles[index].xDiff / game.tileWidth);
-									xChange = game.tiles[index].x + xTilesMoved;
-									yChange = game.tiles[index].y - yTilesMoved;
-									xLet = String.fromCharCode(97 + xChange);
-									slidePos = `${xLet}${9 - yChange}`
-								} else if (game.tiles[index].ySlideTo < game.tiles[index].y) {
-									// Y GOING UP THE BOARD
-									let yTilesMoved = Math.floor(game.tiles[index].yDiff / game.tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE (339.99 OF 340)
-									let xTilesMoved = Math.floor(game.tiles[index].xDiff / game.tileWidth + 0.001);
-									xChange = game.tiles[index].x + xTilesMoved; // THE SQUARE IT'S LEAVING, LIKE UP TO LEFT (WAS + 1 / - 1, THE SQUARE IT'S ENTERING,
-									yChange = game.tiles[index].y - yTilesMoved; // SO THE PIECE BELOW THE SQUARE IT LEFT WASN'T DRAWN AGAIN & IT SLID OVER IT)
-									xLet = String.fromCharCode(97 + xChange);
-									slidePos = `${xLet}${8 - yChange}`
-								} else { slideOverlap = false; }
-							} else if ((game.tiles[index].xSlideTo < game.tiles[index].x)) {
-								// X IS GOING TO THE LEFT
-								if (game.tiles[index].ySlideTo > game.tiles[index].y) {
-									// Y GOING DOWN THE BOARD
-									let yTilesMoved = Math.floor(game.tiles[index].yDiff / game.tileHeight);
-									let xTilesMoved = Math.floor(game.tiles[index].xDiff / game.tileWidth);
-									xChange = game.tiles[index].x + xTilesMoved;
-									yChange = game.tiles[index].y - yTilesMoved;
-									xLet = String.fromCharCode(98 + xChange);
-									slidePos = `${xLet}${9 - yChange}`
-								} else if (game.tiles[index].ySlideTo < game.tiles[index].y) {
-									// Y GOING UP THE BOARD
-									let yTilesMoved = Math.floor(game.tiles[index].yDiff / game.tileHeight + 0.001); // + 0.001: THE SNAP LEAVES IT A HAIR SHORT OF THE SQUARE
-									let xTilesMoved = Math.ceil(game.tiles[index].xDiff / game.tileWidth - 0.001); // CEIL: ON A SQUARE (FIRST & LANDING FRAME) IT'S THAT SQUARE, NOT THE ONE TO ITS RIGHT
-									xChange = game.tiles[index].x + xTilesMoved;
-									yChange = game.tiles[index].y - yTilesMoved;
-									xLet = String.fromCharCode(97 + xChange);
-									slidePos = `${xLet}${8 - yChange}`
-								} else {
-									slideOverlap = false;
-								}
-							} else { slideOverlap = false; }
-						}
-
-						trackSlidePosition();
-
-
-						try {
-							// GET BOTH PIECES IN THE TILES ARRAY
-							// overlapSlideObj KEEPS ONLY THE SLIDING PIECE'S OWN SQUARE FOR drawSlideBox()
-							if (slideOverlap && slidePos) {
-								let xPos; // FILE NUMBER OF slidePos (a = 0)
-								let yPos; // RANK OF slidePos
-								let y2x2;
-
-								if (game.viewColor == 'w') {
-									xPos = slidePos.split("")[0].charCodeAt(0) - 97;
-									yPos = Number(slidePos.split("")[1])
-
-									if ((xPos) >= 0 && (xPos) <= 8 && (yPos) >= 0 && (yPos) <= 8) { y2x2 = game.tiles[index].square }
-									overlapSlideObj = { y2x2 }
-								}
-
-								else if (game.viewColor == 'b') { // FLIPPED BOARD: TURN slidePos (WHITE'S LETTERS) INTO BLACK'S SQUARE NAMES
-									xPos = (8 - (slidePos.split("")[0].charCodeAt(0) - 97))
-									yPos = 9 - Number(slidePos.split("")[1])
-									if ((xPos - 1) >= 0 && (xPos - 1) <= 8 && (yPos) >= 0 && (yPos) <= 8) { y2x2 = game.tiles[index].square }
-									overlapSlideObj = { y2x2 }
-								}
-							}
-
-							if (game.tiles[index].slideProgress == 1) { completeSlide = true; } // ARRIVED (stepSlide)
-
-							if (game.tiles[index].type.match(/[n]/)) { // KNIGHT SLIDE
-								handleKnightHop(game.tiles[index]); // HOW HIGH IT IS THIS FRAME (knightHop)
-								if ((w == 0 || w == 1) && lightObstruction) { // REFLECTION & SHADOW STAY ON THE BOARD, SHIFTED UP TO A FIFTH OF A SQUARE LEFT AS IT RISES
-									ctx.drawImage(images[imgArr[w]].image, ((((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2) - (game.tileWidth / 5) * game.knightHop, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2), game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
-								} // DRAW SHADOW OF KNIGHT
-								else if (w == 2) { // DRAW PIECE, UP TO HALF A SQUARE UP WHILE IT HOPS
-									if (game.slideStart == true) { // FIRST FRAME: LIFT THE KNIGHT & PAUSE 100MS
-										ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset); // DRAW KNIGHT AS WITH STOP
-										game.currSlide = false; // SO THE TIMEOUT STOPS THE ANIMATION
-										knightPause = true; // THE END OF THE FRAME STILL DRAWS IT ON TOP (currSlide IS OFF NOW, IT WAS HELD UNDER THE PIECES IN FRONT FOR 100MS)
-										game.slideStart = false;
-										const knightIndex = index; // index MOVES ON WITH THE FRAME
-										setTimeout(function () { knightPause = false; if (game.tiles[knightIndex].isSliding) { game.currSlide = true; } }, KNIGHT_PAUSE_MS) // SO THE TIMEOUT RESTARTS THE ANIMATION (UNLESS IT ALREADY LANDED: A HIDDEN TAB'S TIMERS RUN LATE)
-									} else {
-										if (completeSlide) { // LANDED: DRAW IT ON THE SQUARE & FINISH THE MOVE
-											game.tiles[index].isSliding = null;
-											overlapSlideObj = null; // SO THE END OF THE FRAME USES THE LANDED REDRAW (IN FRONT OF & BEHIND THE RIGHT PIECES), NOT THE HOP'S (ON TOP OF EVERYTHING)
-											ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2), game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
-											await landSlide(index); // SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S OR THE REPLAY'S STEP
-										} else { // IN THE AIR
-											if (game.knightHop == 0) { overlapSlideObj = null; } // ON ITS NEW SQUARE (THE FRAME BEFORE IT LANDS): DRAWN AGAIN LIKE A LANDED PIECE AT THE END OF THE FRAME, NOT ON TOP
-											ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
-										}
-									} // DRAW KNIGHT AS USUAL
-								}
-							} else {
-								if ((w == 0 || w == 1) && lightObstruction) {
-									ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
-								} else if (w == 2) {
-									ctx.drawImage(images[imgArr[w]].image, (((game.tiles[index].x * game.tileWidth) + game.tiles[index].xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((game.tiles[index].y * game.tileHeight) - game.tiles[index].yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
-									if (completeSlide) { // ARRIVED: FINISH THE MOVE
-										game.tiles[index].isSliding = null;
-										await landSlide(index); // SENDS THE PLAYER'S MOVE, FINISHES THE OPPONENT'S OR THE REPLAY'S STEP
-									}
-								}
-							}
-
-						} catch { return; }
-					}
-					else {
-						if ((w == 0 || w == 1) && lightObstruction) {
-							ctx.drawImage(images[imgArr[w]].image, x - game.xPieceOffset / 2, y - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
-						} else if (w == 2) {
-							ctx.drawImage(images[imgArr[w]].image, x - game.xPieceOffset / 2, y - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset)
-						}
-					} // DRAWING IMAGE WITH SLIDING FALSE
-					if (((game.tiles[index]?.isMousedown || null || game.tiles[index]?.isClicked || null || game.tiles[index]?.isHovering || null) && opacity && !game.tiles[index]?.isSliding || null) || w == 0 || w == 1) { ctx.globalAlpha = 1 } // BACK TO SOLID FOR THE NEXT LAYER
-				}
-			}
-
-			/* ---------------------------------------------------------------- */
-			// Draw Hopping Knight
-			/* ---------------------------------------------------------------- */
-			/**
-			 * @description Draws the hopping knight in this square's turn, before this square's piece (it's over this square, hopTurn),
-			 * facing the way this move goes like Draw Knight (Draw Screen). index is the knight's tile while it draws (drawActivePiece reads it)
-			 */
-			function drawHoppingKnight() {
-				const squareIndex = index; // THIS SQUARE'S TILE
-				index = hopTurn.index;
-				setKnightSide(game.tiles[index].color, rightFromFiles(slideFace().from, slideFace().to, game.viewColor) ? 'right' : 'left');
-				if (game.tiles[index].color == 'w') drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false);
-				else if (game.tiles[index].color == 'b') drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false);
-				index = squareIndex;
-			}
-			if (hopTurn && hopTurn.square == index) { drawHoppingKnight(); } // THE HOPPING KNIGHT IS OVER THIS SQUARE: UNDER THIS SQUARE'S PIECE & THE ONES AFTER IT
-
-			/* ---------------------------------------------------------------- */
-			// Draw Board Piece
-			/* ---------------------------------------------------------------- */
-			/**
-			 * @description Draws the king, queen, bishop, rook or pawn on tile index with its reflection & shadow (drawActivePiece), facing
-			 * the way the server's piece list says. Used in its own square's turn & for a sliding piece in the turn of the square after it (slideTurn)
-			 * @param  {[string]} pieceType [k | q | b | r | p]
-			 * @param  {[string]} pieceColor [w | b]
-			 * @param  {[boolean]} opacity [false = always solid (a clicked piece back on its own square)]
-			 */
-			function drawBoardPiece(pieceType, pieceColor, opacity) {
-				if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
-					/* ---------------------------------------------------------------- */
-					// Draw Piece (Draw Screen)
-					/* ---------------------------------------------------------------- */
-					/**
-					 * @description Draws the king, queen, bishop or rook to the board with the images the loops below picked (draw/facing.js awayFromRows).
-					 * While the player holds their piece it faces the way it's dragged (up or down from its square)
-					 */
-					function drawPiece() {
-						if (game.tiles[index].isMousedown && game.tiles[index].y != game.tiles[index].originY && game.playerColor == pieceColor) { // HELD: FACE THE WAY IT'S DRAGGED (UP OR DOWN)
-							setPieceSprites(pieceColor, awayFromRows(game.tiles[index].originY, game.tiles[index].y, pieceColor, game.viewColor));
-						}
-						if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-							if (pieceColor == "w") {
-								if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
-									ctx.globalAlpha = 0.70;
-									ctx.drawImage(images[checkHighlight].image, (game.tiles[index].x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
-									ctx.globalAlpha = 1.00;
-								}
-								drawActivePiece([game.wKingRefl, game.wKingShdw, game.wKingImg], x, y, opacity);
-								game.wPieceCount.king++;
-							}
-							else if (pieceColor == "b") {
-								if (chessInst.isCheck() && pieceColor == chessInst.turn()) { // CHECK HIGHLIGHT UNDER THE KING IN CHECK
-									ctx.globalAlpha = 0.70;
-									ctx.drawImage(images[checkHighlight].image, (game.tiles[index].x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2), (game.tiles[index].y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2), game.tileWidth, game.tileHeight);
-									ctx.globalAlpha = 1.00;
-								}
-								drawActivePiece([game.bKingRefl, game.bKingShdw, game.bKingImg], x, y, opacity);
-								game.bPieceCount.king++;
-							}
-						} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-							if (pieceColor == "w") { drawActivePiece([game.wQueenRefl, game.wQueenShdw, game.wQueenImg], x, y, opacity); game.wPieceCount.queen++; }
-							else if (pieceColor == "b") { drawActivePiece([game.bQueenRefl, game.bQueenShdw, game.bQueenImg], x, y, opacity); game.bPieceCount.queen++; }
-						} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
-							if (pieceColor == "w") { // THE IMAGE GOES BY THE COLOR OF THE BISHOP'S SQUARE
-								if (chessInst.squareColor(game.tiles[index].square) == 'light') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopWhiteSqImg], x, y, opacity); game.wPieceCount.bishop++; }
-								else if (chessInst.squareColor(game.tiles[index].square) == 'dark') { drawActivePiece([game.wBishopRefl, game.wBishopShdw, game.wBishopBlackSqImg], x, y, opacity); game.wPieceCount.bishop++; }
-							} else if (pieceColor == "b") {
-								if (chessInst.squareColor(game.tiles[index].square) == 'light') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopWhiteSqImg], x, y, opacity); game.bPieceCount.bishop++; }
-								else if (chessInst.squareColor(game.tiles[index].square) == 'dark') { drawActivePiece([game.bBishopRefl, game.bBishopShdw, game.bBishopBlackSqImg], x, y, opacity); game.bPieceCount.bishop++; }
-							}
-						} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-							if (pieceColor == "w") { drawActivePiece([game.wRookRefl, game.wRookShdw, game.wRookImg], x, y, opacity); game.wPieceCount.rook++; }
-							else if (pieceColor == "b") { drawActivePiece([game.bRookRefl, game.bRookShdw, game.bRookImg], x, y, opacity); game.bPieceCount.rook++; }
-						}
-					}
-					// WHICH WAY A KING, QUEEN, BISHOP OR ROOK FACES COMES FROM THE SERVER'S PIECE LIST (w_piece / b_piece):
-					// { from, to } OF EACH ONE'S LAST MOVE UP OR DOWN (A SIDEWAYS MOVE ONLY CHANGES to), from IS null BEFORE IT HAS ONE
-					// & BOTH ARE null ONCE IT'S TAKEN
-					if (pieceColor == "w") {
-						const away = facesAway(parseList("w_piece", game.response.w_piece), game.tiles[index].square, "w", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
-						if (away !== null) { setPieceSprites("w", away); drawPiece(); }
-					} else if (pieceColor == "b") {
-						const away = facesAway(parseList("b_piece", game.response.b_piece), game.tiles[index].square, "b", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
-						if (away !== null) { setPieceSprites("b", away); drawPiece(); }
-					}
-				} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
-					handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
-					if (pieceColor == "w") { drawActivePiece([game.wPawnRefl, game.wPawnShdw, game.wPawnImg], x, y, opacity); game.wPieceCount.pawn++; }
-					else if (pieceColor == "b") { drawActivePiece([game.bPawnRefl, game.bPawnShdw, game.bPawnImg], x, y, opacity); game.bPieceCount.pawn++; }
-				}
-			}
-
-			/* ---------------------------------------------------------------- */
-			// Draw Sliding Piece
-			/* ---------------------------------------------------------------- */
-			/**
-			 * @description Draws the sliding king, queen, bishop, rook or pawn in this square's turn, before this square's piece (slideTurn),
-			 * like Draw Hopping Knight. index is the sliding tile while it draws (drawActivePiece reads it)
-			 */
-			function drawSlidingPiece() {
-				slideTurn.drawn = true;
-				if (game.currPromotion) { return; } // NO PIECES ON THE BOARD WHILE THE PROMOTION PICKER IS UP
-				const squareIndex = index; // THIS SQUARE'S TILE
-				index = slideTurn.index;
-				drawBoardPiece(game.tiles[index].type, game.tiles[index].color, true);
-				index = squareIndex;
-			}
-			// THE SLIDING PIECE IS DRAWN BEFORE THE FIRST SQUARE AFTER IT: A LOWER ROW, OR ITS ROW & FURTHER RIGHT (THE BOARD AT REST DRAWS IN THIS ORDER)
-			if (slideTurn && !slideTurn.drawn && (i > slideTurn.sy + 0.001 || (Math.abs(i - slideTurn.sy) <= 0.001 && j > slideTurn.sx + 0.001))) { drawSlidingPiece(); }
-
-			if (inst[i][j]) { // IF CURRENT INDEX OF A TILE EXISTS
-				game.tiles[index].originX = j; // THE PIECE'S OWN SQUARE (x, y FOLLOW THE MOUSE WHILE IT'S HELD)
-				game.tiles[index].originY = i;
-				const pieceType = inst[i][j].type;
-				const pieceColor = inst[i][j].color;
-				if (!game.currPromotion) { // NO PIECES ON THE BOARD WHILE THE PROMOTION PICKER IS UP
-					if (!(game.mousedownTile.xAvailInt == game.tiles[index].x && game.mousedownTile.yAvailInt == game.tiles[index].y)) { // IF A MOUSE DOWN TILE IS ON AVAILABLE MOVE TILE RENDERING OF THE PIECE FALLS ON THE RESPONSIBILITY OF "checkAvailableMoves()"
-						let opacity = true
-						if (game.tiles[index].isClicked && (game.tiles[index].x == game.tiles[index].originX && game.tiles[index].y == game.tiles[index].originY)) { opacity = false } // IF TILE IS IN ORIGINAL POSITION SET OPACITY TO FALSE
-						if (pieceType.match(/[kqbrp]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP, ROOK OR PAWN
-							if (!(slideTurn && slideTurn.index == index)) { drawBoardPiece(pieceType, pieceColor, opacity); } // SLIDING: DRAWN IN THE TURN OF THE SQUARE AFTER IT (drawSlidingPiece)
-						} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
-							/* ---------------------------------------------------------------- */
-							// Draw Knight (Draw Screen)
-							/* ---------------------------------------------------------------- */
-							/**
-							 * @description Draws the knight to the board with the image the loops below picked (wKnightImg / bKnightImg).
-							 * While the player holds their knight it faces the way it's dragged (left or right of its square)
-							 */
-							function drawKnight() {
-								if (pieceColor == 'w') {
-									if (game.tiles[index].isMousedown) { // HELD: FACE THE WAY IT'S DRAGGED
-										if (game.tiles[index].x < game.tiles[index].originX && game.playerColor == pieceColor) { game.wKnightImg = wLeftKnightImg; game.wKnightShdw = wLeftKnightShdw; game.wKnightRefl = wLeftKnightRefl; drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); }
-										else if (game.tiles[index].x > game.tiles[index].originX && game.playerColor == pieceColor) { game.wKnightImg = wRightKnightImg; game.wKnightShdw = wRightKnightShdw; game.wKnightRefl = wRightKnightRefl; drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); }
-										else { drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); }
-									} else { drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); }
-								} else if (pieceColor == 'b') {
-									if (game.tiles[index].isMousedown) {
-										if (game.tiles[index].x < game.tiles[index].originX && game.playerColor == pieceColor) { game.bKnightImg = bLeftKnightImg; game.bKnightShdw = bLeftKnightShdw; game.bKnightRefl = bLeftKnightRefl; drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); }
-										else if (game.tiles[index].x > game.tiles[index].originX && game.playerColor == pieceColor) { game.bKnightImg = bRightKnightImg; game.bKnightShdw = bRightKnightShdw; game.bKnightRefl = bRightKnightRefl; drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); }
-										else { drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); }
-									} else { drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); }
-								}
-							}
-							// WHICH WAY A KNIGHT FACES COMES FROM THE SERVER'S KNIGHT LIST (w_knight / b_knight):
-							// { from, to } OF EACH KNIGHT'S LAST MOVE, from IS null BEFORE IT MOVES & BOTH ARE null ONCE IT'S TAKEN
-							if (pieceColor == "w") {
-								const right = knightFacesRight(parseList("w_knight", game.response.w_knight), game.tiles[index].square, "w", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
-								if (right !== null && game.tiles[index].isSliding) { if (!hopTurn) { setKnightSide("w", right ? 'right' : 'left'); drawActivePiece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, opacity); } }
-								else if (right !== null) { setKnightSide("w", right ? 'right' : 'left'); drawKnight(); }
-								game.wPieceCount.knight++;
-							} else if (pieceColor == "b") {
-								const right = knightFacesRight(parseList("b_knight", game.response.b_knight), game.tiles[index].square, "b", { viewColor: game.viewColor, slide: game.tiles[index].isSliding ? slideFace() : null, landed: null });
-								if (right !== null && game.tiles[index].isSliding) { if (!hopTurn) { setKnightSide("b", right ? 'right' : 'left'); drawActivePiece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, opacity); } }
-								else if (right !== null) { setKnightSide("b", right ? 'right' : 'left'); drawKnight(); }
-								game.bPieceCount.knight++;
-							}
-						}
-					}
-				}
-			}
-			if (index == 63 && slideTurn && !slideTurn.drawn) { drawSlidingPiece(); } // NO SQUARE AFTER IT: DRAWN LAST
+			// The hopping knight is over this square: under this square's piece & the ones after it
+			if (hopTurn && hopTurn.square == index) { drawHoppingKnight(hopTurn.index, x, y); }
+			if (slideTurn && !slideTurn.drawn && isAfterSlide(i, j, slideTurn)) { drawSlidingPiece(slideTurn, x, y); }
+			if (piece) { drawSquarePiece(piece, i, j, index, x, y, slideTurn, hopTurn); }
+			if (index == 63 && slideTurn && !slideTurn.drawn) { drawSlidingPiece(slideTurn, x, y); } // No square after it: drawn last
 		}
 	}
 
+	drawSlide.redrawInFront(drawState);
+	if (!game.currSlide) { game.refresh = true; drawState.overlapSlideObj = null; } // Nothing sliding, clear the overlap
+}
 
-	/* ---------------------------------------------------------------- */
-	// Draw Slide Box
-	/* ---------------------------------------------------------------- */
-	/**
-	 * @description Handles pieceObj which draws piece over board render. Draws a piece's image again on top of the frame
-	 * (no shadow or reflection): a hopping knight on top of everything (it hops over them), a landed knight & the pieces
-	 * in front of it (drawPieceBelow). Other slides aren't drawn again, they're drawn once at their depth (slideTurn)
-	 * @param  {[object]} pieceObj [tile of the piece to draw again]
-	 */
-	function drawSlideBox(pieceObj) {
-		// CHECK ABOVE OR BELOW FIRST
-		const pieceType = pieceObj.type;
-		const pieceColor = pieceObj.color;
-		const x = pieceObj.x;
-		const y = pieceObj.y;
+/**
+ * @description Moves each sliding piece to where the time says it is, once a frame before anything is drawn
+ */
+function stepSlides() {
+	for (let q = 0; q < game.tiles.length; q++) {
+		if (game.tiles[q].isSliding) { stepSlide(game.tiles[q], q); }
+	}
+}
 
-		/**
-		 * @description Draws the selected image over the sliding piece at its current position.
-		 */
-		function drawOnTop(img, hop) { // DRAW THE PIECE IMAGE OVER THE SLIDING PIECE
-			if (hop) { ctx.drawImage(images[img].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, (((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2) - (game.tileHeight / 2) * game.knightHop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
-			else { ctx.drawImage(images[img].image, (((x * game.tileWidth) + pieceObj.xDiff) + game.xBoardOff) - game.xPieceOffset / 2, ((((y * game.tileHeight) - pieceObj.yDiff) - game.tileHeight / 10) + game.yBoardOff) - game.yPieceOffset / 2, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset) }
-		}
-
-		if (pieceType.match(/[kqbr]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING, QUEEN, BISHOP OR ROOK
-			/* ---------------------------------------------------------------- */
-			// Draw Piece (Draw Slide Box)
-			/* ---------------------------------------------------------------- */
-			/**
-			 * @description Draws the king, queen, bishop or rook to the board again (image only) with the images the loops below picked.
-			 * The loops pick its facing the same way as Draw Piece (Draw Screen)
-			 */
-			function drawPiece() {
-				if (pieceType.match(/[k]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KING
-					if (pieceColor == "w") { drawOnTop(game.wKingImg, false) }
-					else if (pieceColor == "b") { drawOnTop(game.bKingImg, false) }
-				} else if (pieceType.match(/[q]/) && pieceColor) { // CHECKS CURRENT INDEX FOR QUEEN
-					if (pieceColor == "w") { drawOnTop(game.wQueenImg, false) }
-					else if (pieceColor == "b") { drawOnTop(game.bQueenImg, false) }
-				} else if (pieceType.match(/[b]/) && pieceColor) { // CHECKS CURRENT INDEX FOR BISHOP
-					if (pieceColor == "w") {
-						if (chessInst.squareColor(pieceObj.square) == 'light') { drawOnTop(game.wBishopWhiteSqImg, false) }
-						else if (chessInst.squareColor(pieceObj.square) == 'dark') { drawOnTop(game.wBishopBlackSqImg, false) }
-					} else if (pieceColor == "b") {
-						if (chessInst.squareColor(pieceObj.square) == 'light') { drawOnTop(game.bBishopWhiteSqImg, false) }
-						else if (chessInst.squareColor(pieceObj.square) == 'dark') { drawOnTop(game.bBishopBlackSqImg, false) }
-					}
-				} else if (pieceType.match(/[r]/) && pieceColor) { // CHECKS CURRENT INDEX FOR ROOK
-					if (pieceColor == "w") { drawOnTop(game.wRookImg, false) }
-					else if (pieceColor == "b") { drawOnTop(game.bRookImg, false) }
-				}
-			}
-			// SAME FACING RULES AS THE BOARD: THIS MOVE WHILE SLIDING UP OR DOWN, ELSE ITS LAST MOVE UP OR DOWN, ELSE ITS START SIDE
-			// !NOTE: ON THE FRAME A SLIDE LANDS ITS ENTRY HAS ALREADY MOVED TO THE NEW SQUARE (moveObj.to), SO IT'S LOOKED UP THERE & DRAWN
-			// AGAIN. THE BOARD DREW IT IN ITS OLD SQUARE'S TURN, SO WITHOUT THIS THE PIECES DRAWN AGAIN AROUND IT COVERED IT FOR A FRAME
-			if (pieceColor == "w") {
-				const away = facesAway(parseList("w_piece", game.response.w_piece), pieceObj.square, "w", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
-				if (away !== null) { setPieceSprites("w", away); drawPiece(); }
-			} else if (pieceColor == "b") {
-				const away = facesAway(parseList("b_piece", game.response.b_piece), pieceObj.square, "b", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
-				if (away !== null) { setPieceSprites("b", away); drawPiece(); }
-			}
-		} else if (pieceType.match(/[n]/) && pieceColor) { // CHECKS CURRENT INDEX FOR KNIGHT
-			handleKnightHop(pieceObj); // HOW HIGH IT IS THIS FRAME (knightHop)
-			/* ---------------------------------------------------------------- */
-			// Draw Knight (Draw Slide Box)
-			/* ---------------------------------------------------------------- */
-			/**
-			 * @description Draws the knight to the board (image only), up to half a square up while it's hopping (knightHop).
-			 * The loops below pick its facing the same way as Draw Knight (Draw Screen)
-			 */
-			function drawKnight() {
-				if (pieceColor == 'w') {
-					if (pieceObj.isSliding) { // HOPPING
-						drawOnTop(game.wKnightImg, true);
-					} else {
-						drawOnTop(game.wKnightImg, false)
-					}
-				} else if (pieceColor == 'b') {
-					if (pieceObj.isSliding) {
-						drawOnTop(game.bKnightImg, true);
-					} else {
-						drawOnTop(game.bKnightImg, false)
-					}
-				}
-			}
-			if (pieceColor == "w") { // SAME FACING RULES AS THE BOARD: THIS MOVE WHILE SLIDING, ELSE ITS LAST MOVE, ELSE ITS START SQUARE
-				const right = knightFacesRight(parseList("w_knight", game.response.w_knight), pieceObj.square, "w", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
-				if (right !== null) { setKnightSide("w", right ? 'right' : 'left'); drawKnight(); }
-			} else if (pieceColor == "b") {
-				const right = knightFacesRight(parseList("b_knight", game.response.b_knight), pieceObj.square, "b", { viewColor: game.viewColor, slide: pieceObj.isSliding ? slideFace() : null, landed: game.moveObj });
-				if (right !== null) { setKnightSide("b", right ? 'right' : 'left'); drawKnight(); }
-			}
-		} else if (pieceType.match(/[p]/) && pieceColor) { // CHECKS CURRENT INDEX FOR PAWN
-			handlePawnDirection(); // PAWNS ALWAYS FACE THE OTHER SIDE
-			if (pieceColor == "w") { drawOnTop(game.wPawnImg, false) }
-			else if (pieceColor == "b") { drawOnTop(game.bPawnImg, false) }
+/**
+ * @description A hopping knight is drawn in the turn of the square it's over, not its start square, so its reflection & shadow go
+ * under the pieces in front of it & over the ones behind it, like a piece standing there (its image is drawn again on top at the end
+ * of the frame, draw.slide.js redrawInFront). Only the row changes, never the column: switching columns mid-row (b2 to c2 on Nc3) put
+ * b2's pawn under, over, then under the shadow, so it flashed.
+ * !NOTE: IN ITS START SQUARE'S TURN IT PAINTED ITS SHADOW OVER THE PAWNS IT JUMPED (DRAWN BEFORE IT) UNTIL IT LANDED, SO THEY FLASHED
+ * @return {[object]} { index: the knight's tile, square: tile of the square it's over (row * 8 + column) }, null when it's over its own
+ */
+function findHopTurn() {
+	for (let q = 0; q < game.tiles.length; q++) {
+		const tile = game.tiles[q];
+		if (tile.isSliding && tile.type == 'n' && (tile.xDiff || tile.yDiff)) {
+			// Its start square, as its own turn sets it below (the click that started the slide left x, y on the new square), so it's
+			// right if it's drawn before its own turn (with reduce motion its first frame already hops)
+			tile.x = q % 8;
+			tile.y = Math.floor(q / 8);
+			// The row it's over. yDiff is subtracted (up the screen is positive)
+			const row = Math.min(Math.max(Math.round(tile.y - tile.yDiff / game.tileHeight), 0), 7);
+			const column = q % 8; // Its start column, not the one it's over: each piece goes over or under its shadow once
+			if (row * 8 + column != q) { return { index: q, square: row * 8 + column }; }
+			return null;
 		}
 	}
+	return null;
+}
 
-	// LANDED KNIGHT: UNTIL THE MOVE COMES BACK & THE BOARD IS REBUILT, THE KNIGHT IS STILL ON ITS OLD TILE (MOVED BY xDiff / yDiff),
-	// SO THE BOARD DRAWS IT IN ITS OLD SQUARE'S TURN & NO SLIDE BOX IS MADE. ITS BOX IS JUST ITSELF (drawPieceBelow NEEDS y2x2)
-	// (A KING, QUEEN, BISHOP, ROOK OR PAWN IS ALREADY DRAWN ONCE AT ITS DEPTH, slideTurn, SO IT ISN'T DRAWN AGAIN HERE)
-	let landedTile = null;
-	if (!overlapSlideObj) { // currSlide CAN ALREADY BE false HERE (validateMove TURNS IT OFF BEFORE setTiles() IS DONE)
-		for (let q = 0; q < game.tiles.length; q++) {
-			if (game.tiles[q].square == game.moveObj.from && game.tiles[q].type == 'n' && (!game.tiles[q].isSliding || game.knightHop == 0) && (game.tiles[q].xDiff || game.tiles[q].yDiff)) { landedTile = game.tiles[q]; overlapSlideObj = { y2x2: game.tiles[q] }; break; } // FROM THE FRAME IT'S BACK ON THE BOARD (drawSlideBox FINDS A LANDED KNIGHT BY moveObj.to)
+/**
+ * @description A sliding king, queen, bishop, rook or pawn is drawn once, in the turn of the first square after it (painter's order:
+ * lower rows in front, further right over further left), not its start square's, so every reflection, shadow & piece is drawn
+ * exactly once a frame.
+ * !NOTE: DRAWING THE PIECES IN FRONT OF IT AGAIN AT THE END OF THE FRAME PUT THEM OVER THEIR RIGHT NEIGHBOUR'S SHADOW, SO THEY FLASHED
+ * @return {[object]} { index: the sliding tile, sx, sy: where it's drawn this frame (in squares), drawn: already drawn this frame }
+ */
+function findSlideTurn() {
+	for (let q = 0; q < game.tiles.length; q++) {
+		const tile = game.tiles[q];
+		if (tile.isSliding && tile.type && tile.type.match(/[kqbrp]/)) {
+			// Its start square, as its own turn sets it below (the click that started the slide left x, y on the new square), so it's
+			// right if it's drawn before its own turn (sliding up or left)
+			tile.x = q % 8;
+			tile.y = Math.floor(q / 8);
+			// Where it is this frame (stepSlides), yDiff is subtracted (up the screen is positive)
+			const sx = tile.x + tile.xDiff / game.tileWidth;
+			const sy = tile.y - tile.yDiff / game.tileHeight;
+			return { index: q, sx, sy, drawn: false };
 		}
 	}
+	return null;
+}
 
-	if ((game.currSlide || landedTile || knightPause) && overlapSlideObj) { // A SLIDE IS PASSING OTHER PIECES (OR JUST LANDED, OR A KNIGHT'S 100MS STOP): DRAW THE ONES IN FRONT OF IT AGAIN
-		for (let q = 0; q < game.tiles.length; q++) { // SWAP THE SLIDING PIECE'S SQUARE NAME FOR ITS TILE (AN EMPTY SQUARE STAYS A NAME)
-			if (game.tiles[q].square == overlapSlideObj.y2x2 && game.tiles[q].type) { overlapSlideObj.y2x2 = game.tiles[q] }
-		}
-
-		/**
-		 * @description Draws the pieces below a square on screen again, one square at a time down the column
-		 * (lower pieces are closer to the player, so they're in front)
-		 * @param  {[string]} square [square name]
-		 */
-		function drawPieceBelow(square) {
-			if (square && overlapSlideObj.y2x2?.square || false) {
-				let sq = square.split("");
-				if (game.viewColor == 'w') { square = `${sq[0]}${Number(sq[1]) - 1}`; }
-				else if (game.viewColor == 'b') { square = `${sq[0]}${Number(sq[1]) + 1}`; }
-				for (let a = 0; a < game.tiles.length; a++) {
-					if (game.tiles[a].square == square && overlapSlideObj.y2x2.square != square) {
-						drawSlideBox(game.tiles[a]);
-						drawPieceBelow(game.tiles[a].square);
-					}
-				}
-			}
-		}
-
-		if (landedTile) { // LANDED: DRAW IT AGAIN OVER THE PIECES BEHIND IT, THEN THE PIECE TO ITS RIGHT (DRAWN AFTER IT ON THE BOARD) & THE PIECES IN FRONT AGAIN
-			const to = game.moveObj.to.split("");
-			const right = game.viewColor == 'w' ? 1 : -1; // SCREEN RIGHT IS THE NEXT FILE (WHITE) OR THE ONE BEFORE IT (BLACK, FLIPPED)
-			drawSlideBox(landedTile);
-			for (let q = 0; q < game.tiles.length; q++) {
-				if (game.tiles[q].square == `${String.fromCharCode(to[0].charCodeAt(0) + right)}${to[1]}` && game.tiles[q].type) { drawSlideBox(game.tiles[q]); }
-			}
-			drawPieceBelow(game.moveObj.to);
-			drawPieceBelow(`${String.fromCharCode(to[0].charCodeAt(0) - 1)}${to[1]}`);
-			drawPieceBelow(`${String.fromCharCode(to[0].charCodeAt(0) + 1)}${to[1]}`);
-		} else if (overlapSlideObj.y2x2?.type == "n") { // A HOPPING KNIGHT GOES OVER EVERYTHING: DRAW IT AGAIN ON TOP
-			drawSlideBox(overlapSlideObj.y2x2);
-		}
-		overlapSlideObj = null
+/* ---------------------------------------------------------------- */
+// Last Move Highlight
+/* ---------------------------------------------------------------- */
+/**
+ * @description Tints the from & to squares of the opponent's last move (game.lastOpponentMove), it stays until their next move lands
+ */
+function drawLastMove() {
+	const lastMove = game.lastOpponentMove || [];
+	ctx.globalAlpha = 0.30;
+	for (let s = 0; s < lastMove.length; s++) {
+		const column = lastMove[s].charCodeAt(0) - 97; // The a file is 0
+		const rank = Number(lastMove[s][1]);
+		const x = game.viewColor == 'b' ? 7 - column : column; // Flipped board: h1 is 0, 0
+		const y = game.viewColor == 'b' ? rank - 1 : 8 - rank;
+		ctx.drawImage(
+			images[checkHighlight].image,
+			(x * game.tileWidth + game.xBoardOff) + ((game.tileWidth * 0.0243) / 2),
+			(y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff) + ((game.tileHeight * 0.1034) / 2),
+			game.tileWidth,
+			game.tileHeight
+		);
 	}
-	if (!game.currSlide) { game.refresh = true; overlapSlideObj = null; } // NOTHING SLIDING, CLEAR THE OVERLAP
+	ctx.globalAlpha = 1.00;
+}
+
+/* ---------------------------------------------------------------- */
+// Hint
+/* ---------------------------------------------------------------- */
+/**
+ * @description Highlights the from & to squares of the hint (game.hint) with the move highlight
+ */
+function drawHint() {
+	const hint = game.hint || [];
+	ctx.globalAlpha = 0.50;
+	for (let s = 0; s < hint.length; s++) {
+		const column = hint[s].charCodeAt(0) - 97; // The a file is 0
+		const rank = Number(hint[s][1]);
+		const x = game.viewColor == 'b' ? 7 - column : column; // Flipped board: h1 is 0, 0
+		const y = game.viewColor == 'b' ? rank - 1 : 8 - rank;
+		ctx.drawImage(
+			images[moveHighlight].image,
+			x * game.tileWidth + game.xBoardOff,
+			y * game.tileHeight - game.tileHeight / 10 + game.yBoardOff,
+			game.tileWidth,
+			game.tileHeight
+		);
+	}
+	ctx.globalAlpha = 1.00;
+}
+
+/* ---------------------------------------------------------------- */
+// Marks & Arrows
+/* ---------------------------------------------------------------- */
+/**
+ * @description Draws the player's right-click marks (a ring) & arrows (game.annotations) from square centers
+ */
+function drawAnnotations() {
+	ctx.save();
+	ctx.translate(game.xBoardOff, game.yBoardOff);
+	// One unit is one square: line widths & heads stretch with the wide squares in every direction
+	ctx.scale(game.tileWidth, game.tileHeight);
+	ctx.globalAlpha = 0.7;
+	ctx.strokeStyle = "#e8792b";
+	ctx.fillStyle = "#e8792b";
+	ctx.lineWidth = 0.12;
+	for (const { from, to } of game.annotations) {
+		const [x1, y1] = squareCenter(from);
+		const [x2, y2] = squareCenter(to);
+		ctx.beginPath();
+		if (from == to) { ctx.arc(x1, y1, 0.42, 0, Math.PI * 2); ctx.stroke(); continue; }
+		const length = Math.hypot(x2 - x1, y2 - y1);
+		const ux = (x2 - x1) / length; // One square along the arrow
+		const uy = (y2 - y1) / length;
+		// Starts at the edge of the from square's piece, stops at the head so the see-through colors don't overlap
+		ctx.moveTo(x1 + ux * 0.3, y1 + uy * 0.3);
+		ctx.lineTo(x2 - ux * 0.5, y2 - uy * 0.5);
+		ctx.stroke();
+		ctx.beginPath();
+		ctx.moveTo(x2 - ux * 0.1, y2 - uy * 0.1); // Tip
+		ctx.lineTo(x2 - ux * 0.5 - uy * 0.25, y2 - uy * 0.5 + ux * 0.25);
+		ctx.lineTo(x2 - ux * 0.5 + uy * 0.25, y2 - uy * 0.5 - ux * 0.25);
+		ctx.fill();
+	}
+	ctx.restore();
+}
+
+/**
+ * @description Column & row of a square's center on screen, in squares
+ */
+function squareCenter(square) {
+	const column = square.charCodeAt(0) - 97; // The a file is 0
+	const rank = Number(square[1]);
+	return game.viewColor == 'b' ? [7 - column + 0.5, rank - 0.5] : [column + 0.5, 8.5 - rank]; // Flipped board: h1 is 0, 0
+}
+
+/**
+ * @description Frames only come while a held piece moves: moved for long enough, it's a drag (the click handler drops it)
+ */
+function handleDragHold(tile) {
+	if (game.mouseDownTime === null) { game.mouseDownTime = performance.now(); }
+	else if (performance.now() - game.mouseDownTime > DRAG_HOLD_MS) { tile.isClicked = true; }
+}
+
+/**
+ * @description The selected piece's legal moves, a held piece comes first. Found once per piece & square (game.availableMovesData)
+ * @param  {[array]} moves [the moves found last time]
+ * @return {[array]} chess.js verbose moves
+ */
+function selectedMoves(moves) {
+	const tile = game.mousedownTile || game.clickedTile;
+	if (game.availableMovesData.piece == tile.type && game.availableMovesData.square == tile.square) { return moves; } // Same piece
+	game.availableMovesData = { piece: tile.type, square: tile.square };
+	return chessInst.moves({ piece: tile.type, square: tile.square, verbose: true });
+}
+
+/* ---------------------------------------------------------------- */
+// Draw Hopping Knight
+/* ---------------------------------------------------------------- */
+/**
+ * @description Draws the hopping knight in this square's turn, before this square's piece (it's over this square, hopTurn), facing
+ * the way this move goes
+ * @param  {[number]} knightIndex [the knight's tile]
+ */
+function drawHoppingKnight(knightIndex, x, y) {
+	const knight = game.tiles[knightIndex];
+	setKnightSide(knight.color, rightFromFiles(drawSlide.face().from, drawSlide.face().to, game.viewColor) ? 'right' : 'left');
+	if (knight.color == 'w') {
+		drawTile.piece([game.wKnightRefl, game.wKnightShdw, game.wKnightImg], x, y, false, knightIndex, drawState);
+	} else if (knight.color == 'b') {
+		drawTile.piece([game.bKnightRefl, game.bKnightShdw, game.bKnightImg], x, y, false, knightIndex, drawState);
+	}
+}
+
+/**
+ * @description The sliding piece is drawn before the first square after it: a lower row, or its row & further right (the board at
+ * rest draws in this order)
+ */
+function isAfterSlide(row, column, slideTurn) {
+	return row > slideTurn.sy + 0.001 || (Math.abs(row - slideTurn.sy) <= 0.001 && column > slideTurn.sx + 0.001);
+}
+
+/* ---------------------------------------------------------------- */
+// Draw Sliding Piece
+/* ---------------------------------------------------------------- */
+/**
+ * @description Draws the sliding king, queen, bishop, rook or pawn in this square's turn, before this square's piece (slideTurn), like
+ * Draw Hopping Knight
+ */
+function drawSlidingPiece(slideTurn, x, y) {
+	slideTurn.drawn = true;
+	if (game.currPromotion) { return; } // No pieces on the board while the promotion picker is up
+	const tile = game.tiles[slideTurn.index];
+	drawTile.boardPiece(tile.type, tile.color, x, y, true, slideTurn.index, drawState);
+}
+
+/* ---------------------------------------------------------------- */
+// Draw Square Piece
+/* ---------------------------------------------------------------- */
+/**
+ * @description Draws the piece standing on this square. A held piece over one of its moves is drawn there instead
+ * (drawTile.availableMoves), a sliding piece in the turn of the square after it (drawSlidingPiece) & no pieces while the promotion
+ * picker is up
+ * @param  {[object]} piece [chess.js board square: { type, color }]
+ */
+function drawSquarePiece(piece, row, column, index, x, y, slideTurn, hopTurn) {
+	const tile = game.tiles[index]; // Read again: a slide that landed above can have replaced game.tiles (refreshData)
+	tile.originX = column; // The piece's own square (x, y follow the mouse while it's held)
+	tile.originY = row;
+	if (game.currPromotion) { return; }
+	if (game.mousedownTile.xAvailInt == tile.x && game.mousedownTile.yAvailInt == tile.y) { return; } // Drawn as the held piece's preview
+
+	const opacity = !(tile.isClicked && (tile.x == tile.originX && tile.y == tile.originY)); // Solid when it's back on its own square
+	if (piece.type.match(/[kqbrp]/) && piece.color) {
+		if (!(slideTurn && slideTurn.index == index)) { drawTile.boardPiece(piece.type, piece.color, x, y, opacity, index, drawState); }
+	} else if (piece.type.match(/[n]/) && piece.color) {
+		drawTile.knight(piece.color, x, y, opacity, index, hopTurn, drawState);
+	}
 }

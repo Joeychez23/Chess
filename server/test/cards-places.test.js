@@ -309,7 +309,7 @@ function strongholdKing(sq, fog = true) {
 	return s;
 }
 
-test("under the other player's Fog of War the drops a player is told don't depend on a hidden piece: the game refuses the one that would give check (final review F-I1, ruling 2026-11-22)", () => {
+test("under the other player's Fog of War the drops a player is told don't depend on a hidden piece: the game refuses the one that would give check", () => {
 	const off = strongholdKing("f8"), on = strongholdKing("d8"), told = (s) => playerLegal(s, "w").filter((a) => a.type === "drop");
 	assert.deepEqual(playerView(on, "w").board.sq, playerView(off, "w").board.sq); // WHITE SEES THE SAME BOARD: THE KING IS HIDDEN ON BOTH SQUARES
 	assert.deepEqual(told(off), [{ type: "drop", card: "t8" }]);
@@ -352,7 +352,7 @@ function boxed(fen, rookSq, to) {
 	return act(t, "b", of(t, "b", "move").find((a) => a.to === to));
 }
 
-test("no stalemate while a drop would open a move: the Stronghold on the only mobile piece (fix round 1, I1)", () => {
+test("no stalemate while a drop would open a move: the Stronghold on the only mobile piece", () => {
 	const { state } = boxed("6k1/8/8/8/8/1q6/8/K6R w - - 0 1", "h1", "g7");
 	assert.ok(!inCheck(state, "w"));
 	assert.equal(state.result, null);
@@ -363,7 +363,7 @@ test("no stalemate while a drop would open a move: the Stronghold on the only mo
 	assert.ok(of(after, "w", "move").length > 0);
 });
 
-test("no checkmate by the cards while a drop would open the answer; a drop that opens nothing still ends the game (fix round 1, I1)", () => {
+test("no checkmate by the cards while a drop would open the answer; a drop that opens nothing still ends the game", () => {
 	const { state } = boxed("4r1k1/8/8/8/8/1q6/8/K6R w - - 0 1", "h1", "e1"); // Re1+: ONLY THE STRONGHOLD ROOK CAN TAKE IT
 	assert.ok(inCheck(state, "w"));
 	assert.equal(state.result, null);
@@ -374,7 +374,7 @@ test("no checkmate by the cards while a drop would open the answer; a drop that 
 	assert.deepEqual(mate.result, { winner: "b", reason: "checkmate" });
 });
 
-test("a placed card that does nothing buys no second redraw: the game ends as it would without the card (user ruling R-2, 2026-11-23)", () => {
+test("a placed card that does nothing buys no second redraw: the game ends as it would without the card", () => {
 	// WHITE: KING BOXED, SEVEN BLOCKED PAWNS, ONE FREE ROOK; ONLY A ROOK CARD IN THE REDRAW GIVES A MOVE
 	const run = (seed, extra) => {
 		const s = newGame({ cardGuy: "b", level: 1300, seed });
@@ -393,7 +393,7 @@ test("a placed card that does nothing buys no second redraw: the game ends as it
 	assert.ok(stale >= 5, "only " + stale + " of 120 redraws found no Rook card");
 });
 
-test("placed cards can be dropped after a Mulligan, before the one move it leaves; not in another two-move turn (fix round 1, R5)", () => {
+test("placed cards can be dropped after a Mulligan, before the one move it leaves; not in another two-move turn", () => {
 	const t = game();
 	t.effects.push(placed("p1", "t-pas-a"));
 	t.multi = { player: "w", left: 1, moved: [], mulled: true };

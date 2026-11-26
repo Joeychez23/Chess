@@ -2,17 +2,19 @@
 // CHESS
 /* ---------------------------------------------------------------- */
 /**
- * @description Conditionalize user request of GET Game, PUT move, or POST restart, validated by the chess routes on the express server (server/controllers/chessController.js)
+ * @description Conditionalize user request of GET Game, PUT move, or POST restart, validated by the chess routes on the
+ * express server (server/controllers/chess/)
  * @param  {[string]} gameUrl [chess api, "/api/chess"]
  * @param  {[string]} gameId [game id]
  * @param  {[object]} _id [player id, the server plays as the signed in session instead]
  * @param  {[object]} move [move array]
  * @param  {[string]} promotion [promotion piece]
- * @param  {[string]} restart ['b' = a new game with the player white & the AI black (gameplay's fallback for a guest's first game), Home, the guest page & the play page use newAiGame]
+ * @param  {[string]} restart ['b' = a new game with the player white & the AI black (gameplay's fallback for a guest's
+ * first game), Home, the guest page & the play page use newAiGame]
  * @return {[object]} response.json() = backend server response object of request data
  */
 export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
-	if (restart == 'b') { // RESTART GAME (POST /game, OVERWRITES game_id WITH A NEW BOARD)
+	if (restart == 'b') { // Restart the game (POST /game overwrites game_id with a new board)
 		const options = {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -23,7 +25,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 			})
 		};
 		return request(`${gameUrl}/game`, options);
-	} else if (move) { // MOVE UPDATE (PUT /game/:gameId)
+	} else if (move) { // A move (PUT /game/:gameId)
 		const options = {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
@@ -33,7 +35,7 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
 			})
 		};
 		return request(`${gameUrl}/game/${encodeURIComponent(gameId)}`, options);
-	} else { // GET GAME (GET /game/:gameId)
+	} else { // Get the game (GET /game/:gameId)
 		const options = {
 			method: "GET"
 		};
@@ -48,9 +50,11 @@ export async function validate(gameUrl, gameId, _id, move, promotion, restart) {
  * @param  {[string]} gameId [a guest's saved id, left out = the server makes a new one (always for signed in players)]
  * @param  {[string]} startColor [the player's color: "alternate" | "random" | "w" | "b", Restart keeps it]
  * @param  {[number]} aiLevel [the AI's level, Restart keeps it too]
- * @param  {[boolean]} replaceCurrent [signed in: true forfeits the player's open AI game first (one at a time), left out = the server answers 409 while one is open]
+ * @param  {[boolean]} replaceCurrent [signed in: true forfeits the player's open AI game first (one at a time), left out =
+ * the server answers 409 while one is open]
  * @param  {[string]} startFen [a set position to start from (the Start position box), blank = the standard position, Restart keeps it]
- * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, ... } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
+ * @return {[object]} response [{ status, game_id, ai, ai_level, game_board, ... } | { status: 409, game_id (the open one) }
+ * | { status: 400, message } (the FEN can't be played)]
  */
 export async function newAiGame(gameUrl, gameId, startColor, aiLevel, replaceCurrent, startFen) {
 	const options = {
@@ -90,7 +94,8 @@ export async function getPgn(gameUrl, gameId) {
 
 /**
  * @description Both players' ratings for the game menu, & this game's rating change once it's over (GET /game/:gameId/ratings)
- * @return {[object]} response [{ status, rated, player_rating, opponent_rating ({ rating, provisional }, null in AI games), opponent_name, rating_change ({ before, after } or null) }]
+ * @return {[object]} response [{ status, rated, player_rating, opponent_rating ({ rating, provisional }, null in AI games),
+ * opponent_name, rating_change ({ before, after } or null) }]
  */
 export async function getRatings(gameUrl, gameId) {
 	const options = {
@@ -100,13 +105,17 @@ export async function getRatings(gameUrl, gameId) {
 }
 
 /**
- * @description Invites a friend, the server finds them by username & the game waits (PENDING) until they accept (POST /invite). The server makes the game id
- * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the server answers 409 while one is open]
- * @param  {[string]} startColor [the inviter's color: "alternate" | "random" | "w" | "b", drawn now so the invite shows it, rematches keep it]
+ * @description Invites a friend, the server finds them by username & the game waits (PENDING) until they accept
+ * (POST /invite). The server makes the game id
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first (one at a time), left out = the
+ * server answers 409 while one is open]
+ * @param  {[string]} startColor [the inviter's color: "alternate" | "random" | "w" | "b", drawn now so the invite shows
+ * it, rematches keep it]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position, rematches keep it]
  * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game, rematches keep it]
  * @param  {[number]} daysPerMove [1, 3 or 7 days for each move, left out = no limit, rematches keep it]
- * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
+ * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) }
+ * | { status: 400, message } (the FEN can't be played)]
  */
 export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent, startColor, startFen, takebacks, daysPerMove) {
 	let options = {
@@ -126,19 +135,28 @@ export async function initMultiplayerGame(gameUrl, _id, opponent, replaceCurrent
 }
 
 /**
- * @description Makes a challenge link: a game with the other seat empty, the first signed in player to open the link & join takes it (POST /challenge). The server makes the game id
- * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
+ * @description Makes a challenge link: a game with the other seat empty, the first signed in player to open the link &
+ * join takes it (POST /challenge). The server makes the game id
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409
+ * while one is open]
  * @param  {[string]} startColor [the player's color: "alternate" | "random" | "w" | "b"]
  * @param  {[string]} startFen [a set position to start from, blank = the standard position]
  * @param  {[number]} takebacks [0 = takebacks off, left out = up to 3 per game]
  * @param  {[number]} daysPerMove [1, 3 or 7 days for each move, left out = no limit]
- * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) } | { status: 400, message } (the FEN can't be played)]
+ * @return {[object]} response [{ status, game_id, state: "PENDING" } | { status: 409, game_id (the open one) }
+ * | { status: 400, message } (the FEN can't be played)]
  */
 export async function createChallenge(gameUrl, replaceCurrent, startColor, startFen, takebacks, daysPerMove) {
 	const options = {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ replace_current: replaceCurrent, start_color: startColor, start_fen: startFen, takebacks, days_per_move: daysPerMove })
+		body: JSON.stringify({
+			replace_current: replaceCurrent,
+			start_color: startColor,
+			start_fen: startFen,
+			takebacks,
+			days_per_move: daysPerMove
+		})
 	};
 	return request(`${gameUrl}/challenge`, options);
 }
@@ -153,8 +171,10 @@ export async function getChallenge(gameUrl, gameId) {
 
 /**
  * @description Takes a challenge link's empty seat (POST /game/:gameId/join)
- * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
- * @return {[object]} response [the game: { status, game_id, ..., state: "OPEN" } | { status: 409, game_id (the open one) } | { status: 409, message: "Game is taken" }]
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409
+ * while one is open]
+ * @return {[object]} response [the game: { status, game_id, ..., state: "OPEN" } | { status: 409, game_id (the open one) }
+ * | { status: 409, message: "Game is taken" }]
  */
 export async function joinChallenge(gameUrl, gameId, replaceCurrent) {
 	const options = {
@@ -167,8 +187,10 @@ export async function joinChallenge(gameUrl, gameId, replaceCurrent) {
 
 /**
  * @description Friend invites: the invited player starts the game (POST /game/:gameId/accept)
- * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409 while one is open]
- * @return {[object]} response [the game: { status, game_id, game_board, ..., state: "OPEN" } | { status: 409, game_id (the open one) }]
+ * @param  {[boolean]} replaceCurrent [true forfeits the player's open friend game first, left out = the server answers 409
+ * while one is open]
+ * @return {[object]} response [the game: { status, game_id, game_board, ..., state: "OPEN" }
+ * | { status: 409, game_id (the open one) }]
  */
 export async function acceptInvite(gameUrl, gameId, replaceCurrent) {
 	const options = {
@@ -191,7 +213,8 @@ export async function declineInvite(gameUrl, gameId) {
 }
 
 /**
- * @description AI games: new board with a new game id & the same start settings (level & color), a game that's still going is forfeited first (POST /game/:gameId/restart)
+ * @description AI games: new board with a new game id & the same start settings (level & color), a game that's still
+ * going is forfeited first (POST /game/:gameId/restart)
  * @return {[object]} response [the new game: { status, game_id, ai, game_board, ..., state }]
  */
 export async function restartGame(gameUrl, gameId) {
@@ -214,7 +237,8 @@ export async function forfeitGame(gameUrl, gameId) {
 
 /**
  * @description Offers a draw, or accepts the opponent's offer (POST /game/:gameId/draw). The AI answers right away
- * @return {[object]} response [{ status, state: "CLOSED", winner: "draw", reason: "agreement", ... } | { status, offered: true } | { status, declined: true } | { status: 409, message }]
+ * @return {[object]} response [{ status, state: "CLOSED", winner: "draw", reason: "agreement", ... } | { status, offered: true }
+ * | { status, declined: true } | { status: 409, message }]
  */
 export async function offerDraw(gameUrl, gameId) {
 	const options = {
@@ -235,8 +259,10 @@ export async function declineDraw(gameUrl, gameId) {
 }
 
 /**
- * @description Friend games that are over: asks for a rematch, it starts when both players ask within 5 minutes (POST /game/:gameId/rematch)
- * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in, opponent_name, opponent_here } until then]
+ * @description Friend games that are over: asks for a rematch, it starts when both players ask within 5 minutes
+ * (POST /game/:gameId/rematch)
+ * @return {[object]} response [{ status, new_game_id } once it starts | { status, waiting, expires_in, opponent_name,
+ * opponent_here } until then]
  */
 export async function rematchGame(gameUrl, gameId) {
 	const options = {
@@ -269,7 +295,8 @@ export async function aiMove(gameUrl, gameId) {
 
 /**
  * @description AI games & finished games: the engine's best move & evaluation of the saved board (POST /game/:gameId/analysis)
- * @return {[object]} response [{ status, game_board, from, to, eval, mate, winChance } | { status: 403, message } a friend game | { status: 409, message } | { status: 503, message } the engine didn't answer]
+ * @return {[object]} response [{ status, game_board, from, to, eval, mate, winChance } | { status: 403, message } a friend
+ * game | { status: 409, message } | { status: 503, message } the engine didn't answer]
  */
 export async function getAnalysis(gameUrl, gameId) {
 	const options = {
@@ -279,8 +306,10 @@ export async function getAnalysis(gameUrl, gameId) {
 }
 
 /**
- * @description AI games: takes back the player's last move & the AI's reply to it, if it made one. Friend games: asks the opponent, or accepts their request (POST /game/:gameId/takeback)
- * @return {[object]} response [the game, same as GET /game/:gameId | { status, requested: true, opponent_name } friend games, waiting | { status: 409, message } when it was refused]
+ * @description AI games: takes back the player's last move & the AI's reply to it, if it made one. Friend games: asks
+ * the opponent, or accepts their request (POST /game/:gameId/takeback)
+ * @return {[object]} response [the game, same as GET /game/:gameId | { status, requested: true, opponent_name } friend
+ * games, waiting | { status: 409, message } when it was refused]
  */
 export async function takeback(gameUrl, gameId) {
 	const options = {
@@ -377,7 +406,8 @@ export async function friendAction(userUrl, action, username) {
 }
 
 /**
- * @description Delete my account (DELETE /api/user): the server deletes the Auth0 login, forfeits the open games, cancels & declines the invites, then deletes the user_db row
+ * @description Delete my account (DELETE /api/user): the server deletes the Auth0 login, forfeits the open games, cancels
+ * & declines the invites, then deletes the user_db row
  * @param  {[string]} userUrl [user api, "/api/user"]
  * @return {[object]} response [{ status, message }]
  */
@@ -400,9 +430,10 @@ export async function request(url, options) {
 			if (refresh.ok) { res = await fetch(url, options); }
 		}
 		const body = await res.json();
-		if (res.status >= 500) { body.serverError = true; } // THE SERVER BROKE. A REFUSED MOVE IS AN HTTP 4XX WITH status: 500 IN THE BODY (chessController.js)
+		// The server broke. A refused move is an HTTP 4xx with status: 500 in the body (server/controllers/chess/)
+		if (res.status >= 500) { body.serverError = true; }
 		return body;
 	} catch {
-		return; // NO ANSWER (OFFLINE, OR NOT JSON): EVERY CALLER GETS undefined
+		return; // No answer (offline, or not JSON): every caller gets undefined
 	}
 }

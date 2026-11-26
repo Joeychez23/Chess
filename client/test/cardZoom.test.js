@@ -1,6 +1,6 @@
 // Task 21a B: a hand ability card clicked or tapped zooms (the camera frames it as an opened pile), the keys' pick & a move card lift (an ability card with its readable copy), a hold past the threshold drags,
 // & a left press on any card (the table's, both decks, the promotion cards) keeps the camera still. createCardTable with real three.js in node, the harness of discardList.test.js (a stub DOM, a stand-in
-// card template, the tweens stepped by hand), & the pure decisions pointer.js & flow.js take (select.js handRead, liftedCard, keyPlan; hoverRules.js cameraFree). Their wiring is untested here
+// card template, the animations stepped by hand), & the pure decisions pointer.js & flow.js take (select.js handRead, liftedCard, keyPlan; hoverRules.js cameraFree). Their wiring is untested here
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -18,7 +18,7 @@ const copies = () => appended.filter((el) => el.className === "cardPreview" && !
 const CATALOG = { stronghold: { name: "Stronghold", kind: "active", text: "Shields a piece" }, veto: { name: "Veto", kind: "passive", text: "Stops a card" }, shackles: { name: "Shackles", kind: "curse", text: "Binds a piece" } };
 const THREE = require("../../node_modules/three/build/three.module.js"); // THE SAME COPY cardTable.js IMPORTS
 const { createCardTable } = require("../src/js/gameplay/three/cardTable.js");
-const { createTweens } = require("../src/js/gameplay/three/tween.js");
+const { createAnimations } = require("../src/js/gameplay/three/animations.js");
 const { tableSpots, duelSpot, columnBox, PILES, DISCARD, DUEL_STACK } = require("../src/js/gameplay/three/tableLayout.js");
 const { CARD_SIZE, DECK } = require("../src/js/gameplay/three/cardLayout.js");
 const { isDrag, DRAG_PX, TOUCH_DRAG_PX, DRAG_HOLD_MS } = require("../src/js/gameplay/three/constants.js");
@@ -34,10 +34,10 @@ function template() { // A CARD: ITS FACE ON TOP LOOKING UP, ITS BACK UNDER IT L
 	return g;
 }
 function setup() {
-	const room = new THREE.Group(), tweens = createTweens(() => {}), framed = [], told = [];
+	const room = new THREE.Group(), animations = createAnimations(() => {}), framed = [], told = [];
 	let now = 0;
-	const table = createCardTable({ template: template(), room, tweens, requestRender() {}, frame: (box, zoom = null) => { framed.push(box); told.push(zoom); } });
-	const run = () => { while (tweens.step((now += 16))) { /* TO THE END */ } room.updateMatrixWorld(true); };
+	const table = createCardTable({ template: template(), room, animations, requestRender() {}, frame: (box, zoom = null) => { framed.push(box); told.push(zoom); } });
+	const run = () => { while (animations.step((now += 16))) { /* TO THE END */ } room.updateMatrixWorld(true); };
 	return { room, table, framed, told, run };
 }
 const rayDown = (x, z) => { const r = new THREE.Raycaster(); r.set(new THREE.Vector3(x, 30, z), new THREE.Vector3(0, -1, 0)); return r; };
@@ -67,7 +67,7 @@ test("a click on an ability card (an active, the passive, a curse) zooms in on i
 	assert.deepEqual(["active", "passive", "curse", "move", "king"].map(S.zooms), [true, true, true, false, false]);
 });
 
-test("a lifted card floats high, an ability card too, & one with rules text shows its readable copy beside the board (the keys' pick, as before Task 21a: user rulings R1 R2); a move card shows none", () => {
+test("a lifted card floats high, an ability card too, & one with rules text shows its readable copy beside the board (the keys' pick, unchanged); a move card shows none", () => {
 	const { room, table, run } = setup(), v = view(), at = spots(v);
 	table.set(v, { catalog: CATALOG });
 	run();
@@ -87,7 +87,7 @@ test("a lifted card floats high, an ability card too, & one with rules text show
 	assert.deepEqual(copies(), [], "the table taken away: the copy too");
 });
 
-test("an active dropped on its place for its targets lies there & shows its readable copy while it's the lifted one (the drop's target pick, as before Task 21a: user ruling R1)", () => {
+test("an active dropped on its place for its targets lies there & shows its readable copy while it's the lifted one (the drop's target pick, unchanged)", () => {
 	const { room, table, run } = setup(), v = view(), spot = PILES.mineSpot;
 	const onSpot = () => room.children.filter((o) => o.type === "Group" && Math.abs(o.position.x - spot.x) < 1e-6 && Math.abs(o.position.z - spot.z) < 1e-6).length;
 	table.set(v, { catalog: CATALOG });
@@ -173,7 +173,7 @@ test("covers: a ray over any card on the table, the ones hit() leaves out too, b
 	table.dispose();
 });
 
-test("an ability card clicked or tapped is zoomed in on to be read & never lifted; the keys' pick & a move card or the King card lift (user rulings R1 R2, Task 21a)", () => {
+test("an ability card clicked or tapped is zoomed in on to be read & never lifted; the keys' pick & a move card or the King card lift", () => {
 	const at = (kind, keys) => S.handRead({ kind, keys, showing: false, duel: false, promoting: false });
 	for (const kind of ["active", "passive", "curse"]) {
 		assert.deepEqual(at(kind, false), { read: true, zoom: true }, `${kind}, a click or a tap`);
@@ -182,7 +182,7 @@ test("an ability card clicked or tapped is zoomed in on to be read & never lifte
 	for (const kind of ["move", "king"]) { for (const keys of [false, true]) { assert.deepEqual(at(kind, keys), { read: false, zoom: false }, `${kind}, keys ${keys}`); } }
 });
 
-test("the zoom reads a card whoever's turn it is (the turn isn't asked), not while an answer's steps play, a card duel is on or the promotion cards are out (user ruling R4, review M1)", () => {
+test("the zoom reads a card whoever's turn it is (the turn isn't asked), not while an answer's steps play, a card duel is on or the promotion cards are out", () => {
 	const free = { kind: "active", keys: false, showing: false, duel: false, promoting: false };
 	assert.deepEqual(S.handRead(free), { read: true, zoom: true });
 	for (const busy of ["showing", "duel", "promoting"]) { assert.deepEqual(S.handRead({ ...free, [busy]: true }), { read: true, zoom: false }, busy); } // STILL READ: NOT LIFTED, NO "CAN'T BE PLAYED"
@@ -199,7 +199,7 @@ test("the card the table lifts: the one being played, unless a click or tap pick
 	assert.equal(S.liftedCard(null, null, "a1"), null);
 });
 
-test("the camera: a left mouse press on a piece or on any card never moves it; a right press, scroll & a finger do over them; at the monitor nothing does (review M3)", () => {
+test("the camera: a left mouse press on a piece or on any card never moves it; a right press, scroll & a finger do over them; at the monitor nothing does", () => {
 	const free = (p) => cameraFree({ idle: true, left: true, piece: false, card: false, ...p });
 	assert.equal(free({}), true, "a left press on the bare desk or board pans");
 	assert.equal(free({ card: true }), false, "on a card: the table's, a deck, a promotion card");
@@ -208,7 +208,7 @@ test("the camera: a left mouse press on a piece or on any card never moves it; a
 	assert.equal(free({ idle: false }), false, "at the monitor");
 });
 
-test("covers: both decks are table cards for the camera, the green deck & the red one baked into the room; neither is picked (user ruling R5)", () => {
+test("covers: both decks are table cards for the camera, the green deck & the red one baked into the room; neither is picked", () => {
 	const { table, run } = setup(), v = view();
 	table.set(v, {});
 	run();
@@ -223,7 +223,7 @@ test("covers: both decks are table cards for the camera, the green deck & the re
 	table.dispose();
 });
 
-test("Escape ends a zoom before it opens the menu, as it closes a pile; a pick goes down first (review M4)", () => {
+test("Escape ends a zoom before it opens the menu, as it closes a pile; a pick goes down first", () => {
 	const plan = (k = {}) => S.keyPlan({ key: "Escape", on: true, yours: true, ...k });
 	assert.equal(plan({ zoomed: true }), "hand", "zoomed: the hand ends it");
 	assert.equal(plan({ zoomed: true, yours: false }), "hand", "off the turn too");
@@ -231,7 +231,7 @@ test("Escape ends a zoom before it opens the menu, as it closes a pile; a pick g
 	assert.equal(plan(), "page", "nothing to end: the menu");
 });
 
-test("the table tells its framer which hand card is zoomed in on, & null when the zoom ends (flow.js: Escape, a prompt button & a play end it, reviews M2 M4)", () => {
+test("the table tells its framer which hand card is zoomed in on, & null when the zoom ends (flow.js: Escape, a prompt button & a play end it)", () => {
 	const { table, told, run } = setup(), v = view();
 	table.set(v, {});
 	run();

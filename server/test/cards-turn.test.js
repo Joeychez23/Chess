@@ -174,7 +174,7 @@ const drawBacks = (fen, a, b, curses = []) => new Set(Array.from({ length: 60 },
 const within = (got, allowed) => assert.ok([...got].every((t) => allowed.includes(t)), `drew ${[...got]}, allowed ${allowed}`);
 
 test("the values: pawn 1, knight 3, bishop 3, rook 5, queen 9 (Underdog's material), and the Knight / Bishop card 3 (the floor)", () => {
-	assert.deepEqual(hand.VALUE, { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 });
+	assert.deepEqual(hand.PIECE_VALUE, { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 });
 });
 
 test("a free discard of two Knight / Bishop cards draws a Knight / Bishop or better, never a pawn", { skip: "the draw-back floor was dropped (user 2026-11-22, the draw-back is random again): kept for reference" }, () => {
@@ -226,7 +226,7 @@ test("an entered Mirage in the pair counts as the piece type it shows", { skip: 
 	within(drawBacks(START_FEN, card("q", "t1"), mirage, [mirage]), ["r", "q"]);
 });
 
-test("the opening deal, the refill and a Mulligan's draws are pinned (seed 1): a floor of 0 changes none of them. Re-pinned 2026-11-22 when a queen began to count double, and again when pawns began to count as 6 at most, and for Task 20c (a hand of 5, the Knight / Bishop card), and for Task 20e (the draw looks at the hand)", () => {
+test("the opening deal, the refill and a Mulligan's draws are pinned (seed 1): a floor of 0 changes none of them. Re-pinned 2026-11-22 when a queen began to count double, and again when pawns began to count as 6 at most, for a hand of 5 with the Knight / Bishop card, and when the draw began to look at the hand", () => {
 	const s = fresh();
 	assert.equal(s.players.w.moves.map((c) => c.piece).join(""), "prmrq");
 	assert.equal(s.players.b.moves.map((c) => c.piece).join(""), "rpmqq");
@@ -908,7 +908,7 @@ test("a Frozen pawn gives no check, so a king may stand in its reach; when the F
 	assert.deepEqual(mate.state.result, { winner: "w", reason: "checkmate" });
 });
 
-test("under a refill lock a discarded active waits it out: none back at the end of this turn, one at the end of the next (user ruling R4)", () => {
+test("under a refill lock a discarded active waits it out: none back at the end of this turn, one at the end of the next", () => {
 	const s = fresh(), id = s.players.w.actives[0].id;
 	s.players.w.refillLock = 1;
 	let r = play(applyAction(s, "w", { type: "discard", cards: [id] }).state, "w", "move");
@@ -917,7 +917,7 @@ test("under a refill lock a discarded active waits it out: none back at the end 
 	assert.deepEqual([r.players.w.actives.length, r.players.w.moves.length], [1, 5]);
 });
 
-test("drawMove: a queen on the board counts double (user ruling 2026-11-22), and pawns count as 6 at most, so at the start a Queen card is 2 in 14 and a Pawn card 6 in 14", () => {
+test("drawMove: a queen on the board counts double, and pawns count as 6 at most, so at the start a Queen card is 2 in 14 and a Pawn card 6 in 14", () => {
 	const s = fresh(7), ctx = makeCtx(s), n = 8000;
 	let queens = 0, pawns = 0;
 	for (let i = 0; i < n; i++) {

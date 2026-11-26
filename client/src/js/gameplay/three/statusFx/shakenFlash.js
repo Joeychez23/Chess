@@ -1,20 +1,20 @@
-// Shaken's strike flash (Task 24 S4b, joined in J3): when a bolt strikes, a cold white-blue burst at the striking cage over the piece's head & a quick bright flash on its square, both gone by FLASH.
+// Shaken's strike flash (Task 24 S4b, joined in J3): when a bolt strikes, a cold white-blue burst at the striking cage over the piece's head & a quick bright flash on its square, both gone by FLASH_SECONDS.
 // It has no clock of its own: shaken.js calls strike(i, n) from its strike branch (one clock), update(dt) only fades it. No light: additive sprites. None under reduced motion
 import { Sprite, SpriteMaterial, Mesh, MeshBasicMaterial, PlaneGeometry, AdditiveBlending } from "three";
 import { CELL_SIZE, BLOOM_LAYER } from "../constants.js";
-import { FLASH, OVER, flash, cageLayout } from "./shaken.js"; // A CYCLE (shaken.js IMPORTS THIS): ONLY USED AT RUN TIME, NEVER AS EITHER MODULE LOADS
+import { FLASH_SECONDS, CAGE_LIFT, flash, cageLayout } from "./shaken.js"; // A CYCLE (shaken.js IMPORTS THIS): ONLY USED AT RUN TIME, NEVER AS EITHER MODULE LOADS
 
-const BURST_SIZE = 1.6; // THE BURST'S SIZE AT THE STRIKE, IN CAGE SIZES
+const BURST_SIZE = 1.6; // THE BURST_SECONDS'S SIZE AT THE STRIKE_SECONDS, IN CAGE_HEIGHT SIZES
 const SWELL = 0.6; // HOW MUCH BIGGER IT GROWS AS IT FADES
-const GROUND = CELL_SIZE * 0.95; // THE SQUARE'S FLASH, WORLD UNITS ACROSS
-const LIFT = 0.02; // OVER THE BOARD, NO Z-FIGHT (AS marked.js's GLOW)
+const GROUND = CELL_SIZE * 0.95; // THE SQUARE'S FLASH_SECONDS, WORLD UNITS ACROSS
+const LIFT = 0.02; // CAGE_LIFT THE BOARD, NO Z-FIGHT (AS marked.js's GLOW)
 
 // SHARED BY EVERY SHAKEN PIECE (UP TO 16 IN ONE SYNC): MADE ON FIRST NEED, NEVER FREED
 let plane = null;
 const look = { burst: 0, scale: 0, ground: 0 }; // REUSED EVERY FRAME
 
 /**
- * @description The flash's look `since` seconds after a strike: the burst's opacity & scale (in cage sizes) & the square's flash opacity, all 0 by FLASH
+ * @description The flash's look `since` seconds after a strike: the burst's opacity & scale (in cage sizes) & the square's flash opacity, all 0 by FLASH_SECONDS
  * @param  {[number]} since [seconds]
  * @param  {[object]} out [written into & returned]
  * @return {[object]} { burst, scale, ground }
@@ -44,16 +44,16 @@ export function make(pieceMesh, opts, map) {
 	ground.position.y = LIFT;
 	ground.scale.setScalar(GROUND);
 	object.visible = ground.visible = false;
-	let since = FLASH, at = cageLayout(1, 0); // THE STRUCK CAGE'S { size, x }, LAID OUT ONCE PER STRIKE (NOT PER FRAME)
+	let since = FLASH_SECONDS, at = cageLayout(1, 0); // THE STRUCK CAGE_HEIGHT'S { size, x }, LAID OUT ONCE PER STRIKE_SECONDS (NOT PER FRAME)
 
 	function draw() {
-		const on = !opts.reduce && since < FLASH;
+		const on = !opts.reduce && since < FLASH_SECONDS;
 		object.visible = ground.visible = on;
 		if (!on) { return; }
 		flashLook(since, look);
 		const fade = opts.mesh.userData.opacity ?? 1, box = opts.mesh.geometry && opts.mesh.geometry.boundingBox, scale = opts.mesh.scale.y || 1; // THE ROOT IS IN PIECE UNITS
 		const s = at.size / scale;
-		object.position.set(at.x / scale, (box ? box.max.y : 1) + OVER + s / 2, 0);
+		object.position.set(at.x / scale, (box ? box.max.y : 1) + CAGE_LIFT + s / 2, 0);
 		object.scale.setScalar(look.scale * s);
 		object.material.opacity = look.burst * fade;
 		ground.material.opacity = look.ground * fade;
@@ -61,7 +61,7 @@ export function make(pieceMesh, opts, map) {
 	}
 	return {
 		object, ground,
-		strike(i, n) { since = 0; at = cageLayout(n, i); draw(); }, // CAGE i OF THE ROW'S n LAID-OUT CAGES (shaken.js's slots)
+		strike(i, n) { since = 0; at = cageLayout(n, i); draw(); }, // CAGE_HEIGHT i OF THE ROW'S n LAID-OUT CAGES (shaken.js's slots)
 		update(dt) { since += dt; draw(); },
 		dispose() {
 			object.removeFromParent();

@@ -1,7 +1,7 @@
 /*
  *  friends.js  --  data service
  *	Friend Requests (#40)
- *  What each action does to the two players' friend lists, & when it's refused. Both rows are saved together (changeFriends in dynamoDB.js)
+ *  What each action does to the two players' friend lists, & when it's refused. Both rows are saved together (changeFriends in db/)
  *
  */
 

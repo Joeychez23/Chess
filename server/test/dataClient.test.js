@@ -17,7 +17,7 @@ const { call, player, named, peek, listen, engineWillPlay, dataServiceWillAnswer
 const { timeouts, withRequest, retrieveGame, newCardsGame, saveCardsState } = require("../dataClient.js");
 const keys = require("../../data-service/test/helpers/keys.js");
 const config = require("../config");
-const db = require("../../data-service/dynamoDB.js"); // THE DATA SERVICE'S OWN SAVES, TO SET UP A RACE
+const db = require("../../data-service/db/index.js"); // THE DATA SERVICE'S OWN SAVES, TO SET UP A RACE
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -226,7 +226,7 @@ describe("accepting an invite", () => {
 		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob), start_color: "w" } });
 		const bobsGame = await call("POST", "/api/chess/invite", { as: carol, body: { opponent_username: await named(bob), start_color: "w" } });
 		await call("POST", `/api/chess/game/${bobsGame.game_id}/accept`, { as: bob, body: {} }); // BOB PLAYS CAROL (ALICE'S INVITE WAITS)
-		await db.initalizeGame("race1", "alice", "dave", false, { start_params: { color: "w" }, inviter_id: "dave" }); // ALICE STARTED ANOTHER FRIEND GAME A MOMENT AGO (ACCEPTING ONE CANCELS HER INVITE, SO ONLY A RACE GETS HERE)
+		await db.initializeGame("race1", "alice", "dave", false, { start_params: { color: "w" }, inviter_id: "dave" }); // ALICE STARTED ANOTHER FRIEND GAME A MOMENT AGO (ACCEPTING ONE CANCELS HER INVITE, SO ONLY A RACE GETS HERE)
 
 		const accepted = await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: { replace_current: true } });
 		assert.equal(accepted.message, "They're in another game now");
@@ -278,7 +278,7 @@ describe("a session that runs out mid-request", () => {
 		assert.equal(read.message, "SESSION EXPIRED");
 	});
 
-	test("a player whose session ended (logout on another device) is 401 SESSION EXPIRED, so the client's refresh signs them out (#277)", async () => {
+	test("a player whose session ended (logout on another device) is 401 SESSION EXPIRED, so the client's refresh signs them out", async () => {
 		const { alice, gameId } = await aliceGame();
 		await db.endSession("alice", "test-sid");
 		const read = await call("GET", `/api/chess/game/${gameId}`, { cookie: `access_token=${keys.sessionToken(alice.user)}` });

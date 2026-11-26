@@ -7,42 +7,96 @@
 const { CARDS, ACTIVE_KEYS, PASSIVE_KEYS, RARITY_WEIGHTS, CLIMB_SHARES, CLIMB_END, baseKey } = require("./cards/index.js");
 const { resight, isSight } = require("./cards/sight.js");
 
-const MOVES = 5, ACTIVES = 1, MOVE_CAP = 9, ACTIVE_CAP = 3;
-const PILED = 6; // THE DISCARD LIST KEEPS THIS MANY (toPile; USER RULING 2026-11-23: THE LAST 6, BOTH PLAYERS' IN ONE LIST)
-const VALUE = { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 }; // THE VALUES, THE ONE PLACE IN THE ENGINE: A PIECE TYPE'S (UNDERDOG'S MATERIAL) AND A MOVE CARD TYPE'S (THE FREE DISCARD'S FLOOR, drawMove; m: THE KNIGHT / BISHOP CARD)
-const CARD_MOVES = { p: "p", m: "nb", r: "r", q: "q" }; // THE PIECE TYPES EACH MOVE CARD TYPE MOVES, THE ONE TABLE (USER RULING 2026-11-22: ONE KNIGHT / BISHOP CARD, "m", IN PLACE OF THE KNIGHT CARD AND THE BISHOP CARD)
+const HAND_MOVES = 5; // move cards a new hand is dealt and the end-of-turn refill tops up to
+const HAND_ACTIVES = 1; // active cards the end-of-turn refill tops up to
+const MOVE_CAP = 9; // the most move cards a hand holds: a draw past it is lost
+const ACTIVE_CAP = 3; // the most active cards a hand holds: a draw past it is lost
+const DISCARD_SHOWN = 6; // the discard list keeps the last 6 cards, both players' in one list (toPile)
+
+// A piece type's value (Underdog counts material with it) and a move card type's (the old free-discard floor, drawMove).
+// "m" is the Knight / Bishop card. This is the one table of values in the engine.
+const PIECE_VALUE = { p: 1, n: 3, b: 3, m: 3, r: 5, q: 9 };
+
+// The piece types each move card type moves, the one table of it. One Knight / Bishop card, "m", stands in for the
+// knight card and the bishop card.
+const CARD_MOVES = { p: "p", m: "nb", r: "r", q: "q" };
+
+const PAWN_WEIGHT = 6; // the most pawns the move-card draw counts: 8 on the board draw as 6
+
+// Divides by every held count + 1 a hand can reach (1 to 10, MOVE_CAP + 1), so the move-card draw's weights are whole
+// numbers for rng.int.
+const HELD_SCALE = 2520;
+
+/* ---- Card lookups ---- */
 
 /**
- * @description The move card type that moves a piece of type t: "m" for a knight or a bishop, else t itself (CARD_MOVES); undefined for a king.
+ * @description The move card type that moves a piece of this type: "m" for a knight or a bishop, otherwise the piece
+ * type itself (CARD_MOVES). Undefined for a king.
  */
-const cardOf = (t) => Object.keys(CARD_MOVES).find((k) => CARD_MOVES[k].includes(t));
+function cardOf(pieceType) {
+	return Object.keys(CARD_MOVES).find((type) => CARD_MOVES[type].includes(pieceType));
+}
 
 /**
- * @description True when a move card of type `piece` moves a piece of type t (CARD_MOVES). An unknown card type (an old Knight or Bishop card) moves nothing.
+ * @description True when a move card of type `piece` moves a piece of this type (CARD_MOVES). An unknown card type
+ * (an old Knight or Bishop card) moves nothing.
  */
-const fits = (piece, t) => (CARD_MOVES[piece] || "").includes(t);
-const byId = (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1));
-const asMove = (c) => (baseKey(c.key) === "mirage" ? { id: c.id, key: "move", piece: c.piece } : { ...c }); // A COPY; A MIRAGE AS ITS HOLDER SAW IT: ON THE DISCARD PILE OR REMEMBERED IT NAMES NO CURSE (THE PILE'S COUNT AND TOP MUST NOT TELL IT APART)
+function fits(piece, pieceType) {
+	return (CARD_MOVES[piece] || "").includes(pieceType);
+}
+
+function byId(left, right) {
+	return Number(left.id.slice(1)) - Number(right.id.slice(1));
+}
 
 /**
- * @description The Mirages in p's curses that have entered the hand: its holder sees each as a move card, so every count, list and order of move cards takes them in (a waiting one, not yet entered, is in none).
+ * @description A copy of card as its holder saw it. A Mirage becomes the move card it showed, naming no curse, so on the
+ * discard pile or remembered it cannot be told apart (by the pile's count or its top).
  */
-const mirages = (p) => p.curses.filter((c) => baseKey(c.key) === "mirage" && !c.waiting);
+function asMove(card) {
+	if (baseKey(card.key) === "mirage") return { id: card.id, key: "move", piece: card.piece };
+	return { ...card };
+}
 
 /**
- * @description p's move cards as its holder sees them: the real ones and the entered Mirages, by id (the order playerView shows).
+ * @description The Mirages in the player's curses that have entered the hand. The holder sees each one as a move card,
+ * so every count, list and order of move cards takes them in. A waiting Mirage, not yet entered, is in none of them.
  */
-const moveCards = (p) => [...p.moves, ...mirages(p)].sort(byId);
+function mirages(player) {
+	return player.curses.filter((curse) => baseKey(curse.key) === "mirage" && !curse.waiting);
+}
 
 /**
- * @description p's King card as a takeable card, [{ id: "king", key: "king", faceUp: true }] (face up: Player.king is public), while a Hollow Crown makes it losable and p still has it; else []. Random discards and Pickpocket put it in their pools; take removes it.
+ * @description The player's move cards as the holder sees them: the real ones and the entered Mirages, sorted by id
+ * (the order playerView shows).
  */
-const kingCard = (p) => (p.king && p.curses.some((c) => baseKey(c.key) === "hollow-crown") ? [{ id: "king", key: "king", faceUp: true }] : []);
+function moveCards(player) {
+	return [...player.moves, ...mirages(player)].sort(byId);
+}
 
 /**
- * @description The one test for "may a card move color's own king for color": true while color has its King card (Player.king; Hollow Crown can take it). turn.kingMoves, Last Stand, Swap and Retaliation ask it; Escape Artist alone moves the king without it (catalog), and the opponent's cards moving it are not asked.
+ * @description The player's King card as a takeable card, [{ id: "king", key: "king", faceUp: true }], while a Hollow
+ * Crown makes it losable and the player still has it; otherwise []. It is face up because Player.king is public.
+ * Random discards and Pickpocket put it in their pools, and take removes it.
  */
-const kingFree = (state, color) => !!state.players[color].king;
+function kingCard(player) {
+	if (player.king && player.curses.some((curse) => baseKey(curse.key) === "hollow-crown")) {
+		return [{ id: "king", key: "king", faceUp: true }];
+	}
+	return [];
+}
+
+/**
+ * @description The one test for "may a card move color's own king for color": true while color still has its King card
+ * (Player.king; a Hollow Crown can take it).
+ * turn.kingMoves, Last Stand, Swap and Retaliation ask it. Escape Artist alone moves the king without it (see the
+ * catalog), and cards of the opponent that move it do not ask.
+ */
+function kingFree(state, color) {
+	return !!state.players[color].king;
+}
+
+/* ---- Making a card and placing it ---- */
 
 /**
  * @description The one way the engine makes a card: { id: "c<nextId>", key, ...extra }, bumping state.nextId.
@@ -52,178 +106,342 @@ function newCard(state, key, extra) {
 }
 
 /**
- * @description card joins color's discard pile, Player.pile { n, top }: only how many lie there and the top card are kept. down: the other player was never shown this card (a discard from the hand, a move card played under a Fog of War), so the top carries down: true and view.js shows them its back; a face-up card never does. Phalanx's and Peasant Immunity's bookkeeping stays behind (it names pieces), a Mirage lies there as the move card it showed (asMove), and the King card is no played card: it never lies there.
- * It also goes first in state.piled, the last PILED cards to join either player's pile, newest first: { player, card: the top as stored, its down mark with it } (a game saved before the list has none: it starts here).
+ * @description The card joins color's discard pile, Player.pile { n, top }: only how many cards lie there and the top
+ * card are kept.
+ * down: the other player was never shown this card (a discard from the hand, or a move card played under a Fog of
+ * War), so the top carries down: true and view.js shows them its back. A face-up card never carries it.
+ * Phalanx's and Peasant Immunity's bookkeeping stays behind, because it names pieces. A Mirage lies there as the move
+ * card it showed (asMove). The King card is not a played card, so it never lies there.
+ * The card also goes first in state.piled, the last DISCARD_SHOWN cards to join either player's pile, newest first:
+ * { player, card } where card is the top as stored, with its down mark. A game saved before that list existed has
+ * none, and the list starts here.
  */
-function toPile(s, color, card, down) {
+function toPile(state, color, card, down) {
 	if (card.key === "king") return;
-	const p = s.players[color], top = asMove(card);
-	for (const k of ["denied", "stopping", "down"]) delete top[k];
+	const player = state.players[color];
+	const top = asMove(card);
+	for (const key of ["denied", "stopping", "down"]) delete top[key];
 	if (down && !card.faceUp) top.down = true;
-	p.pile = { n: ((p.pile && p.pile.n) || 0) + 1, top };
-	s.piled = [{ player: color, card: { ...top } }, ...(s.piled || [])].slice(0, PILED);
+	player.pile = { n: ((player.pile && player.pile.n) || 0) + 1, top };
+	state.piled = [{ player: color, card: { ...top } }, ...(state.piled || [])].slice(0, DISCARD_SHOWN);
 }
 
 /**
- * @description Put a drawn card in its slot ("moves", "actives" or "passive"), or lose it when the slot is full, with a draw event either way. Returns the card.
+ * @description Put a drawn card in its slot ("moves", "actives" or "passive"), or lose it when the slot is full, with
+ * a draw event either way. Returns the card.
  */
 function put(ctx, color, slot, fields) {
-	const s = ctx.state, p = s.players[color], card = newCard(s, fields.key, fields);
-	const lost = slot === "passive" ? !!p.passive : (slot === "moves" ? moveCards(p) : p[slot]).length >= (slot === "moves" ? MOVE_CAP : ACTIVE_CAP);
-	if (!lost && slot === "passive") p.passive = card;
-	else if (!lost) p[slot].push(card);
+	const state = ctx.state;
+	const player = state.players[color];
+	const card = newCard(state, fields.key, fields);
+	const held = slot === "moves" ? moveCards(player) : player[slot];
+	const cap = slot === "moves" ? MOVE_CAP : ACTIVE_CAP;
+	const lost = slot === "passive" ? !!player.passive : held.length >= cap;
+	if (!lost && slot === "passive") player.passive = card;
+	else if (!lost) player[slot].push(card);
 	ctx.emit(lost ? { type: "draw", player: color, card, lost: true } : { type: "draw", player: color, card });
 	return card;
 }
 
-const PAWN_WEIGHT = 6; // THE MOST PAWNS THE MOVE-CARD DRAW COUNTS: 8 ON THE BOARD DRAW AS 6
-const HELD_SCALE = 2520; // DIVIDES BY EVERY HELD COUNT + 1 A HAND CAN REACH (1 TO 10, MOVE_CAP + 1), SO THE MOVE-CARD DRAW'S WEIGHTS ARE WHOLE NUMBERS FOR rng.int
+/* ---- Move-card draws ---- */
 
 /**
- * @description Draw one move card. A card type's base weight is color's pieces it moves (king aside; cardOf: a knight and a bishop both count for the Knight / Bishop card), a queen counting as 2 & the pawns as 6 at most (PAWN_WEIGHT). Its weight in the draw is that base / (cards of the type color holds now + 1), an entered Mirage counting as the type it shows (moveCards; user ruling 2026-11-22: a held type comes less often, each held card cutting its own type by the same share). A type with no piece is never drawn, a held type always can be. null when color has only its king.
- * The free discard's draw-back is this same random draw (user ruling 2026-11-22, after a trial of a floor). The floor, kept for reference: only the pieces worth floor or more (VALUE); when color has none of those, the most valuable type it still has (a knight and a bishop are both 3, so both stay in). No floor draws from every piece, with one rng pick.
+ * @description Draw one move card for color. Returns null when color has only its king.
+ * A card type's base weight is the number of color's pieces it moves, the king aside. Through cardOf, a knight and a
+ * bishop both count for the Knight / Bishop card. A queen counts as 2, and the pawns as PAWN_WEIGHT (6) at most.
+ * Its weight in the draw is that base divided by (the cards of that type color holds now + 1), an entered Mirage
+ * counting as the type it shows (moveCards). So a held type comes less often, each held card cutting its own type by
+ * the same share. A type with no piece is never drawn; a held type always can be.
+ * The free discard's draw-back is this same random draw: a floor was tried and dropped. The floor, kept for reference:
+ * draw only the pieces worth floor or more (PIECE_VALUE); when color has none of those, the most valuable type it still has
+ * (a knight and a bishop are both 3, so both stay in). No floor draws from every piece, with one rng pick.
  */
 function drawMove(ctx, color /* , floor = 0 */) {
-	const base = {}, held = {};
-	for (const q of ctx.state.board.sq) if (q && q.c === color && q.t !== "k") base[cardOf(q.t)] = (base[cardOf(q.t)] || 0) + (q.t === "q" ? 2 : 1); // A QUEEN COUNTS DOUBLE (USER RULING 2026-11-22: THE QUEEN CARD WAS TOO RARE)
-	if (base.p > PAWN_WEIGHT) base.p = PAWN_WEIGHT; // PAWNS COUNT AS PAWN_WEIGHT AT MOST (USER RULING 2026-11-22: FEWER PAWN CARDS)
-	for (const c of moveCards(ctx.state.players[color])) held[c.piece] = (held[c.piece] || 0) + 1;
-	const types = Object.keys(CARD_MOVES).filter((t) => base[t]), weight = (t) => Math.max(1, Math.round(base[t] * HELD_SCALE / ((held[t] || 0) + 1))); // ROUNDED, AT LEAST 1: A HAND A TEST OR AN OLD GAME MADE LARGER THAN THE CAP STILL DRAWS
+	const base = {};
+	const held = {};
+	for (const square of ctx.state.board.sq) {
+		// A queen counts double, or the Queen card comes too rarely
+		if (square && square.c === color && square.t !== "k") {
+			base[cardOf(square.t)] = (base[cardOf(square.t)] || 0) + (square.t === "q" ? 2 : 1);
+		}
+	}
+	if (base.p > PAWN_WEIGHT) base.p = PAWN_WEIGHT; // fewer pawn cards
+	for (const card of moveCards(ctx.state.players[color])) held[card.piece] = (held[card.piece] || 0) + 1;
+	const types = Object.keys(CARD_MOVES).filter((type) => base[type]);
+	// Rounded, and at least 1, so a hand a test or an old game made larger than the cap still draws
+	const weight = {};
+	for (const type of types) weight[type] = Math.max(1, Math.round(base[type] * HELD_SCALE / ((held[type] || 0) + 1)));
 	if (!types.length) return null;
-	// THE DRAW-BACK FLOOR, DROPPED BY THE USER 2026-11-22 AFTER A TRIAL: THE DRAW-BACK IS RANDOM AGAIN. KEPT FOR REFERENCE (FROM THE DRAW BEFORE THE HELD-CARD WEIGHTS, all: ONE ENTRY PER PIECE):
-	// const worth = (t) => VALUE[t] || 0, dropped = Math.min(floor, Math.max(...all.map(worth))); // THE FLOOR DROPS TO THE BEST TYPE LEFT
+	// The draw-back floor, dropped after a trial (the draw-back is random again). Kept for reference; it predates the
+	// held-card weights, when `all` held one entry per piece:
+	// const worth = (t) => PIECE_VALUE[t] || 0, dropped = Math.min(floor, Math.max(...all.map(worth))); // the floor drops to the best type left
 	// return put(ctx, color, "moves", { key: "move", piece: cardOf(ctx.rng.pick(all.filter((t) => worth(t) >= dropped))) });
-	let r = ctx.rng.int(types.reduce((n, t) => n + weight(t), 0));
-	return put(ctx, color, "moves", { key: "move", piece: types.find((t) => (r -= weight(t)) < 0) });
+	let roll = ctx.rng.int(total(types, weight));
+	return put(ctx, color, "moves", { key: "move", piece: types.find((type) => (roll -= weight[type]) < 0) });
 }
 
 /**
- * @description n move-card draws for color as usual (stopping when color has only its king), then each waiting Mirage in `entering` silently takes over a random real move card in color's hand, old or new (state.rng): it gets that card's id and piece type, the real card is gone with no event. So the holder's count, ids and events are exactly those of the same draws with no Mirage. With no real move card left, a Mirage keeps waiting.
+ * @description The sum of weights[name] over names.
  */
-function drawMoves(ctx, color, n, entering = []) {
-	const p = ctx.state.players[color];
-	for (let i = 0; i < n; i++) if (!drawMove(ctx, color)) break;
-	for (const m of entering) {
-		if (!p.moves.length) return;
-		const real = p.moves.splice(ctx.rng.int(p.moves.length), 1)[0];
-		Object.assign(m, { id: real.id, piece: real.piece });
-		delete m.waiting;
+function total(names, weights) {
+	return names.reduce((sum, name) => sum + weights[name], 0);
+}
+
+/**
+ * @description Make `count` move-card draws for color as usual, stopping early when color has only its king.
+ * Then each waiting Mirage in `entering` silently takes over a random real move card in color's hand, old or new
+ * (state.rng): it gets that card's id and piece type, and the real card is gone with no event. So the holder's count,
+ * ids and events are exactly those of the same draws with no Mirage. With no real move card left, a Mirage keeps
+ * waiting.
+ */
+function drawMoves(ctx, color, count, entering = []) {
+	const player = ctx.state.players[color];
+	for (let i = 0; i < count; i++) {
+		if (!drawMove(ctx, color)) break;
+	}
+	for (const mirage of entering) {
+		if (!player.moves.length) return;
+		const real = player.moves.splice(ctx.rng.int(player.moves.length), 1)[0];
+		Object.assign(mirage, { id: real.id, piece: real.piece });
+		delete mirage.waiting;
 	}
 }
 
 /**
- * @description Throw out color's move cards, entered Mirages with them (they wait again, to take over one of the new draws through drawMoves): returns { out: the cards thrown out as copies, by id, ms: the Mirages }. They go to color's discard pile face down, a Mirage as the move card it shows (the pile's count must not tell it apart).
+ * @description Throw out color's move cards, the entered Mirages with them. The Mirages wait again, to take over one
+ * of the new draws through drawMoves.
+ * Returns { out, ms }: out is the cards thrown out, as copies sorted by id, and ms is the Mirages.
+ * The cards go to color's discard pile face down, a Mirage as the move card it shows, because the pile's count must
+ * not tell it apart.
  */
-function throwMoves(s, color) {
-	const p = s.players[color], ms = mirages(p), out = moveCards(p).map((c) => ({ ...c }));
-	for (const c of out) toPile(s, color, c, true);
-	p.moves = [];
-	for (const m of ms) m.waiting = true;
-	return { out, ms };
+function throwMoves(state, color) {
+	const player = state.players[color];
+	const entered = mirages(player);
+	const thrown = moveCards(player).map((card) => ({ ...card }));
+	for (const card of thrown) toPile(state, color, card, true);
+	player.moves = [];
+	for (const mirage of entered) mirage.waiting = true;
+	return { out: thrown, ms: entered };
 }
 
 /**
- * @description color discards the move or active card with this id (no draw): a discard event; an entered Mirage then leaves through ctx.clearCurse. The card goes to color's discard pile face down, or with keep (the free discard's first move card of a pair) it becomes Player.kept, the remembered card, and the event says kept: true. Returns the card (a copy for a Mirage).
+ * @description color discards the move or active card with this id, with no draw, and a discard event is sent. An
+ * entered Mirage then leaves through ctx.clearCurse.
+ * The card goes to color's discard pile face down. With keep (the first move card of the free discard's pair) it
+ * becomes Player.kept, the remembered card, instead, and the event says kept: true.
+ * Returns the card (a copy for a Mirage).
  */
 function discard(ctx, color, id, keep) {
-	const p = ctx.state.players[color], m = mirages(p).find((c) => c.id === id), card = m ? { ...m } : take(p, id);
-	if (keep) p.kept = asMove(card);
+	const player = ctx.state.players[color];
+	const mirage = mirages(player).find((curse) => curse.id === id);
+	const card = mirage ? { ...mirage } : take(player, id);
+	if (keep) player.kept = asMove(card);
 	else toPile(ctx.state, color, card, true);
 	ctx.emit(keep ? { type: "discard", player: color, card, kept: true } : { type: "discard", player: color, card });
-	if (m) ctx.clearCurse(color, m);
+	if (mirage) ctx.clearCurse(color, mirage);
 	return card;
 }
 
-/**
- * @description The active or passive keys color can draw now: the registry's, less every version of a card color holds, has waiting in Board Effects or has used, of a passive that left this turn (Player.gone: dropped, replaced or rerolled; turn.endTurn empties it), and of `not` (a key, optional), compared by baseKey.
- */
-function drawable(state, color, kind, not) {
-	const p = state.players[color];
-	const held = [...p.moves, ...p.actives, ...p.curses, p.passive].filter(Boolean).map((c) => c.key);
-	const out = new Set([...held, ...state.effects.filter((e) => e.owner === color).map((e) => e.card.key), ...p.used, ...(p.gone || []), ...(not ? [not] : [])].map(baseKey));
-	return (kind === "active" ? ACTIVE_KEYS : PASSIVE_KEYS).filter((k) => !out.has(baseKey(k)));
-}
+/* ---- Active and passive draws ---- */
 
 /**
- * @description Draw one active or passive card from the registry, weighted by rarity, leaving out every version of a card color holds, has waiting in Board Effects or has used (drawable), and of `not` (the passive a reroll just discarded: left out of this one draw only, it never joins used). null when nothing is left.
- * The climb (user ruling 2026-11-22): at turn 1 (board.full) each tier's chance is its share by RARITY_WEIGHTS of the cards color can draw at this moment; at turn CLIMB_END and after it is the tier's CLIMB_SHARES share; between, each tier's share moves in equal steps per turn. A tier with no card to draw has no share: its table share goes to the tiers that have cards, in proportion to theirs, so no tier with a card is ever at 0. Inside a tier every card is equally likely. It never lowers the chance of epic or legendary: a pool whose base epic-plus-legendary share is at or above the table's (the absent tiers shared out) draws by the base weights; a pool with no epic or legendary card left has nothing to lower and follows the table shared out. board.full steps back when a move is taken back, and the odds with it. Curse draws (ctx.randomCurses) have no climb.
+ * @description Draw one active or passive card from the registry, weighted by rarity. Returns null when nothing is
+ * left to draw.
+ * It leaves out every version of a card color holds, has waiting in Board Effects or has used (drawable), and of `not`:
+ * the passive a reroll just discarded, left out of this one draw only. `not` never joins used.
+ *
+ * The rarity climb:
+ * - At turn 1 (board.full) each tier's chance is its share, by RARITY_WEIGHTS, of the cards color can draw right now.
+ * - At turn CLIMB_END and after, it is the tier's CLIMB_SHARES share.
+ * - In between, each tier's share moves in equal steps per turn.
+ * A tier with no card to draw has no share. Its table share goes to the tiers that have cards, in proportion to
+ * theirs, so no tier with a card is ever at 0. Inside a tier every card is equally likely.
+ * The climb never lowers the chance of epic or legendary. A pool whose base epic-plus-legendary share is at or above
+ * the table's (with the absent tiers shared out) draws by the base weights. A pool with no epic or legendary card left
+ * has nothing to lower, and follows the table shared out.
+ * board.full steps back when a move is taken back, and the odds go back with it. Curse draws (ctx.randomCurses) have
+ * no climb.
  */
 function drawCard(ctx, color, kind, not) {
-	const keys = drawable(ctx.state, color, kind, not), base = (k) => RARITY_WEIGHTS[CARDS[k].rarity];
+	const keys = drawable(ctx.state, color, kind, not);
 	if (!keys.length) return null;
-	const of = (t) => keys.filter((k) => CARDS[k].rarity === t), tiers = Object.keys(CLIMB_SHARES).filter((t) => of(t).length);
-	const sum = (weight, ts = tiers) => ts.reduce((n, t) => n + weight(t), 0), top = tiers.filter((t) => t === "epic" || t === "legendary");
-	const start = (t) => of(t).length * RARITY_WEIGHTS[t], table = (t) => CLIMB_SHARES[t], all = sum(start), shared = sum(table);
-	const steps = CLIMB_END - 1, step = Math.min(ctx.state.board.full, CLIMB_END) - 1;
+	const tiers = Object.keys(CLIMB_SHARES).filter((tier) => ofTier(keys, tier).length);
+	const start = {};
+	for (const tier of tiers) start[tier] = ofTier(keys, tier).length * RARITY_WEIGHTS[tier];
+	const startTotal = total(tiers, start);
+	const tableTotal = total(tiers, CLIMB_SHARES);
+	const topTiers = tiers.filter((tier) => tier === "epic" || tier === "legendary");
+	const steps = CLIMB_END - 1;
+	const step = Math.min(ctx.state.board.full, CLIMB_END) - 1;
+	// With no epic or legendary left there is nothing to lower, and the table is shared out
+	const baseKeepsTop = topTiers.length && total(topTiers, start) * tableTotal >= total(topTiers, CLIMB_SHARES) * startTotal;
 	let key;
-	if (step <= 0 || (top.length && sum(start, top) * shared >= sum(table, top) * all)) { // THE BASE WEIGHTS: TURN 1, OR THE CLIMB WOULD LOWER EPIC OR LEGENDARY (NONE LEFT: NOTHING TO LOWER, THE TABLE IS SHARED OUT, USER RULING R-3)
-		let r = ctx.rng.int(all);
-		key = keys.find((k) => (r -= base(k)) < 0);
-	} else { // IN WHOLE NUMBERS (rng.int): THE TIER FIRST, ITS SHARE OUT OF all * shared * steps (WELL UNDER 2^32), THEN ONE OF ITS CARDS
-		let r = ctx.rng.int(all * shared * steps);
-		key = ctx.rng.pick(of(tiers.find((t) => (r -= start(t) * shared * (steps - step) + table(t) * all * step) < 0)));
+	if (step <= 0 || baseKeepsTop) {
+		// The base weights: turn 1, or the climb would lower epic or legendary
+		let roll = ctx.rng.int(startTotal);
+		key = keys.find((candidate) => (roll -= RARITY_WEIGHTS[CARDS[candidate].rarity]) < 0);
+	} else {
+		// In whole numbers for rng.int: the tier first, its share out of startTotal * tableTotal * steps (well under 2^32),
+		// then one of its cards
+		let roll = ctx.rng.int(startTotal * tableTotal * steps);
+		const tier = tiers.find((name) => (roll -= start[name] * tableTotal * (steps - step) + CLIMB_SHARES[name] * startTotal * step) < 0);
+		key = ctx.rng.pick(ofTier(keys, tier));
 	}
 	return put(ctx, color, kind === "active" ? "actives" : "passive", { key });
 }
 
 /**
- * @description 1 while a placed passive of color's rules.bigHand(state, color, src) says so (Underdog: a 6th move card and a second active slot), else 0.
+ * @description The active or passive keys color can draw now: the registry's, less every version (compared by
+ * baseKey) of:
+ * - a card color holds, has waiting in Board Effects or has used;
+ * - a passive that left this turn (Player.gone: dropped, replaced or rerolled; turn.endTurn empties it);
+ * - `not`, an optional key.
  */
-const big = (s, color) => (s.effects.some((e) => { const r = e.owner === color && CARDS[e.card.key] && CARDS[e.card.key].rules; return !!(r && r.bigHand && r.bigHand(s, color, e)); }) ? 1 : 0);
+function drawable(state, color, kind, not) {
+	const player = state.players[color];
+	const held = [...player.moves, ...player.actives, ...player.curses, player.passive].filter(Boolean).map((card) => card.key);
+	const waiting = state.effects.filter((effect) => effect.owner === color).map((effect) => effect.card.key);
+	const out = new Set([...held, ...waiting, ...player.used, ...(player.gone || []), ...(not ? [not] : [])].map(baseKey));
+	return (kind === "active" ? ACTIVE_KEYS : PASSIVE_KEYS).filter((key) => !out.has(baseKey(key)));
+}
+
+function ofTier(keys, tier) {
+	return keys.filter((key) => CARDS[key].rarity === tier);
+}
+
+/* ---- Refill ---- */
 
 /**
- * @description End-of-turn refill: top up to 5 move cards (MOVES, user ruling 2026-11-22: was 6; entered Mirages count) and 1 active, never trimming extras; 6 and 2 while big (Underdog). At the end of color's two-move turn with multi.draw (Four of a Kind), color's move cards are thrown out first (a discard event each; an entered Mirage among them comes back hidden among the draws) and the top-up is to multi.draw. Then each waiting Mirage takes over a random move card in the hand (drawMoves). While refillLock is set (cards lost to a debuff) the draws are skipped (Four of a Kind's throw-out still happens) and the lock counts down. Last, at every refill, each entered Mirage trades places with one random held move card, itself included (state.rng): the two swap id and piece type, with no event, so the holder's view is unchanged and a card's age says nothing about which one is the Mirage (cards drawn after it entered could not be it otherwise).
+ * @description The end-of-turn refill, in order:
+ * 1. With multi.draw (Four of a Kind), at the end of color's two-move turn, color's move cards are thrown out first,
+ *    a discard event each. An entered Mirage among them comes back hidden among the new draws.
+ * 2. Top up to HAND_MOVES (5; it was 6) move cards, entered Mirages counting, and to 1 active card; 6 and 2 while big
+ *    (Underdog). With multi.draw the move cards top up to multi.draw instead. Extras are never trimmed.
+ *    Then each waiting Mirage takes over a random move card in the hand (drawMoves).
+ *    While refillLock is set (cards lost to a debuff) these draws are skipped and the lock counts down. Four of a
+ *    Kind's throw-out still happens.
+ * 3. Last, at every refill, each entered Mirage trades places with a random held move card (shuffleMirages).
  */
 function refill(ctx, color) {
-	const s = ctx.state, p = s.players[color], only = s.multi && s.multi.player === color && s.multi.draw, plus = big(s, color);
-	if (only) for (const card of throwMoves(s, color).out) ctx.emit({ type: "discard", player: color, card });
-	if (p.refillLock > 0) p.refillLock--;
+	const state = ctx.state;
+	const player = state.players[color];
+	const only = state.multi && state.multi.player === color && state.multi.draw;
+	const plus = big(state, color);
+	if (only) {
+		for (const card of throwMoves(state, color).out) ctx.emit({ type: "discard", player: color, card });
+	}
+	if (player.refillLock > 0) player.refillLock--;
 	else {
-		drawMoves(ctx, color, (only || MOVES + plus) - moveCards(p).length, p.curses.filter((c) => c.waiting));
-		while (p.actives.length < ACTIVES + plus && drawCard(ctx, color, "active"));
+		drawMoves(ctx, color, (only || HAND_MOVES + plus) - moveCards(player).length, player.curses.filter((curse) => curse.waiting));
+		while (player.actives.length < HAND_ACTIVES + plus && drawCard(ctx, color, "active"));
 	}
-	p.curses.forEach((m, i) => { // AFTER EVERY DRAW, SO THE HOLDER'S DRAWS ARE THOSE OF A HAND WITH NO MIRAGE
-		if (!mirages(p).includes(m)) return;
-		const o = ctx.rng.pick(moveCards(p)), slot = p.moves.includes(o) ? p.moves : p.curses, j = slot.indexOf(o);
-		p.curses[i] = { ...m, id: o.id, piece: o.piece }; // NEW OBJECTS: THIS TURN'S EVENTS HOLD THE OLD ONES
-		if (o === m) return;
-		slot[j] = { ...o, id: m.id, piece: m.piece };
-		const swap = (id) => (id === o.id ? m.id : id === m.id ? o.id : id); // THE OPPONENT'S SIGHT (REAL OR FAKE) FOLLOWS THE CARD, NOT THE ID
-		for (const e of s.enchant) if (e.owner !== color && e.data && isSight(e)) {
-			if (e.data.ids) e.data.ids = e.data.ids.map(swap);
-			if (e.data.fake) e.data.fake = e.data.fake.map((f) => ({ ...f, id: swap(f.id) }));
-		}
-		resight(s, color === "w" ? "b" : "w");
-	});
+	shuffleMirages(ctx, color);
 }
 
 /**
- * @description Take the move or active card with this id out of color's hand, or the King card ("king") while kingCard offers it (Player.king becomes false); returns it (undefined when not held).
+ * @description 1 while one of color's placed passives says so through its rules.bigHand(state, color, src) (Underdog:
+ * a 6th move card and a second active slot), otherwise 0.
  */
-function take(p, id) {
-	if (id === "king") { const k = kingCard(p)[0]; if (k) p.king = false; return k; } // ONLY UNDER HOLLOW CROWN
+function big(state, color) {
+	for (const effect of state.effects) {
+		const rules = effect.owner === color && CARDS[effect.card.key] && CARDS[effect.card.key].rules;
+		if (rules && rules.bigHand && rules.bigHand(state, color, effect)) return 1;
+	}
+	return 0;
+}
+
+/**
+ * @description Each entered Mirage trades places with one random held move card, itself included (state.rng): the two
+ * swap id and piece type, with no event, so the holder's view is unchanged and a card's age says nothing about which one
+ * is the Mirage (cards drawn after it entered could not be it otherwise). It runs after every draw, so the holder's draws
+ * are those of a hand with no Mirage.
+ */
+function shuffleMirages(ctx, color) {
+	const state = ctx.state;
+	const player = state.players[color];
+	for (let i = 0; i < player.curses.length; i++) {
+		const mirage = player.curses[i];
+		if (!mirages(player).includes(mirage)) continue;
+		const other = ctx.rng.pick(moveCards(player));
+		const slot = player.moves.includes(other) ? player.moves : player.curses;
+		const otherIndex = slot.indexOf(other);
+		player.curses[i] = { ...mirage, id: other.id, piece: other.piece }; // new objects: this turn's events hold the old ones
+		if (other === mirage) continue;
+		slot[otherIndex] = { ...other, id: mirage.id, piece: mirage.piece };
+		followSight(state, color, other.id, mirage.id);
+	}
+}
+
+/**
+ * @description The opponent's sight of color's hand (real or fake) follows the card, not the id: the two ids trade
+ * places in it, then the opponent's sight is rebuilt.
+ */
+function followSight(state, color, firstId, secondId) {
+	for (const entry of state.enchant) {
+		if (entry.owner === color || !entry.data || !isSight(entry)) continue;
+		if (entry.data.ids) entry.data.ids = entry.data.ids.map((id) => swappedId(id, firstId, secondId));
+		if (entry.data.fake) entry.data.fake = entry.data.fake.map((fake) => ({ ...fake, id: swappedId(fake.id, firstId, secondId) }));
+	}
+	resight(state, color === "w" ? "b" : "w");
+}
+
+function swappedId(id, firstId, secondId) {
+	if (id === firstId) return secondId;
+	if (id === secondId) return firstId;
+	return id;
+}
+
+/* ---- Taking cards out of the hand ---- */
+
+/**
+ * @description Take the move or active card with this id out of the player's hand, or the King card ("king") while
+ * kingCard offers it (Player.king becomes false). Returns the card, or undefined when it is not held.
+ */
+function take(player, id) {
+	// The King card can only be taken under a Hollow Crown
+	if (id === "king") {
+		const king = kingCard(player)[0];
+		if (king) player.king = false;
+		return king;
+	}
 	for (const slot of ["moves", "actives"]) {
-		const i = p[slot].findIndex((c) => c.id === id);
-		if (i >= 0) return p[slot].splice(i, 1)[0];
+		const index = player[slot].findIndex((card) => card.id === id);
+		if (index >= 0) return player[slot].splice(index, 1)[0];
 	}
 }
 
 /**
- * @description Discard n random cards, the whole hand when n is left out (move, active or passive; never a curse or the King card, unless a Hollow Crown makes it losable (kingCard); an entered Mirage, a move card to its holder, can go: through discard, which clears it) from color's hand, with a discard event each.
+ * @description Discard `count` random cards from color's hand, or the whole hand when count is left out, with a
+ * discard event each.
+ * Move, active and passive cards can go. A curse never can, nor the King card unless a Hollow Crown makes it losable
+ * (kingCard). An entered Mirage, a move card to its holder, can go: through discard, which clears it.
  */
-function discardRandom(ctx, color, n) {
-	const p = ctx.state.players[color], pool = () => [...moveCards(p), ...p.actives, ...(p.passive ? [p.passive] : []), ...kingCard(p)];
-	if (n === undefined) n = 40; // THE WHOLE HAND: UNTIL THE POOL IS EMPTY (A CARD A TRIGGER DRAWS MEANWHILE GOES TOO), CAPPED SO A CARD THAT WON'T LEAVE CAN'T LOOP
-	for (let k = 0; k < n; k++) {
-		const card = ctx.rng.pick(pool());
+function discardRandom(ctx, color, count) {
+	const player = ctx.state.players[color];
+	// The whole hand: until the pool is empty (a card a trigger draws meanwhile goes too), capped so a card that won't
+	// leave can't loop
+	if (count === undefined) count = 40;
+	for (let i = 0; i < count; i++) {
+		const card = ctx.rng.pick(discardPool(player));
 		if (!card) return;
-		if (card !== p.passive) discard(ctx, color, card.id);
+		if (card !== player.passive) discard(ctx, color, card.id);
 		else {
-			p.passive = null;
+			player.passive = null;
 			toPile(ctx.state, color, card, true);
 			ctx.emit({ type: "discard", player: color, card });
 		}
 	}
 }
 
-module.exports = { MOVES, MOVE_CAP, ACTIVE_CAP, VALUE, CARD_MOVES, cardOf, fits, newCard, drawMove, drawCard, drawable, refill, take, discardRandom, mirages, moveCards, drawMoves, throwMoves, discard, toPile, kingCard, kingFree, big };
+/**
+ * @description The cards a random discard can take from the player's hand, built fresh before each pick.
+ */
+function discardPool(player) {
+	return [...moveCards(player), ...player.actives, ...(player.passive ? [player.passive] : []), ...kingCard(player)];
+}
+
+module.exports = {
+	HAND_MOVES, MOVE_CAP, ACTIVE_CAP, PIECE_VALUE, CARD_MOVES,
+	cardOf, fits, newCard, drawMove, drawCard, drawable, refill, take, discardRandom,
+	mirages, moveCards, drawMoves, throwMoves, discard, toPile, kingCard, kingFree, big,
+};

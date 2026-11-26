@@ -3,14 +3,18 @@ import { W, H, NAMES, SHORT, tabRow, sentence } from "./kit.js";
 import { CHANNELS, NOT_IN_CARDS } from "./prefs.js";
 import { textWidth } from "../pixelFont.js";
 
-export const ORDER = [...CHANNELS]; // CHANNEL IDS, IN TAB ORDER; A COPY SO NOTHING HERE CAN CHANGE PREFS.JS'S LIST
-const TAB = { pad: 2, maxGap: 3 }; // A TAB IS ITS LABEL PLUS A 1 px BORDER EACH SIDE. THE ROW'S SPARE WIDTH GOES BETWEEN TABS, UP TO maxGap, SO TWO LIT TABS DON'T MERGE; ALL SIX & ◀ FIT THE SAFE AREA'S 144 px WITH NONE TO SPARE
+// Channel ids in tab order. A copy, so nothing here can change the list in prefs.js.
+export const ORDER = [...CHANNELS];
+// A tab is its label plus a 1 px border on each side (pad). The row's spare width goes between the tabs, up to maxGap,
+// so two lit tabs don't merge. All six tabs and ◀ fit the safe area's 144 px with none to spare.
+const TAB = { pad: 2, maxGap: 3 };
 const BACK = "◀ BACK";
 const BACK_SHORT = "◀";
 export const YOUR_MOVE = "▶ YOUR MOVE";
 const KEYS = { w: "up", a: "left", s: "down", d: "right" };
 const ARROWS = { ArrowUp: "up", ArrowLeft: "left", ArrowDown: "down", ArrowRight: "right" };
-const AXES = { up: [1, -1], down: [1, 1], left: [0, -1], right: [0, 1] }; // [AXIS (0 X, 1 Y), SIGN]
+// Each direction as [axis, sign]; axis 0 is x and 1 is y.
+const AXES = { up: [1, -1], down: [1, 1], left: [0, -1], right: [0, 1] };
 
 /* ---------------------------------------------------------------- */
 // Geometry
@@ -38,7 +42,8 @@ export function uvToGrid(u, v) {
  */
 export function zoomDistance(w, h, fovDeg, aspect, fill = 0.8) {
 	const tan = Math.tan((fovDeg * Math.PI) / 360);
-	return Math.max(h / (2 * tan * fill), w / (2 * tan * aspect * fill)); // THE FARTHER ONE KEEPS BOTH SIDES IN VIEW
+	// The farther of the two distances keeps both sides in view.
+	return Math.max(h / (2 * tan * fill), w / (2 * tan * aspect * fill));
 }
 
 /**
@@ -49,7 +54,8 @@ export function zoomDistance(w, h, fovDeg, aspect, fill = 0.8) {
  * @return {[boolean]}
  */
 export function isTap(press, release, type) {
-	return Math.hypot(release.x - press.x, release.y - press.y) < (type === "touch" ? 10 : 4); // FINGERS WOBBLE MORE
+	// Fingers wobble more than a mouse or a pen, so touch gets a wider margin.
+	return Math.hypot(release.x - press.x, release.y - press.y) < (type === "touch" ? 10 : 4);
 }
 
 /* ---------------------------------------------------------------- */
@@ -64,9 +70,12 @@ export function isTap(press, release, type) {
  */
 export function available(data, prefs) {
 	return ORDER.filter(function (id) {
-		if (id === "setup") { return true; } // ALWAYS A WAY BACK TO THE SETTINGS
-		if (data.cards && NOT_IN_CARDS.includes(id)) { return false; } // CHESS CARDS: NO FACE OR EVAL, SO IT OPENS ON THE OPPONENT (idleChannel)
-		if (id === "opponent" && data.offline) { return true; } // A LOST CONNECTION SHOWS ON IT, EVEN WHEN SWITCHED OFF
+		// There is always a way back to the settings.
+		if (id === "setup") { return true; }
+		// Chess Cards has no face or eval channel, so the monitor opens on the opponent (idleChannel).
+		if (data.cards && NOT_IN_CARDS.includes(id)) { return false; }
+		// A lost connection shows on the opponent channel, even when the player switched it off.
+		if (id === "opponent" && data.offline) { return true; }
 		if (!prefs.enabled.includes(id)) { return false; }
 		if (id === "face") { return !!data.ai; }
 		return true;
@@ -81,7 +90,8 @@ export function available(data, prefs) {
  */
 export function idleChannel(data, prefs) {
 	const offered = available(data, prefs);
-	if (data.offline && !data.over) { return "opponent"; } // RECONNECTING UNTIL IT DOES
+	// It shows the reconnecting state until the connection is back.
+	if (data.offline && !data.over) { return "opponent"; }
 	if (prefs.defaultChannel && offered.includes(prefs.defaultChannel)) { return prefs.defaultChannel; }
 	if (data.ai && offered.includes("face")) { return "face"; }
 	return offered.includes("opponent") ? "opponent" : "setup";
@@ -101,9 +111,12 @@ export function tabButtons(ids, active) {
 	const tabW = (label) => textWidth(label) + TAB.pad;
 	const row = (back) => tabW(back) + ids.reduce((sum, id) => sum + tabW(SHORT[id]), 0);
 	const area = tabRow();
-	const back = row(BACK) <= area.w ? BACK : BACK_SHORT; // THE SHORT ARROW WHEN THE WORD WON'T FIT
-	const room = ids.length ? Math.min(TAB.maxGap, Math.floor((area.w - row(back)) / ids.length)) : 0; // ONE GAP AFTER BACK & EACH TAB BUT THE LAST
-	const gap = room > 0 && room % 2 === 0 ? room - 1 : room; // ODD, SO NO COLUMN IN A GAP IS EQUALLY NEAR BOTH TABS (hit() WOULD CALL IT A MISS)
+	// Just the arrow when the word won't fit.
+	const back = row(BACK) <= area.w ? BACK : BACK_SHORT;
+	// One gap after BACK and after each tab but the last.
+	const room = ids.length ? Math.min(TAB.maxGap, Math.floor((area.w - row(back)) / ids.length)) : 0;
+	// Kept odd, so no column in a gap is equally near both tabs (hit() would call a press there a miss).
+	const gap = room > 0 && room % 2 === 0 ? room - 1 : room;
 	let x = area.x + Math.floor((area.w - row(back) - gap * ids.length) / 2);
 	const list = [];
 	for (const [id, label] of [["back", back], ...ids.map((c) => [`tab:${c}`, SHORT[c]])]) {
@@ -121,7 +134,8 @@ export function tabButtons(ids, active) {
 /* ---------------------------------------------------------------- */
 
 /**
- * @description The one tab to light: the focused one while the focus is on the tab row, else the showing channel's (never two at once, they'd read as one)
+ * @description The one tab to light: the focused one while the focus is on the tab row, else the showing channel's
+ * (never two at once, they'd read as one)
  * @param  {[object[]]} tabs [from tabButtons]
  * @param  {[string|null]} focus [the focused button's id]
  * @param  {[string]} channel [the showing channel]
@@ -131,7 +145,7 @@ export function litTab(tabs, focus, channel) {
 	return tabs.some((b) => b.id === focus) ? focus : `tab:${channel}`;
 }
 
-// HOW FAR A POINT IS FROM A BUTTON'S BOX, 0 INSIDE (CHEBYSHEV)
+// How far a point is from a button's box (Chebyshev distance), 0 inside it.
 function distance(b, x, y) {
 	return Math.max(b.x - x, 0, x - (b.x + b.w), b.y - y, y - (b.y + b.h));
 }
@@ -142,7 +156,8 @@ function distance(b, x, y) {
  * @param  {[number]} x [grid pixels]
  * @param  {[number]} y
  * @param  {[number]} slop [how far a near miss may be]
- * @return {[object|null]} the enabled button containing the point, else the nearest enabled one within slop, else null (two equally near is a miss)
+ * @return {[object|null]} the enabled button containing the point, else the nearest enabled one within slop, else null
+ * (two equally near is a miss)
  */
 export function hit(buttons, x, y, slop = 4) {
 	const live = buttons.filter((b) => b.enabled);
@@ -151,10 +166,11 @@ export function hit(buttons, x, y, slop = 4) {
 	const near = live.filter((b) => distance(b, x, y) <= slop);
 	const best = Math.min(...near.map((b) => distance(b, x, y)));
 	const nearest = near.filter((b) => distance(b, x, y) === best);
-	return nearest.length === 1 ? nearest[0] : null; // A PRESS IN THE GAP BETWEEN TABS GOES TO THE CLOSER ONE
+	// A press in the gap between two tabs goes to the closer one.
+	return nearest.length === 1 ? nearest[0] : null;
 }
 
-// A BUTTON'S CENTRE AS [X, Y]
+// A button's centre as [x, y].
 function middle(b) {
 	return [b.x + b.w / 2, b.y + b.h / 2];
 }
@@ -164,7 +180,8 @@ function middle(b) {
  * @param  {[object[]]} buttons
  * @param  {[string]} fromId [the focused button]
  * @param  {[string]} dir [up, down, left or right]
- * @return {[string|null]} the nearest enabled button that way (primary distance plus twice the cross distance), else the farthest the other way (ties nearest on the cross axis),
+ * @return {[string|null]} the nearest enabled button that way (primary distance plus twice the cross distance),
+ *                          else the farthest the other way (ties nearest on the cross axis),
  *                          else fromId; the first enabled button when fromId is unknown
  */
 export function nextFocus(buttons, fromId, dir) {
@@ -180,7 +197,10 @@ export function nextFocus(buttons, fromId, dir) {
 	const ahead = others.filter((o) => o.along > 0);
 	if (ahead.length) { return ahead.reduce((best, o) => (o.along + 2 * o.across < best.along + 2 * best.across ? o : best)).id; }
 	const behind = others.filter((o) => o.along < 0);
-	if (behind.length) { return behind.reduce((best, o) => (o.along < best.along || (o.along === best.along && o.across < best.across) ? o : best)).id; } // WRAP
+	// Nothing that way: wrap around to the farthest button the other way.
+	if (behind.length) {
+		return behind.reduce((best, o) => (o.along < best.along || (o.along === best.along && o.across < best.across) ? o : best)).id;
+	}
 	return fromId;
 }
 

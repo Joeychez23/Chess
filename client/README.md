@@ -150,12 +150,12 @@ To add an expression: add its parts to `PARTS` if it needs new ones, add an entr
 
 ```text
 client/
-  home.html                  Home markup: Play the AI (level), Play a friend (username or challenge link), Invites, Your games, Finished games, Friends, menu (Invites, Your games, Finished games, Friends / Settings / Logout)
-  settings.html              Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my account, menu (Home / Logout)
-  login.html                 Login markup: sign in, Forgot password?, link to signup, menu (Home)
-  signup.html                Signup markup: Create account, link to login, menu (Home), shares the login bundle
-  guest.html                 Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Play the AI / Login/Signup)
-  play.html                  Game menu markup, in groups (Resume / Hint, Takeback, Offer Draw, Type a Move, Monitor (3D, while the room's monitor is up) / Sound, Flip Board, Eval Bar, Download PGN / Forfeit or Restart or Rematch, Cancel / Home, Settings / Exit). At game over the Restart group moves under the result
+  src/js/pages/home/home.html  Home markup: Play the AI (level), Play a friend (username or challenge link), Invites, Your games, Finished games, Friends, menu (Invites, Your games, Finished games, Friends / Settings / Logout)
+  src/js/pages/settings/settings.html  Settings markup: Username, Account, Default start settings, Friends, Closed games, Delete my account, menu (Home / Logout)
+  src/js/pages/login/login.html  Login markup: sign in, Forgot password?, link to signup, menu (Home)
+  src/js/pages/login/signup.html  Signup markup: Create account, link to login, menu (Home), shares the login bundle
+  src/js/pages/guest/guest.html  Guest homepage markup: board picture, Sign in, Play the AI (level, color), menu (Play the AI / Login/Signup)
+  src/js/pages/play/play.html  Game menu markup, in groups (Resume / Hint, Takeback, Offer Draw, Type a Move, Monitor (3D, while the room's monitor is up) / Sound, Flip Board, Eval Bar, Download PGN / Forfeit or Restart or Rematch, Cancel / Home, Settings / Exit). At game over the Restart group moves under the result
   webpack.config.js          One entry + HTML page each (home, guest, play, settings, login; signup shares login's entry), PWA manifest, dotenv, dev proxy (/api, /socket.io, pages)
   src/css/nav.css            The menu (3 line button, top right) on every page, plus the colors and fonts
   src/css/home.css           Home + guest homepage styles

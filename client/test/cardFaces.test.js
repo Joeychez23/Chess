@@ -59,7 +59,7 @@ test("the Knight / Bishop card's face: the knight upper left, the bishop lower r
 	assert.deepEqual([plain.seen.text.filter((t) => t[0] === "♜").length, plain.seen.lines.length], [1, 0]); // THE OTHER MOVE CARDS ARE AS THEY WERE
 });
 
-test("a hidden card of the discard list: its back & an empty gold name bar where drawPlayFace puts the bar, along the top or the bottom, nothing else (fix round 1, I1)", () => {
+test("a hidden card of the discard list: its back & an empty gold name bar where drawPlayFace puts the bar, along the top or the bottom, nothing else", () => {
 	const drawn = (draw) => { const seen = [], ctx = new Proxy({ fillRect: (...r) => seen.push([ctx.fillStyle, ...r]), fillText: (t) => seen.push(["text", t]), measureText: (t) => ({ width: String(t).length }) }, { get: (o, k) => (k in o ? o[k] : () => {}), set: (o, k, v) => { o[k] = v; return true; } }); draw(ctx); return seen; };
 	for (const barBottom of [false, true]) {
 		const bar = drawn((ctx) => drawPlayFace(ctx, faceOf({ id: "c1", key: "move", piece: "n" }), "w", 300, 420, barBottom)).find((r) => r[0] === GOLD); // A MOVE CARD'S NAME BAR IS GOLD

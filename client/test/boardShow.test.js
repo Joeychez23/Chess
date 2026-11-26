@@ -221,7 +221,7 @@ test("boardSteps: a removal right after a move is a topple, never that move's ow
 	assert.deepEqual(boardSteps(prev, emptyView({}), events), [{ op: "move", from: "e2", to: "e4" }, { op: "topple", square: "h7" }, SET]);
 });
 
-test("D19: a fogged forfeit told without its square (view.js drops sq under the fog) topples nothing & is no capture of the move before it: alone no steps, after a move only the move", () => {
+test("a fogged forfeit told without its square (view.js drops sq under the fog) topples nothing & is no capture of the move before it: alone no steps, after a move only the move", () => {
 	const prev = emptyView({ e2: { c: "w", t: "p", id: "p1" } }); // THE FORFEITED PIECE IS HIDDEN: NOT ON THE VIEWER'S BOARD
 	const forfeit = { type: "capture", player: "b", piece: "p2", t: "?", c: "b", by: null };
 	assert.deepEqual(boardSteps(prev, emptyView({ e2: { c: "w", t: "p", id: "p1" } }), [forfeit]), []);

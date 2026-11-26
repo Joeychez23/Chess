@@ -59,10 +59,10 @@ export function findParts(card) {
 
 /**
  * @description Four promotion cards, hidden on the deck until dealt. They are children of the room, so they turn with it.
- * @param {{ template: Object3D, room: Group, tweens: object, requestRender: () => void, still?: () => boolean }} options the room's hidden "card" (a Group of a face & a back mesh), the room group, the tween runner (tween.js), the frame request & whether reduced motion is on (a lift is then set at once)
+ * @param {{ template: Object3D, room: Group, animations: object, requestRender: () => void, still?: () => boolean }} options the room's hidden "card" (a Group of a face & a back mesh), the room group, the animation runner (animation.js), the frame request & whether reduced motion is on (a lift is then set at once)
  * @returns {{ deal: Function, putBack: Function, dealt: Function, hit: Function, hover: Function, focus: Function, dispose: Function }|null} the cards, null when the template can't be used
  */
-export function createCards({ template, room, tweens, requestRender, still = () => false }) {
+export function createCards({ template, room, animations, requestRender, still = () => false }) {
 	if (!findParts(template)) { return null; } // AN OLD OR ODD library.glb: THE FLAT PICKER STAYS. BEFORE ANYTHING IS MADE, SO THERE IS NOTHING TO DISPOSE
 	const spots = cardSpots();
 	const backMaterial = new MeshBasicMaterial({ color: CARD_BACK });
@@ -122,7 +122,7 @@ export function createCards({ template, room, tweens, requestRender, still = () 
 			const token = ++c.liftToken;
 			const from = c.lift;
 			if (still()) { c.lift = target; place(i); return; } // REDUCED MOTION: NO EASE
-			tweens.add({
+			animations.add({
 				duration: LIFT_MS,
 				update(k) { if (token !== c.liftToken) { return; } c.lift = lerp(from, target, k); place(i); },
 			});
@@ -147,7 +147,7 @@ export function createCards({ template, room, tweens, requestRender, still = () 
 		const token = ++c.slideToken;
 		const from = c.p;
 		if (!animate) { c.p = target; place(i); onEnd(); return; }
-		tweens.add({
+		animations.add({
 			duration, delay,
 			update(k) { if (token !== c.slideToken) { return; } c.p = lerp(from, target, k); place(i); },
 			onEnd() { if (token === c.slideToken) { onEnd(); } },
