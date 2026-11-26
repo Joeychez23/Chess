@@ -114,9 +114,9 @@ function curseWeight(key) {
  * @description A ctx over state (changed in place). ctx.turn is the colour whose turn is in progress, set before the
  * action applies (board.turn flips inside makeMove). ctx.resetHalf: set by a capture or a pawn move made outside a
  * chess move, so a turn without a move ends with half 0. Every emit runs ctx.trigger, except while ctx.held is an
- * array (a move being applied): then the event waits there and turn.js resolveMove triggers it once the move is whole.
+ * array (a move being applied): then the event waits there and turn/index.js resolveMove triggers it once the move is whole.
  * ctx.ticked: the colour whose end-of-turn tick has run in this ctx (what is given to it afterwards is not fresh).
- * ctx.cancelled: set by ctx.cancel() during card-played. ctx.trial: true on the copies turn.js plays to test an
+ * ctx.cancelled: set by ctx.cancel() during card-played. ctx.trial: true on the copies turn/ plays to test an
  * action's legality (activeActions, a card-defined action's trial): a hidden effect (Trapdoor) does not fire there, so
  * the offered actions never depend on it. ctx.stood: the sides in check when the action began (turn.act sets it;
  * turn.endTurn drops a side no longer in check): their check was already announced, so startTurn doesn't name the side

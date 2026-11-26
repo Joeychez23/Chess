@@ -2,7 +2,7 @@
  *  suggestions.js  --  chess frontend
  *	Move Box Suggestions (#378)
  *	The rules behind the box's list: when the player can move, which legal moves start with what was typed & where the arrow keys
- *	go. No page or game state in here, so the server tests can run it (server/test/moveSuggestions.test.js)
+ *	go. No page or game state in here, so the server tests can run it (server/test/engine/moveSuggestions.test.js)
  *
  */
 

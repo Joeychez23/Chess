@@ -1,7 +1,7 @@
 // How a game ended, as a line under its result: the play page's menu (gameplay/menu/endGame.js) & Home's finished games. Pure, no imports
 
 /**
- * @description The server's reason -> the line under the result. The chess server's words, then the card engine's (cards-engine/turn.js). A forfeit is already in the title
+ * @description The server's reason -> the line under the result. The chess server's words, then the card engine's (cards-engine/turn/). A forfeit is already in the title
  */
 export const RESULT_REASONS = {
 	"checkmate": "by Checkmate",

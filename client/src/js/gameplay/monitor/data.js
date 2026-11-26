@@ -2,7 +2,7 @@
  *  data.js  --  chess frontend
  *	Monitor Data
  *	The pure part of what the game gives the 3D room's monitor (gameplay/monitor/index.js): the actions read from the menu's items, the result line
- *	& the eval scores kept by ply (gameplay/analysis). No DOM & no process.env here, so the tests load it in Node (client/test/monitorData.test.js)
+ *	& the eval scores kept by ply (gameplay/analysis). No DOM & no process.env here, so the tests load it in Node (client/test/monitor/monitorData.test.js)
  *
  */
 

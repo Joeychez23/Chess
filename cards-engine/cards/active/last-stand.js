@@ -61,7 +61,7 @@ module.exports = {
 		b.sq[from] = null;
 		for (const i of [from, to]) for (const ch of CASTLING_LOST[i] || "") b.castling = b.castling.replace(ch, "");
 		b.castling = b.castling || "-";
-		ctx.held = []; // EVENTS NOW, TRIGGERS ONCE THE MOVE IS WHOLE (AS IN turn.js resolveMove)
+		ctx.held = []; // EVENTS NOW, TRIGGERS ONCE THE MOVE IS WHOLE (AS IN turn/index.js resolveMove)
 		ctx.emit({ type: "move", player, card: null, piece: mv.piece, from: mv.from, to: mv.to });
 		if (victim) capture(ctx, player, victim, mv.piece, mv.to);
 		const held = ctx.held;

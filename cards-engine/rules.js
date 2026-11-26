@@ -157,7 +157,7 @@ function isLegalMove(state, color, move, hooks, isChecked, enemyKing) {
 		const passOver = { from: move.from, to: sqName((sqIndex(move.from) + sqIndex(move.to)) / 2) };
 		if (isChecked || inCheck(afterMove(state, passOver), color, hooks)) {
 			if (!(hooks.castleThroughCheck && hooks.castleThroughCheck(state, color))) return false;
-			// Only the hook let it through: turn.js resolveMove puts it on the move event (Unbroken Line fires on it). The move
+			// Only the hook let it through: turn/index.js resolveMove puts it on the move event (Unbroken Line fires on it). The move
 			// is pseudoMoves' own new object, so marking it here is safe.
 			move.through = true;
 		}

@@ -4,11 +4,11 @@
 		"build": "cd client && webpack --mode production",
 		"start": "npm run build && cd server && npm start",
 		"lint": "eslint .",
-		"test:client": "node --test \"client/test/*.test.js\""
+		"test:client": "node --test \"client/test/**/*.test.js\""
 	},
 	"name": "chess",
 	"description": "<a href=\"https://aws-prac-route53.com/\" target=\"_blank\"> https://aws-prac-route53.com/ </a>",
-	"version": "1.15.1",
+	"version": "1.15.2",
 	"devDependencies": {
 		"@babel/core": "^7.15.0",
 		"@babel/preset-env": "^7.15.0",

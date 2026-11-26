@@ -463,8 +463,8 @@ function isBlindPlay(action, blind) {
  * ones only a veiled status makes legal
  */
 function tellable(state, player, fog, ids) {
-	// Lazy: turn.js loads the cards, which load this file's neighbours
-	const turn = require("./turn.js");
+	// Lazy: turn/ loads the cards, which load this file's neighbours
+	const turn = require("./turn/index.js");
 	// Under the fog this holds every drop of the player's own placed cards: leaving out the one that gives check would
 	// tell where a hidden king stands
 	const all = turn.legalActions(state, player, fog);

@@ -1,5 +1,5 @@
 /*
- *  sessionKeys.js  --  chess server & data service (the same file in both, data-service/test/shared.test.js)
+ *  sessionKeys.js  --  chess server & data service (the same file in both, data-service/test/service/shared.test.js)
  *	Session Keys (#252)
  *  Every session & guest token is signed by the data service with its private key (ES256). The chess server only has the public key,
  *  so it can check a token but never make one. Each token names its key (kid), so a new key & the old one both work while the key is changed

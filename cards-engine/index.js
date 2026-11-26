@@ -7,7 +7,7 @@
 const rng = require("./rng.js");
 const board = require("./board.js");
 const hand = require("./hand.js");
-const turn = require("./turn.js");
+const turn = require("./turn/index.js");
 const { makeCtx } = require("./ctx.js");
 const { inCheck } = require("./rules.js");
 const view = require("./view.js");

@@ -56,7 +56,7 @@ function deal(ctx) {
 /**
  * @description Start a duel for player's piece: state.duel = { player, piece, card, step, wins, deck, hands, picked, round, spades },
  * then the first deal. card is the played key (All or Nothing or a version): it sets a lost hand's stakes and rides in the
- * saved state. The turn waits until the duel is over (turn.js).
+ * saved state. The turn waits until the duel is over (turn/).
  */
 function start(ctx, player, piece, card) {
 	ctx.state.duel = { player, piece, card, wins: 0, round: 0 };

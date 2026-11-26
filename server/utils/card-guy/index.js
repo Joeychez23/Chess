@@ -10,24 +10,16 @@
 const { Chess } = require("chess.js");
 const engine = require("../../../cards-engine/index.js");
 const { inCheck } = require("../../../cards-engine/rules.js");
-const hand = require("../../../cards-engine/hand.js");
-const { CARDS, RARITY_WEIGHTS, baseKey } = require("../../../cards-engine/cards/index.js");
+const { baseKey } = require("../../../cards-engine/cards/index.js");
 const ai = require("../ai.js");
 const { candidates, plainMoves, allowed, staticScore, isPlain, shape, PASSIVES } = require("./candidates.js");
 const { cardScore, duelValue } = require("./score.js");
 const { pick } = require("./pick.js");
+const { simulate, guessState, seedAt, SAMPLES } = require("./cardGuy.guess.js");
+const { freeDiscard, material, rarityRank } = require("./cardGuy.discard.js");
 
 // Boards the engine is asked about in one turn (the same board is only asked once)
 const MAX_EVALS = 24;
-// Guessed states a chance outcome is averaged over
-const SAMPLES = 8;
-// Fresh guesses tried when the real game refused every action of one
-const GUESSES = 3;
-// Guesses tried for one that agrees with this turn's refusals
-const GUESS_TRIES = 24;
-// Refusals in one turn before that agreeing guess is looked for. Measured over 70 fogged games (2026-11-22):
-// 257 refusals without it, 261 from the 1st, 247 from the 2nd, 235 from the 3rd or 4th
-const FIT_FROM = 3;
 // A won game (a lost one is -WIN_SCORE), above any evaluation (centipawns)
 const WIN_SCORE = 100000;
 // evaluate's score for a forced mate (centipawns)
@@ -37,10 +29,6 @@ const FAVOURITES = ["all-or-nothing", "double-time"];
 
 function otherColor(color) {
 	return color === "w" ? "b" : "w";
-}
-
-function seedAt(seed, offset) {
-	return (seed + offset) >>> 0;
 }
 
 /**
@@ -112,108 +100,6 @@ function decidedScore(state, me) {
 	// The second move of a two-move turn must be another piece's, so the king may not be takeable after all
 	const canTakeKing = engine.legalActions(state, me).some((action) => action.type === "move" && action.to === square);
 	return canTakeKing ? WIN_SCORE : undefined;
-}
-
-/**
- * @description His own pawns with a move the real game refused this turn that no fogged piece explains (it is legal on
- * the board with the fogged pieces left off): a veiled Frozen from Tremor, which his view leaves out. They are frozen in
- * each guess (freezeVeiledPawns), so their other moves are never tried and no fitted guess looks for a fogged piece to explain them
- * shortcut: a check or pin by a fogged piece refuses such a push too, so that pawn sits out the rest of the turn;
- * upgrade if fogged checks show it costing games
- * @return {[array]} piece ids
- */
-function veiledPawns(view, refused, seed) {
-	if (!view.board.hidden || !refused.length) {
-		return [];
-	}
-	const bareState = engine.fromView({ ...view, board: { ...view.board, hidden: 0 } }, seed);
-	const keys = new Set(engine.legalActions(bareState, view.you).map(engine.actionKey));
-	const pawns = refused
-		.filter((key) => keys.has(key))
-		.map((key) => JSON.parse(key))
-		.filter((action) => action.type === "move")
-		.map((action) => view.board.sq[engine.board.sqIndex(action.from)]);
-	const ids = pawns.filter((piece) => piece && piece.c === view.you && piece.t === "p").map((piece) => piece.id);
-	return [...new Set(ids)];
-}
-
-function freezeVeiledPawns(sim, ids) {
-	const statuses = sim.statuses || (sim.statuses = {});
-	for (const id of ids) {
-		const isFrozen = (statuses[id] || []).some((effect) => effect.s === "frozen");
-		if (!isFrozen) {
-			statuses[id] = [...(statuses[id] || []), { s: "frozen", left: 3, veiled: true }];
-		}
-	}
-	return sim;
-}
-
-/* ---------------------------------------------------------------- */
-// The state Card Guy plays on
-/* ---------------------------------------------------------------- */
-/**
- * @description The state Card Guy simulates on, one with an action the real game hasn't refused. Under the visitor's
- * Fog of War the state is a guess (the fogged pieces are put somewhere). From the turn's third refusal (FIT_FROM) a guess
- * is looked for (GUESS_TRIES tries) in which every refused action is illegal too, or the closest one when none is. When
- * every action of a guess was refused another one is made, and after the last one Card Guy uses the board as he sees it,
- * with the fogged pieces left off: nothing guessed stands in a move's way there
- * @return {[object]} { sim, base: the seed sim was made from, bare: true for the board with the fogged pieces left off
- * (no chess position: the engine isn't asked), veiled: veiledPawns' answer }
- */
-function simulate(view, seed, refused, told) {
-	if (!Number.isFinite(seed)) {
-		// undefined, or the game's hex seed, would become 0: one guess and one set of dice every turn
-		throw new TypeError("Card Guy's seed must be a finite number");
-	}
-	const veiled = veiledPawns(view, refused, seed);
-	// This many refusals prove the guess wrong (a check it missed or made up), not one piece in the way:
-	// look for a guess the refusals agree with, not the same one less a move
-	const isFitting = !!view.board.hidden && refused.length >= FIT_FROM;
-
-	let best = null;
-	for (let attempt = 0; attempt < (isFitting ? GUESS_TRIES : GUESSES); attempt++) {
-		const base = seedAt(seed, attempt * (SAMPLES + 1));
-		const sim = guessState(view, base, veiled);
-		if (hasActionLeft(sim, view.you, refused, told)) {
-			// A guess often checks Card Guy, the real game seldom does: of two that agree, take the one with no check
-			const miss = isFitting ? 2 * countMisses(sim, view.you, refused) + (inCheck(sim, view.you) ? 1 : 0) : 0;
-			if (!miss) {
-				return { sim, base, veiled };
-			}
-			// When none agrees without a check: one that agrees with a check, else the closest of the first guesses
-			// (past those, only one that agrees)
-			if ((attempt < GUESSES || miss < 2) && (!best || miss < best.miss)) {
-				best = { sim, base, miss };
-			}
-		}
-		// Nothing on the board is guessed: another guess would have the same actions
-		if (!view.board.hidden) {
-			break;
-		}
-	}
-	if (best) {
-		return { sim: best.sim, base: best.base, veiled };
-	}
-
-	const sim = view.board.hidden ? guessState({ ...view, board: { ...view.board, hidden: 0 } }, seed, veiled) : null;
-	if (sim && hasActionLeft(sim, view.you, refused, told)) {
-		return { sim, base: seed, bare: true, veiled };
-	}
-	throw new Error("Card Guy has no action to take");
-}
-
-function guessState(view, seed, veiled) {
-	return freezeVeiledPawns(engine.fromView(view, seed), veiled);
-}
-
-function hasActionLeft(sim, me, refused, told) {
-	return allowed(sim, me, refused, told).length > 0;
-}
-
-// Refused actions the guess still calls legal
-function countMisses(sim, me, refused) {
-	const keys = new Set(engine.legalActions(sim, me).map(engine.actionKey));
-	return refused.filter((key) => keys.has(key)).length;
 }
 
 /* ---------------------------------------------------------------- */
@@ -429,57 +315,6 @@ function boardScore(outcome, values, now) {
 // Choices made before the search
 /* ---------------------------------------------------------------- */
 /**
- * @description Card Guy's free discard, at every level, decided before the search: scored, a
- * 2-for-1 always loses to a move. First the active with no play this turn (not even paying a curse's clear) that is
- * common or uncommon and not Cleanse. Else a move card with no move this turn, the first in hand order (one card at a
- * time; the engine remembers it until the next one, which draws 1 back at random). Else none. Never the passive's
- * reroll: passiveSwap decides that before this
- * @param  {[array]} actions [the legal actions on Card Guy's guess]
- * @param  {[object]} player [Card Guy's player in that guess: its actives and move cards]
- * @return {[object]} a discard action, or null
- */
-function freeDiscard(actions, player) {
-	const discards = actions.filter((action) => action.type === "discard");
-	const active = discards.find((discard) => {
-		const id = discard.cards[0];
-		return discard.cards.length === 1 && isDead(actions, id) && isCheapActive(player, id) && !paysACurse(actions, id);
-	});
-	if (active) {
-		return active;
-	}
-	// The pair with the lowest draw-back floor, dropped by the owner on 2026-11-22 after a trial (the draw-back is
-	// random again). Kept for reference:
-	// const moves = hand.moveCards(player), floor = (a) => Math.min(...a.cards.map((id) => hand.PIECE_VALUE[moves.find((c) => c.id === id).piece]));
-	// Pairs come in hand order, so this keeps the first of the lowest:
-	// return discards.filter((a) => a.cards.length === 2 && a.cards.every(dead))
-	// 	.reduce((best, a) => (!best || floor(a) < floor(best) ? a : best), null);
-	// Move cards come in hand order: the first dead one (an entered Mirage is a move card in Card Guy's view)
-	return discards.find((discard) => player.moves.some((card) => card.id === discard.cards[0]) && isDead(actions, discard.cards[0])) || null;
-}
-
-// A card with no play this turn other than its discard
-function isDead(actions, id) {
-	return !actions.some((action) => action.type !== "discard" && action.card === id);
-}
-
-// Rare and up, and Cleanse, are kept for later. Only an active: a one-card discard of the passive is the reroll,
-// never taken here
-function isCheapActive(player, id) {
-	const key = (player.actives.find((card) => card.id === id) || {}).key;
-	return !!CARDS[key] && ["common", "uncommon"].includes(CARDS[key].rarity) && baseKey(key) !== "cleanse";
-}
-
-// It can pay a curse's clear (Leech, Shackles), so it is not dead
-function paysACurse(actions, id) {
-	return actions.some((action) => action.type !== "discard" && action.discard === id);
-}
-
-// me's pieces less the other side's, by hand.PIECE_VALUE (a king counts 0)
-function material(state, me) {
-	return state.board.sq.reduce((sum, piece) => sum + (piece ? (piece.c === me ? 1 : -1) * (hand.PIECE_VALUE[piece.t] || 0) : 0), 0);
-}
-
-/**
  * @description Card Guy's rule for his waiting passives, decided before the search, from his view alone. With 3 waiting
  * and one in hand of a higher rarity than the weakest waiting one (ties: the oldest), he drops that one; then, the drop
  * made (his view shows a passive of his left this turn and fewer than 3 wait), he places the one in hand, only when the
@@ -522,11 +357,6 @@ function passiveSwap(actions, view, legal) {
 // The list he is told names no piece for the placing or the reroll, so this holds under a fog too
 function isTold(legal, action) {
 	return !legal || legal.some((toldAction) => engine.actionKey(toldAction) === engine.actionKey(action));
-}
-
-// RARITY_WEIGHTS lists the tiers from common up
-function rarityRank(card) {
-	return Object.keys(RARITY_WEIGHTS).indexOf(CARDS[card.key].rarity);
 }
 
 /* ---------------------------------------------------------------- */

@@ -3,7 +3,7 @@
  *	The CRT Monitor's Settings
  *	Which channels the monitor offers, which one opens first & the opponent channel's background. Kept in localStorage under KEY; this is the only
  *	file that touches it, & every access is in a try, since storage can be blocked or full.
- *	No DOM & no three.js here, so the tests load it in Node (client/test/monitorPrefs.test.js)
+ *	No DOM & no three.js here, so the tests load it in Node (client/test/monitor/monitorPrefs.test.js)
  *
  */
 

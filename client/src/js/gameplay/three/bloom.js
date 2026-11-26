@@ -94,7 +94,7 @@ export function renderFrame(view) {
 	passes.scene.camera = passes.glow.camera = camera;
 	renderer.getSize(size);
 	const pr = renderer.getPixelRatio();
-	if (sizeChanged(built.last, size.x, size.y, pr)) { // camera.js resize() SETS THE RENDERER'S SIZE: FOLLOW IT HERE, NOT THERE
+	if (sizeChanged(built.last, size.x, size.y, pr)) { // camera/index.js resize() SETS THE RENDERER'S SIZE: FOLLOW IT HERE, NOT THERE
 		bloomComposer.setPixelRatio(pr);
 		finalComposer.setPixelRatio(pr);
 		bloomComposer.setSize(size.x, size.y);

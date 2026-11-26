@@ -1,9 +1,9 @@
 /*
  *  pixelFont.js  --  chess frontend
  *	The CRT Monitor's Font
- *	A 5 x 7 pixel font for the monitor's name & status strip (three/screen.js), so its text is as chunky as its picture. Capitals,
+ *	A 5 x 7 pixel font for the monitor's name & status strip (three/monitor/screen.js), so its text is as chunky as its picture. Capitals,
  *	digits & a little punctuation: lower case is drawn as capitals, accents are dropped (é as E), anything else as a box.
- *	No DOM & no three.js here, so the tests load it in Node (client/test/pixelFont.test.js)
+ *	No DOM & no three.js here, so the tests load it in Node (client/test/monitor/pixelFont.test.js)
  *
  */
 

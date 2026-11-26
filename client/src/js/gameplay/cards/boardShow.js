@@ -3,7 +3,7 @@
  *	Chess Cards Board Show
  *	What a card route's answer plays on the board, as steps in the order of its events (Overwatch's shot: the move, the take,
  *	the bishop out and back), and the step player that flow.js runs every answer's steps through (these and duelShow.js's),
- *	one after another. No DOM, so the client tests can require it (client/test/boardShow.test.js)
+ *	one after another. No DOM, so the client tests can require it (client/test/cards/boardShow.test.js)
  *
  */
 
@@ -40,7 +40,7 @@ function isRemoval(event) {
  * - Opposing Finality's handover slides the piece to its square on the receiving side, in its new colour (c);
  * - then the answer's view goes on the board and the table (set).
  * Nothing otherwise, also on a load (no previous view): the answer takes the drawn move's path. A lost duel's removal is the
- * duel's answer (duelShow.js), never asked here. A new kind of step is one more case here and in three/motion.js playBoardStep
+ * duel's answer (duelShow.js), never asked here. A new kind of step is one more case here and in three/board/motion.js playBoardStep
  * @param  {[object|null]} prev [the view before the answer, null on a load]
  * @param  {[object]} view [the answer's view]
  * @param  {[array]} events [the answer's events]
