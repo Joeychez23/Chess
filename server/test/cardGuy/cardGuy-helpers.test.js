@@ -4,6 +4,7 @@
  *
  */
 
+require("../helpers/env.js");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { otherColor } = require("../../utils/card-guy/index.js");
