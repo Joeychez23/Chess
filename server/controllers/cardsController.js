@@ -391,14 +391,19 @@ function saveState(gameData, state) {
 /**
  * @description The board a save stores as game_board, which the normal game routes and Home's picture show. While
  * Card Guy's Fog of War is up it keeps the stored one, since the real board would show the pieces the fog hides from
- * the player. A finished game hides nothing.
+ * the player; only the side to move is the current one, and the en passant square is cleared. A finished game hides
+ * nothing.
  * @param  {[object]} gameData [the stored card game]
  * @param  {[object]} state [the state being saved]
  * @return {[string]} fen
  */
 function boardFen(gameData, state) {
 	const fogged = isCardGuyFogUp(state, cardGuyOf(gameData));
-	return fogged && !state.result ? gameData.game_board : toFen(state);
+	if (!fogged || state.result) return toFen(state);
+	if (!gameData.game_board) return gameData.game_board;
+	// Whose turn it is stays current (Home's caption reads it); the stored en passant square was the old side's
+	const [placement, , castling, , half, full] = gameData.game_board.split(" ");
+	return [placement, state.board.turn, castling, "-", half, full].join(" ");
 }
 
 /**

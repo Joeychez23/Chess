@@ -85,6 +85,8 @@ module.exports = {
 		// view.js's hand count, plus the King card under Hollow Crown (it is in known too, face up, so the tokens match)
 		const count = takeable(mine).length + (mine.passive ? 1 : 0) + mine.curses.length;
 		const tokens = Array.from({ length: count - known.length }, (_, i) => "?" + (i + 1));
+		// Nothing to take back (the stolen King card was lost and player holds nothing else): no choice, it would have no answer
+		if (!known.length && !tokens.length) return;
 		ctx.ask(opp, "pickpocket", [...known, ...tokens], { card: "pickpocket", from: player, stolen: stolen.id });
 	},
 	versions: [
