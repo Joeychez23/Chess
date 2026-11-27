@@ -49,12 +49,12 @@ async function refused(keys, method, path, options, http) {
 describe("GET /users/me", () => {
 	test("the requester's row as stored, with empty lists before their first game (their login made it)", async () => {
 		const first = await call("GET", "/users/me?consistent=true", { as: alice });
-		assert.deepEqual(JSON.parse(first.user_data.open_games.S), []);
+		assert.deepEqual(JSON.parse(first.user_data.open_games), []);
 		assert.equal(first.user_data.sid, undefined);
 		await db.initializeGame("game1", "alice", "CHESS_AI", 3, { start_params: { color: "w" } });
 		const response = await call("GET", "/users/me?consistent=true", { as: alice });
-		assert.equal(response.user_data.user_id.S, "alice");
-		assert.deepEqual(JSON.parse(response.user_data.open_games.S), ["game1"]);
+		assert.equal(response.user_data.user_id, "alice");
+		assert.deepEqual(JSON.parse(response.user_data.open_games), ["game1"]);
 		assert.equal(response.user_data.ai_game_id, undefined); // ONLY WITH games=true
 	});
 

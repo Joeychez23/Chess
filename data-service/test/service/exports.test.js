@@ -66,7 +66,7 @@ describe("db/", () => {
 
 		DynamoDB.prototype.updateItem = async () => { throw Object.assign(new Error("lost"), { name: "ConditionalCheckFailedException" }); };
 		assert.deepStrictEqual(await updateOrConflict(params, "Board changed before the move saved: game1"),
-			{ status: 500, message: "Board changed before the move saved: game1" });
+			{ status: 409, message: "Board changed before the move saved: game1" });
 
 		let sent;
 		DynamoDB.prototype.updateItem = async (request) => {

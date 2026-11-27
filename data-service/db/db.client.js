@@ -59,13 +59,13 @@ async function checkTables() {
  * gets its conflict reply instead of an error. Any other error is thrown
  * @param  {[object]} params [updateItem params with a ConditionExpression]
  * @param  {[string]} conflictMessage [the message when the condition failed]
- * @return {[object]} saved [{ status: 200, response (DynamoDB's answer) } | { status: 500, message: conflictMessage }]
+ * @return {[object]} saved [{ status: 200, response (DynamoDB's answer) } | { status: 409, message: conflictMessage }]
  */
 async function updateOrConflict(params, conflictMessage) {
 	try {
 		return { status: 200, response: await connection.updateItem(params) };
 	} catch (err) {
-		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: conflictMessage }; }
+		if (err.name == "ConditionalCheckFailedException") { return { status: 409, message: conflictMessage }; }
 		throw err;
 	}
 }

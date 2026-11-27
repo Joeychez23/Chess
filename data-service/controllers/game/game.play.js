@@ -37,7 +37,7 @@ const CARDS_REASONS = { checkmate: false, king: false, skips: false, stalemate: 
  * asks for its new id before it has a cookie, and makes the game when it's not found (as the server always answered)
  * @param  {[string]} req.params.gameId [game id]
  * @param  {[string]} req.query.consistent ["true" = a strongly consistent read, to see a save another request just made]
- * @return {[object]} response [retrieveGame's { status, game_data, message }, "Game data not found" is { status: 500, message }]
+ * @return {[object]} response [retrieveGame's { status, game_data, message }, "Game data not found" is { status: 404, message }]
  */
 async function getGame(req, res) {
 	let response = await retrieveGame(req.params.gameId, req.query.consistent == "true");

@@ -119,10 +119,11 @@ describe("who's asking", () => {
 
 	test("a player only sees their own games", async () => {
 		await friendGame("game1", "alice", "bob");
-		assert.equal((await call("GET", "/games/game1", { as: alice })).game_data.game_id.S, "game1");
+		assert.equal((await call("GET", "/games/game1", { as: alice })).game_data.game_id, "game1");
 		assert.equal((await call("GET", "/games/game1", { as: bob })).status, 200);
 		await refused("game1", "GET", "/games/game1", { as: mallory }, 403);
-		assert.equal((await call("GET", "/games/missing", { as: alice })).message, "Game data not found");
+		const missing = await call("GET", "/games/missing", { as: alice });
+		assert.deepEqual([missing.http, missing.status, missing.message], [404, 404, "Game data not found"]); // NOT FOUND, NOT A FAULT
 		assert.equal((await call("GET", "/games/missing")).message, "Game data not found"); // EVEN WITH NO PLAYER (A NEW GUEST'S FIRST GAME), AN EXISTING GAME STILL NEEDS ONE
 	});
 
@@ -147,7 +148,7 @@ describe("move", () => {
 		await friendGame("game1", "alice", "bob");
 		const moved = await call("POST", "/games/game1/move", { as: alice, body: { from: "e2", to: "e4" } });
 		assert.equal(moved.http, 200);
-		assert.deepEqual(moved.game_data.moves.S, ["e4"]);
+		assert.deepEqual(moved.game_data.moves, ["e4"]);
 		assert.equal(board("game1"), "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
 		assert.equal((await call("POST", "/games/game1/move", { as: bob, body: { from: "e7", to: "e5" } })).status, 200);
 	});
@@ -184,9 +185,9 @@ describe("move", () => {
 		const moves = [[alice, "f2", "f3"], [bob, "e7", "e5"], [alice, "g2", "g4"], [bob, "d8", "h4"]]; // FOOL'S MATE
 		let last;
 		for (const [who, from, to] of moves) { last = await call("POST", "/games/game1/move", { as: who, body: { from, to } }); }
-		assert.equal(last.game_data.state.S, "CLOSED");
-		assert.equal(last.game_data.winner.S, "b");
-		assert.equal(last.game_data.reason.S, "checkmate");
+		assert.equal(last.game_data.state, "CLOSED");
+		assert.equal(last.game_data.winner, "b");
+		assert.equal(last.game_data.reason, "checkmate");
 		assert.equal(peek("chess_db", "game1").state.S, "CLOSED");
 		assert.equal(Number(peek("user_db", "bob").rating.N), 1520);
 		assert.equal(Number(peek("user_db", "alice").rating.N), 1480);
@@ -216,20 +217,21 @@ describe("move", () => {
 	test("a closing move whose write fails saves nothing, and the retry closes the game", async () => {
 		const { response, before } = await mateWhileFailing("chess_db");
 		assert.equal(response.http, 500); // THE CHESS SERVER TELLS THE PLAYER TO TRY AGAIN
+		assert.deepEqual([response.status, response.crashed], [500, true]); // THE ERROR HANDLER'S 500: THE CHESS SERVER TREATS IT AS DOWN
 		assert.deepEqual(peek("chess_db", "game1"), before);
 
 		const retry = await call("POST", "/games/game1/move", { as: bob, body: { from: "d8", to: "h4" } });
-		assert.equal(retry.game_data.state.S, "CLOSED");
+		assert.equal(retry.game_data.state, "CLOSED");
 		assert.equal(Number(peek("user_db", "bob").rating.N), 1520);
 	});
 
 	test("a closing move stays closed when the work after it fails", async () => {
 		const { response } = await mateWhileFailing("user_db");
 		assert.equal(response.http, 200);
-		assert.equal(response.game_data.state.S, "CLOSED");
+		assert.equal(response.game_data.state, "CLOSED");
 		const stored = peek("chess_db", "game1");
 		assert.equal(stored.state.S, "CLOSED");
-		assert.equal(stored.game_board.S, response.game_data.game_board.S);
+		assert.equal(stored.game_board.S, response.game_data.game_board);
 		assert.equal((await db.pruneOpenGames((await db.retrieveUser("alice")).user_data)).friend_game_id, null); // THE STALE LIST ENTRY ISN'T AN OPEN GAME
 	});
 
@@ -237,7 +239,7 @@ describe("move", () => {
 		await db.initializeGame("game1", "alice", "bob", false, { start_params: { color: "w", fen: "8/4P3/8/8/8/k7/8/4K3 w - - 0 1" }, inviter_id: "alice" });
 		const moved = await call("POST", "/games/game1/move", { as: alice, body: { from: "e7", to: "e8", promotion: "n" } });
 		assert.equal(moved.http, 200);
-		assert.deepEqual(moved.game_data.moves.S, ["e8=N"]);
+		assert.deepEqual(moved.game_data.moves, ["e8=N"]);
 	});
 });
 
@@ -253,7 +255,7 @@ describe("opening", () => {
 		const before = peek("chess_db", "game1");
 		const saved = await call("POST", "/games/game1/opening", { as: bob, body: { board: before.game_board.S, ...NAJDORF } });
 		assert.equal(saved.http, 200);
-		assert.deepEqual(JSON.parse(saved.game_data.opening.S), NAJDORF);
+		assert.deepEqual(JSON.parse(saved.game_data.opening), NAJDORF);
 		const { opening, ...rest } = peek("chess_db", "game1");
 		assert.deepEqual(rest, before);
 		assert.deepEqual(JSON.parse(opening.S), NAJDORF);
@@ -284,7 +286,7 @@ describe("ai-move", () => {
 		await call("POST", "/games/game1/move", { as: alice, body: { from: "e2", to: "e4" } });
 		const moved = await call("POST", "/games/game1/ai-move", { as: alice, body: { from: "e7", to: "e5" } });
 		assert.equal(moved.http, 200);
-		assert.deepEqual(moved.game_data.moves.S, ["e4", "e5"]);
+		assert.deepEqual(moved.game_data.moves, ["e4", "e5"]);
 	});
 
 	test("not on the player's turn, not in a friend game, not illegal, not by someone else", async () => {
@@ -313,7 +315,7 @@ describe("forfeit", () => {
 	test("the other side wins and the game is closed once", async () => {
 		await friendGame("game1", "alice", "bob");
 		const closed = await call("POST", "/games/game1/forfeit", { as: alice });
-		assert.equal(closed.game_data.winner.S, "b");
+		assert.equal(closed.game_data.winner, "b");
 		assert.equal(peek("chess_db", "game1").reason.S, "forfeit");
 		await refused("game1", "POST", "/games/game1/forfeit", { as: bob }, 409);
 	});
@@ -322,7 +324,7 @@ describe("forfeit", () => {
 		await aiGame("game1", "alice");
 		await refused("game1", "POST", "/games/game1/forfeit", { as: mallory }, 403);
 		await refused("game1", "POST", "/games/game1/forfeit", { as: alice, body: { winner: "w" } }, 400);
-		assert.equal((await call("POST", "/games/game1/forfeit", { as: alice })).game_data.winner.S, "b"); // THE AI PLAYS BLACK
+		assert.equal((await call("POST", "/games/game1/forfeit", { as: alice })).game_data.winner, "b"); // THE AI PLAYS BLACK
 		await friendGame("game2", "alice", "bob", true);
 		await refused("game2", "POST", "/games/game2/forfeit", { as: bob }, 409);
 	});
@@ -416,7 +418,7 @@ describe("takeback", () => {
 		await refused("game2", "POST", "/games/game2/takeback/decline", { as: alice }, 409);
 
 		const accepted = await call("POST", "/games/game2/takeback", { as: bob });
-		assert.deepEqual(accepted.game_data.moves.S, []);
+		assert.deepEqual(accepted.game_data.moves, []);
 		const saved = peek("chess_db", "game2");
 		assert.equal(saved.takeback_count.N, "1");
 		assert.equal(saved.takeback_player_id, undefined);

@@ -11,7 +11,7 @@
 /* ---------------------------------------------------------------- */
 
 const { aiAcceptsDraw } = require("../../utils/ai.js");
-const { gameOpen, gamePending, isAiGame, playerName, startParams } = require("../../utils/games.js");
+const { gameOpen, gamePending, isAiGame, playerName, startParams } = require("../../utils/plainItems.js");
 const { latestOpening } = require("../../utils/openings.js");
 const { ifSaved, takeback, declineTakeback, forfeit, offerDraw, declineDraw, answerAiDraw, rematch, cancelRematch } = require("../../dataClient.js");
 const { emitToGame, isInGameRoom } = require("../../socket.js");
@@ -40,19 +40,19 @@ async function takebackGame(req, res) {
 	if (!response) { return; }
 
 	const gameData = response.game_data;
-	const gameId = gameData.game_id.S;
+	const gameId = gameData.game_id;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (gameData.mode?.S == "cards") { return chessGuards.useCardsRoutes(res); }
-	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
-	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is over" }); }
+	if (gameData.mode == "cards") { return chessGuards.useCardsRoutes(res); }
+	if (gamePending(gameData)) { return res.status(409).json({ status: 409, message: "Invite not accepted yet" }); }
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 409, message: "Game is over" }); }
 	if (!isAiGame(gameData)) { return chessGuards.reply(res, await friendTakeback(gameData, playerId)); }
 	if (chessPlay.aiTurns.has(gameId)) { return res.status(409).json({ status: 409, message: "Wait for the AI's move to finish." }); }
 
-	const board = gameData.game_board.S;
+	const board = gameData.game_board;
 	const saved = await ifSaved(() => takeback(gameId), () => chessPlay.savedBoardChange(gameId, board));
 	if (saved.status != 200) { return chessGuards.reply(res, { status: saved.status, message: saved.message }); }
-	await chessPlay.recordOpening(saved, latestOpening(saved.game_data.moves.S, startParams(saved.game_data).fen));
+	await chessPlay.recordOpening(saved, latestOpening(saved.game_data.moves, startParams(saved.game_data).fen));
 	return res.json(chessShapers.playerGame(saved, playerId));
 }
 
@@ -65,21 +65,21 @@ async function takebackGame(req, res) {
  * @return {[object]} response [the whole game when accepted | { status, requested: true, opponent_name, message } | { status: 409, message }]
  */
 async function friendTakeback(gameData, playerId) {
-	const gameId = gameData.game_id.S;
+	const gameId = gameData.game_id;
 	const pressed = await ifSaved(() => takeback(gameId), () => savedTakebackPress(gameData, playerId));
 	if (pressed.status != 200) { return { status: pressed.status, message: pressed.message }; }
 
 	// Waiting on the opponent
 	if (!pressed.game_data) {
 		emitToGame(gameId, "takeback", { game_id: gameId, player_id: playerId, state: "requested" });
-		const opponentColor = playerId == gameData.white_player_id.S ? "b" : "w";
+		const opponentColor = playerId == gameData.white_player_id ? "b" : "w";
 		return { status: 200, requested: true, opponent_name: playerName(gameData, opponentColor), message: pressed.message };
 	}
 
 	// Before the opponent & Home are told, they load the game
-	await chessPlay.recordOpening(pressed, latestOpening(pressed.game_data.moves.S, startParams(pressed.game_data).fen));
+	await chessPlay.recordOpening(pressed, latestOpening(pressed.game_data.moves, startParams(pressed.game_data).fen));
 	// Both boards load the earlier position
-	emitToGame(gameId, "takeback", { game_id: gameId, player_id: playerId, state: "accepted", game_board: pressed.game_data.game_board.S });
+	emitToGame(gameId, "takeback", { game_id: gameId, player_id: playerId, state: "accepted", game_board: pressed.game_data.game_board });
 	// The game's picture on Home
 	chessGuards.notifyHome(pressed.game_data);
 	return chessShapers.playerGame(pressed, playerId);
@@ -92,10 +92,10 @@ async function friendTakeback(gameData, playerId) {
  * @return {[object]} pressed [the data service's answer as it would have been, null when nothing saved]
  */
 async function savedTakebackPress(gameData, playerId) {
-	const latest = await chessGuards.retrieveGame(gameData.game_id.S, true);
+	const latest = await chessGuards.retrieveGame(gameData.game_id, true);
 	if (!latest.game_data) { return null; }
-	if (latest.game_data.takeback_player_id?.S == playerId) { return { status: 200, requested: true, message: "Takeback requested" }; }
-	return Number(latest.game_data.takeback_count?.N || 0) > Number(gameData.takeback_count?.N || 0) ? latest : null;
+	if (latest.game_data.takeback_player_id == playerId) { return { status: 200, requested: true, message: "Takeback requested" }; }
+	return Number(latest.game_data.takeback_count || 0) > Number(gameData.takeback_count || 0) ? latest : null;
 }
 
 /**
@@ -107,7 +107,7 @@ async function declineTakebackGame(req, res) {
 	const response = await chessGuards.loadMyGame(req, res, { consistentRead: true });
 	if (!response) { return; }
 
-	const gameId = response.game_data.game_id.S;
+	const gameId = response.game_data.game_id;
 	const playerId = chessGuards.playerInGame(req, response.game_data);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
 
@@ -143,8 +143,8 @@ async function forfeitGame(req, res) {
 	const gameData = response.game_data;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet, decline it instead" }); }
-	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is already over" }); }
+	if (gamePending(gameData)) { return res.status(409).json({ status: 409, message: "Invite not accepted yet, decline it instead" }); }
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 409, message: "Game is already over" }); }
 
 	const closed = await forfeitOpenGame(gameData, playerId);
 	return chessGuards.reply(res, chessShapers.gameResponse(closed));
@@ -158,10 +158,10 @@ async function forfeitGame(req, res) {
  * @return {[object]} response [the data service's forfeit answer, { status: 500 } when the game was already over]
  */
 async function forfeitOpenGame(gameData, playerId) {
-	const closed = await ifSaved(() => forfeit(gameData.game_id.S), () => savedForfeit(gameData.game_id.S));
+	const closed = await ifSaved(() => forfeit(gameData.game_id), () => savedForfeit(gameData.game_id));
 	// Already over
 	if (closed.status != 200) { return { status: 500, message: closed.message }; }
-	tellGameOver(gameData, playerId, playerId == gameData.white_player_id.S ? "b" : "w");
+	tellGameOver(gameData, playerId, playerId == gameData.white_player_id ? "b" : "w");
 	return closed;
 }
 
@@ -183,7 +183,7 @@ async function savedForfeit(gameId) {
  * @param  {[string]} reason ["forfeit" or "agreement"]
  */
 function tellGameOver(gameData, playerId, winner, reason = "forfeit") {
-	emitToGame(gameData.game_id.S, "game-over", { game_id: gameData.game_id.S, player_id: playerId, winner, reason });
+	emitToGame(gameData.game_id, "game-over", { game_id: gameData.game_id, player_id: playerId, winner, reason });
 	chessGuards.notifyHome(gameData);
 }
 
@@ -205,12 +205,12 @@ async function drawGame(req, res) {
 	if (!response) { return; }
 
 	const gameData = response.game_data;
-	const gameId = gameData.game_id.S;
+	const gameId = gameData.game_id;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (gameData.mode?.S == "cards") { return chessGuards.useCardsRoutes(res); }
-	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
-	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is already over" }); }
+	if (gameData.mode == "cards") { return chessGuards.useCardsRoutes(res); }
+	if (gamePending(gameData)) { return res.status(409).json({ status: 409, message: "Invite not accepted yet" }); }
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 409, message: "Game is already over" }); }
 
 	const pressed = await ifSaved(() => offerDraw(gameId), () => savedDraw(gameId, playerId));
 	if (pressed.status != 200) { return chessGuards.reply(res, { status: pressed.status, message: pressed.message }); }
@@ -222,7 +222,7 @@ async function drawGame(req, res) {
 	if (isAiGame(gameData)) { return chessGuards.reply(res, await aiDrawAnswer(gameData)); }
 
 	emitToGame(gameId, "draw-offer", { game_id: gameId, player_id: playerId, state: "offered" });
-	const opponentColor = playerId == gameData.white_player_id.S ? "b" : "w";
+	const opponentColor = playerId == gameData.white_player_id ? "b" : "w";
 	return res.json({ status: 200, offered: true, opponent_name: playerName(gameData, opponentColor), message: pressed.message });
 }
 
@@ -234,8 +234,8 @@ async function drawGame(req, res) {
  */
 async function savedDraw(gameId, playerId) {
 	const latest = await chessGuards.retrieveGame(gameId, true);
-	if (latest.game_data?.reason?.S == "agreement") { return latest; }
-	if (latest.game_data?.draw_offer_player_id?.S == playerId) { return { status: 200, offered: true, message: "Draw offered" }; }
+	if (latest.game_data?.reason == "agreement") { return latest; }
+	if (latest.game_data?.draw_offer_player_id == playerId) { return { status: 200, offered: true, message: "Draw offered" }; }
 	return null;
 }
 
@@ -245,9 +245,9 @@ async function savedDraw(gameId, playerId) {
  * @return {[object]} response [gameResponse's closed game | { status, declined: true, message } | { status: 409, message }]
  */
 async function aiDrawAnswer(gameData) {
-	const gameId = gameData.game_id.S;
-	const aiColor = gameData.white_player_id.S == "CHESS_AI" ? "w" : "b";
-	const accept = gameData.moves.S.length < AI_DRAW_FREE_MOVES || await aiAcceptsDraw(gameData.game_board.S, aiColor);
+	const gameId = gameData.game_id;
+	const aiColor = gameData.white_player_id == "CHESS_AI" ? "w" : "b";
+	const accept = gameData.moves.length < AI_DRAW_FREE_MOVES || await aiAcceptsDraw(gameData.game_board, aiColor);
 	const answer = await ifSaved(() => answerAiDraw(gameId, accept), () => savedAiDrawAnswer(gameId, accept));
 	if (answer.status != 200) { return { status: answer.status, message: answer.message }; }
 	return accept ? chessShapers.gameResponse(answer) : { status: 200, declined: true, message: "The AI declined the draw" };
@@ -275,7 +275,7 @@ async function declineDrawGame(req, res) {
 	const response = await chessGuards.loadMyGame(req, res, { consistentRead: true });
 	if (!response) { return; }
 
-	const gameId = response.game_data.game_id.S;
+	const gameId = response.game_data.game_id;
 	const playerId = chessGuards.playerInGame(req, response.game_data);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
 
@@ -311,12 +311,12 @@ async function rematchGame(req, res) {
 	if (!response) { return; }
 
 	const gameData = response.game_data;
-	const gameId = gameData.game_id.S;
+	const gameId = gameData.game_id;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (gameData.mode?.S == "cards") { return chessGuards.useCardsRoutes(res); }
-	if (isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "AI games restart instead" }); }
-	if (gameOpen(gameData) || gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Game isn't over yet" }); }
+	if (gameData.mode == "cards") { return chessGuards.useCardsRoutes(res); }
+	if (isAiGame(gameData)) { return res.status(409).json({ status: 409, message: "AI games restart instead" }); }
+	if (gameOpen(gameData) || gamePending(gameData)) { return res.status(409).json({ status: 409, message: "Game isn't over yet" }); }
 
 	// The data service: both presses within 5 minutes, neither player in another friend game, the new game with the inviter's pick
 	const pressed = await ifSaved(() => rematch(gameId), () => savedRematch(gameId, playerId));
@@ -324,13 +324,13 @@ async function rematchGame(req, res) {
 	if (pressed.status == 409) { return res.status(409).json({ status: 409, message: pressed.message }); }
 	// The first press
 	if (pressed.waiting) {
-		const opponentIsWhite = playerId != gameData.white_player_id.S;
+		const opponentIsWhite = playerId != gameData.white_player_id;
 		return res.json({
 			status: 200,
 			waiting: true,
 			expires_in: pressed.expires_in,
 			opponent_name: playerName(gameData, opponentIsWhite ? "w" : "b"),
-			opponent_here: isInGameRoom(gameId, opponentIsWhite ? gameData.white_player_id.S : gameData.black_player_id.S),
+			opponent_here: isInGameRoom(gameId, opponentIsWhite ? gameData.white_player_id : gameData.black_player_id),
 			message: pressed.message
 		});
 	}
@@ -357,12 +357,12 @@ async function rematchGame(req, res) {
 async function savedRematch(gameId, playerId) {
 	const latest = (await chessGuards.retrieveGame(gameId, true)).game_data;
 	if (latest?.rematch_game_id) {
-		const made = await chessGuards.retrieveGame(latest.rematch_game_id.S, true);
+		const made = await chessGuards.retrieveGame(latest.rematch_game_id, true);
 		if (!made.game_data) { return null; }
-		return { status: 200, new_game_id: latest.rematch_game_id.S, game_data: made.game_data, dropped_invites: [] };
+		return { status: 200, new_game_id: latest.rematch_game_id, game_data: made.game_data, dropped_invites: [] };
 	}
-	const expiresIn = Number(latest?.rematch_expires?.N) - Date.now();
-	if (latest?.rematch_player_id?.S == playerId && expiresIn > 0) {
+	const expiresIn = Number(latest?.rematch_expires) - Date.now();
+	if (latest?.rematch_player_id == playerId && expiresIn > 0) {
 		return { status: 200, waiting: true, expires_in: expiresIn, message: "Waiting for opponent" };
 	}
 	return null;

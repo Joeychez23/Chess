@@ -22,14 +22,14 @@ describe("invite", () => {
 	test("a PENDING game with the requester as the inviter, named by username or screenname", async () => {
 		await db.claimUsername("bob", "Bobby");
 		const made = (await call("POST", "/games/invite", { as: alice, body: { opponent_id: "bob", opponent_screenname: "Bob S", color: "w" } })).game_data;
-		const item = peek("chess_db", made.game_id.S);
+		const item = peek("chess_db", made.game_id);
 		assert.equal(item.state.S, "PENDING");
 		assert.equal(item.inviter_id.S, "alice");
 		assert.equal(item.white_player_id.S, "alice");
 		assert.equal(item.white_name.S, "Alice"); // THE TOKEN'S SCREENNAME, ALICE HAS NO USERNAME
 		assert.equal(item.black_name.S, "Bobby"); // BOB'S USERNAME WINS OVER THE SCREENNAME
-		assert.deepEqual(list("alice", "requested_games"), [made.game_id.S]);
-		assert.deepEqual(list("bob", "requested_games"), [made.game_id.S]);
+		assert.deepEqual(list("alice", "requested_games"), [made.game_id]);
+		assert.deepEqual(list("bob", "requested_games"), [made.game_id]);
 	});
 
 	test("not by a guest, not to yourself or the AI, and only with the fields it names", async () => {
@@ -49,7 +49,7 @@ describe("invite", () => {
 /* ---------------------------------------------------------------- */
 
 describe("challenge link", () => {
-	const makeLink = async (body = { color: "w" }) => (await call("POST", "/games/challenge", { as: alice, body })).game_data.game_id.S;
+	const makeLink = async (body = { color: "w" }) => (await call("POST", "/games/challenge", { as: alice, body })).game_data.game_id;
 
 	test("is a pending game with an empty seat, only on the creator's list", async () => {
 		const gameId = await makeLink();
@@ -65,8 +65,8 @@ describe("challenge link", () => {
 	test("the first player takes the seat under their name, the game opens for both", async () => {
 		const gameId = await makeLink();
 		const joined = await call("POST", `/games/${gameId}/join`, { as: bob });
-		assert.equal(joined.game_data.state.S, "OPEN");
-		assert.equal(joined.game_data.black_player_id.S, "bob");
+		assert.equal(joined.game_data.state, "OPEN");
+		assert.equal(joined.game_data.black_player_id, "bob");
 		const item = peek("chess_db", gameId);
 		assert.equal(item.state.S, "OPEN");
 		assert.equal(item.black_player_id.S, "bob");
@@ -88,8 +88,10 @@ describe("challenge link", () => {
 		await refused(link, "POST", `/games/${gameId}/join`, { as: bob, body: { seat: "w" } }, 400);
 
 		await friendGame("game1", "carol", "mallory", true); // AN INVITE TO SOMEONE ELSE
-		assert.equal((await call("POST", "/games/game1/join", { as: bob })).message, "Game data not found");
-		assert.equal((await call("GET", "/games/game1/challenge", { as: bob })).message, "Game data not found");
+		for (const [method, route] of [["POST", "/games/game1/join"], ["GET", "/games/game1/challenge"]]) {
+			const missing = await call(method, route, { as: bob });
+			assert.deepEqual([missing.http, missing.status, missing.message], [404, 404, "Game data not found"], route);
+		}
 		assert.equal(peek("chess_db", "game1").black_player_id.S, "mallory");
 	});
 
@@ -101,14 +103,14 @@ describe("challenge link", () => {
 		const gameId = await makeLink();
 		await friendGame("game1", "carol", "bob");
 		const busy = await call("POST", `/games/${gameId}/join`, { as: bob });
-		assert.equal(busy.status, 409);
+		assert.deepEqual([busy.http, busy.status, busy.open], [409, 409, true]);
 		assert.equal(busy.game_id, "game1");
 		assert.equal(peek("chess_db", gameId).state.S, "PENDING");
 		assert.equal(peek("chess_db", "game1").state.S, "OPEN");
 
 		const joined = await call("POST", `/games/${gameId}/join`, { as: bob, body: { replace_current: true } });
 		assert.equal(joined.status, 200);
-		assert.equal(joined.forfeited.game_id.S, "game1");
+		assert.equal(joined.forfeited.game_id, "game1");
 		assert.equal(peek("chess_db", "game1").winner.S, "w"); // CAROL
 	});
 
@@ -117,6 +119,7 @@ describe("challenge link", () => {
 		await friendGame("game1", "alice", "carol");
 		const busy = await refused([["chess_db", gameId]], "POST", `/games/${gameId}/join`, { as: bob }, 409);
 		assert.equal(busy.message, "They're in another game now");
+		assert.equal(busy.open, undefined); // ONLY THE REQUESTER'S OWN OPEN GAME SAYS open
 	});
 
 	test("the creator cancels: the game & its list entry go", async () => {
@@ -153,15 +156,15 @@ describe("accept and decline", () => {
 			const retry = await call("POST", "/games/invite", { as: alice, body });
 			assert.equal(retry.status, 200);
 			const invites = async (id) => db.pruneInvites((await db.retrieveUser(id, true)).user_data);
-			assert.equal((await invites("alice")).sent_invite.game_id, retry.game_data.game_id.S);
-			assert.deepEqual((await invites("bob")).received_invites.map((invite) => invite.game_id), [retry.game_data.game_id.S]);
+			assert.equal((await invites("alice")).sent_invite.game_id, retry.game_data.game_id);
+			assert.deepEqual((await invites("bob")).received_invites.map((invite) => invite.game_id), [retry.game_data.game_id]);
 		});
 	}
 
 	test("the invited player accepts: the game opens for both", async () => {
 		await friendGame("game1", "alice", "bob", true);
 		const accepted = await call("POST", "/games/game1/accept", { as: bob });
-		assert.equal(accepted.game_data.state.S, "OPEN");
+		assert.equal(accepted.game_data.state, "OPEN");
 		assert.deepEqual(list("alice", "open_games"), ["game1"]);
 		assert.deepEqual(list("bob", "open_games"), ["game1"]);
 		await refused([["chess_db", "game1"]], "POST", "/games/game1/accept", { as: bob }, 409); // ALREADY ANSWERED
@@ -182,7 +185,7 @@ describe("accept and decline", () => {
 		await friendGame("game1", "alice", "bob", true);
 		const declined = await call("POST", "/games/game1/decline", { as: bob });
 		assert.equal(declined.status, 200);
-		assert.equal(declined.game_data.game_id.S, "game1"); // FOR BOTH HOMES
+		assert.equal(declined.game_data.game_id, "game1"); // FOR BOTH HOMES
 		assert.equal(peek("chess_db", "game1"), undefined);
 		assert.deepEqual(list("alice", "requested_games"), []);
 
@@ -201,8 +204,9 @@ describe("accept with an open friend game", () => {
 	test("without replace_current: 409 with the open game, nothing changes", async () => {
 		await friendGame("invite1", "alice", "bob", true);
 		await friendGame("game1", "bob", "carol");
-		const open = await refused([["chess_db", "invite1"], ["chess_db", "game1"]], "POST", "/games/invite1/accept", { as: bob }, 200); // A NORMAL ANSWER, NOT A REFUSAL
+		const open = await refused([["chess_db", "invite1"], ["chess_db", "game1"]], "POST", "/games/invite1/accept", { as: bob }, 409);
 		assert.equal(open.status, 409);
+		assert.equal(open.open, true);
 		assert.equal(open.game_id, "game1");
 	});
 
@@ -211,10 +215,10 @@ describe("accept with an open friend game", () => {
 		await friendGame("game1", "bob", "carol");
 		await friendGame("invite2", "bob", "dave", true); // BOB'S SENT INVITE
 		const accepted = await call("POST", "/games/invite1/accept", { as: bob, body: { replace_current: true } });
-		assert.equal(accepted.game_data.state.S, "OPEN");
-		assert.equal(accepted.forfeited.game_id.S, "game1");
+		assert.equal(accepted.game_data.state, "OPEN");
+		assert.equal(accepted.forfeited.game_id, "game1");
 		assert.equal(peek("chess_db", "game1").winner.S, "b"); // CAROL WINS
-		assert.deepEqual(accepted.dropped_invites.map((invite) => invite.game_id.S), ["invite2"]);
+		assert.deepEqual(accepted.dropped_invites.map((invite) => invite.game_id), ["invite2"]);
 		assert.equal(peek("chess_db", "invite2"), undefined);
 	});
 

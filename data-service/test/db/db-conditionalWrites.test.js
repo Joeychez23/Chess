@@ -32,7 +32,7 @@ describe("move deadlines", () => {
 	test("a timeout read from before the last move changes nothing", async () => {
 		const game = await dailyGame();
 		const closed = await db.closeGame({ ...game, move_deadline: { N: "1" } }, "b", "timeout");
-		assert.equal(closed.status, 500);
+		assert.equal(closed.status, 409);
 		assert.equal(fakeDynamo.peek("chess_db", "game1").state.S, "OPEN");
 	});
 
@@ -65,7 +65,7 @@ describe("updateGame", () => {
 
 		await db.updateGame((await validateMove({ player_id: "alice", move: ["e2", "e4"] }, first)).game_data, board);
 		const late = await db.updateGame((await validateMove({ player_id: "alice", move: ["d2", "d4"] }, second)).game_data, board);
-		assert.equal(late.status, 500);
+		assert.equal(late.status, 409);
 		assert.match(late.message, /Board changed/);
 		assert.deepEqual((await db.retrieveGame("game1")).game_data.moves.S, ["e4"]);
 	});
@@ -83,7 +83,7 @@ describe("updateGame", () => {
 
 			const [first, second] = undoFirst ? [undo, aiMove] : [aiMove, undo];
 			assert.equal((await db.updateGame(first, board)).status, 200);
-			assert.equal((await db.updateGame(second, board)).status, 500);
+			assert.equal((await db.updateGame(second, board)).status, 409);
 			assert.deepEqual((await db.retrieveGame("game1")).game_data.moves.S, undoFirst ? [] : ["e4", "e5"]);
 		}
 	});
@@ -113,7 +113,7 @@ describe("updateGame", () => {
 		assert.equal(stored.state.S, "CLOSED");
 		assert.equal(stored.game_board.S, moved.game_board.S);
 		assert.equal(stored.expireAt, undefined); // FINISHED FRIEND GAMES ARE KEPT
-		assert.equal((await db.closeGame(stale, "w", "forfeit")).status, 500);
+		assert.equal((await db.closeGame(stale, "w", "forfeit")).status, 409);
 	});
 
 	test("a closing move loses to a forfeit that closed the game after the board was read", async () => {
@@ -122,7 +122,7 @@ describe("updateGame", () => {
 		await db.closeGame(read, "b", "forfeit");
 
 		const late = await db.updateGame(moved, MATE_IN_ONE, gameResult(moved));
-		assert.equal(late.status, 500);
+		assert.equal(late.status, 409);
 		const stored = fakeDynamo.peek("chess_db", "game1");
 		assert.equal(stored.game_board.S, MATE_IN_ONE);
 		assert.equal(stored.reason.S, "forfeit");
@@ -134,8 +134,8 @@ describe("updateGame", () => {
 		await db.closeGame(read, "b", "forfeit");
 		const closed = fakeDynamo.peek("chess_db", "game1");
 
-		assert.equal((await db.updateGame(moved, MATE_IN_ONE)).status, 500);
-		assert.equal((await db.updateGame(moved)).status, 500); // NO BOARD PASSED
+		assert.equal((await db.updateGame(moved, MATE_IN_ONE)).status, 409);
+		assert.equal((await db.updateGame(moved)).status, 409); // NO BOARD PASSED
 		assert.deepEqual(fakeDynamo.peek("chess_db", "game1"), closed);
 		assert.equal(closed.expireAt, undefined);
 	});
@@ -231,7 +231,7 @@ describe("closeGame", () => {
 		const gameData = await newGame();
 		assert.equal((await db.closeGame(gameData, "b", "forfeit")).status, 200);
 		const second = await db.closeGame(gameData, "w", "checkmate");
-		assert.equal(second.status, 500);
+		assert.equal(second.status, 409);
 		assert.equal((await db.retrieveGame("game1")).game_data.reason.S, "forfeit");
 	});
 
@@ -290,7 +290,7 @@ describe("draw offers", () => {
 		const moved = (await validateMove({ player_id: "alice", move: ["e2", "e4"] }, structuredClone(read))).game_data;
 		await db.updateGame(moved, read.game_board.S);
 
-		assert.equal((await db.closeGame(read, "draw", "agreement", "alice")).status, 500);
+		assert.equal((await db.closeGame(read, "draw", "agreement", "alice")).status, 409);
 		assert.notEqual(fakeDynamo.peek("chess_db", "game4").state?.S, "CLOSED");
 	});
 
@@ -318,8 +318,8 @@ describe("invites", () => {
 	test("an invite can be accepted or declined once, not both", async () => {
 		const invite = (await db.initializeGame("game3", "alice", "bob", false, { pending: true, inviter_id: "alice" })).game_data;
 		assert.equal((await db.acceptInvite(invite)).status, 200);
-		assert.equal((await db.deleteInvite(invite)).status, 500); // ALREADY ACCEPTED
-		assert.equal((await db.acceptInvite(invite)).status, 500);
+		assert.equal((await db.deleteInvite(invite)).status, 409); // ALREADY ACCEPTED
+		assert.equal((await db.acceptInvite(invite)).status, 409);
 	});
 });
 
@@ -531,7 +531,7 @@ describe("game lists", () => {
 		await db.closeGame((await db.retrieveGame("game1")).game_data, "b", "forfeit");
 
 		const late = await db.updateUser(stale, { requested_games: [], open_games: ["game1", "game2"], closed_games: [] });
-		assert.equal(late.status, 500);
+		assert.equal(late.status, 409);
 		assert.deepEqual(lists("alice"), { requested_games: [], open_games: [], closed_games: ["game1"] });
 	});
 });

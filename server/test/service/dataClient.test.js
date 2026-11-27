@@ -82,6 +82,34 @@ describe("when the data service can't answer", () => {
 		const read = await withConfig("dataServiceSecret", "a-different-secret-0123456789abcdef-xyz", () => call("GET", `/api/chess/game/${gameId}`, { as: alice }));
 		assert.equal(read.http, 503);
 	});
+
+	test("a crash in the data service (its error handler's 500) is down: 503", async () => {
+		const { alice, gameId } = await aliceGame();
+		const { DynamoDB } = require("../../../data-service/node_modules/@aws-sdk/client-dynamodb");
+		const getItem = DynamoDB.prototype.getItem;
+		DynamoDB.prototype.getItem = async () => { throw new Error("Read failed"); };
+		let read;
+		try {
+			read = await call("GET", `/api/chess/game/${gameId}`, { as: alice });
+		} finally {
+			DynamoDB.prototype.getItem = getItem;
+		}
+		assert.equal(read.http, 503);
+		assert.equal(read.message, "Try again in a moment");
+	});
+});
+
+describe("a status the data service answers on purpose", () => {
+	test("a 500 it answered (a save that lost every try) reaches the caller as the answer, not as down", async () => {
+		const { gameId } = await aliceGame();
+		dataServiceWillAnswer(`/games/${gameId}`, 500, "Rematch failed");
+		assert.deepEqual(await withRequest({ cookies: {} }, () => retrieveGame(gameId)), { status: 500, message: "Rematch failed" });
+	});
+
+	test("a 404 (a missing game) reaches the caller as the answer", async () => {
+		const answer = await withRequest({ cookies: {} }, () => retrieveGame("missing"));
+		assert.deepEqual(answer, { status: 404, message: "Game data not found" });
+	});
 });
 
 /* ---------------------------------------------------------------- */
@@ -112,7 +140,7 @@ describe("a write that saves but answers too late", () => {
 		const state = JSON.stringify({ v: 1 });
 		const fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 		const made = await withRequest({ cookies: {} }, () => newCardsGame({ color: "w", state, fen }));
-		const gameId = made.game_data.game_id.S;
+		const gameId = made.game_data.game_id;
 		const req = { cookies: { guest_game: made.guest_token } };
 		dataServiceWillStall(`/games/${gameId}/cards`);
 		const saved = timeouts.PUT;
@@ -243,6 +271,7 @@ describe("accepting an invite", () => {
 		const open = await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 		assert.equal(open.status, 409);
 		assert.equal(open.game_id, bobsGame.game_id);
+		assert.equal(open.open, true);
 		const accepted = await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: { replace_current: true } });
 		assert.equal(accepted.state, "OPEN");
 		assert.equal(peek("chess_db", bobsGame.game_id).winner.S, "w"); // CAROL (WHITE) WINS THE FORFEIT

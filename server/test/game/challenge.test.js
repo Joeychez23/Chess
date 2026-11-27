@@ -126,6 +126,7 @@ describe("a challenge link", () => {
 		const busy = await call("POST", `/api/chess/game/${link.game_id}/join`, { as: bob });
 		assert.equal(busy.http, 409);
 		assert.equal(busy.game_id, invite.game_id);
+		assert.equal(busy.open, true);
 		assert.equal(peek("chess_db", link.game_id).state.S, "PENDING");
 
 		const carolsTab = await listen(carol, invite.game_id);
@@ -144,6 +145,7 @@ describe("a challenge link", () => {
 		const busy = await makeLink(alice);
 		assert.equal(busy.http, 409);
 		assert.equal(busy.game_id, invite.game_id);
+		assert.equal(busy.open, true);
 		assert.equal((await makeLink(alice, { replace_current: true })).status, 200);
 		assert.equal(peek("chess_db", invite.game_id).state.S, "CLOSED");
 	});

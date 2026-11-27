@@ -9,7 +9,7 @@ require("../helpers/env.js");
 const { test, describe, before, after, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const testServer = require("../helpers/server.js");
-const { call, player, named, engineWillPlay, peek, auth0WillStall } = testServer;
+const { call, player, named, engineWillPlay, peek, auth0WillStall, dataServiceWillAnswer } = testServer;
 
 let server;
 before(async () => { server = await testServer.start(); });
@@ -52,7 +52,7 @@ describe("a guest's AI game", () => {
 		assert.match(moved.game_board, /4P3/);
 
 		const outOfTurn = await call("PUT", "/api/chess/game/guest1", { body: { move: ["d2", "d4"] } });
-		assert.equal(outOfTurn.status, 500); // THE AI'S TURN
+		assert.equal(outOfTurn.status, 409); // THE AI'S TURN
 		assert.equal(outOfTurn.http, 409);
 	});
 
@@ -197,7 +197,7 @@ describe("a signed-in player's AI games", () => {
 		assert.equal((await call("GET", "/api/chess/user/alice", { as: alice })).ai_game_id, null);
 
 		const again = await call("POST", `/api/chess/game/${game.game_id}/forfeit`, { as: alice });
-		assert.equal(again.status, 500); // ALREADY OVER
+		assert.equal(again.status, 409); // ALREADY OVER
 		assert.equal(again.http, 409);
 
 		const restarted = await call("POST", `/api/chess/game/${game.game_id}/restart`, { as: alice });
@@ -362,17 +362,17 @@ describe("sign-in checks", () => {
 // HTTP Status (#305)
 /* ---------------------------------------------------------------- */
 
-describe("refusals answer their real HTTP status and keep the body", () => {
+describe("refusals answer their real HTTP status, the body says the same", () => {
 	test("a bad move: 400 malformed, 422 illegal", async () => {
 		await call("POST", "/api/chess/game", { body: { game_id: "guest1", start_color: "w" } });
 
 		const malformed = await call("PUT", "/api/chess/game/guest1", { body: { move: "e4" } });
 		assert.equal(malformed.http, 400);
-		assert.equal(malformed.status, 500);
+		assert.equal(malformed.status, 400);
 
 		const illegal = await call("PUT", "/api/chess/game/guest1", { body: { move: ["e2", "e5"] } });
 		assert.equal(illegal.http, 422);
-		assert.equal(illegal.status, 500);
+		assert.equal(illegal.status, 422);
 		assert.equal(illegal.message, "Invalid piece movement");
 	});
 
@@ -383,7 +383,7 @@ describe("refusals answer their real HTTP status and keep the body", () => {
 
 		const moved = await call("PUT", `/api/chess/game/${game.game_id}`, { as: alice, body: { move: ["e2", "e4"] } });
 		assert.equal(moved.http, 409);
-		assert.equal(moved.status, 500);
+		assert.equal(moved.status, 409);
 		assert.equal(moved.message, "Game is over");
 	});
 
@@ -391,7 +391,7 @@ describe("refusals answer their real HTTP status and keep the body", () => {
 		const alice = player("alice");
 		const missing = await call("GET", "/api/chess/game/nope", { as: alice });
 		assert.equal(missing.http, 404);
-		assert.equal(missing.status, 500);
+		assert.equal(missing.status, 404);
 
 		const accept = await call("POST", "/api/chess/game/nope/accept", { as: alice, body: {} });
 		assert.equal(accept.http, 404);
@@ -419,18 +419,43 @@ describe("refusals answer their real HTTP status and keep the body", () => {
 
 		const nobody = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: "nobody" } });
 		assert.equal(nobody.http, 404);
-		assert.equal(nobody.status, 500); // THE CLIENT PICKS ITS MESSAGE FROM THE BODY
+		assert.equal(nobody.status, 404); // THE BODY SAYS THE SAME STATUS AS THE ANSWER
 
 		const invite = await call("POST", "/api/chess/invite", { as: bob, body: { opponent_username: await named(alice) } });
 		const already = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
 		assert.equal(already.http, 409);
-		assert.equal(already.status, 500);
+		assert.equal(already.status, 409);
 
 		const inviter = await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: bob, body: {} });
 		assert.equal(inviter.http, 403);
 
 		const tooEarly = await call("PUT", `/api/chess/game/${invite.game_id}`, { as: bob, body: { move: ["e2", "e4"] } });
 		assert.equal(tooEarly.http, 409);
+	});
+
+	test("every refusal's body says the same status as its HTTP answer", async () => {
+		const alice = player("alice");
+		const bob = player("bob");
+		const game = await call("POST", "/api/chess/game", { as: alice, body: { start_color: "w" } });
+		await call("POST", `/api/chess/game/${game.game_id}/forfeit`, { as: alice });
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
+		const over = `/api/chess/game/${game.game_id}`;
+		const answers = [
+			await call("PUT", over, { as: alice, body: { move: "e4" } }), // 400 MALFORMED
+			await call("PUT", over, { as: alice, body: { move: ["e2", "e4"] } }), // 409 OVER
+			await call("POST", `${over}/takeback`, { as: alice }),
+			await call("POST", `${over}/forfeit`, { as: alice }),
+			await call("POST", `${over}/draw`, { as: alice }),
+			await call("POST", `${over}/rematch`, { as: alice }), // AI GAMES RESTART INSTEAD
+			await call("POST", `${over}/ai-move`, { as: alice }), // RELAYED: "It's not the AI's turn"
+			await call("POST", "/api/chess/invite", { as: alice, body: {} }), // 400 MISSING OPPONENT
+			await call("POST", `/api/chess/game/${invite.game_id}/accept`, { as: alice, body: {} }), // 403 THE INVITER
+			await call("POST", "/api/chess/game/nope/decline", { as: alice }), // 404
+		];
+		for (const answer of answers) {
+			assert.ok(answer.http >= 400, answer.message);
+			assert.equal(answer.status, answer.http, answer.message);
+		}
 	});
 
 	test("what a friend game can't do: 409", async () => {
@@ -446,5 +471,23 @@ describe("refusals answer their real HTTP status and keep the body", () => {
 		assert.equal(another.http, 409);
 		assert.equal(another.status, 409);
 		assert.equal(another.game_id, invite.game_id);
+		assert.equal(another.open, true);
+	});
+
+	test("an invite to someone who already invited you is a 409 with their invite, not an open friend game", async () => {
+		const alice = player("alice");
+		const bob = player("bob");
+		const invite = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: await named(bob) } });
+		const back = await call("POST", "/api/chess/invite", { as: bob, body: { opponent_username: await named(alice) } });
+		assert.deepEqual([back.http, back.game_id, back.message, back.open], [409, invite.game_id, "They already invited you", undefined]);
+	});
+
+	test("a friend game the data service finds open as the invite is saved still says so to Home's invite form", async () => {
+		const alice = player("alice");
+		const bobName = await named(player("bob"));
+		// THE SERVER'S OWN CHECK SAW NO OPEN GAME: ONE OPENED BEFORE THE SAVE (ANOTHER TAB), THE DATA SERVICE REFUSES
+		dataServiceWillAnswer("/games/invite", 409, "Friend game already open", { open: true });
+		const late = await call("POST", "/api/chess/invite", { as: alice, body: { opponent_username: bobName } });
+		assert.deepEqual([late.http, late.status, late.open, late.message], [409, 409, true, "Friend game already open"]);
 	});
 });

@@ -31,12 +31,12 @@ export async function handleMultiSubmit(e) {
 			friendFenInput.value = "";
 			resetInviteBtn();
 			await refreshHome(); // SHOWS THE SENT INVITE IN INVITES
-		} else if (response?.status == 409) { // A FRIEND GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
+		} else if (response?.status == 409 && response.open) { // A FRIEND GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD. "They already invited you" IS A 409 TOO, WITHOUT open
 			await refreshHome();
 			multiNote.innerText = "You already have a friend game open";
 		} else {
 			resetInviteBtn(); // NOTHING WAS FORFEITED, THE NEXT TRY WARNS AGAIN
-			multiNote.innerText = response?.status == 400 || response?.status == 429 ? response.message : inviteError(response?.message); // 400: THE FEN CAN'T BE PLAYED, 429: TOO MANY NEW GAMES
+			multiNote.innerText = inviteError(response);
 		}
 	} catch (err) { console.log(err); resetInviteBtn(); multiNote.innerText = "Couldn't send the invite, try again"; }
 	multiEmailBtn.disabled = false;
@@ -61,7 +61,7 @@ export async function handleCreateChallenge(e) {
 		friendFenInput.value = "";
 		resetInviteBtn();
 		await refreshHome(); // SHOWS THE LINK IN INVITES
-	} else if (response?.status == 409) { // A FRIEND GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
+	} else if (response?.status == 409 && response.game_id) { // A FRIEND GAME OPENED SINCE (ANOTHER TAB): SHOW IT INSTEAD
 		await refreshHome();
 		multiNote.innerText = "You already have a friend game open";
 	} else {
@@ -85,12 +85,14 @@ export async function handleCopyChallenge() {
 }
 
 /**
- * @description Why an invite didn't go through, from the server's message
+ * @description Why an invite didn't go through, from the server's answer ({ status, message })
  */
-function inviteError(message) {
+function inviteError(response) {
+	const message = response?.message;
 	if (message == "Opponent not found") { return "No player has that username"; }
 	if (message == "That's your username") { return `${message}, invite a friend`; }
 	if (message == "They already invited you") { return "They already invited you, accept it in Invites"; }
+	if (response?.status == 400 || response?.status == 429) { return message; } // 400: THE FEN CAN'T BE PLAYED, 429: TOO MANY NEW GAMES
 	return "Couldn't send the invite, try again";
 }
 

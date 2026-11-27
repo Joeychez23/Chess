@@ -45,7 +45,7 @@ async function initializeUser(userId) {
 	return {
 		status: 200,
 		user_data: params.Item,
-		message: `user id: ${userId} initalized inside db`
+		message: `user id: ${userId} initialized inside db`
 	}
 }
 
@@ -77,7 +77,7 @@ async function retrieveUser(userId, consistent) {
 		}
 	} else {
 		return {
-			status: 500,
+			status: 404,
 			message: "User data not found"
 		}
 	}
@@ -143,7 +143,7 @@ async function updateUser(userData, gameLists) {
 		response = await dbClient.connection.updateItem(params);
 	} catch (err) {
 		if (err.name == "ConditionalCheckFailedException" || err.name == "TransactionConflictException") {
-			return { status: 500, message: `Game lists changed before the save: ${userId}` };
+			return { status: 409, message: `Game lists changed before the save: ${userId}` };
 		}
 		throw err;
 	}

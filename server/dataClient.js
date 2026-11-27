@@ -84,7 +84,8 @@ function playerHeaders(req) {
 /* ---------------------------------------------------------------- */
 /**
  * @description One signed call to the data service. Answers keep the shapes of data-service/db/
- * ({ status, game_data | user_data, message }); a refusal is { status: 400 | 401 | 403 | 409, message }
+ * ({ status, game_data | user_data, message }) under the same HTTP status; a refusal is { status: 400 | 401 | 403 | 404 | 409, message },
+ * and a 500 it answered itself (a save that lost every try) is an answer too
  * @param  {[string]} method ["GET", "POST" or "PUT"]
  * @param  {[string]} path [e.g. "/games/<id>/move", ids already encoded]
  * @param  {[object]} body [sent as JSON, left out = none]
@@ -116,7 +117,8 @@ async function call(method, path, body) {
 		throw failed;
 	}
 
-	if (res.status >= 500) {
+	// Down: a 502-504 in front of it, its tables check (503), or its error handler's 500 (crashed)
+	if (res.status > 500 || (res.status == 500 && answer?.crashed)) {
 		throw down(`${method} ${path}: ${res.status} ${answer?.message}`);
 	}
 	if (res.status == 401 && SIGNATURE_REFUSALS.includes(answer?.message)) {
@@ -209,7 +211,7 @@ function pathId(value) {
  * @param  {[string]} gameId [game id]
  * @param  {[boolean]} consistent [true = a strongly consistent read, to see a save another request just made]
  * @return {[object]} response [{ status, game_data, message } | { status: 401 | 403 } (not the requester's game)
- * | { status: 500, "Game data not found" }]
+ * | { status: 404, "Game data not found" }]
  */
 function retrieveGame(gameId, consistent) {
 	return call("GET", `/games/${pathId(gameId)}${consistent ? "?consistent=true" : ""}`);
@@ -367,7 +369,7 @@ function challenge(details) {
 
 /**
  * @description What the join screen shows, for any signed in player with the link
- * @return {[object]} response [{ status, open, name, player_color, start_params } | { status: 500, "Game data not found" }
+ * @return {[object]} response [{ status, open, name, player_color, start_params } | { status: 404, "Game data not found" }
  * (not a challenge link)]
  */
 function retrieveChallenge(gameId) {

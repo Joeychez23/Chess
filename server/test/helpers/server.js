@@ -303,7 +303,7 @@ async function standInFetch(url, options) {
 		const queued = dataServiceAnswers.findIndex((answer) => answer.path == pathname);
 		if (queued != -1) {
 			const [answer] = dataServiceAnswers.splice(queued, 1);
-			return json({ status: answer.status, message: answer.message }, answer.status);
+			return json({ ...answer.extra, status: answer.status, message: answer.message }, answer.status);
 		}
 		const held = dataServiceHolds.findIndex((hold) => hold.path == pathname);
 		if (held != -1) {
@@ -413,9 +413,10 @@ function auth0WillSign(make) {
  * @param  {[string]} path [data service path, "/session/refresh"]
  * @param  {[number]} status [HTTP status]
  * @param  {[string]} message [refusal message]
+ * @param  {[object]} extra [optional, more fields of the answer's body ({ open: true })]
  */
-function dataServiceWillAnswer(path, status, message) {
-	dataServiceAnswers.push({ path, status, message });
+function dataServiceWillAnswer(path, status, message, extra = {}) {
+	dataServiceAnswers.push({ path, status, message, extra });
 }
 
 /**

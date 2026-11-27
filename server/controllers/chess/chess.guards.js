@@ -3,7 +3,7 @@
  *	Chess Routes: who the request is & what they get back
  *  Reading a game or the requester's lists (a read that finds a game out of time closes it, both players are told here),
  *  the opening most handlers share (loadMyGame), who the requester is in a game, and answering with the real HTTP status.
- *  A refusal's body can still say status: 500 under a 4xx (the lambda's body, the client reads it)
+ *  A data service message wrapped here as status: 500 (a lost save) gets its real status back, in the body & the HTTP status (httpStatus)
  *
  */
 
@@ -11,7 +11,7 @@
 // Global
 /* ---------------------------------------------------------------- */
 
-const { isAiGame } = require("../../utils/games.js");
+const { isAiGame } = require("../../utils/plainItems.js");
 const { readGuestGame } = require("../../middleware/auth.js");
 const { retrieveGame: readGame, myGames: readMyGames } = require("../../dataClient.js");
 const { emitToPlayer, tellTimeout } = require("../../socket.js");
@@ -84,8 +84,8 @@ function playerInGame(req, gameData) {
 	// A guest without the cookie (another browser) isn't in it
 	const playerId = req.user ? userPlayerId(req.user) : readGuestGame(req);
 	// Only their own game, not every game with their id on one side ("CHESS_AI" is on every AI game)
-	if (!req.user && playerId != gameData.game_id.S) { return null; }
-	if (playerId && (playerId == gameData.white_player_id.S || playerId == gameData.black_player_id.S)) { return playerId; }
+	if (!req.user && playerId != gameData.game_id) { return null; }
+	if (playerId && (playerId == gameData.white_player_id || playerId == gameData.black_player_id)) { return playerId; }
 	return null;
 }
 
@@ -131,16 +131,18 @@ function useCardsRoutes(res) {
 // Answers
 /* ---------------------------------------------------------------- */
 /**
- * @description Sends a body with its real HTTP status (httpStatus), for answers that can be a game or a refusal
+ * @description Sends a body with its real status (httpStatus) as both the HTTP status & the body's status, for answers that can be a game or a refusal
  * @param  {[object]} res [express response]
- * @param  {[object]} body [{ status, ..., message }, sent as it is]
+ * @param  {[object]} body [{ status, ..., message }]
  */
 function reply(res, body) {
-	return res.status(httpStatus(body)).json(body);
+	const status = httpStatus(body);
+	return res.status(status).json({ ...body, status });
 }
 
 /**
- * @description The real HTTP status of an answer whose body may say status: 500 for a refusal (the lambda's body, the client reads it).
+ * @description The real HTTP status of an answer that may say status: 500 for a refusal: the data service answers 404 & 409 itself, but
+ * some handlers here wrap its message as a 500 (reply sends the real one as the body's status too).
  * A 500 nothing here recognizes stays a 500: those are what the 5xx alarm is for (terraform/modules/monitoring)
  * @param  {[object]} response [an answer with { status, message }]
  * @return {[number]} status [404 not found, 409 conflict, otherwise the answer's own status]
@@ -157,8 +159,8 @@ function httpStatus(response) {
  * @param  {[object]} gameData [game item]
  */
 function notifyHome(gameData) {
-	emitToPlayer(gameData.white_player_id.S, "games", { game_id: gameData.game_id.S });
-	emitToPlayer(gameData.black_player_id.S, "games", { game_id: gameData.game_id.S });
+	emitToPlayer(gameData.white_player_id, "games", { game_id: gameData.game_id });
+	emitToPlayer(gameData.black_player_id, "games", { game_id: gameData.game_id });
 }
 
 

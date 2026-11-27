@@ -2,8 +2,8 @@
  *  index.js  --  chess server
  *	Chess Routes (was the chess lambda, chess-validation/lambdas/functions/chess/index.js)
  *  Each branch of the lambda's handler is its own route now. Responses keep the lambda's body ({ status, ..., message })
- *  so the client checks them the same way. The HTTP status is the real one, so a refusal's body can still say status: 500
- *  under a 4xx, the client reads the body's. The games & players are read & saved through the data service (dataClient.js),
+ *  so the client checks them the same way. The HTTP status is the real one & the body's status
+ *  is the same. The games & players are read & saved through the data service (dataClient.js),
  *  which checks every action again
  *
  *  chess.games.js    loading a game, its PGN & ratings, new & restarted AI games, the levels, Home's lists, leaving every game

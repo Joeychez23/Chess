@@ -182,7 +182,7 @@ async function retrieveGame(gameId, consistent) {
 		}
 	} else {
 		return {
-			status: 500,
+			status: 404,
 			message: "Game data not found"
 		}
 	}

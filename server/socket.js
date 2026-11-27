@@ -108,10 +108,10 @@ async function joinGame(socket, gameId, ack) {
 		const response = await withRequest(socket.request, () => retrieveGame(gameId)); // AS THE SOCKET'S PLAYER (ITS HANDSHAKE HAS THEIR COOKIES)
 		if (response.timed_out) { tellTimeout(response.game_data); }
 		if (response.status == 401 || response.status == 403) { return ack({ status: 403, message: "Player is not in this game" }); }
-		if (!response.game_data) { return ack({ status: response.status, message: response.message }); } // GAME NOT FOUND
+		if (!response.game_data) { return ack({ status: response.status == 404 ? 500 : response.status, message: response.message }); } // GAME NOT FOUND: THE ACK KEEPS ITS 500, THE CLIENT ONLY CHECKS FOR 200
 
 		const { white_player_id, black_player_id, state, winner, reason } = response.game_data;
-		if (socket.data.playerId != white_player_id.S && socket.data.playerId != black_player_id.S) {
+		if (socket.data.playerId != white_player_id && socket.data.playerId != black_player_id) {
 			return ack({ status: 403, message: "Player is not in this game" });
 		}
 
@@ -121,7 +121,7 @@ async function joinGame(socket, gameId, ack) {
 		}
 		if (!isInGameRoom(gameId, socket.data.playerId)) { socket.to(gameRoom).emit("player-back", { game_id: gameId, player_id: socket.data.playerId }); }
 		socket.join(gameRoom);
-		return ack({ status: 200, message: `Joined game id: ${gameId}`, state: state?.S || "OPEN", winner: winner?.S || null, reason: reason?.S || null });
+		return ack({ status: 200, message: `Joined game id: ${gameId}`, state: state || "OPEN", winner: winner || null, reason: reason || null });
 	} catch (err) {
 		if (err.name == "SessionExpired") { return ack({ status: 401, message: "SESSION EXPIRED" }); }
 		if (err.name == "DataServiceDown") { console.error(err.message); return ack({ status: 503, message: "Try again in a moment" }); }
@@ -194,10 +194,10 @@ function emitToPlayer(playerId, event, data) {
  * @param  {[object]} gameData [the closed game item]
  */
 function tellTimeout(gameData) {
-	const gameId = gameData.game_id.S;
-	emitToGame(gameId, "game-over", { game_id: gameId, winner: gameData.winner.S, reason: gameData.reason.S });
-	emitToPlayer(gameData.white_player_id.S, "games", { game_id: gameId });
-	emitToPlayer(gameData.black_player_id.S, "games", { game_id: gameId });
+	const gameId = gameData.game_id;
+	emitToGame(gameId, "game-over", { game_id: gameId, winner: gameData.winner, reason: gameData.reason });
+	emitToPlayer(gameData.white_player_id, "games", { game_id: gameId });
+	emitToPlayer(gameData.black_player_id, "games", { game_id: gameId });
 }
 
 /* ---------------------------------------------------------------- */

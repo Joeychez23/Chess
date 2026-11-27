@@ -363,7 +363,7 @@ async function handleNewSoloGame(e) {
 	}
 	// The forfeit failed: nothing was created (as in handleNewCardsGame)
 	if (response?.status == 503) { stopLoading(); return soloNote.innerText = confirmNewGame ? "Your other game couldn't be closed. Try again." : "A new game couldn't be started. Try again."; }
-	if (response?.status == 409) { // An AI game opened since (another tab): show it instead
+	if (response?.status == 409 && response.game_id) { // An AI game opened since (another tab): show it instead
 		stopLoading();
 		soloNote.innerText = "You already have an AI game open";
 		return loadCurrentGame(response.game_id);
@@ -408,7 +408,7 @@ async function handleNewCardsGame(e) {
 			? "Your other game couldn't be closed. Try again."
 			: "A new game couldn't be started. Try again.";
 	}
-	if (response?.status === 409) { // An AI or card game opened since (another tab): show it instead
+	if (response?.status === 409 && response.game_id) { // An AI or card game opened since (another tab): show it instead
 		stopLoading();
 		cardsNote.innerText = "You already have an AI or Chess Cards game open";
 		return loadCurrentGame(response.game_id);
@@ -547,7 +547,7 @@ export async function handleAccept(e, gameId, acceptBtn) {
 	if (response?.status == 200) { return goToPage(`/play/${encodeURIComponent(gameId)}`); } // Once the images are in
 	stopLoading();
 	await refreshHome(); // The invite or the open game changed since
-	if (response?.status == 409) { inviteNote.innerText = "You already have a friend game open"; }
+	if (response?.status == 409 && response.game_id) { inviteNote.innerText = "You already have a friend game open"; }
 	else if (response?.message == "They're in another game now") {
 		inviteNote.innerText = "They're in another game now, the invite was removed";
 	}

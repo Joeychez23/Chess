@@ -38,7 +38,7 @@ const list = (userId, name) => JSON.parse(peek("user_db", userId)?.[name]?.S || 
 async function cardsGame() {
 	const made = await call("POST", "/games/cards", { as: alice, body: { color: "w", level: 1300, state: STATE, fen: START } });
 	assert.equal(made.http, 200, made.message);
-	return made.game_data.game_id.S;
+	return made.game_data.game_id;
 }
 
 /**
@@ -62,9 +62,9 @@ describe("new card game", () => {
 	test("a signed in player's game starts at version 1 with the state as sent", async () => {
 		const made = await call("POST", "/games/cards", { as: alice, body: { color: "w", level: 1300, state: STATE, fen: START } });
 		assert.equal(made.http, 200, made.message);
-		assert.equal(made.game_data.cards_version.N, "1");
-		assert.equal(made.game_data.cards_state.S, STATE);
-		const gameId = made.game_data.game_id.S;
+		assert.equal(made.game_data.cards_version, 1);
+		assert.equal(made.game_data.cards_state, STATE);
+		const gameId = made.game_data.game_id;
 		const item = peek("chess_db", gameId);
 		assert.equal(item.mode.S, "cards");
 		assert.equal(item.cards_version.N, "1");
@@ -80,7 +80,7 @@ describe("new card game", () => {
 	test("a guest gets a new game & its guest token", async () => {
 		const made = await call("POST", "/games/cards", { body: { color: "b", state: STATE, fen: START } });
 		assert.equal(made.http, 200, made.message);
-		const gameId = made.game_data.game_id.S;
+		const gameId = made.game_data.game_id;
 		assert.ok(made.guest_token);
 		const item = peek("chess_db", gameId);
 		assert.equal(item.white_player_id.S, "CHESS_AI");
@@ -110,7 +110,7 @@ describe("new card game", () => {
 
 	test("a normal AI game is not a card game", async () => {
 		const made = await call("POST", "/games/ai", { as: alice, body: { color: "w" } });
-		const item = peek("chess_db", made.game_data.game_id.S);
+		const item = peek("chess_db", made.game_data.game_id);
 		assert.equal(item.mode, undefined);
 		assert.equal(item.cards_state, undefined);
 		assert.equal(item.cards_version, undefined);
@@ -127,13 +127,13 @@ describe("save card game", () => {
 		const next = JSON.stringify({ v: 1, ply: 1, board: AFTER_E4 });
 		const saved = await call("PUT", `/games/${gameId}/cards`, { as: alice, body: { version: 1, state: next, fen: AFTER_E4 } });
 		assert.equal(saved.http, 200, saved.message);
-		assert.equal(saved.game_data.cards_version.N, "2");
+		assert.equal(saved.game_data.cards_version, 2);
 		const item = peek("chess_db", gameId);
 		assert.equal(item.cards_version.N, "2");
 		assert.equal(item.cards_state.S, next);
 		assert.equal(item.game_board.S, AFTER_E4);
 		assert.equal(item.state.S, "OPEN");
-		assert.equal((await call("PUT", `/games/${gameId}/cards`, { as: alice, body: { version: 2, state: STATE, fen: START } })).game_data.cards_version.N, "3");
+		assert.equal((await call("PUT", `/games/${gameId}/cards`, { as: alice, body: { version: 2, state: STATE, fen: START } })).game_data.cards_version, 3);
 	});
 
 	test("a save on a stale version is refused (409) & nothing changes", async () => {
@@ -173,7 +173,7 @@ describe("save card game", () => {
 
 	test("a guest saves their own card game", async () => {
 		const made = await call("POST", "/games/cards", { body: { color: "w", state: STATE, fen: START } });
-		const gameId = made.game_data.game_id.S;
+		const gameId = made.game_data.game_id;
 		const saved = await call("PUT", `/games/${gameId}/cards`, { cookie: made.guest_token, body: { version: 1, state: STATE, fen: AFTER_E4 } });
 		assert.equal(saved.http, 200, saved.message);
 		assert.equal(peek("chess_db", gameId).cards_version.N, "2");
@@ -213,7 +213,7 @@ describe("save card game", () => {
 		const big = JSON.stringify({ pad: "x".repeat(200000) });
 		const made = await call("POST", "/games/cards", { as: alice, body: { color: "w", state: big, fen: START } });
 		assert.equal(made.http, 200, made.message);
-		const gameId = made.game_data.game_id.S;
+		const gameId = made.game_data.game_id;
 		const saved = await call("PUT", `/games/${gameId}/cards`, { as: alice, body: { version: 1, state: big, fen: AFTER_E4 } });
 		assert.equal(saved.http, 200, saved.message);
 		assert.equal(peek("chess_db", gameId).cards_state.S, big);
@@ -260,8 +260,8 @@ describe("save card game", () => {
 		await call("PUT", `/games/${gameId}/cards`, { as: alice, body: { version: 1, state: STATE, fen: AFTER_E4, winner: "b", reason: "skips" } });
 		const closed = peek("chess_db", gameId);
 		const game = (await db.retrieveGame(gameId, true)).game_data;
-		assert.equal((await db.saveCardsState(game, 2, STATE, START)).status, 500); // THE RIGHT VERSION, BUT CLOSED
-		assert.equal((await db.saveCardsState(game, 1, STATE, START)).status, 500);
+		assert.equal((await db.saveCardsState(game, 2, STATE, START)).status, 409); // THE RIGHT VERSION, BUT CLOSED
+		assert.equal((await db.saveCardsState(game, 1, STATE, START)).status, 409);
 		assert.deepEqual(peek("chess_db", gameId), closed);
 	});
 

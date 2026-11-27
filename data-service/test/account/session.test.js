@@ -226,7 +226,7 @@ describe("guest tokens", () => {
 	test("an id that isn't the guest's gets its token for the new id, not the one asked for", async () => {
 		await call("POST", "/games/guest", { body: { game_id: "guest1", color: "w" } });
 		const other = await call("POST", "/games/guest", { body: { game_id: "guest1", color: "w" } }); // ANOTHER BROWSER ASKING FOR guest1
-		assert.notEqual(other.game_data.game_id.S, "guest1");
-		assert.equal(payload(other.guest_token).game_id, other.game_data.game_id.S);
+		assert.notEqual(other.game_data.game_id, "guest1");
+		assert.equal(payload(other.guest_token).game_id, other.game_data.game_id);
 	});
 });

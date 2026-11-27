@@ -12,7 +12,7 @@
 
 const { checkStartFen } = require("../../utils/validate.js");
 const { checkUsername } = require("../../utils/username.js");
-const { gameOpen, gamePending, inviterId } = require("../../utils/games.js");
+const { gameOpen, gamePending, inviterId } = require("../../utils/plainItems.js");
 const { ifSaved, invite, challenge, retrieveChallenge, join, accept, decline, findUsername } = require("../../dataClient.js");
 const chessGuards = require("./chess.guards.js");
 const chessShapers = require("./chess.shapers.js");
@@ -29,12 +29,12 @@ const chessOffers = require("./chess.offers.js");
  * @param  {[object]} req.body [{ opponent_username, start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random),
  * start_fen (optional, a set position to start from), takebacks (optional, 0 = off, left out = up to 3 per game),
  * days_per_move (optional, 1, 3 or 7, left out = no limit), replace_current (optional, true = forfeit the open friend game & invite) }]
- * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message }
+ * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), open: true, message }
  * | { status: 400, message } (start_fen can't be played)]
  */
 async function inviteGame(req, res) {
 	const { opponent_username, replace_current } = req.body || {};
-	if (!opponent_username) { return res.status(400).json({ status: 500, message: "Missing opponent" }); }
+	if (!opponent_username) { return res.status(400).json({ status: 400, message: "Missing opponent" }); }
 	// Checked before anything is forfeited or saved
 	const position = checkStartFen(req.body?.start_fen);
 	if (position.message) { return res.status(400).json({ status: 400, message: position.message }); }
@@ -42,18 +42,18 @@ async function inviteGame(req, res) {
 	const challengerId = chessGuards.userPlayerId(req.user);
 
 	const opponentId = await findOpponent(opponent_username);
-	if (!opponentId) { return res.status(404).json({ status: 500, message: "Opponent not found" }); }
-	if (opponentId == challengerId) { return res.status(400).json({ status: 500, message: "That's your username" }); }
+	if (!opponentId) { return res.status(404).json({ status: 404, message: "Opponent not found" }); }
+	if (opponentId == challengerId) { return res.status(400).json({ status: 400, message: "That's your username" }); }
 
 	const mine = await chessGuards.myGames();
 	// Accept theirs instead
 	const theirInvite = chessShapers.receivedInvites(mine).find((invite) => invite.player_id == opponentId);
-	if (theirInvite) { return res.status(409).json({ status: 500, game_id: theirInvite.game_id, message: "They already invited you" }); }
+	if (theirInvite) { return res.status(409).json({ status: 409, game_id: theirInvite.game_id, message: "They already invited you" }); }
 
 	// One friend game at a time: a new invite forfeits the open one
 	const current = chessShapers.openGame(mine, false);
 	if (current && !replace_current) {
-		return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" });
+		return res.status(409).json({ status: 409, game_id: current.game_id, open: true, message: "Friend game already open" });
 	}
 	if (current) { await chessOffers.forfeitOpenGame(current, challengerId); }
 	// One sent invite at a time
@@ -68,13 +68,13 @@ async function inviteGame(req, res) {
 		takebacks: params.takebacks,
 		days_per_move: params.days_per_move,
 	});
-	if (!response.game_data) { return chessGuards.reply(res, { status: response.status, message: response.message }); }
+	if (!response.game_data) { return chessGuards.reply(res, { status: response.status, open: response.open, message: response.message }); } // open: A FRIEND GAME OPENED (Home's invite form)
 
 	// Their Home shows the invite
 	chessGuards.notifyHome(response.game_data);
 	return res.json({
 		status: response.status,
-		game_id: response.game_data.game_id.S,
+		game_id: response.game_data.game_id,
 		state: "PENDING",
 		message: response.message,
 	});
@@ -113,7 +113,7 @@ async function dropInvite(gameId) {
  * unless replace_current forfeits it first
  * @param  {[object]} req.body [{ start_color ("alternate" | "random" | "w" | "b", the challenger's color, left out = Random), start_fen (optional),
  * takebacks (optional, 0 = off), days_per_move (optional, 1, 3 or 7, left out = no limit), replace_current (optional) }]
- * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), message }
+ * @return {[object]} response [{ status, game_id, state: "PENDING", message } | { status: 409, game_id (the open one), open: true, message }
  * | { status: 400, message } (start_fen can't be played)]
  */
 async function challengeGame(req, res) {
@@ -125,7 +125,7 @@ async function challengeGame(req, res) {
 	const mine = await chessGuards.myGames();
 	const current = chessShapers.openGame(mine, false);
 	if (current && !req.body?.replace_current) {
-		return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" });
+		return res.status(409).json({ status: 409, game_id: current.game_id, open: true, message: "Friend game already open" });
 	}
 	if (current) { await chessOffers.forfeitOpenGame(current, chessGuards.userPlayerId(req.user)); }
 	// One sent invite at a time
@@ -142,13 +142,13 @@ async function challengeGame(req, res) {
 
 	// The challenger's other tabs show the link
 	chessGuards.notifyHome(response.game_data);
-	return res.json({ status: response.status, game_id: response.game_data.game_id.S, state: "PENDING", message: response.message });
+	return res.json({ status: response.status, game_id: response.game_data.game_id, state: "PENDING", message: response.message });
 }
 
 /**
  * @description What the join screen shows
  * @param  {[string]} req.params.gameId [game id from the link]
- * @return {[object]} response [{ status, open, name, player_color, start_params, message } | { status: 500, message: "Game data not found" } (a 404)]
+ * @return {[object]} response [{ status, open, name, player_color, start_params, message } | { status: 404, message: "Game data not found" }]
  */
 async function getChallenge(req, res) {
 	return chessGuards.reply(res, await retrieveChallenge(req.params.gameId));
@@ -159,17 +159,17 @@ async function getChallenge(req, res) {
  * While the player has a friend game open this answers 409, unless replace_current forfeits it first
  * @param  {[string]} req.params.gameId [game id from the link]
  * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the open friend game & join) }]
- * @return {[object]} response [{ status, game_id, ai, game_board, ..., state, message } | { status: 409, game_id (the open one), message }
+ * @return {[object]} response [{ status, game_id, ai, game_board, ..., state, message } | { status: 409, game_id (the open one), open: true, message }
  * | { status: 409, message: "Game is taken" }]
  */
 async function joinGame(req, res) {
 	const gameId = req.params.gameId;
 	const joined = await ifSaved(() => join(gameId, req.body?.replace_current), () => savedOpenedGame(gameId));
 	if (joined.status == 409 && joined.game_id) {
-		return res.status(409).json({ status: 409, game_id: joined.game_id, message: "Friend game already open" });
+		return res.status(409).json({ status: 409, game_id: joined.game_id, open: true, message: "Friend game already open" });
 	}
 	// Joining forfeited the open one
-	if (joined.forfeited) { chessOffers.tellGameOver(joined.forfeited, chessGuards.userPlayerId(req.user), joined.forfeited.winner?.S); }
+	if (joined.forfeited) { chessOffers.tellGameOver(joined.forfeited, chessGuards.userPlayerId(req.user), joined.forfeited.winner); }
 	// Their sent invite was cancelled
 	for (let i = 0; i < (joined.dropped_invites || []).length; i++) { chessGuards.notifyHome(joined.dropped_invites[i]); }
 	// The creator's Home shows the game
@@ -198,35 +198,35 @@ async function savedOpenedGame(gameId) {
  * @param  {[string]} req.params.gameId [PENDING game id]
  * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the open friend game & accept) }]
  * @return {[object]} response [{ status, game_id, ai, game_board, w_knight, b_knight, w_piece, b_piece, state, winner, reason, message }
- * | { status: 409, game_id (the open one), message }]
+ * | { status: 409, game_id (the open one), open: true, message }]
  */
 async function acceptGame(req, res) {
 	const { replace_current } = req.body || {};
 	const response = await chessGuards.retrieveGame(req.params.gameId);
 	if (chessGuards.notYours(response)) { return chessGuards.notInGame(req, res); }
 	// Declined, cancelled or expired
-	if (!response.game_data) { return res.status(chessGuards.httpStatus(response)).json({ status: response.status, message: "Invite not found" }); }
+	if (!response.game_data) { return res.status(chessGuards.httpStatus(response)).json({ status: chessGuards.httpStatus(response), message: "Invite not found" }); }
 
 	const gameData = response.game_data;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (!gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite was already answered" }); }
-	if (playerId == inviterId(gameData)) { return res.status(403).json({ status: 500, message: "Only the invited player can accept" }); }
+	if (!gamePending(gameData)) { return res.status(409).json({ status: 409, message: "Invite was already answered" }); }
+	if (playerId == inviterId(gameData)) { return res.status(403).json({ status: 403, message: "Only the invited player can accept" }); }
 
 	// The data service checks their open friend game (409 unless replace_current) & that the inviter isn't busy,
 	// then saves the forfeit, drops their sent invite & accepts
-	const gameId = gameData.game_id.S;
+	const gameId = gameData.game_id;
 	const accepted = await ifSaved(() => accept(gameId, replace_current), () => savedOpenedGame(gameId));
 	if (accepted.status == 409 && accepted.game_id) {
-		return res.status(409).json({ status: 409, game_id: accepted.game_id, message: "Friend game already open" });
+		return res.status(409).json({ status: 409, game_id: accepted.game_id, open: true, message: "Friend game already open" });
 	}
 	// The inviter started another friend game since (a rematch, or they accepted one)
 	if (accepted.message == "They're in another game now") {
 		await dropInvite(gameId);
-		return res.status(409).json({ status: 500, message: "They're in another game now" });
+		return res.status(409).json({ status: 409, message: "They're in another game now" });
 	}
 	// Accepting forfeited the open one
-	if (accepted.forfeited) { chessOffers.tellGameOver(accepted.forfeited, playerId, accepted.forfeited.winner?.S); }
+	if (accepted.forfeited) { chessOffers.tellGameOver(accepted.forfeited, playerId, accepted.forfeited.winner); }
 	// Their sent invite was cancelled
 	for (let i = 0; i < (accepted.dropped_invites || []).length; i++) { chessGuards.notifyHome(accepted.dropped_invites[i]); }
 	// The inviter's Home shows the game
@@ -246,18 +246,18 @@ async function acceptGame(req, res) {
 async function declineGame(req, res) {
 	const response = await chessGuards.retrieveGame(req.params.gameId);
 	if (chessGuards.notYours(response)) { return chessGuards.notInGame(req, res); }
-	if (!response.game_data) { return res.status(chessGuards.httpStatus(response)).json({ status: response.status, message: "Invite not found" }); }
+	if (!response.game_data) { return res.status(chessGuards.httpStatus(response)).json({ status: chessGuards.httpStatus(response), message: "Invite not found" }); }
 
 	const gameData = response.game_data;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (!gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite was already answered" }); }
+	if (!gamePending(gameData)) { return res.status(409).json({ status: 409, message: "Invite was already answered" }); }
 
-	const deleted = await decline(gameData.game_id.S);
+	const deleted = await decline(gameData.game_id);
 	// The other player's Home drops it
 	if (deleted.status == 200) { chessGuards.notifyHome(gameData); }
-	const status = deleted.status == 200 ? 200 : 500;
-	return res.status(chessGuards.httpStatus(deleted)).json({ status, game_id: gameData.game_id.S, message: deleted.message });
+	const status = chessGuards.httpStatus(deleted);
+	return res.status(status).json({ status, game_id: gameData.game_id, message: deleted.message });
 }
 
 

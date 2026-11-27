@@ -66,8 +66,7 @@ export function clearStatus(kind) {
 
 /**
  * @description The request got no usable answer: the network failed or the server broke (validate/index.js returns nothing
- * when fetch or the JSON fails, serverError is an HTTP 5xx). Any other answer that isn't a 200 is the server saying no,
- * status in the body doesn't tell them apart, the chess routes refuse a move with status: 500
+ * when fetch or the JSON fails, serverError is an HTTP 5xx). Any other answer that isn't a 200 is the server saying no
  * @param  {[object]} response [from validate/index.js]
  * @return {[boolean]}
  */

@@ -430,7 +430,7 @@ export async function request(url, options) {
 			if (refresh.ok) { res = await fetch(url, options); }
 		}
 		const body = await res.json();
-		// The server broke. A refused move is an HTTP 4xx with status: 500 in the body (server/controllers/chess/)
+		// The server broke. A refused move is an HTTP 4xx, its body says the same status (server/controllers/chess/)
 		if (res.status >= 500) { body.serverError = true; }
 		return body;
 	} catch {
