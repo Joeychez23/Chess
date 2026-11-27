@@ -60,7 +60,8 @@ const loaded = {}; // IMAGE NUMBER -> PROMISE OF ITS IMAGE, EACH ONE LOADS ONCE
  */
 export async function drawBoardPicture(canvas, game) {
 	const playerColor = game.player_color == "b" ? "b" : "w";
-	const chessInst = new Chess(game.game_board);
+	// A card game saved between the two moves of a two-move turn has an en passant square chess.js refuses
+	const chessInst = new Chess(game.game_board, { skipValidation: true });
 	let rows = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
 	if (playerColor == "b") { rows = rows.reverse().map((row) => row.reverse()); } // FLIPPED LIKE THE GAME: ROW 0 IS RANK 1, COLUMN 0 IS THE h FILE
 	const lists = { // WHICH WAY THE PIECES FACE, SAVED BY THE SERVER WITH EACH MOVE

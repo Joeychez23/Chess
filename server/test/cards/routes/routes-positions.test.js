@@ -109,7 +109,7 @@ test("the response's catalog gives the name, kind, text, skulls and rarity of ev
 	assert.ok(Object.keys(played.catalog).every((k) => JSON.stringify([played.view, played.events]).includes(`"${k}"`)));
 });
 
-test("game_board keeps its last value while Card Guy's Fog of War is up", async () => {
+test("game_board keeps its last pieces while Card Guy's Fog of War is up, with the current side to move", async () => {
 	const created = await start();
 	const state = stored(created.game_id);
 	state.enchant.push({ id: "e1", key: "fog-of-war", owner: "b", pieces: [], left: 3, data: {} });
@@ -122,8 +122,12 @@ test("game_board keeps its last value while Card Guy's Fog of War is up", async 
 	assert.equal((await act(created.game_id, action)).http, 200);
 	assert.equal(version(created.game_id), "2");
 	assert.deepEqual(stored(created.game_id), next);
-	assert.equal(peek("chess_db", created.game_id).game_board.S, board);
-	assert.equal((await call("GET", `/api/chess/game/${created.game_id}`)).game_board, board);
+	const [placement, turn, castling, , half, full] = board.split(" ");
+	assert.equal(turn, "w");
+	const held = [placement, next.board.turn, castling, "-", half, full].join(" "); // THE STORED PIECES, THE TURN NOW
+	assert.notEqual(next.board.turn, turn);
+	assert.equal(peek("chess_db", created.game_id).game_board.S, held);
+	assert.equal((await call("GET", `/api/chess/game/${created.game_id}`)).game_board, held);
 });
 
 test("reloading mid-duel returns the duel exactly as it was", async () => {
@@ -199,7 +203,7 @@ test("only Card Guy's Fog of War, in any version, holds game_board: the player's
 		assert.equal((await act(created.game_id, firstMove(state, "w"), { as: guest })).http, 200);
 		const now = peek("chess_db", created.game_id).game_board.S;
 		assert.notEqual(E.toFen(stored(created.game_id)), board); // THE MOVE CHANGED THE BOARD
-		return now === board;
+		return now.split(" ")[0] === board.split(" ")[0]; // THE PIECES: THE SIDE TO MOVE IS ALWAYS THE CURRENT ONE
 	};
 	assert.equal(await run("fog-of-war-rare", "b", "one"), true);
 	assert.equal(await run("fog-of-war-epic", "b", "two"), true);

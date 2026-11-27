@@ -259,6 +259,16 @@ describe("Hollow Crown", () => {
 		assert.equal(bh.players.w.king, false);
 	});
 
+	test("Pickpocket by a thief who holds nothing else, the stolen King card lost: no take-back is asked and the game goes on", () => {
+		const { s } = crowned("4k3/8/8/8/8/8/8/4K3 b - - 0 1"), pp = hand.newCard(s, "pickpocket");
+		Object.assign(s.players.w, { moves: [], actives: [] });
+		Object.assign(s.players.b, { moves: [], actives: [pp], passive: null, curses: [] });
+		const r = applyAction(s, "b", { type: "active", card: pp.id });
+		assert.equal(r.state.pending, null);
+		assert.equal(ofType(r.events, "choice").length, 0);
+		assert.ok(r.state.result || legalActions(r.state, r.state.board.turn).length); // NOT STUCK
+	});
+
 	test("without the King card the king moves only by Escape Artist; a check nothing else answers is checkmate by the cards", () => {
 		const fen = "7k/r7/8/8/8/8/P7/4K3 b - - 0 1", rook = (s) => { s.players.b.moves = [moveCard(s, "r")]; return { type: "move", card: s.players.b.moves[0].id, from: "a7", to: "e7" }; };
 		const { s } = crowned(fen);
