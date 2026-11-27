@@ -106,7 +106,7 @@ async function challengeGame(req, res) {
 async function getChallenge(req, res) {
 	if (req.player.guest) { return refuse(req, res, 403, "Guests can't join"); }
 	const gameData = (await retrieveGame(req.params.gameId, true)).game_data;
-	if (!gameData?.challenge) { return res.json({ status: 500, message: "Game data not found" }); }
+	if (!gameData?.challenge) { return res.json({ status: 404, message: "Game data not found" }); }
 	const seat = openSeat(gameData);
 	return res.json({
 		status: 200,
@@ -126,7 +126,7 @@ async function getChallenge(req, res) {
  * @param  {[string]} req.params.gameId [game id from the link]
  * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the requester's open friend game) }]
  * @return {[object]} response [takeOpenSeat's { status, game_data, message } plus forfeited & dropped_invites (see acceptGame) |
- * { status: 409, game_id (the open one), message: "Friend game already open" } | { status: 409, message: "Game is taken" }]
+ * { status: 409, game_id (the open one), open: true, message: "Friend game already open" } | { status: 409, message: "Game is taken" }]
  */
 async function joinGame(req, res) {
 	if (req.player.guest) { return refuse(req, res, 403, "Guests can't join"); }
@@ -134,7 +134,7 @@ async function joinGame(req, res) {
 	const response = await retrieveGame(req.params.gameId, true);
 	const gameData = response.game_data;
 	// Cancelled, expired or not a link
-	if (!gameData?.challenge) { return res.json({ status: 500, message: "Game data not found" }); }
+	if (!gameData?.challenge) { return res.json({ status: 404, message: "Game data not found" }); }
 	const playerId = req.player.id;
 	if (playerInGame(req.player, gameData) && gameOpen(gameData)) { return res.json({ ...response, forfeited: null, dropped_invites: [] }); }
 	if (playerId == inviterId(gameData)) { return refuse(req, res, 403, "That's your own link"); }
@@ -144,7 +144,7 @@ async function joinGame(req, res) {
 	// One friend game at a time
 	const current = await gameShared.currentGame(playerId, false);
 	if (current && replace_current !== true) {
-		return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" });
+		return res.json({ status: 409, game_id: current.game_id.S, open: true, message: "Friend game already open" });
 	}
 	if (await gameShared.currentGame(inviterId(gameData), false)) { return refuse(req, res, 409, "They're in another game now"); }
 
@@ -170,7 +170,7 @@ async function joinGame(req, res) {
  * @param  {[string]} req.params.gameId [PENDING game id]
  * @param  {[object]} req.body [{ replace_current (optional, true = forfeit the requester's open friend game) }]
  * @return {[object]} response [acceptInvite's { status, game_data, message } plus forfeited (the game it forfeited, for both boards) &
- * dropped_invites (the sent invite it cancelled, for both Homes) | { status: 409, game_id (the open one),
+ * dropped_invites (the sent invite it cancelled, for both Homes) | { status: 409, game_id (the open one), open: true,
  * message: "Friend game already open" }]
  */
 async function acceptGame(req, res) {
@@ -187,7 +187,7 @@ async function acceptGame(req, res) {
 	// One friend game at a time
 	const current = await gameShared.currentGame(playerId, false);
 	if (current && replace_current !== true) {
-		return res.json({ status: 409, game_id: current.game_id.S, message: "Friend game already open" });
+		return res.json({ status: 409, game_id: current.game_id.S, open: true, message: "Friend game already open" });
 	}
 	if (await gameShared.currentGame(inviterId(gameData), false)) { return refuse(req, res, 409, "They're in another game now"); }
 

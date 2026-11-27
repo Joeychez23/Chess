@@ -24,7 +24,7 @@ const { FRIEND_ACTIONS } = require("../utils/friends.js");
  * @description The requester's row as stored. With games, expired games & invites are pruned first & the open games are added (what Home lists)
  * @param  {[string]} req.query.consistent ["true" = a strongly consistent read, right after a save]
  * @param  {[string]} req.query.games ["true" = also ai_game_id, friend_game_id, open_game_list, closed_game_list, sent_invite & received_invites (pruneOpenGames, pruneClosedGames, pruneInvites)]
- * @return {[object]} response [retrieveUser's { status, user_data, message }, "User data not found" ({ status: 500 }) for a player with no row yet]
+ * @return {[object]} response [retrieveUser's { status, user_data, message }, "User data not found" ({ status: 404 }) for a player with no row yet]
  */
 async function getMe(req, res) {
 	const response = await retrieveUser(req.player.id, req.query.consistent == "true");

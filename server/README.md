@@ -115,9 +115,8 @@ device within 15 minutes.
 Routes are under `/api/chess`, called from `client/src/js/gameplay/validate/index.js`.
 Responses keep the old chess lambda's `{ status, ..., message }` body, and the
 HTTP status is the real one: 400 bad input, 403 not allowed, 404 not found, 409
-conflict, not your turn or game over, 422 illegal move. A refusal's body can still
-say `status: 500` under a 4xx, so `message` and the HTTP status are what tell them
-apart. A real 5xx is the server breaking.
+conflict, not your turn or game over, 422 illegal move. The body's `status` is the
+same as the HTTP status. A real 5xx is the server breaking.
 
 - **Who's playing** comes from the session cookie, never from player ids the
   client sends. Nobody can move for the AI except `/ai-move`.

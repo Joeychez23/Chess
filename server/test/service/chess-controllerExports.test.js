@@ -59,7 +59,7 @@ describe("controllers/chess", () => {
 		const loaded = await chessGuards.loadMyGame({ params: { gameId: "gone" }, user: { user_id: "auth0|alice" } }, res);
 		assert.equal(loaded, null);
 		assert.equal(res.code, 404); // As moveGame's opening answered it
-		assert.deepEqual(res.body, { status: 500, message: "Game data not found" });
+		assert.deepEqual(res.body, { status: 404, message: "Game data not found" });
 	});
 
 	test("loadMyGame returns null after replying for a game the player is not in", async () => {
@@ -76,7 +76,7 @@ describe("controllers/chess", () => {
 	});
 
 	test("loadMyGame returns the read and passes consistentRead on", async () => {
-		const read = { status: 200, game_data: { game_id: { S: "mine" } }, message: "Retrieved game id: mine" };
+		const read = { status: 200, game_data: { game_id: "mine" }, message: "Retrieved game id: mine" };
 		answers.set("mine", read);
 		reads.length = 0;
 		const res = fakeResponse();

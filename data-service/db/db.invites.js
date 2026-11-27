@@ -138,7 +138,7 @@ async function deleteInvite(gameData) {
 	try {
 		await dbClient.connection.deleteItem(params);
 	} catch (err) {
-		if (err.name == "ConditionalCheckFailedException") { return { status: 500, message: `Invite was already answered: ${gameId}` }; }
+		if (err.name == "ConditionalCheckFailedException") { return { status: 409, message: `Invite was already answered: ${gameId}` }; }
 		throw err;
 	}
 

@@ -144,6 +144,6 @@ describe("rateGame", () => {
 		const conflict = mock.method(DynamoDB.prototype, "updateItem", async () => { throw Object.assign(new Error("Transaction is ongoing for the item"), { name: "TransactionConflictException" }); });
 		const saved = await db.updateUser(row, { requested_games: [], open_games: ["game1"], closed_games: [] });
 		conflict.mock.restore();
-		assert.equal(saved.status, 500);
+		assert.equal(saved.status, 409);
 	});
 });

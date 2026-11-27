@@ -31,7 +31,8 @@ module.exports = [
 			'commands/**',
 			'deploy/**',
 			'docs/**',
-			'.superpowers/**'
+			'.superpowers/**',
+			'.claude/**'
 		]
 	},
 	js.configs.recommended,

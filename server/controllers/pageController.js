@@ -57,7 +57,7 @@ function playPage(req, res) {
 async function gamePage(req, res) {
 	if (!readSessionUser(req)) { return res.redirect(`/api/auth/resume?returnTo=${encodeURIComponent(req.originalUrl)}`); }
 	const response = await retrieveGame(req.params.gameId).catch(() => null); // A FAILED CHECK STILL SENDS THE PAGE
-	if (response?.game_data?.state?.S == "PENDING") { return res.redirect("/"); }
+	if (response?.game_data?.state == "PENDING") { return res.redirect("/"); }
 	if (response && !response.game_data) {
 		const challenge = await retrieveChallenge(req.params.gameId).catch(() => null);
 		if (challenge?.status == 200) { return sendPage(res, "join.html"); }
@@ -77,8 +77,8 @@ async function replayPage(req, res) {
 	if (!readSessionUser(req)) { return res.redirect(`/api/auth/resume?returnTo=${encodeURIComponent(req.originalUrl)}`); }
 	const response = await retrieveGame(req.params.gameId).catch(() => null);
 	const gameData = response?.game_data;
-	if (gameData?.state?.S == "PENDING") { return res.redirect("/"); }
-	if (gameData && (gameData.state?.S || "OPEN") == "OPEN") { return res.redirect(`/play/${encodeURIComponent(req.params.gameId)}`); } // GAMES FROM BEFORE state ARE OPEN
+	if (gameData?.state == "PENDING") { return res.redirect("/"); }
+	if (gameData && (gameData.state || "OPEN") == "OPEN") { return res.redirect(`/play/${encodeURIComponent(req.params.gameId)}`); } // GAMES FROM BEFORE state ARE OPEN
 	return sendPage(res, "play.html");
 }
 

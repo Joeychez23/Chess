@@ -68,7 +68,7 @@ export async function handleRestart(e) {
 async function restartCards() {
 	setRestartLoading(0.15);
 	const response = await newCardsGame(game.GAME_URL, game.cardGame.startColor, game.response.ai_level, replaceOpen);
-	if (response?.status === 409) { // ANOTHER GAME IS OPEN (FINISHED GAMES OPENED THIS ONE): ASK BEFORE FORFEITING IT
+	if (response?.status === 409 && response.game_id) { // ANOTHER GAME IS OPEN (FINISHED GAMES OPENED THIS ONE): ASK BEFORE FORFEITING IT
 		replaceOpen = true;
 		setRestartLoading(false);
 		optRestartBtn.innerHTML = "Forfeit & restart"; // AFTER setRestartLoading, IT PUTS BACK "Restart"

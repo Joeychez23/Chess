@@ -108,30 +108,30 @@ describe("GET /game/:gameId/pgn", () => {
 
 describe("buildPgn", () => {
 	const friendData = (fields) => ({
-		game_id: { S: "game1" },
-		white_player_id: { S: "alice" },
-		black_player_id: { S: "bob" },
-		moves: { S: [] },
+		game_id: "game1",
+		white_player_id: "alice",
+		black_player_id: "bob",
+		moves: [],
 		...fields,
 	});
 	const build = (fields) => buildPgn(friendData(fields), { site: "https://chess.test/" });
 
 	test("a saved move that can't be replayed throws, instead of writing a broken file", () => {
-		assert.throws(() => build({ moves: { S: ["e4", "Ke5"] } }));
+		assert.throws(() => build({ moves: ["e4", "Ke5"] }));
 	});
 
 	test("an older game has no date", () => {
 		assert.equal(readPgn(build({}).pgn).headers.Date, "????.??.??");
-		assert.equal(readPgn(build({ created_at: { S: "2026-03-09T23:59:59.000Z" } }).pgn).headers.Date, "2026.03.09");
+		assert.equal(readPgn(build({ created_at: "2026-03-09T23:59:59.000Z" }).pgn).headers.Date, "2026.03.09");
 	});
 
 	test("every result", () => {
-		const result = (winner) => readPgn(build({ state: { S: "CLOSED" }, winner: { S: winner }, reason: { S: "stalemate" } }).pgn).headers.Result;
+		const result = (winner) => readPgn(build({ state: "CLOSED", winner, reason: "stalemate" }).pgn).headers.Result;
 		assert.deepEqual([result("w"), result("b"), result("draw")], ["1-0", "0-1", "1/2-1/2"]);
 	});
 
 	test("a name can't break the file, its header or the file name", () => {
-		const { pgn, filename } = build({ white_name: { S: 'Al "the\\ace"\n[Result "1-0"]' }, black_name: { S: "../../Bób" } });
+		const { pgn, filename } = build({ white_name: 'Al "the\\ace"\n[Result "1-0"]', black_name: "../../Bób" });
 		const { headers } = readPgn(pgn);
 		assert.equal(headers.White, "Al 'theace' [Result '1-0']");
 		assert.equal(headers.Result, "*");

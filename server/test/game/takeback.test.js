@@ -160,7 +160,7 @@ describe("a refused takeback", () => {
 
 		await newGame({ replace_current: true });
 		assert.equal((await load(gameId)).state, "CLOSED"); // THE NEW GAME FORFEITED IT
-		assert.equal((await takeback(gameId)).status, 500);
+		assert.equal((await takeback(gameId)).status, 409);
 		assert.deepEqual((await load(gameId)).moves, ["e4", "e5"]);
 	});
 });
@@ -322,6 +322,6 @@ describe("friend game takebacks", () => {
 		await takeback(gameId);
 		await call("POST", `/api/chess/game/${gameId}/forfeit`, { as: bob });
 		assert.equal((await seen(gameId)).takeback_request, null);
-		assert.equal((await takeback(gameId, bob)).status, 500);
+		assert.equal((await takeback(gameId, bob)).status, 409);
 	});
 });

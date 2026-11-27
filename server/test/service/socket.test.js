@@ -91,6 +91,11 @@ describe("join-game", () => {
 		const other = await listen(alice); // ANOTHER TAB HAS ITS OWN LIMIT
 		assert.notEqual((await other.join("nope")).status, 429);
 	});
+
+	test("a game that isn't there answers 500 Game data not found, as it always has", async () => {
+		const tab = await listen(player("alice"));
+		assert.deepEqual(await tab.join("missing"), { status: 500, message: "Game data not found" });
+	});
 });
 
 describe("a rematch request & the other player", () => {

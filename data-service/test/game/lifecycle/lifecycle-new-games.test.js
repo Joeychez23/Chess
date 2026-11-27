@@ -23,7 +23,7 @@ describe("new AI game", () => {
 	test("the requester plays the AI at their level, color and set position", async () => {
 		const made = await call("POST", "/games/ai", { as: alice, body: { color: "b", level: 5, start_fen: SET_POSITION } });
 		assert.equal(made.http, 200);
-		const gameId = made.game_data.game_id.S;
+		const gameId = made.game_data.game_id;
 		const item = peek("chess_db", gameId);
 		assert.equal(item.white_player_id.S, "CHESS_AI");
 		assert.equal(item.black_player_id.S, "alice");
@@ -35,14 +35,14 @@ describe("new AI game", () => {
 
 	test("random draws a side here, the level defaults to 1300", async () => {
 		const made = (await call("POST", "/games/ai", { as: alice, body: { color: "random" } })).game_data;
-		assert.deepEqual([made.white_player_id.S, made.black_player_id.S].sort(), ["CHESS_AI", "alice"]);
-		assert.equal(made.ai_level.N, "1300");
+		assert.deepEqual([made.white_player_id, made.black_player_id].sort(), ["CHESS_AI", "alice"]);
+		assert.equal(made.ai_level, 1300);
 	});
 
 	test("takes every level from 600 to 3200 in steps of 100, and the 8 levels from before", async () => {
 		for (const level of [600, 1300, 2400, 3200, 1, 8]) {
 			const made = await call("POST", "/games/guest", { body: { game_id: `guest${level}`, color: "w", level } });
-			assert.equal(made.game_data.ai_level.N, `${level}`);
+			assert.equal(made.game_data.ai_level, level);
 		}
 		for (const level of [0, 9, 500, 650, 3300]) {
 			assert.equal((await call("POST", "/games/guest", { body: { game_id: "guestbad", color: "w", level } })).http, 400);
@@ -78,7 +78,7 @@ describe("game ids are made here", () => {
 			call("POST", "/games/ai", { as: bob, body: { color: "w" } }),
 			call("POST", "/games/invite", { as: carol, body: { opponent_id: "bob", color: "w" } }),
 		]);
-		const ids = games.map((made) => made.game_data.game_id.S);
+		const ids = games.map((made) => made.game_data.game_id);
 		for (const id of ids) { assert.match(id, ID); assert.ok(peek("chess_db", id)); }
 		assert.equal(new Set(ids).size, ids.length);
 		assert.deepEqual(list("bob", "requested_games"), [ids[2]]);
@@ -89,12 +89,12 @@ describe("game ids are made here", () => {
 			call("POST", "/games/guest", { body: { game_id: "guest1", color: "w", level: 2 } }),
 			call("POST", "/games/guest", { body: { game_id: "guest1", color: "w", level: 7 } }),
 		]);
-		const ids = results.map((result) => result.game_data.game_id.S);
+		const ids = results.map((result) => result.game_data.game_id);
 		assert.notEqual(ids[0], ids[1]);
 		for (const result of results) {
-			const stored = peek("chess_db", result.game_data.game_id.S);
-			assert.equal(stored.ai_level.N, result.game_data.ai_level.N);
-			assert.equal(stored.white_player_id.S, result.game_data.game_id.S);
+			const stored = peek("chess_db", result.game_data.game_id);
+			assert.equal(Number(stored.ai_level.N), result.game_data.ai_level);
+			assert.equal(stored.white_player_id.S, result.game_data.game_id);
 		}
 	});
 });
@@ -106,10 +106,10 @@ describe("game ids are made here", () => {
 describe("guest game", () => {
 	test("a new guest's game is theirs vs the AI, at level 1300 unless they pick one", async () => {
 		const made = (await call("POST", "/games/guest", { body: { game_id: "guest1", color: "w" } })).game_data;
-		assert.equal(made.game_id.S, "guest1");
-		assert.equal(made.white_player_id.S, "guest1"); // A GUEST'S PLAYER ID IS THEIR GAME ID
-		assert.equal(made.black_player_id.S, "CHESS_AI");
-		assert.equal(made.ai_level.N, "1300");
+		assert.equal(made.game_id, "guest1");
+		assert.equal(made.white_player_id, "guest1"); // A GUEST'S PLAYER ID IS THEIR GAME ID
+		assert.equal(made.black_player_id, "CHESS_AI");
+		assert.equal(made.ai_level, 1300);
 		assert.equal(peek("user_db", "guest1"), undefined); // GUESTS HAVE NO ROW
 	});
 
@@ -117,9 +117,9 @@ describe("guest game", () => {
 		await call("POST", "/games/guest", { body: { game_id: "guest1", color: "w", level: 6 } });
 		await call("POST", "/games/guest1/move", { guest: "guest1", body: { from: "e2", to: "e4" } });
 		const reset = (await call("POST", "/games/guest", { guest: "guest1", body: { game_id: "guest1", color: "w" } })).game_data;
-		assert.equal(reset.game_id.S, "guest1");
-		assert.deepEqual(reset.moves.S, []);
-		assert.equal(reset.ai_level.N, "6");
+		assert.equal(reset.game_id, "guest1");
+		assert.deepEqual(reset.moves, []);
+		assert.equal(reset.ai_level, 6);
 	});
 
 	test("an id that isn't the guest's own gets a new game, and that game isn't touched", async () => {
@@ -128,17 +128,17 @@ describe("guest game", () => {
 		for (const [gameId, options] of [["guest1", { guest: "other" }], ["guest1", {}], ["game1", {}], ["game1", { guest: "alice" }]]) {
 			const before = peek("chess_db", gameId);
 			const made = (await call("POST", "/games/guest", { ...options, body: { game_id: gameId, color: "w" } })).game_data;
-			assert.notEqual(made.game_id.S, gameId);
-			assert.equal(made.white_player_id.S, made.game_id.S);
+			assert.notEqual(made.game_id, gameId);
+			assert.equal(made.white_player_id, made.game_id);
 			assert.deepEqual(peek("chess_db", gameId), before);
 		}
 	});
 
 	test("CHESS_AI or no id gets a new id, a signed in player or a bad body is refused", async () => {
 		const made = (await call("POST", "/games/guest", { body: { game_id: "CHESS_AI", color: "w" } })).game_data;
-		assert.notEqual(made.game_id.S, "CHESS_AI");
+		assert.notEqual(made.game_id, "CHESS_AI");
 		assert.equal(peek("chess_db", "CHESS_AI"), undefined);
-		assert.ok((await call("POST", "/games/guest", { body: { color: "b" } })).game_data.game_id.S);
+		assert.ok((await call("POST", "/games/guest", { body: { color: "b" } })).game_data.game_id);
 		await refused([["chess_db", "guest2"]], "POST", "/games/guest", { as: alice, body: { game_id: "guest2" } }, 403);
 		await refused([["chess_db", "guest2"]], "POST", "/games/guest", { body: { game_id: "guest2", level: 0 } }, 400);
 		await refused([["chess_db", "guest2"]], "POST", "/games/guest", { body: { game_id: ["guest2"] } }, 400);
@@ -153,8 +153,8 @@ describe("guest game", () => {
 describe("guest game side", () => {
 	test("side fixes this game's side, color is what restarts use", async () => {
 		const made = (await call("POST", "/games/guest", { body: { game_id: "guest1", color: "random", side: "w" } })).game_data;
-		assert.equal(made.white_player_id.S, "guest1");
-		assert.deepEqual(JSON.parse(made.start_params.S), { color: "random" });
+		assert.equal(made.white_player_id, "guest1");
+		assert.deepEqual(JSON.parse(made.start_params), { color: "random" });
 		await refused([["chess_db", "guest2"]], "POST", "/games/guest", { body: { game_id: "guest2", side: "random" } }, 400);
 	});
 });

@@ -12,11 +12,12 @@
 
 const { checkStartFen } = require("../../utils/validate.js");
 const { levelList, readLevel } = require("../../utils/ai.js");
-const { gameOpen, isAiGame, playerName, startParams, OPEN_SEAT } = require("../../utils/games.js");
+const { OPEN_SEAT } = require("../../utils/games.js");
+const { gameOpen, isAiGame, playerName, startParams, readRating } = require("../../utils/plainItems.js");
 const { buildPgn } = require("../../utils/pgn.js");
 const config = require("../../config.js");
 const { setGuestCookie } = require("../../middleware/auth.js");
-const { readRating, ratingSummary } = require("../../utils/rating.js");
+const { ratingSummary } = require("../../utils/rating.js");
 const { retrieveRatings, forfeit, newAiGame, newGuestGame } = require("../../dataClient.js");
 const chessGuards = require("./chess.guards.js");
 const chessShapers = require("./chess.shapers.js");
@@ -58,7 +59,7 @@ async function getPgn(req, res) {
 
 	const gameData = response.game_data;
 	if (!chessGuards.playerInGame(req, gameData)) { return chessGuards.notInGame(req, res); }
-	if (gameData.mode?.S == "cards") { return chessGuards.useCardsRoutes(res); }
+	if (gameData.mode == "cards") { return chessGuards.useCardsRoutes(res); }
 
 	try {
 		// An AI game has one player, the requester. Its game saves no names
@@ -67,7 +68,7 @@ async function getPgn(req, res) {
 		return res.json({ status: 200, ...pgn, message: "PGN" });
 	} catch (err) {
 		// A saved move that can't be replayed
-		console.log(`PGN failed: ${gameData.game_id.S}: ${err.message}`);
+		console.log(`PGN failed: ${gameData.game_id}: ${err.message}`);
 		return res.status(500).json({ status: 500, message: "This game can't be written as a PGN" });
 	}
 }
@@ -93,7 +94,7 @@ async function getPgn(req, res) {
 async function newGame(req, res) {
 	const { game_id, player_id_1, player_id_2, ai_level, start_color, replace_current } = req.body || {};
 	if (!start_color && (player_id_1 == "CHESS_AI") == (player_id_2 == "CHESS_AI")) {
-		return res.status(400).json({ status: 500, message: "One player must be CHESS_AI, friend games start from /invite" });
+		return res.status(400).json({ status: 400, message: "One player must be CHESS_AI, friend games start from /invite" });
 	}
 	// Checked before anything is forfeited or saved
 	const position = checkStartFen(req.body?.start_fen);
@@ -116,10 +117,10 @@ async function newGame(req, res) {
 
 	// One AI game at a time (guests only ever have one, it's overwritten)
 	const current = await currentGame(true);
-	if (current && !replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "AI game already open" }); }
+	if (current && !replace_current) { return res.status(409).json({ status: 409, game_id: current.game_id, message: "AI game already open" }); }
 	// A new game forfeits the open one, & only goes on once it's known closed: two open AI games break the one-game limit
 	// (the same rule as newCardsGame in cardsController.js)
-	if (current && !(await closedNow(current.game_id.S))) {
+	if (current && !(await closedNow(current.game_id))) {
 		return res.status(503).json({ status: 503, message: "Your other game couldn't be closed. Try again." });
 	}
 
@@ -179,8 +180,8 @@ async function restartGame(req, res) {
 	const gameData = response.game_data;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (gameData.mode?.S == "cards") { return chessGuards.useCardsRoutes(res); }
-	if (!isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "Friend games can't be restarted" }); }
+	if (gameData.mode == "cards") { return chessGuards.useCardsRoutes(res); }
+	if (!isAiGame(gameData)) { return res.status(409).json({ status: 409, message: "Friend games can't be restarted" }); }
 
 	// The start settings only change with a new game from Home or the guest page
 	const params = startParams(gameData);
@@ -188,12 +189,12 @@ async function restartGame(req, res) {
 
 	// Guests have one game, it's overwritten
 	if (!req.user) {
-		const restarted = await newGuestGame({ game_id: gameData.game_id.S, color: params.color, level, start_fen: params.fen });
+		const restarted = await newGuestGame({ game_id: gameData.game_id, color: params.color, level, start_fen: params.fen });
 		return chessGuards.reply(res, chessShapers.gameResponse(restarted));
 	}
 
 	// Restarting mid game forfeits it, & only goes on once it's known closed
-	if (gameOpen(gameData) && !(await closedNow(gameData.game_id.S))) {
+	if (gameOpen(gameData) && !(await closedNow(gameData.game_id))) {
 		return res.status(503).json({ status: 503, message: "This game couldn't be closed. Try again." });
 	}
 	// Random draws again
@@ -241,10 +242,10 @@ async function getUserGames(req, res) {
 
 	return res.json({
 		status: response.status,
-		user_id: userData.user_id.S,
-		requested_games: userData.requested_games.S,
-		open_games: userData.open_games.S,
-		closed_games: userData.closed_games.S,
+		user_id: userData.user_id,
+		requested_games: userData.requested_games,
+		open_games: userData.open_games,
+		closed_games: userData.closed_games,
 		// Home draws its board & links it (Continue current game)
 		ai_game_id: userData.ai_game_id,
 		// The same, in Play a friend
@@ -253,7 +254,7 @@ async function getUserGames(req, res) {
 		open_game_list: userData.open_game_list.map((game) => chessShapers.gameSummary(game, userId)),
 		// Finished games: won, lost or draw & why
 		closed_game_list: (userData.closed_game_list || []).map((game) => (
-			{ ...chessShapers.gameSummary(game, userId), winner: game.winner?.S || null, reason: game.reason?.S || null }
+			{ ...chessShapers.gameSummary(game, userId), winner: game.winner || null, reason: game.reason || null }
 		)),
 		// "Invite sent to Bob // waiting"
 		sent_invite: userData.sent_invite ? inviteBody(userData.sent_invite) : null,
@@ -262,7 +263,7 @@ async function getUserGames(req, res) {
 		// The settings page's default start settings, Home's dropdowns start on them
 		settings: chessShapers.userSettings(userData),
 		// The settings page's account box
-		games_finished: JSON.parse(userData.closed_games.S).length,
+		games_finished: JSON.parse(userData.closed_games).length,
 		// Friend games change it (closeGame in data-service/db/)
 		rating: ratingSummary(readRating(userData)),
 		message: response.message,
@@ -302,9 +303,9 @@ async function getRatings(req, res) {
 	const gameData = response.game_data;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
+	const playerColor = playerId == gameData.white_player_id ? "w" : "b";
 	const opponentColor = playerColor == "w" ? "b" : "w";
-	const opponentId = opponentColor == "w" ? gameData.white_player_id.S : gameData.black_player_id.S;
+	const opponentId = opponentColor == "w" ? gameData.white_player_id : gameData.black_player_id;
 	if (isAiGame(gameData)) {
 		return res.json({
 			status: 200,
@@ -318,9 +319,9 @@ async function getRatings(req, res) {
 	}
 
 	// Both players, only for a player in the game
-	const ratings = (await retrieveRatings(gameData.game_id.S)).ratings || {};
+	const ratings = (await retrieveRatings(gameData.game_id)).ratings || {};
 	let change = null;
-	try { change = JSON.parse(gameData.ratings?.S || "{}")[playerColor] || null; } catch { }
+	try { change = JSON.parse(gameData.ratings || "{}")[playerColor] || null; } catch { }
 	return res.json({
 		status: 200,
 		rated: true,
@@ -346,7 +347,7 @@ async function leaveAllGames(playerId) {
 	const friendGame = chessShapers.openGame(mine, false);
 	if (friendGame) { await chessOffers.forfeitOpenGame(friendGame, playerId); }
 	const aiGame = chessShapers.openGame(mine, true);
-	if (aiGame) { await forfeit(aiGame.game_id.S); }
+	if (aiGame) { await forfeit(aiGame.game_id); }
 
 	if (mine.user_data?.sent_invite) { await chessInvites.dropInvite(mine.user_data.sent_invite.game_id); }
 	// Declined

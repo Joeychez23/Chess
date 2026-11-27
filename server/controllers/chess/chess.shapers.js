@@ -11,7 +11,8 @@
 /* ---------------------------------------------------------------- */
 
 const { readLevel } = require("../../utils/ai.js");
-const { gameOpen, isAiGame, playerName, startParams, takebacksLeft, isColor, newStartParams } = require("../../utils/games.js");
+const { isColor, newStartParams } = require("../../utils/games.js");
+const { gameOpen, isAiGame, playerName, startParams, takebacksLeft } = require("../../utils/plainItems.js");
 
 /* ---------------------------------------------------------------- */
 // Games
@@ -24,15 +25,15 @@ const { gameOpen, isAiGame, playerName, startParams, takebacksLeft, isColor, new
  */
 function playerGame(response, playerId) {
 	const gameData = response.game_data;
-	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
+	const playerColor = playerId == gameData.white_player_id ? "w" : "b";
 	const opponentColor = playerColor == "w" ? "b" : "w";
 
 	return {
 		status: response.status,
-		game_id: gameData.game_id.S,
-		game_board: gameData.game_board.S,
+		game_id: gameData.game_id,
+		game_board: gameData.game_board,
 		// "cards": a Chess Cards game, its page loads it from /api/chess/cards
-		mode: gameData.mode?.S || "chess",
+		mode: gameData.mode || "chess",
 		ai: isAiGame(gameData),
 		ai_level: aiLevel(gameData),
 		// { color: "alternate" | "random" | "w" | "b", fen (a set position) }, what restart & rematch reuse
@@ -41,13 +42,13 @@ function playerGame(response, playerId) {
 		opponent_color: opponentColor,
 		// Friend games: Home's "vs Bob"
 		opponent_name: playerName(gameData, opponentColor),
-		moves: gameData.moves.S,
-		prev_move: gameData.prev_move.S,
+		moves: gameData.moves,
+		prev_move: gameData.prev_move,
 		opening: readOpening(gameData),
-		w_knight: gameData.w_knight.S,
-		b_knight: gameData.b_knight.S,
-		w_piece: gameData.w_piece.S,
-		b_piece: gameData.b_piece.S,
+		w_knight: gameData.w_knight,
+		b_knight: gameData.b_knight,
+		w_piece: gameData.w_piece,
+		b_piece: gameData.b_piece,
 		...gameState(gameData),
 		message: response.message,
 	};
@@ -65,15 +66,15 @@ function gameResponse(response) {
 	const gameData = response.game_data;
 	return {
 		status: response.status,
-		game_id: gameData.game_id.S,
+		game_id: gameData.game_id,
 		ai: isAiGame(gameData),
 		ai_level: aiLevel(gameData),
-		game_board: gameData.game_board.S,
+		game_board: gameData.game_board,
 		opening: readOpening(gameData),
-		w_knight: gameData.w_knight.S,
-		b_knight: gameData.b_knight.S,
-		w_piece: gameData.w_piece.S,
-		b_piece: gameData.b_piece.S,
+		w_knight: gameData.w_knight,
+		b_knight: gameData.b_knight,
+		w_piece: gameData.w_piece,
+		b_piece: gameData.b_piece,
 		...gameState(gameData),
 		message: response.message,
 	};
@@ -87,14 +88,14 @@ function gameResponse(response) {
  * takebacks_left: friend games' takebacks left, AI games have no limit: null, move_deadline: when the next move is due in epoch seconds | null }]
  */
 function gameState(gameData) {
-	const drawOffer = gameData.draw_offer_player_id?.S;
-	const takebackRequest = gameData.takeback_player_id?.S;
+	const drawOffer = gameData.draw_offer_player_id;
+	const takebackRequest = gameData.takeback_player_id;
 	return {
-		state: gameData.state?.S || "OPEN",
-		winner: gameData.winner?.S || null,
-		reason: gameData.reason?.S || null,
-		draw_offer: drawOffer ? (drawOffer == gameData.white_player_id.S ? "w" : "b") : null,
-		takeback_request: takebackRequest ? (takebackRequest == gameData.white_player_id.S ? "w" : "b") : null,
+		state: gameData.state || "OPEN",
+		winner: gameData.winner || null,
+		reason: gameData.reason || null,
+		draw_offer: drawOffer ? (drawOffer == gameData.white_player_id ? "w" : "b") : null,
+		takeback_request: takebackRequest ? (takebackRequest == gameData.white_player_id ? "w" : "b") : null,
 		takebacks_left: isAiGame(gameData) ? null : takebacksLeft(gameData),
 		move_deadline: openDeadline(gameData),
 	};
@@ -106,7 +107,7 @@ function gameState(gameData) {
  * @return {[number]} deadline [epoch seconds, null when the game has no limit or it's over]
  */
 function openDeadline(gameData) {
-	return gameData.move_deadline && gameOpen(gameData) ? Number(gameData.move_deadline.N) : null;
+	return gameData.move_deadline && gameOpen(gameData) ? Number(gameData.move_deadline) : null;
 }
 
 /**
@@ -115,7 +116,7 @@ function openDeadline(gameData) {
  * @return {[object]} opening [{ eco, name }, null until the game reaches a named position]
  */
 function readOpening(gameData) {
-	return gameData.opening ? JSON.parse(gameData.opening.S) : null;
+	return gameData.opening ? JSON.parse(gameData.opening) : null;
 }
 
 /**
@@ -124,7 +125,7 @@ function readOpening(gameData) {
  * @return {[number]} level [null for friend games, AI games made before levels get the default]
  */
 function aiLevel(gameData) {
-	return isAiGame(gameData) ? readLevel(gameData.ai_level?.N) : null;
+	return isAiGame(gameData) ? readLevel(gameData.ai_level) : null;
 }
 
 /* ---------------------------------------------------------------- */
@@ -137,11 +138,11 @@ function aiLevel(gameData) {
  * @return {[object]} summary [{ game_id, mode ("chess" | "cards"), ai, ai_level, opponent_name, player_color, start_params, opening, move_deadline }]
  */
 function gameSummary(gameData, playerId) {
-	const playerColor = playerId == gameData.white_player_id.S ? "w" : "b";
+	const playerColor = playerId == gameData.white_player_id ? "w" : "b";
 	return {
-		game_id: gameData.game_id.S,
+		game_id: gameData.game_id,
 		// "cards": Home opens it as a Chess Cards game, like GET /game/:gameId says
-		mode: gameData.mode?.S || "chess",
+		mode: gameData.mode || "chess",
 		ai: isAiGame(gameData),
 		ai_level: aiLevel(gameData),
 		opponent_name: playerName(gameData, playerColor == "w" ? "b" : "w"),
@@ -163,7 +164,7 @@ function openGame(mine, ai) {
 	// No games yet
 	if (!userData) { return null; }
 	const gameId = ai ? userData.ai_game_id : userData.friend_game_id;
-	return userData.open_game_list.find((game) => game.game_id.S == gameId) || null;
+	return userData.open_game_list.find((game) => game.game_id == gameId) || null;
 }
 
 /**
@@ -232,7 +233,7 @@ function readColor(value) {
  */
 function userSettings(userData) {
 	let saved = {};
-	try { saved = JSON.parse(userData?.settings?.S || "{}"); } catch { }
+	try { saved = JSON.parse(userData?.settings || "{}"); } catch { }
 	return readSettings(saved);
 }
 

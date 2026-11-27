@@ -64,7 +64,7 @@ describe("rematch", () => {
 		assert.equal(item.inviter_id.S, "alice");
 		assert.equal(peek("chess_db", "game1").rematch_game_id.S, second.new_game_id);
 		assert.equal(peek("chess_db", "invite1"), undefined);
-		assert.deepEqual(second.dropped_invites.map((invite) => invite.game_id.S), ["invite1"]);
+		assert.deepEqual(second.dropped_invites.map((invite) => invite.game_id), ["invite1"]);
 		assert.equal((await call("POST", "/games/game1/rematch", { as: alice })).new_game_id, second.new_game_id); // PRESSED AGAIN: THE SAME GAME
 	});
 
@@ -89,12 +89,12 @@ describe("rematch", () => {
 
 			const again = await call("POST", "/games/game1/rematch", { as: alice });
 			assert.equal(again.new_game_id, rematchId);
-			assert.equal(again.game_data.game_id.S, rematchId);
+			assert.equal(again.game_data.game_id, rematchId);
 			assert.ok(list("alice", "open_games").includes(rematchId));
 			assert.ok(list("bob", "open_games").includes(rematchId));
 			assert.equal(peek("chess_db", "invite1"), undefined);
 			assert.equal(peek("chess_db", "invite2"), undefined);
-			assert.deepEqual(again.dropped_invites.map((invite) => invite.game_id.S).sort(), ["invite1", "invite2"]);
+			assert.deepEqual(again.dropped_invites.map((invite) => invite.game_id).sort(), ["invite1", "invite2"]);
 		});
 	}
 
@@ -144,7 +144,7 @@ describe("rematch", () => {
 		};
 		const second = await call("POST", "/games/game1/rematch", { as: bob });
 		assert.equal(second.status, 200);
-		assert.equal(second.game_data.game_id.S, second.new_game_id);
+		assert.equal(second.game_data.game_id, second.new_game_id);
 	});
 
 	test("a rematch that has ended: pressing again changes nothing", async () => {

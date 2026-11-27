@@ -12,7 +12,7 @@
 
 const { Chess } = require("chess.js");
 const { aiMove, analyzePosition } = require("../../utils/ai.js");
-const { gameOpen, gamePending, isAiGame } = require("../../utils/games.js");
+const { gameOpen, gamePending, isAiGame } = require("../../utils/plainItems.js");
 const { findOpening } = require("../../utils/openings.js");
 const { ifSaved, saveMove, saveAiMove, saveOpening } = require("../../dataClient.js");
 const { emitToGame } = require("../../socket.js");
@@ -36,7 +36,7 @@ const runningAnalyses = new Map();
  */
 async function moveGame(req, res) {
 	const { move, promotion } = req.body || {};
-	if (!Array.isArray(move) || move.length != 2) { return res.status(400).json({ status: 500, message: "Invalid piece movement" }); }
+	if (!Array.isArray(move) || move.length != 2) { return res.status(400).json({ status: 400, message: "Invalid piece movement" }); }
 
 	const gameId = req.params.gameId;
 	const response = await chessGuards.loadMyGame(req, res);
@@ -45,17 +45,18 @@ async function moveGame(req, res) {
 	const gameData = response.game_data;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (gameData.mode?.S == "cards") { return chessGuards.useCardsRoutes(res); }
-	if (gamePending(gameData)) { return res.status(409).json({ status: 500, message: "Invite not accepted yet" }); }
-	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is over" }); }
+	if (gameData.mode == "cards") { return chessGuards.useCardsRoutes(res); }
+	if (gamePending(gameData)) { return res.status(409).json({ status: 409, message: "Invite not accepted yet" }); }
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 409, message: "Game is over" }); }
 
 	// The data service plays it on the stored board, saves it & closes the game on checkmate or a draw
-	const board = gameData.game_board.S;
+	const board = gameData.game_board;
 	const saved = await ifSaved(() => saveMove(gameId, move, promotion), () => savedBoardChange(gameId, board));
 	// Not legal, not their turn, or another move saved first
 	if (saved.status != 200) {
 		const message = saved.message == "Not your turn" ? "Invalid piece movement" : saved.message;
-		return res.status(moveRefusal(saved)).json({ status: 500, message });
+		const status = moveRefusal(saved);
+		return res.status(status).json({ status, message });
 	}
 	saved.message = "Validation Successful";
 	// Before the opponent & Home are told, they load the game
@@ -76,7 +77,7 @@ async function moveGame(req, res) {
  */
 async function savedBoardChange(gameId, board) {
 	const latest = await chessGuards.retrieveGame(gameId, true);
-	return latest.game_data && latest.game_data.game_board.S != board ? latest : null;
+	return latest.game_data && latest.game_data.game_board != board ? latest : null;
 }
 
 /**
@@ -96,16 +97,16 @@ function moveRefusal(response) {
  * @param  {[object]} response [the saved move's { game_data }, its opening is updated when this saves one]
  * @param  {[object]} opening [the opening to save, left out = the board's]
  */
-async function recordOpening(response, opening = findOpening(response.game_data.game_board.S)) {
+async function recordOpening(response, opening = findOpening(response.game_data.game_board)) {
 	const gameData = response.game_data;
 	const saved = chessShapers.readOpening(gameData);
 	if (!opening || (opening.eco == saved?.eco && opening.name == saved?.name)) { return; }
 	try {
-		const answer = await saveOpening(gameData.game_id.S, gameData.game_board.S, opening);
+		const answer = await saveOpening(gameData.game_id, gameData.game_board, opening);
 		// Anything else: another move landed first, its request saves its own opening
 		if (answer.status == 200) { gameData.opening = answer.game_data.opening; }
 	} catch (err) {
-		console.log(`Saving the opening failed: ${gameData.game_id.S}: ${err.message}`);
+		console.log(`Saving the opening failed: ${gameData.game_id}: ${err.message}`);
 	}
 }
 
@@ -128,13 +129,13 @@ async function aiMoveGame(req, res) {
 	const gameData = response.game_data;
 	const playerId = chessGuards.playerInGame(req, gameData);
 	if (!playerId) { return chessGuards.notInGame(req, res); }
-	if (gameData.mode?.S == "cards") { return chessGuards.useCardsRoutes(res); }
-	if (!isAiGame(gameData)) { return res.status(409).json({ status: 500, message: "Friend games have no AI" }); }
+	if (gameData.mode == "cards") { return chessGuards.useCardsRoutes(res); }
+	if (!isAiGame(gameData)) { return res.status(409).json({ status: 409, message: "Friend games have no AI" }); }
 
-	const aiColor = gameData.white_player_id.S == "CHESS_AI" ? "w" : "b";
+	const aiColor = gameData.white_player_id == "CHESS_AI" ? "w" : "b";
 	// Already moved
-	if (new Chess(gameData.game_board.S).turn() != aiColor) { return chessGuards.reply(res, savedAiMove(response)); }
-	if (!gameOpen(gameData)) { return res.status(409).json({ status: 500, message: "Game is over" }); }
+	if (new Chess(gameData.game_board).turn() != aiColor) { return chessGuards.reply(res, savedAiMove(response)); }
+	if (!gameOpen(gameData)) { return res.status(409).json({ status: 409, message: "Game is over" }); }
 
 	// No AI move in flight for this game: this request picks it, later ones wait on it & get the same answer
 	let turn = aiTurns.get(gameId);
@@ -154,7 +155,7 @@ async function aiMoveGame(req, res) {
  */
 async function playAiTurn(gameId, gameData) {
 	// Stockfish at the game's level
-	const move = await aiMove(gameData.game_board.S, chessShapers.aiLevel(gameData));
+	const move = await aiMove(gameData.game_board, chessShapers.aiLevel(gameData));
 	const response = await saveAiMove(gameId, move);
 	// Another request saved the AI's move first (one that read the game before this turn started). Consistent, so the read sees that move
 	if (response.status == 409) {
@@ -175,12 +176,12 @@ async function playAiTurn(gameId, gameData) {
  */
 function savedAiMove(response) {
 	const { moves, prev_move } = response.game_data;
-	const lastMove = moves.S[moves.S.length - 1];
+	const lastMove = moves[moves.length - 1];
 	// The player moves first
 	if (!lastMove) { return { status: 500, message: "It's not the AI's turn" }; }
 	// "e8=Q+"
 	const promotion = lastMove.match(/=([QRBN])/)?.[1].toLowerCase();
-	const savedMove = { from: prev_move.S[0], to: prev_move.S[1], promotion };
+	const savedMove = { from: prev_move[0], to: prev_move[1], promotion };
 	return { ...chessShapers.gameResponse(response), ai_move: savedMove, message: "AI already moved" };
 }
 
@@ -204,13 +205,13 @@ async function analysisGame(req, res) {
 
 	const gameData = response.game_data;
 	if (!chessGuards.playerInGame(req, gameData)) { return chessGuards.notInGame(req, res); }
-	if (gameData.mode?.S == "cards") { return chessGuards.useCardsRoutes(res); }
+	if (gameData.mode == "cards") { return chessGuards.useCardsRoutes(res); }
 	if (!isAiGame(gameData) && (gameOpen(gameData) || gamePending(gameData))) {
 		return res.status(403).json({ status: 403, message: "No hints in a friend game" });
 	}
 
-	const gameId = gameData.game_id.S;
-	const board = gameData.game_board.S;
+	const gameId = gameData.game_id;
+	const board = gameData.game_board;
 	let running = runningAnalyses.get(gameId);
 	if (running && running.board != board) { return res.status(409).json({ status: 409, message: "Wait for the analysis to finish." }); }
 	if (!running) {

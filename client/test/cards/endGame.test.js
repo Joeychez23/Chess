@@ -136,7 +136,7 @@ test("Restart's other failures keep today's line & clear the replace", async () 
 
 test("Restart's 503 shows its line & leaves Restart as it was (still Forfeit & restart, the next press replaces)", async () => {
 	Object.assign(S.game, { ai: true, gameOver: true, cardGame: { startColor: "w" }, response: { ai_level: 3 }, GAME_URL: "/api/chess" });
-	S.newCards.push({ status: 409, message: "open" }, { status: 503, message: "Your other game couldn't be closed. Try again." }, { status: 200, game_id: "g2" });
+	S.newCards.push({ status: 409, game_id: "open1", message: "AI game already open" }, { status: 503, message: "Your other game couldn't be closed. Try again." }, { status: 200, game_id: "g2" });
 	await press();
 	assert.equal(BTN.innerHTML, "Forfeit & restart");
 	S.calls.length = 0;
@@ -150,7 +150,7 @@ test("Restart's 503 shows its line & leaves Restart as it was (still Forfeit & r
 
 test("a 503 on a first press (no replace asked: the data service is down) is not the forfeit's: the plain line, the next press still asks first", async () => {
 	Object.assign(S.game, { ai: true, gameOver: true, cardGame: { startColor: "w" }, response: { ai_level: 3 }, GAME_URL: "/api/chess" });
-	S.newCards.push({ status: 500 }, { status: 503, message: "Try again in a moment" }, { status: 409, message: "open" });
+	S.newCards.push({ status: 500 }, { status: 503, message: "Try again in a moment" }, { status: 409, game_id: "open1", message: "AI game already open" });
 	await press(); // ANY OTHER FAILURE PUTS replaceOpen BACK TO false
 	S.calls.length = 0;
 	await press();
@@ -159,4 +159,14 @@ test("a 503 on a first press (no replace asked: the data service is down) is not
 	await press();
 	assert.deepEqual(S.calls.filter((c) => c[0] === "newCards"), [["newCards", false]]);
 	assert.equal(BTN.innerHTML, "Forfeit & restart");
+});
+
+test("a 409 without the open game's id (a save conflict, no other game open) is the plain failure, not the forfeit question", async () => {
+	Object.assign(S.game, { ai: true, gameOver: true, cardGame: { startColor: "w" }, response: { ai_level: 3 }, GAME_URL: "/api/chess" });
+	S.newCards.push({ status: 500 }, { status: 409, message: "Game lists changed before the save: alice" });
+	await press(); // ANY OTHER FAILURE PUTS replaceOpen BACK TO false
+	S.calls.length = 0;
+	await press();
+	assert.deepEqual(S.calls, [["newCards", false], ["status", "action", "A new game couldn't be started. Try again."]]);
+	assert.equal(BTN.innerHTML, "Restart");
 });

@@ -28,7 +28,8 @@ const { CARDS, baseKey } = require("../../cards-engine/cards/index.js");
 const { readLevel, bestOf } = require("../utils/ai.js");
 // Called through the module, not destructured, so tests can swap cardGuy.cardGuyTurn.
 const cardGuy = require("../utils/card-guy/index.js");
-const { gameOpen, isColor } = require("../utils/games.js");
+const { isColor } = require("../utils/games.js");
+const { gameOpen } = require("../utils/plainItems.js");
 const { ifSaved, forfeit, newCardsGame: createCardsGame, saveCardsState } = require("../dataClient.js");
 const { retrieveGame, currentGame, playerInGame, notYours, notInGame, reply, aiLevel } = require("./chess/index.js");
 
@@ -68,10 +69,10 @@ async function newCardsGame(req, res) {
 
 	const current = await currentGame(true);
 	if (current && !replace_current) {
-		return res.status(409).json({ status: 409, game_id: current.game_id.S, message: "AI game already open" });
+		return res.status(409).json({ status: 409, game_id: current.game_id, message: "AI game already open" });
 	}
 	// The new game goes on only once the open one is closed: two open AI games would break the one-game limit.
-	if (current && !(await closeOpenGame(current.game_id.S))) {
+	if (current && !(await closeOpenGame(current.game_id))) {
 		return res.status(503).json({ status: 503, message: "Your other game couldn't be closed. Try again." });
 	}
 
@@ -200,7 +201,7 @@ async function cardGuyCardsTurn(req, res) {
 	const game = await loadCardsGame(req, res);
 	if (!game) { return; }
 	const { gameData, state } = game;
-	const gameId = gameData.game_id.S;
+	const gameId = gameData.game_id;
 	// Nothing owed: Card Guy isn't asked, since he throws when he has no action.
 	if (!gameOpen(gameData) || !legalActions(state, cardGuyOf(gameData)).length) {
 		return res.json(cardsResponse(gameData, state));
@@ -227,7 +228,7 @@ async function cardGuyCardsTurn(req, res) {
  */
 async function playCardGuyTurn(gameData, state) {
 	const cardGuyColor = cardGuyOf(gameData);
-	const gameId = gameData.game_id.S;
+	const gameId = gameData.game_id;
 	const view = playerView(state, cardGuyColor);
 	const fogged = view.board.hidden > 0;
 	const seed = crypto.randomInt(CARD_GUY_SEED_RANGE);
@@ -263,7 +264,7 @@ async function playCardGuyTurn(gameData, state) {
 	if (saved.status == 409) {
 		const latest = await retrieveGame(gameId, true);
 		if (!latest.game_data) { return { status: latest.status, message: latest.message }; }
-		const latestState = JSON.parse(latest.game_data.cards_state.S);
+		const latestState = JSON.parse(latest.game_data.cards_state);
 		return cardsResponse(latest.game_data, { ...latestState, cardGuy: cardGuyColor });
 	}
 	if (saved.status != 200) { return { status: saved.status, message: saved.message }; }
@@ -322,12 +323,12 @@ async function loadCardsGame(req, res) {
 		notInGame(req, res);
 		return null;
 	}
-	if (gameData.mode?.S != "cards") {
+	if (gameData.mode != "cards") {
 		res.status(400).json({ status: 400, message: "Not a card game" });
 		return null;
 	}
 
-	const state = JSON.parse(gameData.cards_state.S);
+	const state = JSON.parse(gameData.cards_state);
 	// A state from another engine version may not fit this engine.
 	if (state.v !== ENGINE_VERSION) {
 		// Only GET /:gameId shows one, read-only; the action and Card Guy routes keep the 409.
@@ -335,7 +336,7 @@ async function loadCardsGame(req, res) {
 			res.json(olderResponse(gameData));
 			return null;
 		}
-		res.status(409).json({ status: 409, game_id: gameData.game_id.S, message: "This game is from an older version" });
+		res.status(409).json({ status: 409, game_id: gameData.game_id, message: "This game is from an older version" });
 		return null;
 	}
 	// newCardsGame made the state before the data service picked the sides.
@@ -351,16 +352,16 @@ async function loadCardsGame(req, res) {
  * result: { winner: "w" | "b" | null (a draw), reason }, message }]
  */
 function olderResponse(gameData) {
-	const winner = gameData.winner?.S;
+	const winner = gameData.winner;
 	return {
 		status: 200,
-		game_id: gameData.game_id.S,
+		game_id: gameData.game_id,
 		older: true,
 		you: cardGuy.otherColor(cardGuyOf(gameData)),
 		// With no stored board the result still opens.
-		fen: gameData.game_board?.S ?? null,
+		fen: gameData.game_board ?? null,
 		// The data service's "draw" is the engine's null.
-		result: { winner: winner == "w" || winner == "b" ? winner : null, reason: gameData.reason?.S || null },
+		result: { winner: winner == "w" || winner == "b" ? winner : null, reason: gameData.reason || null },
 		message: "This game is from an older version",
 	};
 }
@@ -374,16 +375,16 @@ function olderResponse(gameData) {
  * version landed first]
  */
 function saveState(gameData, state) {
-	const gameId = gameData.game_id.S;
+	const gameId = gameData.game_id;
 	const json = JSON.stringify(state);
 	// A winner and reason close the game in the same write. The engine's draw is winner null, the data service's "draw".
 	const result = state.result;
 	const ended = result ? { winner: result.winner || "draw", reason: result.reason } : {};
-	const version = Number(gameData.cards_version.N);
+	const version = Number(gameData.cards_version);
 	return ifSaved(() => saveCardsState(gameId, version, json, { fen: boardFen(gameData, state), ...ended }), async () => {
 		// The save timed out: it landed if the stored state is this one.
 		const latest = await retrieveGame(gameId, true);
-		return latest.game_data?.cards_state?.S == json ? latest : null;
+		return latest.game_data?.cards_state == json ? latest : null;
 	});
 }
 
@@ -397,7 +398,7 @@ function saveState(gameData, state) {
  */
 function boardFen(gameData, state) {
 	const fogged = isCardGuyFogUp(state, cardGuyOf(gameData));
-	return fogged && !state.result ? gameData.game_board.S : toFen(state);
+	return fogged && !state.result ? gameData.game_board : toFen(state);
 }
 
 /**
@@ -417,14 +418,14 @@ function cardsResponse(gameData, state, events = []) {
 	const cardGuyColor = cardGuyOf(gameData);
 	const you = cardGuy.otherColor(cardGuyColor);
 	const open = gameOpen(gameData);
-	const result = state.result || (open ? null : { winner: gameData.winner?.S || null, reason: gameData.reason?.S || null });
+	const result = state.result || (open ? null : { winner: gameData.winner || null, reason: gameData.reason || null });
 	// A forfeit leaves the state without a result: a finished game's view and events hide nothing.
 	const shown = result && !state.result ? { ...state, result } : state;
 	const view = playerView(shown, you);
 	const seen = playerEvents(shown, events, you);
 	return {
 		status: 200,
-		game_id: gameData.game_id.S,
+		game_id: gameData.game_id,
 		mode: "cards",
 		ai_level: aiLevel(gameData),
 		you,
@@ -474,7 +475,7 @@ function isCardGuyFogUp(state, cardGuyColor) {
  * @return {[string]} color ["w" | "b"]
  */
 function cardGuyOf(gameData) {
-	return gameData.white_player_id.S == "CHESS_AI" ? "w" : "b";
+	return gameData.white_player_id == "CHESS_AI" ? "w" : "b";
 }
 
 
