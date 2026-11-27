@@ -13,10 +13,10 @@ const PERF = new URLSearchParams(window.location.search).has("perf"); // ?perf=1
 let loading = null; // THE PENDING OR FINISHED import(), SO TURNING 3D ON TWICE DOWNLOADS ONCE
 
 /**
- * @description Can this browser draw WebGL? Checked before downloading, no point fetching three.js otherwise
+ * @description Can this browser draw WebGL? Checked before downloading, no point fetching three.js otherwise. Home asks too: Chess Cards is 3D only
  * @return {[boolean]}
  */
-function hasWebGL() {
+export function hasWebGL() {
 	try {
 		const canvas = document.createElement("canvas");
 		return !!(window.WebGLRenderingContext && (canvas.getContext("webgl2") || canvas.getContext("webgl")));

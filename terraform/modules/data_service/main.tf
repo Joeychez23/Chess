@@ -58,7 +58,7 @@ resource "aws_route_table_association" "data_service" {
 # DynamoDB Endpoint (free, the tables are in this region)
 # ---------------------------------------------------------------- #
 # A GATEWAY ENDPOINT IS A ROUTE IN THE PRIVATE ROUTE TABLE, SO THE DATA SERVICE REACHES DYNAMODB WITHOUT THE INTERNET.
-# ITS POLICY ONLY ALLOWS THE CALLS data-service/dynamoDB.js MAKES ON THE TWO TABLES
+# ITS POLICY ONLY ALLOWS THE CALLS data-service/db/ MAKES ON THE TWO TABLES
 resource "aws_vpc_endpoint" "dynamodb" {
   vpc_id            = data.aws_vpc.default.id
   service_name      = "com.amazonaws.${var.aws_region}.dynamodb"
@@ -168,7 +168,7 @@ resource "aws_iam_role" "data_service" {
   })
 }
 
-# ONLY THE CALLS data-service/dynamoDB.js MAKES, ONLY ON chess_db AND user_db, AND ONLY THROUGH THE ENDPOINT (#250):
+# ONLY THE CALLS data-service/db/ MAKES, ONLY ON chess_db AND user_db, AND ONLY THROUGH THE ENDPOINT (#250):
 # THE ROLE'S KEYS ARE USELESS OFF THE INSTANCE, A CALL FROM ANYWHERE ELSE HAS NO aws:SourceVpce
 resource "aws_iam_role_policy" "dynamodb" {
   name = "${var.role_name}Policy"

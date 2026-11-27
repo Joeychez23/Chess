@@ -2,7 +2,7 @@
  *  index.js  --  chess frontend
  *	AI Bots (#76)
  *	Each AI level is a bot (server/utils/bots.js, sent by GET /api/chess/levels). This picks a game's bot & when it speaks, from the moves.
- *	& the face the 3D board's monitor makes. No DOM & no process.env here, so the tests load it in Node (client/test/bots.test.js). The page side is say.js
+ *	& the face the 3D board's monitor makes. No DOM & no process.env here, so the tests load it in Node (client/test/pages/bots.test.js). The page side is say.js
  *
  */
 
@@ -59,7 +59,7 @@ function pickLine(bot, moment, random = Math.random) {
 }
 
 /**
- * @description The face the 3D board's monitor makes at a move by either side (three/faces.js has the faces). Mate beats check, check beats a capture, like momentFor
+ * @description The face the 3D board's monitor makes at a move by either side (three/monitor/faces.js has the faces). Mate beats check, check beats a capture, like momentFor
  * @param  {[object]} move [chess.js verbose move just played]
  * @param  {[object]} chess [chess.js board after the move]
  * @param  {[string]} botColor ["w" | "b"]

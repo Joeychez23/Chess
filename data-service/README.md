@@ -70,6 +70,8 @@ request is for comes from a token only the data service can sign
 | `GET /games/:gameId/ratings` | In the game. Both players' ratings |
 | `POST /games/ai` `{ color, level, start_fen }` | A signed-in player vs `CHESS_AI`, at a level from 600 to 3200 in steps of 100 (1300 if left out; 1 to 8, the levels from before, are still taken), from a playable position. The data service makes every new game id (16 random bytes, base64url, `newGameId` in `utils/games.js`) and answers with it in `game_data.game_id`; a body can't name one. The game is still saved only if the id is free (`attribute_not_exists`). Invites and rematches too |
 | `POST /games/guest` `{ game_id, color, side, level, start_fen }` | Needs no player. `side` fixes this game's side while `color` is what Restart uses (the play page's first guest game). The guest's own game (their cookie) is reset and keeps its level, only while the stored game is still theirs; any other id (another browser's game, a player's game, `CHESS_AI`) gets a new game and that game isn't touched. Answers with `guest_token`, the guest's cookie for the game it saved |
+| `POST /games/cards` `{ color, level, state, fen }` | A Chess Cards game vs `CHESS_AI`, for a signed-in player (as `/games/ai`) or a guest (as `/games/guest` with no `game_id`). `state` is the chess server's engine state, a JSON string of at most 300 000 bytes, stored as sent and never run here; `fen` is its board. The game gets `mode: "cards"` and `cards_version` 1 |
+| `PUT /games/:gameId/cards` `{ version, state, fen, winner, reason }` | In the game, a card game, open. Saved only on the `cards_version` it names (`409` "Board changed before the move saved" if another save landed first), which then goes up by 1. `winner` (`w`, `b`, `draw`) with a fitting `reason` (`checkmate`, `king`, `skips`; or `stalemate`, `repetition`, `fifty`, `material` for a draw) closes the game in the same write |
 | `POST /games/invite` `{ opponent_id, opponent_screenname, color, start_fen, takebacks, days_per_move }` | A signed-in inviter, not to themselves or the AI. A `PENDING` game; the names are each player's username, or their screenname (the inviter's comes from their token) |
 | `POST /games/challenge` `{ color, start_fen, takebacks, days_per_move }` | A signed-in creator. A `PENDING` game with `challenge: true` and the other seat `OPEN_SEAT`, only on the creator's `requested_games` |
 | `GET /games/:gameId/challenge` | A signed-in player with the link: `{ open, name, player_color, start_params }`. Any other game answers "Game data not found" |
@@ -96,8 +98,8 @@ the forfeits and cancels first, and each of those is an action the player can
 take here too.
 
 Each route lists the body fields it takes, and anything else is refused with
-a 400. Bodies must be JSON and 16kb at most. A request the data service
-handles answers 200 with `dynamoDB.js`'s `{ status, game_data, message }`. A
+a 400. Bodies must be JSON and 16kb at most (640kb on the two card game routes). A request the data service
+handles answers 200 with `db/`'s `{ status, game_data, message }`. A
 refused one answers with its own status (400, 401, 403, 404, 409, 413 or 415)
 and logs one line, `REFUSED <method> <path> <status> <why>`, without the body
 or the token.
@@ -113,7 +115,7 @@ an invite with `replace_current` is one call, so the inviter is checked before
 the player's own game is forfeited.
 
 `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are copies of
-the server's, and `test/shared.test.js` fails if they differ, so change both.
+the server's, and `test/service/shared.test.js` fails if they differ, so change both.
 
 ## Session keys (#252)
 
@@ -187,7 +189,7 @@ signed out, and guests start a new game.
 
 ## Stored data
 
-**Stored data** (details in `data-service/dynamoDB.js`):
+**Stored data** (details in `data-service/db/`):
 
 - **`opening`** (JSON `{ eco, name }`) is the latest named position the game reached. Games that haven't reached one don't have it.
 - **`move_deadline`** (epoch seconds) is when the next move is due in a friend game with `days_per_move`, saved with every move and when the game starts. Any read of the game or its player's open games after it passes closes the game as `timeout` (`retrieveGame`, `pruneOpenGames`), with no timer, so a game nobody opens stays open until its TTL.
@@ -235,27 +237,28 @@ The data service has its own tests, the same way as the [server's](../server/REA
 
 | File | What it covers |
 | --- | --- |
-| `signature.test.js` | Signed requests: unsigned, another secret, a changed body, path, query or method, a timestamp over 30 seconds either way, a replayed request, and the old secret during a change. Behind a good signature, another player's token still gets nothing, and a `user_id` in a body is refused |
-| `session.test.js` | Logins: only Auth0's `id_token` (not forged, our client and tenant, not expired, at most 5 minutes old, used once) for the user it names. Refresh while the session id is unchanged, and not after logout (on any device) or Delete my data. An access token already out is refused after either, and can't make the deleted row again. The old key during a change. Guest tokens only for the game just made, with the same guest session from game to game |
-| `users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
-| `lifecycle.test.js` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
-| `games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
-| `dynamoDB.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, draw offers (one per player per move, ended by a move, an accept losing to a move), invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
-| `rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
-| `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
-| `shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are the same files as the server's, and both pin the same `chess.js` |
+| `account/signature.test.js` | Signed requests: unsigned, another secret, a changed body, path, query or method, a timestamp over 30 seconds either way, a replayed request, and the old secret during a change. Behind a good signature, another player's token still gets nothing, and a `user_id` in a body is refused |
+| `account/session.test.js` | Logins: only Auth0's `id_token` (not forged, our client and tenant, not expired, at most 5 minutes old, used once) for the user it names. Refresh while the session id is unchanged, and not after logout (on any device) or Delete my data. An access token already out is refused after either, and can't make the deleted row again. The old key during a change. Guest tokens only for the game just made, with the same guest session from game to game |
+| `account/users.test.js` | A player's own row: reading it with their games (expired ones pruned), settings, usernames (taken in any capitals, the rules), and Delete my data only once every game and invite is answered. Guests have no row |
+| `game/lifecycle/` | New AI games, guest games (only a guest's own game is reset), invites, accepts and declines, and rematches. Each refusal makes or changes nothing |
+| `game/cardsGame.test.js` | Chess Cards games: a new one starts at version 1 with the state as sent, a save lands only on the version it names (409 and nothing changes otherwise), a save with a winner closes the game, and bad fields, versions, states, boards and results are refused. The two card routes' larger body limit, and every other route keeping 16kb |
+| `game/games.test.js` | The game routes: only the player in the request, only in their own game (a guest only in their one game), only the body fields the route names. Illegal moves, moves out of turn, moves in someone else's game, a board sent in place of a move, a refresh or changed token, another key's, an HS256 or a `none` token: each refused with the stored game unchanged, and logged without the body or token |
+| `db/db-conditionalWrites.test.js` | The conditional writes: two moves at once, an undo and a move at once, one close per game, a closing move saving its result in one write, a move refused on a game closed since its read, draw offers (one per player per move, ended by a move, an accept losing to a move), invite answers, rematch presses, game list changes at once. Saves that don't depend on reading back what they wrote |
+| `db/rating.test.js` | The Elo math, which games are rated, two of a player's games ending at once, a failed write changing neither rating, and a game rated only once |
+| `service/shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and the next start answers `/health` |
+| `service/shared.test.js` | `utils/validate.js`, `rating.js`, `username.js`, `signature.js`, `sessionKeys.js` and `games.js` are the same files as the server's, and both pin the same `chess.js` |
 
 ## Layout
 
 ```text
 data-service/                The only code that reads and writes DynamoDB (#245), the chess server calls it; on a private instance on AWS
-  index.js                   Express: /health, JSON bodies (16kb), the signature, /health/tables, the player, the routes. Listens on DATA_SERVICE_HOST
+  index.js                   Express: /health, JSON bodies (16kb, 640kb for the card game routes), the signature, /health/tables, the player, the routes. Listens on DATA_SERVICE_HOST
   config.js                  Reads data-service/.env
-  dynamoDB.js                chess_db / user_db reads and writes (was the lambda's database-controller.js, then server/dynamoDB.js)
-  routes/gameRoutes.js       /games/ai, guest, invite & /games/:gameId, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
+  db/                        chess_db / user_db reads and writes (was the lambda's database-controller.js, then server/dynamoDB.js)
+  routes/gameRoutes.js       /games/ai, guest, cards, invite & /games/:gameId, cards, move, ai-move, forfeit, accept, decline, rematch, ratings, each with the body fields it takes
   routes/userRoutes.js       /users/me, settings, username, delete: only the signed-in requester's own row
   routes/sessionRoutes.js    /session/login, refresh, logout: the only place session tokens are made
-  controllers/gameController.js  Each game action, checked against the stored game before it saves
+  controllers/game/          Each game action, checked against the stored game before it saves
   controllers/userController.js  getMe (with games), saveSettings, saveUsername, deleteMe (only once every game is left)
   controllers/sessionController.js  login (checks Auth0's id_token), refresh & logout (the session id on the player's row)
   middleware/signature.js    checkSignature(): only signed requests, sent within 30 seconds, once; keepRawBody()
@@ -265,7 +268,7 @@ data-service/                The only code that reads and writes DynamoDB (#245)
   utils/refuse.js            refuse(): the 4xx answer and its REFUSED log line
   utils/signature.js         sign(), signedHeaders(), signatureMatches(): the HMAC the chess server signs with
   utils/tokens.js            Signs the access, refresh & guest tokens with SESSION_PRIVATE_KEY (ES256)
-  utils/validate.js, rating.js, username.js, sessionKeys.js  The same files as server/utils/ (test/shared.test.js)
+  utils/validate.js, rating.js, username.js, sessionKeys.js  The same files as server/utils/ (test/service/shared.test.js)
   auth0-jwks.json            Auth0's public keys, saved here (not committed, README.md -> Saving Auth0's keys)
   test/                      Data service tests (npm test): games, lifecycle, users, session, signature, dynamoDB, rating, shared, plus helpers/ (keys.js: the test run's keys)
 ```

@@ -2,7 +2,7 @@
  *  validate.js  --  chess server & data service
  *	Chess Move Engine
  *  Validation Functions (was chess-validation/lambdas/functions/chess/validate/validate.js)
- *  server/utils/validate.js & data-service/utils/validate.js are the same file, data-service/test/shared.test.js fails when they differ
+ *  server/utils/validate.js & data-service/utils/validate.js are the same file, data-service/test/service/shared.test.js fails when they differ
  *
  */
 
@@ -209,7 +209,7 @@ function replayMoves(gameData, count) {
 /**
  * @description Takes back a game's last moves (the undo AI & friend takebacks share): the moves that are left are replayed from the
  * start position, so the board, moves, prev_move & facing lists are exactly what they were before the undone moves. Save it with
- * updateGame(game_data, the board before the undo) in dynamoDB.js, its game_board condition makes a move made meanwhile win
+ * updateGame(game_data, the board before the undo) in db/, its game_board condition makes a move made meanwhile win
  * @param  {[object]} gameData [game item from retrieveGame, changed in place when it works]
  * @param  {[number]} count [moves (plies) to take back: 1 = the last move, 2 = the last move of each side]
  * @return {[object]} response [{ status, game_data, message }, nothing changes when it fails]

@@ -30,7 +30,9 @@ module.exports = [
 			'workbench/**',
 			'commands/**',
 			'deploy/**',
-			'docs/**'
+			'docs/**',
+			'.superpowers/**',
+			'.claude/**'
 		]
 	},
 	js.configs.recommended,
@@ -46,9 +48,9 @@ module.exports = [
 		rules: sharedRules
 	},
 
-	// NODE CODE (COMMONJS): SERVER, DATA SERVICE AND BUILD CONFIGS
+	// NODE CODE (COMMONJS): SERVER, DATA SERVICE, THE CARD ENGINE AND BUILD CONFIGS
 	{
-		files: ['server/**/*.js', 'data-service/**/*.js', 'client/webpack.config.js', 'client/test/**/*.js', 'eslint.config.js'],
+		files: ['server/**/*.js', 'data-service/**/*.js', 'cards-engine/**/*.js', 'client/webpack.config.js', 'client/test/**/*.js', 'eslint.config.js'],
 		languageOptions: {
 			ecmaVersion: 'latest',
 			sourceType: 'commonjs',

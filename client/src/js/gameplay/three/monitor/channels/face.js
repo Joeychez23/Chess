@@ -1,7 +1,7 @@
 /*
  *  face.js  --  chess frontend
  *	The CRT Monitor's Face Channel
- *	The test card, else the AI's pixel face (three/faces.js) at 4 px a cell. No buttons
+ *	The test card, else the AI's pixel face (three/monitor/faces.js) at 4 px a cell. No buttons
  *
  */
 

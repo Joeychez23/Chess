@@ -24,6 +24,7 @@
 | `ENGINE_URL` | Optional. The Stockfish engine API the AI asks for its moves. Defaults to `https://engine.aws-prac-route53.com/v1` (what your Mac uses). On the EC2 instance it's `http://127.0.0.1:3001/v1` |
 | `DATA_SERVICE_URL` | Optional. Where the data service answers. Defaults to `http://127.0.0.1:8090` (`npm run dev` in `data-service`). On AWS it's the data service's private IP |
 | `DATA_SERVICE_SECRET` | Signs every call to the data service. The same value as `DATA_SERVICE_SECRET` in `data-service/.env`, at least 32 characters (the command is in `.env.example`) |
+| `CARDS_TEST_SEED` | Optional, never in production. A whole number (0 to 4294967295): every new Chess Cards game is dealt from it, so a dev server deals one known game. Ignored when `NODE_ENV` is `production` |
 
 The server doesn't touch DynamoDB. Every read and write of the games and players
 goes through the data service ([Data service](../data-service/README.md)), which uses the AWS
@@ -35,8 +36,8 @@ IAM role on AWS, with read/write access to `chess_db` and `user_db` in us-west-2
 
 ```bash
 (cd data-service && npm ci)    # the server tests start the real data service
-(cd server && npm ci && npm test)          # every server/test/*.test.js, Node's built-in test runner
-(cd data-service && npm test)              # every data-service/test/*.test.js
+(cd server && npm ci && npm test)          # every server/test/**/*.test.js, Node's built-in test runner
+(cd data-service && npm test)              # every data-service/test/**/*.test.js
 ```
 
 The tests need no AWS account, Auth0 tenant or engine, and no `.env`:
@@ -49,26 +50,26 @@ engine are answered from test data.
 
 | File | What it covers |
 | --- | --- |
-| `validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
-| `ai.test.js` | The 27 AI levels and their settings, the 8 old levels mapping to them, the low levels overlooking moves (only seen moves are searched, always a legal move), the engine call, mixed depths and the js-chess-engine fallback |
-| `analysis.test.js` | The analysis route: the engine's move and evaluation, AI and finished games only, the cache by FEN, one request at a time per game, finished boards without the engine, the engine failing, and the limit |
-| `draw.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
-| `openings.test.js` | Opening names (`utils/openings.js`, the data in `data/openings/`): the lookup, other move orders, the name getting more specific and staying once the game leaves the book, player and AI moves, a move that ends the game, a failed save, a new game, and Home's rows |
-| `takeback.test.js` | The takeback route: two moves or one, guests, set positions, the opening going back, and each refusal changing nothing. Friend games: request, accept and decline, once per move, a move cancelling, the limit and the invite's setting |
-| `undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
-| `dataClient.test.js` | The data service down, too slow (3 seconds for a read, 10 for a write) or refusing the signature: 503 "Try again in a moment". A move, forfeit, accept or rematch that saved but answered too late is read back: the player gets what was saved and the other player is told. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
-| `auth.test.js` | Signing in through the data service: `GET /api/auth/login` going to the login page, the login's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
-| `games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, an email invite answering the same with or without an account, and the sign-in checks |
-| `rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
-| `rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
-| `startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
-| `settings.test.js` | The settings page's Default start settings and Delete my data |
-| `monitoring.test.js` | `GET /api/health` (a slow engine counts as down in time, the answer is kept, it never says why), the log lines the alarms match, and browser error reports from `reportErrors.js` to the log line: limited, cut short, and unable to set off an alarm |
-| `moveSuggestions.test.js` | The client's type move box suggestions (`client/src/js/gameplay/movebox/suggestions.js`): the legal moves that start with what was typed, each promotion piece, when the player can't move, and where the arrow keys go |
-| `boardHelpers.test.js` | The client's board helpers (`client/src/js/gameplay/user/index.js`, `utils/index.js`): the move a drop sends for each player and view color, promotions, each side's last move, the material count, screen position to square, and adding and removing marks and arrows. The board drawing isn't covered, it needs a canvas |
-| `shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and an open socket reconnects to the next start |
-| `friends.test.js` | Friends: requests saved on both rows and pushed to both players, every refusal, full lists, the rate limit, names only with who's online, a rename, and Delete my data leaving nothing on a friend's row |
-| `username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
+| `engine/validate.test.js` | Move rules, piece facing (knights, castling, captures, promotions) and the end-of-game checks, threefold repetition too. The client and the server pin the same `chess.js` version |
+| `engine/ai.test.js` | The 27 AI levels and their settings, the 8 old levels mapping to them, the low levels overlooking moves (only seen moves are searched, always a legal move), the engine call, mixed depths and the js-chess-engine fallback |
+| `engine/analysis.test.js` | The analysis route: the engine's move and evaluation, AI and finished games only, the cache by FEN, one request at a time per game, finished boards without the engine, the engine failing, and the limit |
+| `game/drawOffers.test.js` | Draw offers: a friend accepting or declining, one per player per move, a move ending the offer, the socket's events, and the AI answering from either side, with the engine down too |
+| `engine/openings.test.js` | Opening names (`utils/openings.js`, the data in `data/openings/`): the lookup, other move orders, the name getting more specific and staying once the game leaves the book, player and AI moves, a move that ends the game, a failed save, a new game, and Home's rows |
+| `game/takeback.test.js` | The takeback route: two moves or one, guests, set positions, the opening going back, and each refusal changing nothing. Friend games: request, accept and decline, once per move, a move cancelling, the limit and the invite's setting |
+| `game/undo.test.js` | Taking back moves: captures, promotions, castling, en passant, knight and sideways moves, several moves, set positions, a random game, and the undos that are refused |
+| `service/dataClient.test.js` | The data service down, too slow (3 seconds for a read, 10 for a write) or refusing the signature: 503 "Try again in a moment". A move, forfeit, accept or rematch that saved but answered too late is read back: the player gets what was saved and the other player is told. Accepting an invite from an inviter who's in another game drops it without forfeiting the player's own game |
+| `security/auth.test.js` | Signing in through the data service: `GET /api/auth/login` going to the login page, the login's cookies, a forged `id_token` getting no session, refresh and resume, logout signing out every device, Delete my data ending the session. Only tokens the data service signed: another key's, HS256, `none`, expired or changed ones are refused, the next key during a change is read, and a guest cookie from before #252 gets a new game |
+| `game/games.test.js` | The `/api/chess` routes: guest and signed-in AI games, friend invites through rematch, an email invite answering the same with or without an account, and the sign-in checks |
+| `security/rateLimit.test.js` | Guest games only answer the browser with their `guest_game` cookie, a guest whose game id is `CHESS_AI` or a player's id can't touch that player's AI game, and the new game limits (per session, IP and site) |
+| `game/rating.test.js` | The Elo math, which games are rated, and the ratings Home and the game menu get (`rateGame` itself is in the data service's tests) |
+| `game/startPosition.test.js` | Set positions: the FEN checks, the facing lists from a position, AI and friend games from one, and Restart and Rematch keeping it |
+| `pages/settings.test.js` | The settings page's Default start settings and Delete my data |
+| `service/monitoring.test.js` | `GET /api/health` (a slow engine counts as down in time, the answer is kept, it never says why), the log lines the alarms match, and browser error reports from `reportErrors.js` to the log line: limited, cut short, and unable to set off an alarm |
+| `engine/moveSuggestions.test.js` | The client's type move box suggestions (`client/src/js/gameplay/movebox/suggestions.js`): the legal moves that start with what was typed, each promotion piece, when the player can't move, and where the arrow keys go |
+| `engine/boardHelpers.test.js` | The client's board helpers (`client/src/js/gameplay/user/index.js`, `utils/index.js`): the move a drop sends for each player and view color, promotions, each side's last move, the material count, screen position to square, and adding and removing marks and arrows. The board drawing isn't covered, it needs a canvas |
+| `service/shutdown.test.js` | `SIGTERM` on the real `index.js`: a running request finishes before the exit, a new one is refused, and an open socket reconnects to the next start |
+| `game/friends.test.js` | Friends: requests saved on both rows and pushed to both players, every refusal, full lists, the rate limit, names only with who's online, a rename, and Delete my data leaving nothing on a friend's row |
+| `security/username.test.js` | Usernames: claiming one, taken in any capitals, two claims at once, renaming and changing capitals, the rules and reserved names, Delete my data freeing it, Home sending a player without one to `/settings`, and the names on invites and rematches |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the server tests, the data
 service tests and the client build on every pull request and every push to `main`.
@@ -114,9 +115,8 @@ device within 15 minutes.
 Routes are under `/api/chess`, called from `client/src/js/gameplay/validate/index.js`.
 Responses keep the old chess lambda's `{ status, ..., message }` body, and the
 HTTP status is the real one: 400 bad input, 403 not allowed, 404 not found, 409
-conflict, not your turn or game over, 422 illegal move. A refusal's body can still
-say `status: 500` under a 4xx, so `message` and the HTTP status are what tell them
-apart. A real 5xx is the server breaking.
+conflict, not your turn or game over, 422 illegal move. The body's `status` is the
+same as the HTTP status. A real 5xx is the server breaking.
 
 - **Who's playing** comes from the session cookie, never from player ids the
   client sends. Nobody can move for the AI except `/ai-move`.
@@ -137,10 +137,12 @@ apart. A real 5xx is the server breaking.
 - **Analysis limits:** `/analysis` answers `429` with `Retry-After` past 20 at once
   per session (then 1 a second) or 60 per IP or IPv6 /64 (then 4 a second), with
   its own counts, so hints can't stop the AI moving.
+- **Card action limits:** a card game's `/action` takes from the AI move counts
+  themselves, so a card game's actions and Card Guy's turns share one count.
 
 | Route | Body / query | What it does |
 | --- | --- | --- |
-| `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), the start settings (`start_params`), the friend's name (`opponent_name`), the opening (`opening`: `{ eco, name }`, `null` until a named position), and the result (`state`, `winner`, `reason`) |
+| `GET /api/chess/game/:gameId` | | The board, the player's color, whether the opponent is the AI, the AI's level (`ai_level`), the start settings (`start_params`), the friend's name (`opponent_name`), the opening (`opening`: `{ eco, name }`, `null` until a named position), the result (`state`, `winner`, `reason`), and `mode` (`"chess"`, or `"cards"` for a Chess Cards game). A card game's move, ai-move, takeback, draw, analysis, restart, rematch and pgn routes answer `400` "Use the Chess Cards routes"; forfeit works on both |
 | `GET /api/chess/game/:gameId/pgn` | | A player in the game (guests: their own game). The game as a PGN file: `{ status, pgn, filename }`, `filename` is `<white>-vs-<black>.pgn`. Replays `moves` from the set position if there is one. Headers: `Event`, `Site` (`CLIENT_URL`), `Date` (`created_at`, `????.??.??` for older games), `White`, `Black` (friend games: the saved names, AI games: `Stockfish level N` & your screenname, or `Guest`), `Result` and `Termination` (`reason`, `unterminated` while it's going) |
 | `POST /api/chess/game` | `{ game_id, start_color, ai_level, start_fen, replace_current }` or `{ game_id, player_id_1, player_id_2, ai_level }` | New game vs. the AI at `ai_level` (600-3200 in steps of 100, see [AI levels](#ai-levels); anything else gets the default). `start_color` is your color, `alternate` (random at first, then the opposite of your last AI game), `random` (the API's default, anything else counts as it), `w` or `b`, and the server picks the sides (Home, the guest page, and the play page with `random` when a guest has no game yet). Without it, one side must be `CHESS_AI`, the other side is always you and `player_id_1` plays white (gameplay's fallback if that request failed, saved as Random). `game_id` is only for guests (their saved id): the data service makes every new id (random, not guessable) and the response has it. A guest's existing `game_id` is overwritten with a new board (their New game, the level is kept unless `ai_level` is sent). Signed-in players can't name or overwrite a game here, they restart with `/restart`. Signed-in players have one AI game open at a time: while one is open this returns `{ status: 409, game_id }` (the open game), unless `replace_current: true` forfeits it first. `start_fen` (optional) starts from a set position, saved in `start_params.fen`; one that can't be played returns `{ status: 400, message }` (HTTP 400) before anything is saved or forfeited |
 | `PUT /api/chess/game/:gameId` | `{ move: [from, to], promotion }` | Your move. Validates it against the stored board and saves it. Closes the game on checkmate or a draw. Refused while the game is `PENDING` or once it's closed, and refused if the board changed first (two moves at once). A position in the opening data set saves `opening` |
@@ -161,6 +163,11 @@ apart. A real 5xx is the server breaking.
 | `POST /api/chess/game/:gameId/join` | `{ replace_current }` | Signed in, not the link's creator (`403`). A conditional write takes the seat, so only one player wins it (`409` "Game is taken"): `PENDING` → `OPEN`, the game moves to both players' `open_games`, and your own sent invite is cancelled. Same `409` / `replace_current` rule. Emits `games` to both Homes |
 | `POST /api/chess/game/:gameId/accept` | `{ replace_current }` | Signed in, the invited player. `PENDING` → `OPEN`, the game moves from both players' `requested_games` to `open_games`, and your own sent invite is cancelled. Same `409` / `replace_current` rule as `/invite`. Refused if the inviter is in another friend game by then (the invite is deleted) |
 | `POST /api/chess/game/:gameId/decline` | | Signed in, either player of a `PENDING` game. The invited player declines or the inviter cancels: the game is deleted and dropped from both players' `requested_games` |
+| `POST /api/chess/cards` | `{ start_color, ai_level, replace_current }` | New Chess Cards game vs. Card Guy (`CHESS_AI`), signed in or a guest (who gets a `guest_game` cookie for it). `start_color` and `ai_level` as `/game`. The server makes the engine state (`cards-engine/`, seeded with 32 random bytes) and the data service stores it (`cards_state`, never sent to a client). A guest's earlier game (the one their cookie names, card or normal) is forfeited. Shares the one open AI game with `/game`: `{ status: 409, game_id }` unless `replace_current: true` forfeits it. Every card route answers `{ status, game_id, mode: "cards", ai_level, you, view, legal, legal_hidden, events, card_guy_due, result }`: `view` and `events` are what you may see (`playerView`, `playerEvents`), `legal` your legal actions (`[]` once it's over), `legal_hidden` `true` while Card Guy's Fog of War is up: the view then holds none of Card Guy's pieces on its half (`view.board.hidden` says how many) and `legal` leaves out every move, so the client sends the move the player tries and a move that isn't legal is refused, `card_guy_due` whether Card Guy owes an action, `result` `{ winner, reason }` or `null` (`winner` is `"w"`, `"b"`, or `null` for a draw; the game record stores a draw as `"draw"`) |
+| `GET /api/chess/cards/:gameId` | | A player in the card game. The game as above, `events: []`. A reload mid-duel or mid-choice gets it as it was. `400` "Not a card game", `409` `{ status, game_id, message }` for a state from an older engine version (the page can offer to forfeit it) |
+| `POST /api/chess/cards/:gameId/action` | `{ action }` | One of your `legal` actions, saved only on the version it was read at. `400` when `action` isn't an object (or over 2000 characters as JSON). `409` with the fresh game: "Game is already over", "That action isn't available", or `stale: true` when another save landed first. `game_board` follows the board, except while Card Guy's Fog of War is up, when it keeps its last value until the fog ends or the game does (a finished game hides nothing). `429` past the AI move limits |
+| `POST /api/chess/cards/:gameId/card-guy` | | Card Guy plays one action it owes (a turn action, a choice, a card duel pick) and it is saved; the body is the card game with the action's `events`. Call again while `card_guy_due` is true. When nothing is owed (your turn, the game is over, another save landed first) it answers `200` with the game as it is and no events. Parallel calls play the action once and get the same answer |
+| `GET /api/chess/cards/card-guy` | | `{ name: "Card Guy" }`: the bot is only a name, with no avatar, bio or lines |
 | `GET /api/chess/user/:userId` | | Signed in only, your own id. Your game lists for Home, plus `ai_game_id` and `friend_game_id` (your open AI and friend games, or `null`), `open_game_list` (`[{ game_id, ai, ai_level, opponent_name, player_color, start_params }]`, newest last, for Your games), `closed_game_list` (the same plus `winner` and `reason`, your last 20 finished games, newest first, for Finished games), `sent_invite` (`{ game_id, name, player_color, start_params }` or `null`) and `received_invites` (`[{ game_id, name, player_color, start_params }]`, `player_color` is yours), `settings` (`{ ai_level, ai_color, friend_color }`, the defaults until you save some) and `games_finished`. Ids of games and invites TTL already deleted are pruned first, and `rating` (`{ rating, provisional, rated_games }`, the starting 1500 before your first game) |
 | `GET /api/chess/game/:gameId/ratings` | | Signed in, a player in the game. Both players' ratings for the game menu: `{ rated, player_rating, opponent_rating, opponent_name, rating_change }`, the ratings are `{ rating, provisional, rated_games }` (`null` in AI games, which aren't rated) and `rating_change` is your `{ before, after }` once a rated game is over. `GET /game/:gameId` doesn't send ratings: it runs after every move, and this reads both user rows |
 
@@ -355,7 +362,7 @@ server/
     pageController.js        Picks the page (home, guest, play, settings) from the session cookie, PENDING invites go Home, no username yet goes to settings
     authController.js        login, callback, logout, refresh, resume
     userController.js        getUser (with the username), saveSettings, saveUsername, deleteUserData (Delete my data)
-    chessController.js       get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
+    chess/                   get game, new game, move, AI move, levels, restart, forfeit, rematch, invite, accept, decline, user games, ratings (was the chess lambda)
     monitorController.js     The health route & browser error reports
   middleware/auth.js         Session cookies (checked with the public key), requireAuth, optionalAuth, the guest_game cookie
   middleware/rateLimit.js    New game limits per session, IP and site (429)

@@ -9,7 +9,7 @@
 /* ---------------------------------------------------------------- */
 
 const { retrieveUser, updateUserSettings, claimUsername, searchUsernames, retrieveFriends, changeFriend, deleteUser } = require("../dataClient.js");
-const { leaveAllGames, readSettings, userPlayerId, httpStatus } = require("./chessController.js");
+const { leaveAllGames, readSettings, isStatusDisplay, userPlayerId, httpStatus } = require("./chess/index.js");
 const { checkUsername, readSearchPrefix } = require("../utils/username.js");
 const { disconnectPlayer, emitToPlayer, isOnline } = require("../socket.js");
 const { deleteAuth0User } = require("../utils/auth0.js");
@@ -24,7 +24,7 @@ const { deleteAuth0User } = require("../utils/auth0.js");
  */
 async function getUser(req, res) {
 	const user = await retrieveUser(true).catch(() => null); // THE REQUESTER'S ROW, CONSISTENT: THE SETTINGS PAGE READS IT RIGHT AFTER A SAVE. A FAILED READ STILL RETURNS THE USER
-	return res.json({ status: 200, userData: req.user, username: user?.user_data?.username?.S || null, message: "USER DATA FOUND" });
+	return res.json({ status: 200, userData: req.user, username: user?.user_data?.username || null, message: "USER DATA FOUND" });
 }
 
 /* ---------------------------------------------------------------- */
@@ -36,9 +36,30 @@ async function getUser(req, res) {
  * @return {[object]} response [{ status, settings (as saved), message }]
  */
 async function saveSettings(req, res) {
-	const settings = readSettings(req.body);
+	const { status_display, ...settings } = readSettings(req.body); // NOT status_display: IT HAS ITS OWN ROUTE, SENDING IT HERE WOULD OVERWRITE THE SAVED ONE
 	const response = await updateUserSettings(settings); // THE REQUESTER'S ROW
-	return res.status(httpStatus(response)).json({ status: response.status, settings, message: response.message });
+	return res.status(httpStatus(response)).json({ status: httpStatus(response), settings, message: response.message });
+}
+
+/**
+ * @description Refuses a Status display body that isn't "effects" or "badges". It runs before limitStatusDisplay, so a 400 spends no token
+ * @param  {[object]} req.body [{ status_display }]
+ * @return {[object]} response [{ status: 400, message } | next()]
+ */
+function checkStatusDisplay(req, res, next) {
+	if (!isStatusDisplay(req.body?.status_display)) { return res.status(400).json({ status: 400, message: "Invalid status display" }); }
+	return next();
+}
+
+/**
+ * @description The Status display setting (the settings page's User Experience box, a card game's menu): how a card game draws statuses
+ * @param  {[object]} req.body [{ status_display: "effects" | "badges" }, checked by checkStatusDisplay]
+ * @return {[object]} response [{ status, settings: { status_display } (as saved), message }]
+ */
+async function saveStatusDisplay(req, res) {
+	const settings = { status_display: req.body.status_display };
+	const response = await updateUserSettings(settings); // ONLY THIS FIELD, THE DATA SERVICE MERGES IT INTO THE SAVED SETTINGS
+	return res.status(httpStatus(response)).json({ status: httpStatus(response), settings, message: response.message });
 }
 
 /* ---------------------------------------------------------------- */
@@ -128,8 +149,8 @@ async function deleteUserData(req, res) {
 	const response = await deleteUser(); // THE DATA SERVICE REFUSES IT WHILE A GAME OR INVITE IS LEFT
 	for (const friendId of response.friend_ids || []) { emitToPlayer(friendId, "friends", {}); }
 	if (response.status == 200) { disconnectPlayer(playerId); } // THEIR SESSION IS OVER, THEIR OPEN SOCKETS ON EVERY DEVICE ARE CLOSED (#298)
-	return res.status(httpStatus(response)).json({ status: response.status, message: response.message });
+	return res.status(httpStatus(response)).json({ status: httpStatus(response), message: response.message });
 }
 
 
-module.exports = { getUser, saveSettings, saveUsername, deleteUserData, searchPlayers, getFriends, friendAction };
+module.exports = { getUser, saveSettings, checkStatusDisplay, saveStatusDisplay, saveUsername, deleteUserData, searchPlayers, getFriends, friendAction };

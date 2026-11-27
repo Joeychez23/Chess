@@ -3,7 +3,7 @@
  *	Game Checks
  *  Who's in a game & what state it's in, the checks the game routes make against the stored game before they save anything.
  *  The chess server uses them to refuse a bad request early, the data service checks every action again.
- *  server/utils/games.js & data-service/utils/games.js are the same file, data-service/test/shared.test.js fails when they differ
+ *  server/utils/games.js & data-service/utils/games.js are the same file, data-service/test/service/shared.test.js fails when they differ
  *
  */
 

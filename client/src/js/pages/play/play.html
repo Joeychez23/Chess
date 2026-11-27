@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en" class="loadingPage"> <!-- loadingPage: HIDDEN UNTIL THE BOARD IS DRAWN (gameplay/index.js REMOVES IT) -->
+
+<head>
+	<meta charset="UTF-8" />
+	<meta http-equiv="X-UA-Compatible" content=" IE=edge">
+	<link rel="icon" type="image/png" sizes="32x32" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-32.png" />
+	<link rel="icon" type="image/png" sizes="192x192" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-192.png" />
+	<link rel="apple-touch-icon" href="<%= process.env.CHESS_ASSETS_URL %>/images/icon/bishop-180.png" /> <!-- iOS HOME SCREEN, ON THE BAIZE GREEN -->
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="theme-color" content="#220B00" />
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..700&family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif&display=swap">
+	<title>Chess</title>
+	<style> /* IN THE PAGE, NOT style.css: IT'S NEEDED FOR THE FIRST PAINT, THE CSS FILES ARE ADDED BY THE BUNDLE AFTER THAT */
+		@view-transition { navigation: auto; } /* FROM HOME: ONE FADE FROM HOME INTO THE GAME (home.html & guest.html OPT IN TOO) */
+		html.loadingPage::view-transition-group(*),
+		html.loadingPage::view-transition-old(*),
+		html.loadingPage::view-transition-new(*) { animation-play-state: paused; } /* HOME STAYS ON SCREEN UNTIL THE BOARD IS DRAWN */
+		::view-transition-group(*) { animation-duration: 400ms; }
+		body { background: #0c2a1f url("<%= process.env.CHESS_ASSETS_URL %>/images/board/table.webp") center / cover no-repeat fixed; } /* THE TABLE FROM THE FIRST PAINT, NOT A SOLID COLOR (SAME SIZE & SPOT AS THE CANVAS'S TABLE) */
+		body > * { transition: opacity 400ms ease-out; }
+		html.loadingPage body > * { opacity: 0; } /* NO FADE FROM HOME (A RELOAD, FROM LOGIN, FIREFOX): THE TABLE, THEN THE GAME FADES IN */
+		:active-view-transition body > * { transition: none; } /* FROM HOME THE PAGE FADE DOES IT ALONE (A BROWSER WITHOUT THIS ONLY DROPS THIS LINE) */
+		@media (prefers-reduced-motion: reduce) { /* NO FADE: THE LAST PAGE STILL STAYS ON SCREEN WHILE loadingPage IS ON, THEN THIS PAGE IS JUST THERE (0s WHILE PAUSED WOULD SHOW THE UNFINISHED PAGE) */
+			html:not(.loadingPage)::view-transition-group(*) { animation-duration: 0s; }
+			body > * { transition: none; }
+		}
+	</style>
+</head>
+
+<body id="body">
+	<button id="monitorStop" type="button" aria-label="Monitor. Enter zooms in" hidden></button> <!-- 3D: THE KEYBOARD'S STOP FOR THE ROOM'S MONITOR, LEFT OF THE MENU BUTTON. ITS FOCUS IS DRAWN ON THE GLASS (gameplay/monitor/index.js) -->
+	<button id="optBtn" type="button" aria-label="Menu" aria-controls="menuContainer"><span></span><span></span><span></span></button>
+	<nav id="menuContainer" aria-label="Menu">
+		<div id="resultDisplay">Chess</div>
+		<p id="resultReason" hidden></p>
+		<p id="ratingDisplay" hidden></p>
+		<div id="menuButtonList"> <!-- data-chess-only: HIDDEN IN A CHESS CARDS GAME (gameplay/cards/flow.js), THE MONITOR'S ACTIONS FOLLOW THE MENU -->
+			<ul role="group" aria-label="Current game">
+				<li><button class="menuButton" id="optResume">Resume</button></li>
+			</ul>
+			<ul role="group" aria-label="Game actions">
+				<li hidden data-chess-only><button class="menuButton" id="optHint">Hint</button></li> <!-- AI GAMES WHILE THEY'RE GOING -->
+				<li hidden data-chess-only><button class="menuButton" id="optTakeback">Takeback</button></li> <!-- WHILE THE GAME IS GOING, FRIEND GAMES WITH TAKEBACKS LEFT -->
+				<li hidden data-chess-only><button class="menuButton" id="optDraw">Offer Draw</button></li> <!-- WHILE THE GAME IS GOING -->
+				<li data-chess-only><button class="menuButton" id="optTypeMove">Type a Move</button></li>
+				<li hidden><button class="menuButton" id="optMonitor">Monitor</button></li> <!-- 3D: ZOOMS IN TO THE ROOM'S MONITOR, SHOWN WHILE IT'S UP (gameplay/monitor/index.js) -->
+			</ul>
+			<ul role="group" aria-label="View">
+				<li><button class="menuButton" id="optSound">Turn Sound: Off</button></li>
+				<li><button class="menuButton" id="optFlip">Flip Board</button></li>
+				<li data-chess-only><button class="menuButton" id="optView">View: 3D</button></li>
+				<li hidden><button class="menuButton" id="optResetView">Reset View</button></li> <!-- 3D ONLY -->
+				<li hidden><button class="menuButton" id="optAutoLean">Turn Auto Lean: On</button></li> <!-- 3D ONLY: THE CAMERA LEANS OVER THE BOARD WHILE THE POINTER IS ON IT -->
+				<li hidden><button class="menuButton" id="optStatusDisplay">Status Display: Effects</button></li> <!-- CARD GAMES ONLY (pages/play/index.js): A PIECE'S STATUSES AS EFFECTS OR BADGES, THE WORDS SAY WHICH IS ON -->
+				<li hidden data-chess-only><button class="menuButton" id="optEvalBar">Turn Eval Bar: On</button></li> <!-- AI GAMES & FINISHED GAMES -->
+				<li data-chess-only><button class="menuButton" id="optPgn">Download PGN</button></li>
+			</ul>
+			<ul role="group" aria-label="End the game">
+				<li><button class="menuButton" id="optRestart">Restart</button></li>
+				<li hidden><button class="menuButton" id="optCancelRematch">Cancel</button></li>
+				<li hidden data-chess-only><a class="menuButton" id="optReplay" href="/">Replay</a></li> <!-- SIGNED IN PLAYERS, ONCE THE GAME IS OVER: /replay/:gameId -->
+			</ul>
+			<ul role="group" aria-label="Navigation">
+				<li><a class="menuButton" id="optHome" href="/">Home</a></li>
+				<li hidden><a class="menuButton" id="optSettings" href="/settings">Settings</a></li> <!-- SIGNED IN PLAYERS -->
+			</ul>
+			<ul role="group" aria-label="Account">
+				<li><button class="menuButton" id="optExit">Exit</button></li>
+			</ul>
+			<ul role="group" aria-label="Legal"> <!-- A NEW TAB: THE GAME KEEPS RUNNING -->
+				<li><a class="menuButton" href="/privacy" target="_blank" rel="noopener">Privacy</a></li>
+				<li><a class="menuButton" href="/terms" target="_blank" rel="noopener">Terms</a></li>
+			</ul>
+		</div>
+	</nav>
+
+	<p id="gameStatus" role="status"></p> <!-- REFUSED MOVES & CONNECTION PROBLEMS (gameplay/status/index.js) -->
+	<p id="moveDeadline"></p> <!-- FRIEND GAMES WITH A TIME LIMIT: THE TIME LEFT, NOT A LIVE REGION: IT CHANGES EVERY MINUTE (gameplay/menu/index.js) -->
+	<p id="resultAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE RESULT WHEN A GAME ENDS (gameplay/menu/index.js) -->
+	<p id="monitorAnnouncement" role="status"></p> <!-- SCREEN READERS ONLY: THE 3D ROOM'S MONITOR, ITS CHANNEL, WHAT IT SHOWS, ITS FOCUSED BUTTON & THE BANNER (gameplay/monitor/index.js) -->
+	<div id="monitorFocus" role="application" tabindex="-1" aria-label="Monitor" aria-describedby="monitorAnnouncement" hidden></div> <!-- THE FOCUS WHILE ZOOMED ON THE MONITOR, SO ITS KEYS REACH IT (gameplay/monitor/index.js) -->
+
+	<div id="drawPrompt" role="group" aria-label="Draw offer" hidden> <!-- THE OPPONENT'S OFFER, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
+		<button id="drawAccept" type="button">Accept Draw</button>
+		<button id="drawDecline" type="button">Decline Draw</button>
+	</div>
+
+	<div id="takebackPrompt" role="group" aria-label="Takeback request" hidden> <!-- THE OPPONENT'S REQUEST, THE MESSAGE AREA SAYS WHO (gameplay/menu/index.js) -->
+		<button id="takebackAccept" type="button">Accept Takeback</button>
+		<button id="takebackDecline" type="button">Decline Takeback</button>
+	</div>
+
+	<div id="cardPrompt" role="group" aria-label="Card choice" hidden></div> <!-- CHESS CARDS: A CARD'S CHOICE, CONFIRM OR PROMOTION, BORDERED IN THE ASKING CARD'S RARITY COLOUR (gameplay/cards/flow.js) -->
+
+	<div id="gameInfo"> <!-- BOTTOM LEFT, THE MOVE LIST STAYS CLEAR OF IT -->
+		<p id="openingDisplay" hidden></p> <!-- "B90 Sicilian Defense: Najdorf Variation" (gameplay/movelist/index.js) -->
+		<p id="opponentDisplay" hidden></p> <!-- FRIEND GAMES: "vs Bob" (pages/play/index.js) -->
+		<div id="botDisplay" hidden> <!-- AI GAMES: THE BOT'S AVATAR, NAME & LINES (gameplay/bots/say.js, #76) -->
+			<p id="botLine" aria-live="polite"></p>
+			<div id="botTag"><img id="botAvatar" alt="" width="40" height="40"><span id="botInitial" aria-hidden="true" hidden></span><span id="botName"></span></div>
+		</div>
+	</div>
+
+	<div id="evalBar" role="img" aria-label="Evaluation" hidden><div id="evalBarFill"></div></div> <!-- BESIDE THE BOARD, TURNED ON FROM THE MENU (gameplay/analysis/index.js) -->
+
+	<section id="moveList" aria-label="Moves" hidden> <!-- THE GAME'S MOVES, PLACED NEXT TO THE BOARD (gameplay/movelist/index.js) -->
+		<button id="moveListToggle" type="button" aria-controls="moveListRows" aria-expanded="true">Moves</button>
+		<ol id="moveListRows"></ol>
+	</section>
+
+	<form id="moveBox" aria-label="Type a move" hidden> <!-- TYPED MOVES, OPENED WITH / OR THE MENU (gameplay/movebox/index.js) -->
+		<input id="moveBoxInput" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="moveBoxSuggestions" aria-label="Move" aria-describedby="moveBoxRefusal" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" />
+		<button id="moveBoxClose" type="button" aria-label="Close">×</button>
+		<p id="moveBoxRefusal" role="status"></p>
+		<p id="moveBoxCount" role="status"></p>
+		<ul id="moveBoxSuggestions" role="listbox" aria-label="Legal moves" hidden></ul>
+	</form>
+
+	<div id="replayBar" role="group" aria-label="Replay" hidden> <!-- /replay/:gameId: STEPS THROUGH A FINISHED GAME, UNDER THE BOARD (gameplay/replay/index.js) -->
+		<button id="replayFirst" type="button" aria-label="First move">|&lsaquo;</button>
+		<button id="replayBack" type="button" aria-label="Previous move">&lsaquo;</button>
+		<p id="replayMove" aria-live="polite">Start</p> <!-- "12... Nxe4" -->
+		<button id="replayForward" type="button" aria-label="Next move">&rsaquo;</button>
+		<button id="replayLast" type="button" aria-label="Last move">&rsaquo;|</button>
+	</div>
+
+	<main id="main"></main>
+</body>
+
+</html>

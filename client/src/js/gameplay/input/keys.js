@@ -177,6 +177,7 @@ export async function handleKeyPress(e) {
  */
 export async function choosePromotion(type) {
 	if (!game.currPromotion) { return; } // ALREADY PICKED: A SECOND CLICK BEFORE THE NEXT FRAME MUST NOT SEND THE MOVE AGAIN
+	if (game.cardGame) { return require("../cards/flow.js").promote(type); } // A CHESS CARDS MOVE CARD'S PROMOTION: ITS PLAY IS SENT, NOT A CHESS MOVE. HERE, NOT ABOVE: flow.js REACHES THE MENU, WHICH REQUIRES THIS FILE
 	game.revert = game.response;
 	try { // TEST MOVE CLIENT SIDE TO JUSTIFY SERVER CALL
 		game.moveObj.promotion = type;
@@ -190,7 +191,7 @@ onCardPick(choosePromotion); // THE 3D BOARD'S CARDS CALL IT. input ALREADY REQU
  * @description The keys of the 3D room's promotion cards: the arrows move the gold frame, Enter picks the framed card. Run in the capture phase on
  * the window (gameplay/index.js) so the page's nav (arrows move the page focus, Enter on nothing focuses the menu button) never sees a handled key,
  * & stopPropagation() keeps remote-only mode's handleKeyPress from stepping a second time. Nothing while the flat picker is the picker, the menu is
- * open, the monitor is zoomed, a field has the keys, or a modifier is down. The rule for Enter: it picks when a card is framed, unless a button or
+ * open, the monitor is zoomed, a field has the keys, a modifier is down, or in a Chess Cards game the key is held (repeat). The rule for Enter: it picks when a card is framed, unless a button or
  * link has the focus (Tab put it there), so Enter still presses it, which keeps the menu reachable. An arrow takes the focus off a button or link
  * first, so after arrows Enter always picks
  * @param  {[KeyboardEvent]} e [a keydown]
@@ -198,6 +199,7 @@ onCardPick(choosePromotion); // THE 3D BOARD'S CARDS CALL IT. input ALREADY REQU
  */
 export function handleCardKey(e) {
 	if (!game.currPromotion || !game.cards3D || game.menuToggled || e.altKey || e.ctrlKey || e.metaKey || isCameraGesture()) { return false; }
+	if (e.repeat && game.cardGame) { return false; } // A CHESS CARDS GAME'S HELD KEY PICKS NOTHING (handleHandKey STOPS IT, N3). A NORMAL GAME'S KEYS STAY AS THEY WERE
 	const target = e.target;
 	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return false; }
 	const pressable = Boolean(target && /^(BUTTON|A)$/.test(target.tagName));

@@ -41,15 +41,15 @@ module.exports = (env, argv) => {
 			publicPath: '/', // BUNDLES LOAD FROM THE ROOT, SO /play/:gameId DOESN'T ASK FOR /play/play.bundle.js
 		},
 		plugins: [
-			new HtmlWebpackPlugin({ template: './home.html', filename: 'home.html', chunks: ['home'] }),
-			new HtmlWebpackPlugin({ template: './guest.html', filename: 'guest.html', chunks: ['guest'] }),
-			new HtmlWebpackPlugin({ template: './play.html', filename: 'play.html', chunks: ['play'] }),
-			new HtmlWebpackPlugin({ template: './join.html', filename: 'join.html', chunks: ['join'] }),
-			new HtmlWebpackPlugin({ template: './settings.html', filename: 'settings.html', chunks: ['settings'] }),
-			new HtmlWebpackPlugin({ template: './login.html', filename: 'login.html', chunks: ['login'] }),
-			new HtmlWebpackPlugin({ template: './signup.html', filename: 'signup.html', chunks: ['login'] }),
-			new HtmlWebpackPlugin({ template: './privacy.html', filename: 'privacy.html', chunks: ['legal'] }),
-			new HtmlWebpackPlugin({ template: './terms.html', filename: 'terms.html', chunks: ['legal'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/home/home.html', filename: 'home.html', chunks: ['home'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/guest/guest.html', filename: 'guest.html', chunks: ['guest'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/play/play.html', filename: 'play.html', chunks: ['play'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/join/join.html', filename: 'join.html', chunks: ['join'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/settings/settings.html', filename: 'settings.html', chunks: ['settings'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/login/login.html', filename: 'login.html', chunks: ['login'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/login/signup.html', filename: 'signup.html', chunks: ['login'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/legal/privacy.html', filename: 'privacy.html', chunks: ['legal'] }),
+			new HtmlWebpackPlugin({ template: './src/js/pages/legal/terms.html', filename: 'terms.html', chunks: ['legal'] }),
 
 			new WebpackPwaManifest({ // manifest.json FOR "ADD TO HOME SCREEN" (THE ICONS ARE LINKED IN EACH .html)
 				filename: 'manifest.json',
@@ -97,6 +97,7 @@ module.exports = (env, argv) => {
 			},
 			proxy: [
 				{ context: ['/api'], target: 'http://localhost:3001' }, // npm run dev: AUTH ROUTES LIVE ON THE EXPRESS SERVER (API_PORT)
+				{ context: ['/images', '/audio'], target: 'http://localhost:3001' }, // CHESS_ASSETS_URL=".": LOCAL ASSETS FROM client/dist, WHICH THE EXPRESS SERVER SERVES
 				{ context: ['/socket.io'], target: 'http://localhost:3001', ws: true }, // FRIEND GAME SOCKET (server/socket.js)
 				{ context: (pathname) => pathname == '/' || pathname == '/play' || pathname.startsWith('/play/') || pathname.startsWith('/replay/') || pathname == '/settings' || pathname == '/login' || pathname == '/signup' || pathname == '/privacy' || pathname == '/terms', target: 'http://localhost:3001' }, // PAGES: THE SERVER PICKS WHICH ONE TO SEND
 			],

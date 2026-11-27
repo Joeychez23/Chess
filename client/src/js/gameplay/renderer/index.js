@@ -2,201 +2,52 @@
  *  index.js  --  chess frontend
  *	Renderer
  *	The one place that picks the board the player sees: the 2D canvas or the 3D board (three/). The rest of the game calls
- *	drawBoard() & setView() & never checks which one is on. The 2D canvas keeps drawing on 3D, laid clear over the 3D board
- *	with only its trays showing, its frames still run the game (tiles, slides, trays), then the 3D board is set to match chessInst,
- *	game.viewColor (the camera's side) & the 2D highlights.
- *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D. One that loses its WebGL context (iPhones do when
- *	the page is backgrounded) is put up again when the browser gives it back, or falls back to 2D when it keeps losing it. Input (gameplay/input) only asks here for the
- *	square under the pointer, its handlers are the same on both boards (addBoardListener)
+ *	drawBoard() and setView() and never checks which one is on.
+ *	On 3D the 2D canvas keeps drawing, laid clear over the 3D board with only its trays showing: its frames still run the game
+ *	(tiles, slides, trays). Then the 3D board is set to match chessInst, game.viewColor (the camera's side) and the 2D highlights.
+ *	A 3D board that can't load or mount (no WebGL, offline) leaves the player on 2D. One that loses its WebGL context (iPhones do
+ *	when the page is backgrounded) is put up again when the browser gives it back, or falls back to 2D when it keeps losing it.
+ *	Input (gameplay/input) only asks here for the square under the pointer; its handlers are the same on both boards
+ *	(addBoardListener).
  *
  */
 
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, canvas, chessInst, requestFrame } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE 2D CANVAS, THE BOARD THAT'S DRAWN
-const { load3D } = require("../three/load.js"); // DOWNLOADS THE 3D BOARD THE FIRST TIME IT'S TURNED ON
-const { showStatus, MESSAGE_TIME } = require("../status/index.js"); // THE MESSAGE AREA ON THE PLAY PAGE
-const { stepBetween, tileToSquare } = require("../utils/index.js"); // THE ONE MOVE BETWEEN TWO POSITIONS (EITHER WAY), THE SQUARE OF A SCREEN TILE
-const { reportError } = require("../../pages/utils/reportErrors.js"); // THE BROWSER ERROR REPORTS (#194)
-const { capturesAt } = require("../captures/index.js"); // THE PIECES TAKEN TO REACH A POSITION
-const { Chess } = require("chess.js");
-const scratch = new Chess(); // ONLY stepBetween USES IT, NOT validateState: NOTHING ELSE CAN BE HALFWAY THROUGH IT
+const { game, canvas, chessInst, requestFrame } = require("../state/index.js");
+const statusPref = require("../cards/statusPref.js"); // How a Chess Cards piece's statuses show: effects or badges (three/statusFx)
+statusPref.onChange(handleStatusPrefChange);
+// What moved out, answered from here by the same names. The lifecycle goes first: it loads the draw and the table, so every module
+// is first loaded in the order it was when this was one file
+export { VIEWS, setView, can3D, onViewChange } from "./renderer.lifecycle.js";
+export { drawBoard } from "./renderer.draw.js";
+export {
+	onCardPick, onTablePick, holdTablePiece3D, dropTablePiece3D, setTable3D, dealDuel3D, flipDuel3D, endDuel3D, boardStep3D, toggleTablePile3D,
+	tablePileOpen3D, showTableButtons3D, focusTableButton3D, pressTableButton3D,
+} from "./renderer.table.js";
+const rendererState = require("./renderer.state.js");
+const { VIEWS, boardListeners } = require("./renderer.lifecycle.js");
+const { syncTaken3D } = require("./renderer.draw.js");
+Object.assign(rendererState.calls, { syncTaken3D, currentView }); // Before anything can run: both are only called after load
 
-export const VIEWS = { TWO_D: "2d", THREE_D: "3d" };
-
-let board3D = null; // THE 3D MODULE WHILE IT'S MOUNTED, null ON 2D
-let container = null; // WHAT THE 3D CANVAS FILLS, IN #main NEXT TO THE (HIDDEN) 2D CANVAS
-let switching = null; // THE setView() IN PROGRESS, SO TWO PRESSES DON'T MOUNT TWICE
-let shownFen = null; // THE POSITION THE 3D BOARD SHOWS (OR IS SLIDING TO)
-let skipAnimation = false; // THE NEXT POSITION IS SET AT ONCE (skipNextAnimation3D: A REPLAY'S JUMP)
-let shownFacings = null; // THE POSITION & PIECE FACINGS THE 3D BOARD WAS LAST TURNED TO (syncFacing3D)
-let shownTaken = null; // WHAT THE 3D BOARD'S PILES WERE LAST SET FROM (syncTaken3D), SO THEY'RE ONLY REDONE WHEN IT CHANGES
-let shownMarks = null; // THE HIGHLIGHTS THE 3D BOARD SHOWS (marks3D() AS JSON), SO THEY'RE ONLY REDONE WHEN THEY CHANGE
-let shownScreen = null; // WHAT THE 3D ROOM'S MONITOR WAS LAST TOLD TO SHOW (screen3D() AS JSON)
-let cardPick = null; // WHAT A PICKED PROMOTION CARD CALLS (onCardPick), gameplay/input'S choosePromotion
-let shownPromotion = null; // THE COLOUR THE 3D CARDS WERE LAST DEALT FOR, null WHEN THEY'RE ON THE DECK (syncCards3D)
-let shownCardFocus = null; // THE CARD THE 3D BOARD FRAMES (game.cardFocus)
-let heldFace = null; // THE FACE THE MONITOR HOLDS (A RESULT'S), PUT BACK ON A 3D BOARD MOUNTED LATER
-let monitorHooks = null; // gameplay/monitor'S { handlers, announce, onChange, data } (setMonitorHooks), GIVEN TO EVERY 3D BOARD
-let shownMonitor = null; // WHAT THE MONITOR'S CHANNELS WERE LAST SENT (monitorHooks.data() AS JSON)
-const boardListeners = []; // [type, handler, options] FROM addBoardListener, PUT ON EACH NEW 3D CONTAINER TOO
-let viewListener = () => {}; // onViewChange()'S, TOLD WHEN 3D FALLS BACK TO 2D BY ITSELF
-
-const RESTORE_WAIT_MS = 3000; // A LOST CONTEXT NOT GIVEN BACK THIS LONG AFTER THE PAGE IS SEEN: A NEW BOARD (& CONTEXT) GOES UP ANYWAY
-const MAX_LOSSES = 3; // THIS MANY LOST CONTEXTS...
-const LOSS_WINDOW_MS = 2 * 60 * 1000; // ...THIS CLOSE TOGETHER & IT'S BACK TO 2D
-let losses = []; // WHEN EACH RECENT CONTEXT WAS LOST (Date.now())
-let restoreTimer = null;
-
-/* ---------------------------------------------------------------- */
-// Draw
-/* ---------------------------------------------------------------- */
-/**
- * @description Draws one frame of the board that's on. The render loop & a window resize call it instead of game.drawScreen().
- * 3D only follows chessInst, which only the move path (gameplay/moves) & the replay change: one move from what it shows slides, a replay's
- * step back slides in reverse, anything else (load, takeback, restart, reconnect, a turned down move, a replay's jump) is set at once. A move that wasn't legal never changes chessInst, so the piece stays
- */
-export function drawBoard() {
-	game.drawScreen(); // 2D (HIDDEN ON 3D): ALSO FILLS game.tiles & STEPS THE SLIDES THE GAME WAITS ON
-	if (!board3D) { return; } // 3D: SIZES ITSELF (ResizeObserver) & DRAWS ITS OWN FRAMES, ONLY THE PIECES, CAMERA SIDE & HIGHLIGHTS ARE SET HERE
-	const cards = Boolean(board3D.hasCards?.()); // THE ROOM'S CARDS ARE THE PROMOTION PICKER, THE FLAT ONE STAYS WHEN IT HAS NONE
-	if (cards !== game.cards3D) { game.cards3D = cards; game.refresh = true; }
-	board3D.setSide(game.viewColor, !game.reduceMotion); // FLIP BOARD TURNS THE CAMERA
-	syncCards3D();
-	syncMarks3D();
-	syncScreen3D();
-	syncMonitor3D();
-	const fen = chessInst.fen();
-	if (fen !== shownFen) { // UNCHANGED: A SYNC WOULD CUT A SLIDE SHORT
-		const step = game.reduceMotion || skipAnimation ? null : stepBetween(scratch, shownFen, fen);
-		skipAnimation = false;
-		shownFen = fen;
-		if (step?.kind === "forward") { board3D.animateMove(step.move.from, step.move.to, step.move.promotion); }
-		else if (step?.kind === "back" && game.readOnly) { board3D.animateUndo(step.move, facings3D()); } // syncFacing3D BELOW TURNS IT THE WAY IT FACED BEFORE THE MOVE
-		else { board3D.syncFromBoard(chessInst); }
-	}
-	syncTaken3D(fen);
-	syncFacing3D(fen);
-	const held = heldPiece();
-	board3D.setHeld(held && held.square, held && held.dragging); // AFTER THE MOVE: A DROPPED PIECE SLIDES FROM WHERE IT WAS LET GO
-}
-
-/**
- * @description The piece the player holds, as the 2D board lifts it: picked up by a click (clickedTile) or pressed (mousedownTile, the
- * press is still down so it drags). Nothing once the board is locked for the move just sent (opposingMove)
- * @return {[object|null]} { square, dragging } [its square ("e2"), null when nothing is held]
- */
-function heldPiece() {
-	const tile = game.mousedownTile || game.clickedTile;
-	if (!tile || game.opposingMove) { return null; }
-	const square = tileToSquare(tile.originX, tile.originY, game.viewColor);
-	return square ? { square, dragging: Boolean(game.mousedownTile) } : null;
-}
-
-/**
- * @description The squares the 2D board highlights, by 3D highlight kind: the opponent's last move, the hint, the king in check
- * & the held piece's moves (captures apart), like drawLastMove, drawHint, the check highlight & checkAvailableMoves. focus is the
- * keyboard's (remote-only mode's) selected square while the menu is closed: 2D only lifts the piece on it, 3D needs a visible ring
- * @return {[object]} { last, hint, check, legal, capture, focus } [lists of squares]
- */
-function marks3D() {
-	const marks = { last: game.lastOpponentMove || [], hint: game.hint || [], check: [], legal: [], capture: [], focus: [] };
-	const keyboard = game.keyboardTile && !game.menuToggled && tileToSquare(game.keyboardTile.x, game.keyboardTile.y, game.viewColor);
-	if (keyboard) { marks.focus.push(keyboard); }
-	if (chessInst.isCheck()) {
-		const king = chessInst.board().flat().find((p) => p && p.type === "k" && p.color === chessInst.turn());
-		if (king) { marks.check.push(king.square); }
-	}
-	const held = heldPiece();
-	if (held && !game.currPromotion) {
-		chessInst.moves({ square: held.square, verbose: true }).forEach((m) => marks[m.captured ? "capture" : "legal"].push(m.to));
-	}
-	return marks;
-}
-
-// STANDS THE TAKEN PIECES IN THE 3D BOARD'S PILES WHEN THEY CHANGED. AFTER THE MOVE STEP: A CAPTURE'S PIECE IS WAITING TO FLY TO ITS PILE
-function syncTaken3D(fen = chessInst.fen()) { // fen: THE BOARD'S, WHEN THE CALLER HAS IT
-	const { moveHistory } = require("../movelist/index.js"); // THE MOVES THE TAKEN PIECES ARE WORKED OUT FROM. HERE, NOT ABOVE: IT REACHES gameplay/animate & menu, WHICH REQUIRE THIS FILE, & THEY WOULD GET IT HALF MADE (NO VIEWS)
-	const { moves, startFen } = moveHistory();
-	const key = `${fen}|${moves.length}|${startFen}|${game.playerColor}`;
-	if (key === shownTaken) { return; }
-	shownTaken = key;
-	board3D.setTaken(capturesAt(moves, startFen, fen), game.playerColor);
-}
-
-// DEALS THE ROOM'S CARDS WHILE THE PLAYER PROMOTES (THEY ARE THE PICKER WHEN game.cards3D), PUTS THEM BACK AFTER. THE KEYBOARD'S FRAME STARTS ON THE QUEEN
-// WHEN THE KEYBOARD IS IN USE (game.keyboardTile), game.cardFocus IS THEN MOVED BY gameplay/input'S handleCardKey
-function syncCards3D() {
-	const want = game.currPromotion && game.cards3D ? game.playerColor : null;
-	if (want !== shownPromotion) {
-		shownPromotion = want;
-		board3D.setPromotion(want, !game.reduceMotion);
-		game.cardFocus = want && game.keyboardTile ? 0 : null;
-	}
-	if (game.cardFocus !== shownCardFocus) {
-		shownCardFocus = game.cardFocus;
-		board3D.focusCard(game.cardFocus);
-	}
-}
-
-// PUTS marks3D() ON THE 3D BOARD WHEN THEY CHANGED
-function syncMarks3D() {
-	const marks = marks3D();
-	const key = JSON.stringify(marks);
-	if (key === shownMarks) { return; }
-	shownMarks = key;
-	Object.keys(marks).forEach((kind) => board3D.highlight([...new Set(marks[kind])], kind));
-}
-
-/**
- * @description What the library's monitor shows: the opponent (the AI's bot or a friend, by name) & a status line. Before a
- * game has loaded there's no name, the monitor shows its test card
- * @return {[object]} { name, status, ai, thinking }
- */
-function screen3D() {
-	const response = game.response;
-	if (!response || response.status != 200) { return { name: "", status: "", ai: false, thinking: false }; }
-	const ai = Boolean(response.ai);
-	const name = ai ? game.bot?.name || "Computer" : response.opponent_name || "Opponent";
-	const theirTurn = chessInst.turn() !== game.playerColor;
-	let status = theirTurn ? (ai ? "thinking..." : "their move") : "your move";
-	if (game.gameOver || response.state == "CLOSED") {
-		const winner = (game.result || response).winner;
-		status = winner !== "w" && winner !== "b" ? "draw" : winner === game.playerColor ? "you win" : ai ? "i win" : "you lose";
-	}
-	return { name, status, ai, thinking: ai && theirTurn && !game.gameOver };
-}
-
-// PUTS screen3D() ON THE MONITOR WHEN IT CHANGED
-function syncScreen3D() {
-	const state = screen3D();
-	const key = JSON.stringify(state);
-	if (key === shownScreen) { return; }
-	shownScreen = key;
-	board3D.setScreen(state);
+// The next frame swaps the statuses. init() calls no listener: drawBoard reads current()
+function handleStatusPrefChange() {
+	game.refresh = true;
+	requestFrame();
 }
 
 /* ---------------------------------------------------------------- */
 // Monitor
 /* ---------------------------------------------------------------- */
 /**
- * @description What the 3D room's monitor works with, from gameplay/monitor (it can't be required here, it requires the menu, which requires this file).
- * Every 3D board put up from now on gets them
- * @param  {[object]} hooks [{ handlers, announce(text), onChange({ ready, state }) } (three/index.js mount()'s monitor option) & data(): the channels' data]
+ * @description What the 3D room's monitor works with, from gameplay/monitor (it can't be required here: it requires the menu,
+ * which requires this file). Every 3D board put up from now on gets them
+ * @param  {[object]} hooks [{ handlers, announce(text), onChange({ ready, state }) } (three/index.js mount()'s monitor option)
+ * and data(): the channels' data]
  */
 export function setMonitorHooks(hooks) {
-	monitorHooks = hooks;
-}
-
-// PUTS THE CHANNELS' DATA ON THE MONITOR WHEN IT CHANGED
-function syncMonitor3D() {
-	if (!monitorHooks) { return; }
-	const data = monitorHooks.data();
-	const key = JSON.stringify(data);
-	if (key === shownMonitor) { return; }
-	shownMonitor = key;
-	board3D.setMonitor(data);
+	rendererState.state.monitorHooks = hooks;
 }
 
 /**
@@ -204,7 +55,7 @@ function syncMonitor3D() {
  * @return {[boolean]} [false on 2D, with no monitor or before it has the game's data]
  */
 export function enterMonitor3D() {
-	return board3D ? board3D.enterMonitor() : false;
+	return rendererState.state.board3D ? rendererState.state.board3D.enterMonitor() : false;
 }
 
 /**
@@ -212,7 +63,7 @@ export function enterMonitor3D() {
  * @return {[Promise<void>]} [resolves once it's on the desk, at once on 2D or when it already is]
  */
 export function leaveMonitor3D() {
-	return board3D ? board3D.leaveMonitor() : Promise.resolve();
+	return rendererState.state.board3D ? rendererState.state.board3D.leaveMonitor() : Promise.resolve();
 }
 
 /**
@@ -220,7 +71,7 @@ export function leaveMonitor3D() {
  * @return {[string|null]} ["idle", "zooming", "zoomed" or "leaving", null on 2D or with no monitor]
  */
 export function monitorState3D() {
-	return board3D ? board3D.monitorState() : null;
+	return rendererState.state.board3D ? rendererState.state.board3D.monitorState() : null;
 }
 
 /**
@@ -228,107 +79,82 @@ export function monitorState3D() {
  * @param  {[boolean]} on
  */
 export function focusMonitor3D(on) {
-	if (board3D) { board3D.focusMonitor(on); }
+	if (rendererState.state.board3D) { rendererState.state.board3D.focusMonitor(on); }
 }
 
 /**
- * @description The monitor's face reacts to a move or the result (AI games, gameplay/bots faceFor & endFaceFor). Does nothing on 2D,
- * but a result's face is remembered for a 3D board put up later
+ * @description The monitor's face reacts to a move or the result (AI games, gameplay/bots faceFor and endFaceFor). Does nothing
+ * on 2D, but a result's face is remembered for a 3D board put up later
  * @param  {[string]} name ["happy" | "sad" | "angry" | "won" | "lost" | "neutral" | null (no change)]
  */
 export function setFace(name) {
-	if (!name || name === heldFace) { return; } // THE MATING MOVE ALREADY SHOWED THE RESULT, GAME OVER DOESN'T START IT AGAIN
-	heldFace = name === "won" || name === "lost" ? name : null;
-	if (board3D) { board3D.setFace(name); }
+	if (!name || name === rendererState.state.heldFace) { return; } // The mating move already showed the result: game over doesn't start it again
+	rendererState.state.heldFace = name === "won" || name === "lost" ? name : null;
+	if (rendererState.state.board3D) { rendererState.state.board3D.setFace(name); }
 }
 
-/**
- * @description Which way each king, queen, bishop, rook & knight faces, from the same lists the 2D board draws them by (w_piece / b_piece,
- * w_knight / b_knight): an entry with a from last moved up or down ("up" toward rank 8), a knight's left or right ("right" toward the h-file).
- * null when there's no game from the server yet
- * @return {[object|null]} { w: { square: "up" | "down" | "left" | "right" | null }, b: { ... } }
- */
-function facings3D() {
-	if (!game.response || !game.response.w_piece || !game.response.b_piece) { return null; }
-	const side = (list, dir) => (list ? JSON.parse(list).filter((p) => p.to).map((p) => [p.to, p.from ? dir(p.from, p.to) : null]) : []);
-	const upDown = (from, to) => (to[1] > from[1] ? "up" : "down");
-	const leftRight = (from, to) => (to[0] > from[0] ? "right" : "left");
-	const color = (c) => Object.fromEntries([...side(game.response[c + "_piece"], upDown), ...side(game.response[c + "_knight"], leftRight)]);
-	return { w: color("w"), b: color("b") };
-}
-
-// PUTS facings3D() ON THE 3D BOARD WHEN THEY OR THE POSITION CHANGED (A SYNC CAN MOVE MESHES ONTO OTHER SQUARES)
-function syncFacing3D(fen) {
-	const facings = facings3D();
-	const key = facings && fen + JSON.stringify(facings);
-	if (!facings || key === shownFacings) { return; }
-	shownFacings = key;
-	board3D.setFacing(facings);
-}
-
+/* ---------------------------------------------------------------- */
+// Pieces
+/* ---------------------------------------------------------------- */
 /**
  * @description The next position the 3D board is given is set at once, not slid (a replay's jump, a held key). Does nothing on 2D
  */
 export function skipNextAnimation3D() {
-	if (board3D) { skipAnimation = true; }
+	if (rendererState.state.board3D) { rendererState.state.skipAnimation = true; }
 }
 
 /**
- * @description Restart & Rematch on 3D: the pieces glide home to chessInst (already the new game) in the 2D slide's time,
+ * @description Restart and Rematch on 3D: the pieces glide home to chessInst (already the new game) in the 2D slide's time,
  * pieces with no match fade in or out. With reduce motion on they're just set. Does nothing on 2D
  */
 export function glideHome3D() {
-	if (!board3D) { return; }
-	shownFen = chessInst.fen(); // SO drawBoard DOESN'T SET THEM AT ONCE WHEN THE NEW GAME TAKES OVER
-	if (game.reduceMotion) { board3D.syncFromBoard(chessInst); }
-	else { board3D.glideHome(chessInst); }
+	if (!rendererState.state.board3D) { return; }
+	rendererState.state.shownFen = chessInst.fen(); // So drawBoard doesn't set them at once when the new game takes over
+	if (game.reduceMotion) { rendererState.state.board3D.syncFromBoard(chessInst); }
+	else { rendererState.state.board3D.glideHome(chessInst); }
 }
 
 /**
- * @description Reduce motion was just turned on: 3D's camera turn & piece slides in progress land at once. Reduce motion keeps 3D
- * (it doesn't switch to 2D), it only takes the motion out: Flip Board & Reset View set the camera, moves & restarts set the pieces
- * (drawBoard, glideHome3D). Only the player's own camera drags still move it. Does nothing on 2D
+ * @description Reduce motion was just turned on: 3D's camera turn and piece slides in progress land at once. Reduce motion keeps
+ * 3D (it doesn't switch to 2D), it only takes the motion out: Flip Board and Reset View set the camera, moves and restarts set the
+ * pieces (drawBoard, glideHome3D). Only the player's own camera drags still move it. Does nothing on 2D
  */
 export function stopMotion3D() {
-	if (board3D) { board3D.stopMotion(); }
+	if (rendererState.state.board3D) { rendererState.state.board3D.stopMotion(); }
 }
 
 /**
- * @description Resolves once the 3D board has drawn a frame with its squares in (the page fades in on it, #433). At once on 2D
+ * @description Resolves once the 3D board has drawn a frame with its squares in (the page fades in on it). At once on 2D
  * @return {[Promise<void>]}
  */
 export function whenDrawn3D() {
-	return board3D ? board3D.whenDrawn() : Promise.resolve();
+	return rendererState.state.board3D ? rendererState.state.board3D.whenDrawn() : Promise.resolve();
 }
 
-/**
- * @description Sets what a picked promotion card on the 3D board does (gameplay/input's choosePromotion)
- * @param  {[function]} handler [(type) => {}, type is "q", "r", "b" or "n"]
- */
-export function onCardPick(handler) {
-	cardPick = handler;
-}
-
+/* ---------------------------------------------------------------- */
+// Camera
+/* ---------------------------------------------------------------- */
 /**
  * @description Which board is on
  * @return {[string]} [VIEWS.TWO_D or VIEWS.THREE_D]
  */
 export function currentView() {
-	return board3D ? VIEWS.THREE_D : VIEWS.TWO_D;
+	return rendererState.state.board3D ? VIEWS.THREE_D : VIEWS.TWO_D;
 }
 
 /**
  * @description Reset View: the 3D camera back to its default for the side the player looks from. Does nothing on 2D
  */
 export function resetCamera() {
-	if (board3D) { board3D.resetCamera(game.viewColor); }
+	if (rendererState.state.board3D) { rendererState.state.board3D.resetCamera(game.viewColor); }
 }
 
 /* ---------------------------------------------------------------- */
 // Input
 /* ---------------------------------------------------------------- */
 /**
- * @description Listens on the board the player sees: the 2D canvas now & every 3D board put up later (its container goes away with it)
+ * @description Listens on the board the player sees: the 2D canvas now and every 3D board put up later (its container goes away
+ * with it)
  * @param  {[string]} type ["click", "touchstart", ...]
  * @param  {[function]} handler [the same handler for both boards]
  * @param  {[object]} options [addEventListener options]
@@ -336,16 +162,16 @@ export function resetCamera() {
 export function addBoardListener(type, handler, options) {
 	boardListeners.push([type, handler, options]);
 	canvas.addEventListener(type, handler, options);
-	if (container) { container.addEventListener(type, handler, options); }
+	if (rendererState.state.container) { rendererState.state.container.addEventListener(type, handler, options); }
 }
 
 /**
  * @description The square under a pointer on the 3D board
- * @param  {[MouseEvent|object]} e [anything with clientX & clientY]
+ * @param  {[MouseEvent|object]} e [anything with clientX and clientY]
  * @return {[string|null]} ["e4", null off the board or on 2D]
  */
 export function squareUnder3D(e) {
-	return board3D ? board3D.squareUnder(e) : null;
+	return rendererState.state.board3D ? rendererState.state.board3D.squareUnder(e) : null;
 }
 
 /**
@@ -353,193 +179,5 @@ export function squareUnder3D(e) {
  * @return {[boolean]}
  */
 export function isCameraGesture() {
-	return Boolean(board3D && board3D.isCameraGesture());
-}
-
-/* ---------------------------------------------------------------- */
-// Switch
-/* ---------------------------------------------------------------- */
-/**
- * @description Shows the 2D canvas or the 3D board, mid-game too: the one that's on is taken down, the other is put up & set to
- * the position. 3D that can't load or mount says why (status "view") & stays on 2D
- * @param  {[string]} view [VIEWS.TWO_D or VIEWS.THREE_D]
- * @return {[Promise<string>]} [the view that's on now]
- */
-export function setView(view) {
-	return queue(() => view === VIEWS.THREE_D && can3D() ? show3D() : show2D()); // TEMPORARY (can3D): A PHONE OR TABLET ALREADY IN 3D (SAVED, OR LEFT ON) GOES TO 2D
-}
-
-/* ---------------------------------------------------------------- */
-// Can 3D
-/* ---------------------------------------------------------------- */
-/**
- * @description TEMPORARY: until the 3D board's touch & remote controls are done. Can this screen turn 3D on? Not on a phone or tablet (a touch-first screen)
- * & not in remote-only mode (game.REMOTE_ONLY_CONDITIONAL). Remove it with its callers: setView(), watchTouchScreen(), loadView(), & setViewWords() & handleView() in gameplay/menu/index.js
- * @return {[boolean]} can
- */
-export function can3D() { // TEMPORARY
-	if (game.REMOTE_ONLY_CONDITIONAL) { return false; } // THE REMOTE CAN'T WORK THE 3D CAMERA OR MONITOR YET
-	return !window.matchMedia("(pointer: coarse)").matches; // A TOUCH LAPTOP WITH A MOUSE OR TRACKPAD STILL HAS 3D
-}
-
-/* ---------------------------------------------------------------- */
-// Watch Touch Screen
-/* ---------------------------------------------------------------- */
-/**
- * @description TEMPORARY, with can3D(). A screen that turns touch-first while 3D is on (a tablet's keyboard & trackpad taken off) switches to 2D by itself.
- * Either way the menu's View button is told (viewListener), so it says & does what this screen can
- */
-function watchTouchScreen() { // TEMPORARY
-	if (typeof window == "undefined" || !window.matchMedia) { return; }
-	window.matchMedia("(pointer: coarse)").addEventListener("change", function () {
-		if (!can3D() && currentView() === VIEWS.THREE_D) { queue(show2D).then(viewListener); return; }
-		viewListener(currentView()); // THE BUTTON TURNS BACK ON (OR OFF) WITHOUT A SWITCH
-	});
-}
-watchTouchScreen();
-
-/**
- * @description Calls listener with the view that's on when the board switches by itself (3D lost its context for good & fell back to 2D)
- * @param  {[function]} listener [(view) => {}]
- */
-export function onViewChange(listener) {
-	viewListener = listener;
-}
-
-// RUNS task AFTER THE LAST SWITCH, SO THE LAST PRESS WINS
-function queue(task) {
-	const next = (switching || Promise.resolve()).then(task);
-	switching = next;
-	next.finally(function () { if (switching === next) { switching = null; } });
-	return next;
-}
-
-/* ---------------------------------------------------------------- */
-// Lost Context
-/* ---------------------------------------------------------------- */
-// THE 3D BOARD STOPPED DRAWING. TOO MANY LATELY: 2D, OTHERWISE A NEW BOARD GOES UP WHEN THE CONTEXT IS BACK (OR AFTER A WAIT)
-function contextLost() {
-	const now = Date.now();
-	losses = losses.filter((t) => now - t < LOSS_WINDOW_MS).concat(now);
-	reportError("3D board lost its WebGL context", "3d-board");
-	if (losses.length >= MAX_LOSSES) { fallBack2D("3D board kept losing its graphics. Switched to 2D."); return; }
-	waitForRestore();
-}
-
-// WAITS RESTORE_WAIT_MS OF THE PAGE BEING SEEN (A HIDDEN PAGE DOESN'T COUNT), THEN REBUILDS EVEN IF THE CONTEXT ISN'T BACK
-function waitForRestore() {
-	stopWaiting();
-	if (document.hidden) { document.addEventListener("visibilitychange", waitForRestore, { once: true }); return; }
-	restoreTimer = setTimeout(rebuild3D, RESTORE_WAIT_MS);
-}
-
-function stopWaiting() {
-	clearTimeout(restoreTimer);
-	restoreTimer = null;
-	document.removeEventListener("visibilitychange", waitForRestore);
-}
-
-// TAKES DOWN THE LOST BOARD & PUTS UP A NEW ONE AT THE CURRENT POSITION (show3D SYNCS IT). ONE THAT CAN'T START: 2D
-function rebuild3D() {
-	stopWaiting();
-	queue(function () {
-		if (!board3D) { return VIEWS.TWO_D; } // THE PLAYER WENT TO 2D MEANWHILE
-		remove3D();
-		return show3D();
-	}).then((on) => { if (on !== VIEWS.THREE_D) { viewListener(on); } });
-}
-
-function fallBack2D(message) {
-	stopWaiting();
-	queue(function () {
-		showStatus("view", message, MESSAGE_TIME);
-		reportError(message, "3d-board");
-		return show2D();
-	}).then(viewListener);
-}
-
-async function show3D() {
-	if (board3D) { return VIEWS.THREE_D; }
-	const board = await load3D(); // null: load3D ALREADY SAID WHY
-	if (!board) { return show2D(); }
-	container = document.createElement("div");
-	container.id = "board3D";
-	container.style.width = container.style.height = "100%";
-	container.style.touchAction = "none"; // THE TOUCH HANDLERS OWN EVERY FINGER, NO SCROLL OR PINCH ZOOM OF THE PAGE
-	boardListeners.forEach(([type, handler, options]) => container.addEventListener(type, handler, options));
-	canvas.after(container);
-	try {
-		const monitor = monitorHooks && { handlers: monitorHooks.handlers, announce: monitorHooks.announce, onChange: monitorHooks.onChange };
-		board.mount(container, { onContextLost: contextLost, onContextRestored: rebuild3D, monitor, cards: { onPick: (type) => cardPick?.(type) } }); // THROWS WHEN THE WEBGL CONTEXT CAN'T BE MADE
-	} catch (err) {
-		console.warn("3D board failed to start", err);
-		reportError(`3D board couldn't start: ${err.message}`, "3d-board");
-		board.unmount(); // FREES WHATEVER IT MADE BEFORE IT THREW
-		container.remove();
-		container = null;
-		showStatus("view", "3D board couldn't start. Staying on 2D.", MESSAGE_TIME);
-		return show2D();
-	}
-	board3D = board;
-	overlayCanvas(true);
-	board3D.setSide(game.viewColor, false);
-	board3D.syncFromBoard(chessInst);
-	shownFen = chessInst.fen();
-	shownFacings = null;
-	syncFacing3D(shownFen);
-	shownMarks = null;
-	shownTaken = null;
-	shownPromotion = null; // A NEW BOARD'S CARDS ARE ON THE DECK
-	shownCardFocus = null;
-	game.cardFocus = null;
-	syncTaken3D();
-	shownScreen = null;
-	syncScreen3D();
-	shownMonitor = null; // A NEW BOARD (ONE REBUILT AFTER A LOST CONTEXT TOO) GETS THE DATA AGAIN
-	syncMonitor3D();
-	if (heldFace) { board3D.setFace(heldFace); } // THE GAME ENDED BEFORE THIS BOARD WENT UP
-	game.refresh = true;
-	requestFrame();
-	return VIEWS.THREE_D;
-}
-
-/**
- * @description On 3D the 2D canvas lies over the 3D board, the same size & place as on 2D, clear except for the taken piece trays
- * (the promotion picker while promoting, game.traysOnly), so they stay where they are on 2D (trayNudge too). Pointer input goes
- * through it to the 3D board, input finds the picker from the canvas position (gameplay/input)
- * @param  {[boolean]} on [true for 3D, false puts it back in the page as the 2D board]
- */
-let tableImage = null; // THE 2D CANVAS'S CSS TABLE BACKGROUND, TAKEN OFF ON 3D (IT'S OPAQUE & WOULD HIDE THE 3D BOARD), PUT BACK ON 2D
-function overlayCanvas(on) {
-	game.traysOnly = on;
-	if (on) { canvas.setAttribute("aria-hidden", "true"); } // ONLY TRAYS ON 3D: SCREEN READERS GET THE 3D CANVAS'S LABEL, NOT A SECOND BOARD
-	else { canvas.removeAttribute("aria-hidden"); }
-	if (on && tableImage === null) { tableImage = canvas.style.backgroundImage; }
-	Object.assign(canvas.style, on
-		? { position: "fixed", left: "0", top: "0", zIndex: "1", pointerEvents: "none", backgroundImage: "none" }
-		: { position: "", left: "", top: "", zIndex: "", pointerEvents: "", backgroundImage: tableImage ?? canvas.style.backgroundImage });
-	if (!on) { tableImage = null; }
-}
-
-// TAKES THE 3D BOARD & ITS CONTAINER DOWN, THE 2D CANVAS STAYS AS IT IS
-function remove3D() {
-	stopWaiting();
-	game.cards3D = false; // NO BOARD, NO CARDS: THE FLAT PICKER SHOWS UNTIL A NEW ONE'S ROOM HAS THEM
-	if (board3D) {
-		board3D.unmount();
-		board3D = null;
-	}
-	if (container) {
-		container.remove();
-		container = null;
-	}
-}
-
-function show2D() {
-	remove3D();
-	overlayCanvas(false);
-	game.cards3D = false; // 2D HAS ITS FLAT PICKER
-	game.refresh = true; // REDRAW THE WHOLE CANVAS, IT ONLY HAD THE TRAYS ON 3D
-	requestFrame();
-	return VIEWS.TWO_D;
+	return Boolean(rendererState.state.board3D && rendererState.state.board3D.isCameraGesture());
 }

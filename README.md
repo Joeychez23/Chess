@@ -46,6 +46,7 @@ AWS: two EC2 instances, DynamoDB, S3 + CloudFront, all in Terraform
 | **Canvas** | Board, table and pieces are layered sprites (reflection, shadow, piece). Pieces face the way they last moved, and knights hop. |
 | **Moving** | Drag and drop or click to move, with legal moves and check highlighted, or press `/` and type a move like `e4`, choosing from the legal moves it lists. Promote by clicking one of your captured pieces. Touch and a remote-only mode (`REMOTE_ONLY` in `client/src/js/pages/play/index.js`) work too. |
 | **Play the AI** | 27 levels, 100 Elo apart from about 600 to full strength ([AI levels](server/README.md#ai-levels)) and a color (Alternate, the default: random at first, then switching each game; Random, White, Black). The server picks and saves the AI's moves. Forfeit ends an unfinished game after a second press, then Restart starts a new game with the same level and color. One open AI game per player. |
+| **Chess Cards** | A card game against Card Guy, in 3D only. See [Chess Cards](#chess-cards). |
 | **Play a friend** | Invite by username with your color. They Accept or Decline on Home, and moves arrive live over Socket.IO. One sent invite and one open friend game at a time; starting another forfeits after a second press. Forfeit asks first. |
 | **Set positions** | An optional FEN in **Start position**. The server refuses broken or finished positions with the reason, and Restart and Rematch keep it. |
 | **Game over** | Checkmate, stalemate, insufficient material, the fifty-move rule, threefold repetition, a forfeit, a draw by agreement or running out of time (`timeout`). Both boards show the result. |
@@ -73,6 +74,17 @@ The board is 2D by default. To turn on 3D, open the game menu and press **View: 
 **Supported browsers:** any browser with WebGL 2, which includes current Chrome, Edge, Firefox and Safari 15 or later, on desktop and phone.
 
 **Fallback:** if WebGL isn't available or the 3D code can't download, you stay on 2D and a message says why. If the browser loses the 3D board's WebGL context, as iPhones can when the page is in the background, the board comes back on its own; after 3 losses within 2 minutes it switches to 2D. See [ACCESSIBILITY.md](ACCESSIBILITY.md) for screen readers and reduced motion.
+
+## Chess Cards
+
+A card game against Card Guy, the card-playing bot. It needs an account and WebGL, and it is always shown in 3D. It is off on touch-first devices (phones and tablets), which have no 3D view yet, and guests see it as a work in progress. Pick Card Guy's level (the same 27 levels as Play the AI, shown by Elo) and your color on Home. A card game and an AI game share the one open AI game per player: starting one forfeits the other after a second press.
+
+- **Your hand:** a King card (kept unless a curse takes it), 5 move cards, 1 active card, and sometimes 1 passive card. A move card lets you move one piece of its type. The Knight / Bishop card moves a knight or a bishop. You take one action a turn: play a move, play your active card, or place your passive card. Before it you may also drop your own placed cards for free. Your hand refills at the end of the turn.
+- **Free discard:** before your action and not while in check. Discard one move card; the next move card you discard, this turn or a later one, draws 1 move card at random. At most 2 move cards a turn. Or discard your active card, or reroll your passive. One kind a turn.
+- **King skulls:** you start with 3. A king move that only its own Frozen, Shaken or Hexed status would block costs one, and the game asks first. A lost turn while you are in check costs one, and so does a check from the first move of the other side's two-move turn. With none left, that second move may take your king, and so may the move after a turn you lose in check. The Hunger curse is the exception: it takes no turn while you are in check with no skull left.
+- **Ability cards:** active cards (played in place of a move), passive cards (placed face up in Board Effects, at most 3 waiting and a 4th replaces the oldest, they fire once when their condition is met), curses (put in your hand by the other side's cards) and enchantments (rings and effects that stay on the board until they end). Pieces can be Warded, Frozen, Shaken, Marked or Hexed.
+- **No skipping:** there is no skip action, so no skip forfeit.
+- **Controls:** drag a piece to a square, or click the piece then the square. With the mouse, drag a card to your active spot, passive pile or discard pile to play or discard it; a tap or the keys use the prompt's buttons instead. Keys: arrows step through the hand, pieces and piles, Enter lifts or plays, Escape cancels. There is no typed `/` move. On a touch screen, tap only: a finger drag does not move pieces.
 
 ## How it works
 

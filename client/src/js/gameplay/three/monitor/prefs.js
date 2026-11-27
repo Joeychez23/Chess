@@ -3,13 +3,14 @@
  *	The CRT Monitor's Settings
  *	Which channels the monitor offers, which one opens first & the opponent channel's background. Kept in localStorage under KEY; this is the only
  *	file that touches it, & every access is in a try, since storage can be blocked or full.
- *	No DOM & no three.js here, so the tests load it in Node (client/test/monitorPrefs.test.js)
+ *	No DOM & no three.js here, so the tests load it in Node (client/test/monitor/monitorPrefs.test.js)
  *
  */
 
 const CHANNELS = ["face", "opponent", "eval", "moves", "actions", "setup"];
 const LOCKED = ["face", "setup"]; // CAN'T BE TURNED OFF, SO THE MONITOR ALWAYS HAS A FACE & A WAY TO CHANGE ITS SETTINGS
 const IDLES = ["card", "stars", "pipes"]; // THE OPPONENT CHANNEL'S BACKGROUNDS
+const NOT_IN_CARDS = ["face", "eval"]; // A CHESS CARDS GAME HAS NEITHER: CARD GUY HAS NO FACE (USER RULING 2026-11-19) & THE ENGINE'S EVAL DOESN'T KNOW THE CARDS. THEIR SETTINGS STAY FOR THE NEXT NORMAL GAME
 const KEY = "MONITOR";
 
 /* ---------------------------------------------------------------- */
@@ -75,4 +76,4 @@ export function savePrefs(prefs, storage) {
 	}
 }
 
-export { CHANNELS, LOCKED, IDLES, KEY };
+export { CHANNELS, LOCKED, IDLES, NOT_IN_CARDS, KEY };

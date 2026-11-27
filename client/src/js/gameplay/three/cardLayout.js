@@ -3,16 +3,17 @@
 export const CARD_ORDER = ["q", "r", "b", "n"];
 export const CARD_SIZE = { w: 4.3, h: 6 };
 export const DECK = { x: -24.5, z: 0, y: 0.44 };
+export const GREEN_DECK = { x: 24.5, z: 0, y: 0.44 }; // THE CARD DUEL'S DECK, BAKED INTO THE ROOM AS THE RED ONE'S MIRROR (TASK 23): ITS CARDS LIE ON IT AT y
 export const CARD_Y = -0.61; // BAIZE TOP + 0.02
 
 const SPOT_X = -17.7;
 const SPOT_STEP = 6.5;
 
-const GLYPHS = { q: "♛", r: "♜", b: "♝", n: "♞" };
-const CREAM = "#F3E9D2";
-const GOLD = "#C9A227";
-const INK = "#1B1B1B";
-const FONT = "'Georgia', 'Times New Roman', 'Noto Serif', serif";
+export const GLYPHS = { q: "♛", r: "♜", b: "♝", n: "♞", k: "♚", p: "♟" }; // THE KING & PAWN: THE CHESS CARDS' MOVE CARDS (cardFaces.js)
+export const CREAM = "#F3E9D2";
+export const GOLD = "#C9A227";
+export const INK = "#1B1B1B";
+export const FONT = "'Georgia', 'Times New Roman', 'Noto Serif', serif";
 
 /**
  * @description The four card spots in the green strip, queen at the top.
@@ -47,7 +48,7 @@ export function nextCard(index, key) {
  * @param {number} y centre y
  * @param {number} line outline thickness for White
  */
-function paintGlyph(ctx, glyph, color, x, y, line) {
+export function paintGlyph(ctx, glyph, color, x, y, line) {
 	if (color === "b") {
 		ctx.fillStyle = INK;
 		ctx.fillText(glyph, x, y);

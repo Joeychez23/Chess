@@ -1,63 +1,130 @@
 /*
  *  chessRoutes.js  --  chess server
  *	Chess Routes
- *	New games, moves, the AI's moves, hints & evaluations, takebacks, draw offers, invites, rematches & ratings (controllers/chessController.js)
+ *	New games, moves, the AI's moves, hints and evaluations, takebacks, draw offers, invites, rematches and ratings
+ *	(controllers/chess/), and the Chess Cards routes (cardsRoutes.js)
  *
  */
 
-const router = require('express').Router()
-const { requireAuth, optionalAuth } = require('../../middleware/auth.js')
-const { limitNewGames, limitAiMoves, limitAnalysis } = require('../../middleware/rateLimit.js')
-const { getGame, getPgn, newGame, moveGame, restartGame, aiMoveGame, analysisGame, takebackGame, declineTakebackGame, getLevels, forfeitGame, drawGame, declineDrawGame, rematchGame, cancelRematchGame, inviteGame, challengeGame, getChallenge, joinGame, acceptGame, declineGame, getUserGames, getRatings } = require('../../controllers/chessController.js')
+const router = require('express').Router();
+const { requireAuth, optionalAuth } = require('../../middleware/auth.js');
+const { limitNewGames, limitAiMoves, limitAnalysis } = require('../../middleware/rateLimit.js');
+const {
+	getGame,
+	getPgn,
+	newGame,
+	moveGame,
+	restartGame,
+	aiMoveGame,
+	analysisGame,
+	takebackGame,
+	declineTakebackGame,
+	getLevels,
+	forfeitGame,
+	drawGame,
+	declineDrawGame,
+	rematchGame,
+	cancelRematchGame,
+	inviteGame,
+	challengeGame,
+	getChallenge,
+	joinGame,
+	acceptGame,
+	declineGame,
+	getUserGames,
+	getRatings,
+} = require('../../controllers/chess/index.js');
 
-// THE PLAYER IS WHOEVER IS SIGNED IN (req.user), GUESTS CAN ONLY PLAY THEIR AI GAME (THE ONE IN THEIR guest_game COOKIE)
-// limitNewGames: THE ROUTES THAT MAKE A GAME ANSWER 429 WHEN A SESSION, AN IP OR THE SITE MAKES TOO MANY. /invite: BEFORE THE LOOKUP, SO A NAME THAT ISN'T FOUND COUNTS TOO
+// The player is whoever is signed in (req.user). Guests can only play their AI game (the one in their guest_game
+// cookie).
+// limitNewGames: the routes that make a game answer 429 when a session, an IP or the site makes too many. On /invite
+// it runs before the lookup, so a name that isn't found counts too.
 
-router.route('/game').post(optionalAuth, limitNewGames, newGame);   // /api/chess/game                  -> NEW AI GAME AT A LEVEL & COLOR, OR A GUEST'S NEW GAME (OVERWRITES game_id). ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+// /api/chess/game: a new AI game at a level and color, or a guest's new game (overwrites game_id). One open game at a
+// time: 409, or replace_current forfeits it
+router.route('/game').post(optionalAuth, limitNewGames, newGame);
 
-router.route('/game/:gameId').get(optionalAuth, getGame);           // /api/chess/game/:gameId          -> BOARD + PLAYER COLOR
+// /api/chess/game/:gameId: the board and the player's color
+router.route('/game/:gameId').get(optionalAuth, getGame);
 
-router.route('/game/:gameId/pgn').get(optionalAuth, getPgn);        // /api/chess/game/:gameId/pgn      -> THE GAME AS A PGN FILE, THE GAME MENU'S DOWNLOAD PGN
+// /api/chess/game/:gameId/pgn: the game as a PGN file, the game menu's Download PGN
+router.route('/game/:gameId/pgn').get(optionalAuth, getPgn);
 
-router.route('/game/:gameId').put(optionalAuth, moveGame);          // /api/chess/game/:gameId          -> VALIDATE + SAVE A MOVE
+// /api/chess/game/:gameId: validates and saves a move
+router.route('/game/:gameId').put(optionalAuth, moveGame);
 
-router.route('/game/:gameId/restart').post(optionalAuth, limitNewGames, restartGame); // /api/chess/game/:gameId/restart  -> AI GAMES: FORFEITS IF STILL GOING, THEN A NEW GAME AT THE SAME LEVEL & COLOR
+// /api/chess/game/:gameId/restart: AI games. Forfeits the game if it's still going, then starts a new one at the same
+// level and color
+router.route('/game/:gameId/restart').post(optionalAuth, limitNewGames, restartGame);
 
-router.route('/game/:gameId/ai-move').post(optionalAuth, limitAiMoves, aiMoveGame);   // /api/chess/game/:gameId/ai-move  -> AI GAMES: THE SERVER PICKS & SAVES THE AI'S MOVE AT THE GAME'S LEVEL. ONE ENGINE REQUEST AT A TIME PER GAME, 429 PAST THE AI MOVE LIMITS
+// /api/chess/game/:gameId/ai-move: AI games. The server picks and saves the AI's move at the game's level. One engine
+// request at a time per game, 429 past the AI move limits
+router.route('/game/:gameId/ai-move').post(optionalAuth, limitAiMoves, aiMoveGame);
 
-router.route('/game/:gameId/analysis').post(optionalAuth, limitAnalysis, analysisGame);   // /api/chess/game/:gameId/analysis  -> AI & FINISHED GAMES: THE ENGINE'S BEST MOVE & EVALUATION OF THE SAVED BOARD (THE HINT & THE EVALUATION BAR). CACHED BY FEN, ONE REQUEST AT A TIME PER GAME, 429 PAST THE ANALYSIS LIMITS
+// /api/chess/game/:gameId/analysis: AI and finished games. The engine's best move and evaluation of the saved board
+// (the hint and the evaluation bar). Cached by FEN, one request at a time per game, 429 past the analysis limits
+router.route('/game/:gameId/analysis').post(optionalAuth, limitAnalysis, analysisGame);
 
-router.route('/game/:gameId/takeback').post(optionalAuth, takebackGame);   // /api/chess/game/:gameId/takeback  -> AI GAMES: TAKES BACK THE PLAYER'S LAST MOVE & THE AI'S REPLY, 409 WHILE THE AI'S MOVE IS BEING PICKED. FRIEND GAMES: ASKS THE OPPONENT OR ACCEPTS THEIR REQUEST
+// /api/chess/game/:gameId/takeback: AI games take back the player's last move and the AI's reply (409 while the AI's
+// move is being picked). Friend games ask the opponent, or accept their request
+router.route('/game/:gameId/takeback').post(optionalAuth, takebackGame);
 
-router.route('/game/:gameId/forfeit').post(optionalAuth, forfeitGame);   // /api/chess/game/:gameId/forfeit  -> CLOSES THE GAME, THE OTHER SIDE WINS
+// /api/chess/game/:gameId/forfeit: closes the game, the other side wins
+router.route('/game/:gameId/forfeit').post(optionalAuth, forfeitGame);
 
-router.route('/game/:gameId/takeback/decline').post(requireAuth, declineTakebackGame);   // /api/chess/game/:gameId/takeback/decline  -> FRIEND GAMES: TURNS DOWN THE OPPONENT'S TAKEBACK REQUEST
+// /api/chess/game/:gameId/takeback/decline: friend games. Turns down the opponent's takeback request
+router.route('/game/:gameId/takeback/decline').post(requireAuth, declineTakebackGame);
 
-router.route('/game/:gameId/draw').post(optionalAuth, limitAiMoves, drawGame);   // /api/chess/game/:gameId/draw  -> OFFERS A DRAW (ONE PER PLAYER PER MOVE) OR ACCEPTS THE OPPONENT'S. AI GAMES: THE ENGINE ANSWERS, SO IT'S UNDER THE AI MOVE LIMITS
+// /api/chess/game/:gameId/draw: offers a draw (one per player per move) or accepts the opponent's. In AI games the
+// engine answers, so it's under the AI move limits
+router.route('/game/:gameId/draw').post(optionalAuth, limitAiMoves, drawGame);
 
-router.route('/game/:gameId/draw/decline').post(requireAuth, declineDrawGame);   // /api/chess/game/:gameId/draw/decline  -> FRIEND GAMES: TURNS DOWN THE OPPONENT'S DRAW OFFER
+// /api/chess/game/:gameId/draw/decline: friend games. Turns down the opponent's draw offer
+router.route('/game/:gameId/draw/decline').post(requireAuth, declineDrawGame);
 
-router.route('/game/:gameId/rematch').post(requireAuth, rematchGame);   // /api/chess/game/:gameId/rematch  -> FRIEND GAMES: NEW GAME (SAME COLOR PICK) WHEN BOTH PLAYERS PRESS WITHIN 1 MINUTE, 409 IF EITHER IS IN ANOTHER FRIEND GAME
+// /api/chess/game/:gameId/rematch: friend games. A new game (same color pick) when both players press within
+// 1 minute, 409 if either is in another friend game
+router.route('/game/:gameId/rematch').post(requireAuth, rematchGame);
 
-router.route('/game/:gameId/rematch/cancel').post(requireAuth, cancelRematchGame);   // /api/chess/game/:gameId/rematch/cancel  -> FRIEND GAMES: TAKES BACK THE PLAYER'S REMATCH REQUEST
+// /api/chess/game/:gameId/rematch/cancel: friend games. Takes back the player's rematch request
+router.route('/game/:gameId/rematch/cancel').post(requireAuth, cancelRematchGame);
 
-router.route('/game/:gameId/accept').post(requireAuth, acceptGame);     // /api/chess/game/:gameId/accept   -> FRIEND INVITES: PENDING -> OPEN. ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+// /api/chess/game/:gameId/accept: friend invites, pending -> open. One open game at a time: 409, or replace_current
+// forfeits it
+router.route('/game/:gameId/accept').post(requireAuth, acceptGame);
 
-router.route('/game/:gameId/decline').post(requireAuth, declineGame);   // /api/chess/game/:gameId/decline  -> FRIEND INVITES: DECLINE (INVITED PLAYER) OR CANCEL (INVITER), THE PENDING GAME IS DELETED
+// /api/chess/game/:gameId/decline: friend invites. Declined by the invited player or cancelled by the inviter; the
+// pending game is deleted
+router.route('/game/:gameId/decline').post(requireAuth, declineGame);
 
-router.route('/game/:gameId/ratings').get(requireAuth, getRatings);   // /api/chess/game/:gameId/ratings  -> BOTH PLAYERS' RATINGS FOR THE GAME MENU (FRIEND GAMES), & THIS GAME'S RATING CHANGE ONCE IT'S OVER
+// /api/chess/game/:gameId/ratings: both players' ratings for the game menu (friend games), and this game's rating
+// change once it's over
+router.route('/game/:gameId/ratings').get(requireAuth, getRatings);
 
-router.route('/levels').get(getLevels);                             // /api/chess/levels                -> AI LEVELS + APPROX ELO FOR HOME'S DROPDOWN
+// /api/chess/levels: the AI levels and their approximate Elo for Home's dropdown
+router.route('/levels').get(getLevels);
 
-router.route('/invite').post(requireAuth, limitNewGames, inviteGame); // /api/chess/invite                -> INVITE A FRIEND BY USERNAME WITH YOUR COLOR (PENDING GAME). ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+// /api/chess/invite: invites a friend by username, with your color (a pending game). One open game at a time: 409, or
+// replace_current forfeits it
+router.route('/invite').post(requireAuth, limitNewGames, inviteGame);
 
-router.route('/challenge').post(requireAuth, limitNewGames, challengeGame); // /api/chess/challenge             -> A CHALLENGE LINK: A PENDING GAME WITH THE OTHER SEAT EMPTY, YOUR ONE SENT INVITE. ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+// /api/chess/challenge: a challenge link. A pending game with the other seat empty, your one sent invite. One open
+// game at a time: 409, or replace_current forfeits it
+router.route('/challenge').post(requireAuth, limitNewGames, challengeGame);
 
-router.route('/game/:gameId/challenge').get(requireAuth, getChallenge); // /api/chess/game/:gameId/challenge -> WHAT THE JOIN SCREEN SHOWS
+// /api/chess/game/:gameId/challenge: what the join screen shows
+router.route('/game/:gameId/challenge').get(requireAuth, getChallenge);
 
-router.route('/game/:gameId/join').post(requireAuth, joinGame);     // /api/chess/game/:gameId/join     -> TAKES A CHALLENGE LINK'S EMPTY SEAT, ONLY ONE PLAYER WINS IT. ONE OPEN AT A TIME: 409, OR replace_current FORFEITS IT
+// /api/chess/game/:gameId/join: takes a challenge link's empty seat; only one player wins it. One open game at a
+// time: 409, or replace_current forfeits it
+router.route('/game/:gameId/join').post(requireAuth, joinGame);
 
-router.route('/user/:userId').get(requireAuth, getUserGames);       // /api/chess/user/:userId          -> OPEN GAMES FOR HOME (WITH THEIR START SETTINGS), THE OPEN AI & FRIEND GAMES (ai_game_id, friend_game_id) & INVITES
+// /api/chess/cards/...: Chess Cards games against Card Guy (routes/api/cardsRoutes.js)
+router.use('/cards', require('./cardsRoutes.js'));
+
+// /api/chess/user/:userId: open games for Home (with their start settings), the open AI and friend games
+// (ai_game_id, friend_game_id) and invites
+router.route('/user/:userId').get(requireAuth, getUserGames);
 
 
-module.exports = router
+module.exports = router;

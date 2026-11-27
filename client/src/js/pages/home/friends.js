@@ -1,38 +1,68 @@
 // Owns the friends list: requests, rows & their actions, add, remove & challenge a friend
 const { friendAction } = require("../../gameplay/validate/index.js");
-import { friendRequests, sentRequests, friendList, noFriends, friendNote, USER_URL, refreshHome, addFriendInput, validateUsername, addFriendBtn, multiEmailInput, clearPlayerSearch } from "./index.js";
+import {
+	friendRequests, sentRequests, friendList, noFriends, friendNote, USER_URL, refreshHome,
+	addFriendInput, validateUsername, addFriendBtn, multiEmailInput, clearPlayerSearch,
+} from "./index.js";
 import { resetInviteBtn } from "./invites.js";
 
-let confirmRemove = null; // THE FRIEND WHOSE REMOVE WAS PRESSED ONCE
+let confirmRemove = null; // The friend whose Remove was pressed once
 
 
 /* ---------------------------------------------------------------- */
 // Friends
 /* ---------------------------------------------------------------- */
 /**
- * @description Draws Friends: requests to the player (Accept & Decline), the ones they sent (Cancel), then their friends (Challenge & Remove).
- * A failed read keeps what's on screen
+ * @description Draws Friends: requests to the player (Accept & Decline), the ones they sent (Cancel), then their friends
+ * (Challenge & Remove). A failed read keeps what's on screen
  * @param  {[object]} friendData [GET /api/user/friends response]
  */
 export function loadFriends(friendData) {
 	if (friendData?.status != 200) { return; }
 	const { friends, sent, received } = friendData;
-	drawFriendRows(friendRequests, received.map(({ username }) => friendRow(`${username} wants to be friends`, "", [
-		{ text: "Accept", cream: true, press: (button) => runFriendAction("accept", username, button) },
-		{ text: "Decline", press: (button) => runFriendAction("decline", username, button) },
-	])));
-	drawFriendRows(sentRequests, sent.map(({ username }) => friendRow(`Request sent to ${username}`, "Waiting", [
-		{ text: "Cancel", press: (button) => runFriendAction("cancel", username, button) },
-	])));
-	drawFriendRows(friendList, friends.map(({ username, online }) => friendRow(username, online ? "Online" : "", [
-		{ text: "Challenge", cream: true, press: () => challengeFriend(username) },
-		{ text: confirmRemove == username ? "Press again" : "Remove", press: (button) => handleRemoveFriend(username, button) }, // STILL WARNING AFTER A REDRAW
-	])));
+	drawFriendRows(friendRequests, received.map(requestRow));
+	drawFriendRows(sentRequests, sent.map(sentRequestRow));
+	drawFriendRows(friendList, friends.map(friendListRow));
 	noFriends.hidden = Boolean(friends.length || sent.length || received.length);
 }
 
 /**
- * @description Swaps a list's rows in one step (#240) & hides it when there are none
+ * @description A request to the player: Accept & Decline
+ * @param  {[object]} request [{ username }]
+ * @return {[element]} row
+ */
+function requestRow({ username }) {
+	return friendRow(`${username} wants to be friends`, "", [
+		{ text: "Accept", cream: true, press: (button) => runFriendAction("accept", username, button) },
+		{ text: "Decline", press: (button) => runFriendAction("decline", username, button) },
+	]);
+}
+
+/**
+ * @description A request the player sent: Cancel
+ * @param  {[object]} request [{ username }]
+ * @return {[element]} row
+ */
+function sentRequestRow({ username }) {
+	return friendRow(`Request sent to ${username}`, "Waiting", [
+		{ text: "Cancel", press: (button) => runFriendAction("cancel", username, button) },
+	]);
+}
+
+/**
+ * @description A friend, online or not: Challenge & Remove. A Remove pressed once still warns after a redraw
+ * @param  {[object]} friend [{ username, online }]
+ * @return {[element]} row
+ */
+function friendListRow({ username, online }) {
+	return friendRow(username, online ? "Online" : "", [
+		{ text: "Challenge", cream: true, press: () => challengeFriend(username) },
+		{ text: confirmRemove == username ? "Press again" : "Remove", press: (button) => handleRemoveFriend(username, button) },
+	]);
+}
+
+/**
+ * @description Swaps a list's rows in one step, so a redraw never leaves it empty for a moment, & hides it when there are none
  */
 function drawFriendRows(list, rows) {
 	list.replaceChildren(...rows);
@@ -51,15 +81,22 @@ function friendRow(title, detail, buttons) {
 	listElement.innerHTML = `<span class="inviteText"><span class="label inviteName"></span><span class="spec inviteParams"></span></span><span class="inviteButtons"></span>`;
 	listElement.querySelector(".inviteName").innerText = title;
 	listElement.querySelector(".inviteParams").innerText = detail;
-	listElement.querySelector(".inviteButtons").append(...buttons.map(({ text, cream, press }) => {
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = `btn ${cream ? "btnCream" : "btnLine"}`;
-		button.innerText = text;
-		button.addEventListener("click", () => press(button));
-		return button;
-	}));
+	listElement.querySelector(".inviteButtons").append(...buttons.map(rowButton));
 	return listElement;
+}
+
+/**
+ * @description One of a row's buttons
+ * @param  {[object]} button [{ text, cream (the main button), press(button) }]
+ * @return {[element]} button
+ */
+function rowButton({ text, cream, press }) {
+	const button = document.createElement("button");
+	button.type = "button";
+	button.className = `btn ${cream ? "btnCream" : "btnLine"}`;
+	button.innerText = text;
+	button.addEventListener("click", () => press(button));
+	return button;
 }
 
 /**
@@ -99,7 +136,7 @@ export async function handleAddFriend(e) {
 function challengeFriend(username) {
 	multiEmailInput.value = username;
 	clearPlayerSearch();
-	resetInviteBtn(); // A FORFEIT WARNING WAS ABOUT THE LAST NAME, THE NEXT PRESS WARNS AGAIN
+	resetInviteBtn(); // A forfeit warning was about the last name, the next press warns again
 	multiEmailInput.focus();
 }
 
@@ -110,7 +147,7 @@ function challengeFriend(username) {
  */
 function handleRemoveFriend(username, button) {
 	if (confirmRemove != username) {
-		friendList.querySelectorAll(".btnLine").forEach((other) => other.innerText = "Remove"); // ONE WARNING AT A TIME
+		friendList.querySelectorAll(".btnLine").forEach((other) => other.innerText = "Remove"); // One warning at a time
 		confirmRemove = username;
 		button.innerText = "Press again";
 		return friendNote.innerText = `This removes ${username} from your friends. Press again to remove them.`;

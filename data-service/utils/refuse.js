@@ -10,8 +10,8 @@
 // Refuse
 /* ---------------------------------------------------------------- */
 /**
- * @description Answers a refused request with its HTTP status & logs it. A request the data service handles answers 200 with
- * dynamoDB.js's { status, game_data, message } (even "Game data not found"), so the 4xx here are only the refusals
+ * @description Answers a refused request with its HTTP status & logs it. A request the data service handles answers db/'s
+ * { status, game_data, message } under its own status (index.js), so a 404 "Game data not found" is not logged here
  * @param  {[object]} req [express request, the path has the game id]
  * @param  {[object]} res [express response]
  * @param  {[number]} status [400 (bad body), 401 (no player or a bad token), 403 (not their game), 409 (not now: game over, not their turn, ...)]

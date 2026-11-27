@@ -29,19 +29,20 @@ botAvatar.addEventListener("error", function () { // NO AVATAR ON S3 YET (OR IT 
  * @description Shows the bot of the game's level beside the board, or hides it (a friend game, the levels didn't load)
  * @param  {[string]} gameUrl [chess api, "/api/chess"]
  * @param  {[object]} response [the game, { ai, ai_level }]
+ * @param  {[object]} named [a bot that isn't a level's: Card Guy in a Chess Cards game, { name } from GET /api/chess/cards/card-guy (cards/flow.js). Left out = the level's bot]
  * @return {[object]} bot [game.bot, null when none shows]
  */
-export async function showBot(gameUrl, response) {
-	if (!response?.ai) { return hideBot(); }
-	levelsRequest ||= getLevels(gameUrl);
-	const bot = botFor(await levelsRequest, response.ai_level);
+export async function showBot(gameUrl, response, named) {
+	if (!response?.ai && !named) { return hideBot(); }
+	if (!named) { levelsRequest ||= getLevels(gameUrl); }
+	const bot = named || botFor(await levelsRequest, response.ai_level);
 	if (!bot) { return hideBot(); }
-	if (game.bot?.level !== bot.level) {
+	if (game.bot?.level !== bot.level || game.bot?.name !== bot.name) {
 		botName.innerText = bot.name; // innerText, NEVER READ AS HTML
 		botInitial.innerText = bot.name[0];
 		botInitial.hidden = true;
-		botAvatar.hidden = false;
-		botAvatar.src = `${process.env.CHESS_ASSETS_URL}/${bot.avatar}`;
+		botAvatar.hidden = !bot.avatar; // A BOT THAT'S ONLY A NAME (CARD GUY, GET /api/chess/cards/card-guy): NO PICTURE & NO INITIAL, pickLine SAYS NOTHING FOR IT
+		if (bot.avatar) { botAvatar.src = `${process.env.CHESS_ASSETS_URL}/${bot.avatar}`; } else { botAvatar.removeAttribute("src"); }
 	}
 	game.bot = bot;
 	botDisplay.hidden = false;

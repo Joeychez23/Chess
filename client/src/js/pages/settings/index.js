@@ -1,8 +1,8 @@
 /*
  *  index.js  --  chess frontend
  *	Settings Page (/settings, signed in)
- *	Six boxes: Username (what friends see, Home sends a player who has none here first), Account (the email you sign in with, games finished, Sign out),
- *	Default start settings (what Home's dropdowns start on), Friends & Closed games (placeholders for now)
+ *	Seven boxes: Username (what friends see, Home sends a player who has none here first), Account (the email you sign in with, games finished, Sign out),
+ *	Default start settings (what Home's dropdowns start on), User Experience (Chess Cards' status display, cards/statusPref.js), Friends & Closed games (placeholders for now)
  *	and Delete my account (deletes the Auth0 login, forfeits & cancels everything, deletes the user_db row & frees the username, then signs out)
  *
  */
@@ -15,7 +15,7 @@ import "../../../css/nav.css"; // MENU (3 LINES, TOP RIGHT), COLORS & FONTS
 import "../../../css/home.css"; // THE SAME BOXES AS HOME
 require("../utils/reportErrors.js").startErrorReports(); // BEFORE THE OTHER MODULES RUN, SO THEIR ERRORS ARE REPORTED TOO (#194)
 const { InternalAuth } = require("../../auth/index.js");
-const { getUserGameData, saveSettings, saveUsername, deleteUserData } = require("../../gameplay/validate/index.js");
+const { getUserGameData, saveSettings, saveUsername, deleteUserData, request } = require("../../gameplay/validate/index.js");
 const { startBoxNav, startDropdowns, startLogoutButtons, loadLevels, showPageWhenDrawn } = require("../utils/index.js");
 
 const CHESS_URL = "/api/chess"; // CHESS ROUTES (server/routes/api/chessRoutes.js), THE GAME LISTS & SAVED SETTINGS
@@ -35,6 +35,9 @@ const aiColorSelect = document.getElementById("aiColor"); // ALTERNATE, RANDOM, 
 const friendColorSelect = document.getElementById("friendColor"); // ALTERNATE, RANDOM, WHITE OR BLACK VS A FRIEND
 const saveSettingsBtn = document.getElementById("saveSettings");
 const settingsNote = document.getElementById("settingsNote"); // "SAVED", OR WHY IT WASN'T
+const statusDisplaySelect = document.getElementById("statusDisplay"); // USER EXPERIENCE: EFFECTS OR BADGES
+const saveUxBtn = document.getElementById("saveUx");
+const uxNote = document.getElementById("uxNote"); // "SAVED", OR WHY IT WASN'T
 const deleteDataBtn = document.getElementById("deleteData");
 const deleteNote = document.getElementById("deleteNote"); // "PRESS AGAIN TO DELETE", OR WHY IT DIDN'T
 
@@ -49,6 +52,7 @@ startDropdowns(); // ENTER OPENS A DROPDOWN, A NATIVE <select> CAN'T BE OPENED B
 startLogoutButtons(auth); // LOGOUT IN THE MENU & SIGN OUT ARE A POST (#332)
 usernameForm.addEventListener("submit", handleSaveUsername); // SAVE BUTTON & ENTER IN THE FIELD
 saveSettingsBtn.addEventListener("click", handleSaveSettings);
+saveUxBtn.addEventListener("click", handleSaveUx);
 deleteDataBtn.addEventListener("click", handleDeleteData);
 
 startSettings();
@@ -86,6 +90,7 @@ async function loadSettings(playerId, levelsLoaded) {
 	aiLevelSelect.value = `${gameData.settings.ai_level}`;
 	aiColorSelect.value = gameData.settings.ai_color;
 	friendColorSelect.value = gameData.settings.friend_color;
+	statusDisplaySelect.value = gameData.settings.status_display === "badges" ? "badges" : "effects"; // AN OLDER SERVER SENDS NONE: THE DEFAULT
 }
 
 /* ---------------------------------------------------------------- */
@@ -150,6 +155,22 @@ async function handleSaveSettings(e) {
 	const response = await saveSettings(USER_URL, { ai_level: aiLevelSelect.value, ai_color: aiColorSelect.value, friend_color: friendColorSelect.value });
 	settingsNote.innerText = response?.status == 200 ? "Saved. Home starts on these now." : "Couldn't save, try again";
 	saveSettingsBtn.disabled = false;
+}
+
+/* ---------------------------------------------------------------- */
+// Save User Experience
+/* ---------------------------------------------------------------- */
+/**
+ * @description Saves the status display (PUT /api/user/settings/status-display), only that field: the start settings are kept. The server lets one through every 5 minutes
+ */
+async function handleSaveUx(e) {
+	e.preventDefault();
+	e.stopPropagation();
+	saveUxBtn.disabled = true; // ONE SAVE PER PRESS
+	uxNote.innerText = "";
+	const response = await request(`${USER_URL}/settings/status-display`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status_display: statusDisplaySelect.value }) });
+	uxNote.innerText = response?.status == 200 ? "Saved. Your next card game shows it." : response?.status == 429 ? "Changed in the last 5 minutes (here or in a game). It can be saved again in 5 minutes." : "Couldn't save, try again"; // 429: ONE BUCKET WITH THE IN-GAME TOGGLE, A RETRY FAILS TOO (REVIEW m2)
+	saveUxBtn.disabled = false;
 }
 
 /* ---------------------------------------------------------------- */

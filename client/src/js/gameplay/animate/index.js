@@ -1,28 +1,38 @@
 /*
  *  index.js  --  chess frontend
  *	Animate
- *	Where a sliding piece is from the time (stepSlide), how high a hopping knight is (handleKnightHop, draw uses it every frame of a knight's move) & the pieces sliding home
- *	after Restart & Rematch: where every piece is, pairing them with the new game's pieces & drawing each frame of the slide
+ *	Where a sliding piece is from the time (stepSlide), how high a hopping knight is (handleKnightHop, draw uses it every
+ *	frame of a knight's move) & the pieces sliding home after Restart & Rematch: where every piece is, pairing them with the
+ *	new game's pieces & drawing each frame of the slide
  *
  */
 
 /* ---------------------------------------------------------------- */
 // Global
 /* ---------------------------------------------------------------- */
-const { game, ctx, chessInst } = require("../state/index.js"); // THE GAME'S SHARED STATE, THE CANVAS, THE BOARD THAT'S DRAWN
-const { images } = require("../images/index.js"); // THE LOADED IMAGES BY IMAGE NUMBER
-const { renderBoard } = require("../layout/index.js"); // SIZES THE CANVAS & BOARD TO THE WINDOW & DRAWS THE TABLE & BOARD
+const { game, ctx, chessInst } = require("../state/index.js");
+const { images } = require("../images/index.js"); // The loaded images by image number
+const { renderBoard } = require("../layout/index.js"); // Sizes the canvas & board to the window & draws the table & board
 const { setPieceSprites, handlePawnDirection } = require("../draw/pieceSprites.js");
 const { awayFromRows } = require("../draw/facing.js");
+// Image numbers (images[number].image is the image): the table shadow & the knights. The other pieces' images come from
+// the draw functions above
 const {
-	tableShdw, wRightKnightImg, wLeftKnightImg, wRightKnightShdw, wLeftKnightShdw, wRightKnightRefl, wLeftKnightRefl, bRightKnightImg, bLeftKnightImg, bRightKnightShdw, bLeftKnightShdw, bRightKnightRefl, bLeftKnightRefl // TABLE SHADOW & THE KNIGHTS (THE OTHER PIECES' IMAGES COME FROM THE draw FUNCTIONS ABOVE)
-} = require("../sprites/index.js"); // IMAGE NUMBERS, images[number].image IS THE IMAGE
-const { setRestartLoading } = require("../menu/index.js"); // RESTART / REMATCH BUTTON'S LOADING FILL, PUT BACK WHEN THE PIECES ARE HOME
-const { overlayShows } = require("../draw/overlay.js"); // 3D DRAWS NO TRAY SLIDES: ITS OVERLAY STAYS CLEAR
-const { currentView, VIEWS, glideHome3D } = require("../renderer/index.js"); // WHICH BOARD IS ON, THE 3D BOARD'S SLIDE HOME
-const instant = () => game.reduceMotion || currentView() === VIEWS.THREE_D; // ON 3D THE HIDDEN 2D SLIDE LANDS AT ONCE, SO THE MOVE REACHES chessInst & THE 3D BOARD SLIDES IT (NOT TWICE THE WAIT)
-const optBtn = document.getElementById("optBtn"); // MENU BUTTON (3 LINES, TOP RIGHT), SHOWN AGAIN WHEN THE PIECES ARE HOME
-const { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } = require("./timing.js"); // SHARED WITH THE 3D BOARD, SO A MOVE TAKES THE SAME TIME ON BOTH
+	tableShdw,
+	wRightKnightImg, wLeftKnightImg, wRightKnightShdw, wLeftKnightShdw, wRightKnightRefl, wLeftKnightRefl,
+	bRightKnightImg, bLeftKnightImg, bRightKnightShdw, bLeftKnightShdw, bRightKnightRefl, bLeftKnightRefl
+} = require("../sprites/index.js");
+const { setRestartLoading } = require("../menu/index.js"); // The restart / rematch button's loading fill, put back when the pieces are home
+const { overlayShows } = require("../draw/overlay.js"); // 3D draws no tray slides: its overlay stays clear
+const { currentView, VIEWS, glideHome3D } = require("../renderer/index.js");
+const optBtn = document.getElementById("optBtn"); // Menu button (3 lines, top right), shown again when the pieces are home
+// Shared with the 3D board, so a move takes the same time on both
+const { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } = require("./timing.js");
+
+// On 3D the hidden 2D slide lands at once, so the move reaches chessInst & the 3D board slides it (not twice the wait)
+function instant() {
+	return game.reduceMotion || currentView() === VIEWS.THREE_D;
+}
 
 /* ---------------------------------------------------------------- */
 // Step Slide
@@ -37,16 +47,16 @@ const { RESTART_SLIDE_MS, slideDuration, slideDelay, hopArc, easeInOut } = requi
  * @param  {[number]} square [its index in tiles (row * 8 + column), its start square]
  */
 export function stepSlide(tile, square) {
-	const xSquares = tile.xSlideTo - square % 8; // SQUARES TO GO ACROSS, RIGHT IS POSITIVE
-	const ySquares = tile.ySlideTo - Math.floor(square / 8); // SQUARES TO GO UP OR DOWN, DOWN THE SCREEN IS POSITIVE
+	const xSquares = tile.xSlideTo - square % 8; // Squares to go across, right is positive
+	const ySquares = tile.ySlideTo - Math.floor(square / 8); // Squares to go up or down, down the screen is positive
 	const knight = tile.type == 'n';
 	const now = performance.now();
 	if (tile.slideStartTime === null || tile.slideStartTime === undefined) { tile.slideStartTime = now + slideDelay(knight); }
 	const duration = slideDuration(Math.max(Math.abs(xSquares), Math.abs(ySquares)), knight);
-	tile.slideProgress = duration && !instant() ?Math.min(Math.max((now - tile.slideStartTime) / duration, 0), 1) : 1; // 0 - 1 OF THE TIME
-	if (instant()) { game.slideStart = false; } // NO KNIGHT STOP (slideStart IS WHAT STARTS IT)
-	tile.xDiff = xSquares * game.tileWidth * tile.slideProgress; // PIXELS MOVED SO FAR
-	tile.yDiff = -ySquares * game.tileHeight * tile.slideProgress; // yDiff IS SUBTRACTED, SO GOING DOWN THE SCREEN MAKES IT NEGATIVE
+	tile.slideProgress = duration && !instant() ? Math.min(Math.max((now - tile.slideStartTime) / duration, 0), 1) : 1; // 0 - 1 of the time
+	if (instant()) { game.slideStart = false; } // No knight stop (slideStart is what starts it)
+	tile.xDiff = xSquares * game.tileWidth * tile.slideProgress; // Pixels moved so far
+	tile.yDiff = -ySquares * game.tileHeight * tile.slideProgress; // yDiff is subtracted, so going down the screen makes it negative
 }
 
 /* ---------------------------------------------------------------- */
@@ -59,13 +69,13 @@ export function stepSlide(tile, square) {
  * @param  {[object]} tile [the knight's tile]
  */
 export function handleKnightHop(tile) {
-	let xMoved = 0; // HOW FAR ACROSS IT'S GONE (0 - 1)
-	let yMoved = 0; // HOW FAR UP OR DOWN IT'S GONE (0 - 1)
+	let xMoved = 0; // How far across it's gone (0 - 1)
+	let yMoved = 0; // How far up or down it's gone (0 - 1)
 	if (tile.isSliding) {
 		if (tile.xSlideTo != tile.x) { xMoved = Math.abs(tile.xDiff) / (Math.abs(tile.xSlideTo - tile.x) * game.tileWidth); }
 		if (tile.ySlideTo != tile.y) { yMoved = Math.abs(tile.yDiff) / (Math.abs(tile.ySlideTo - tile.y) * game.tileHeight); }
-		game.knightHop = hopArc(Math.max(xMoved, yMoved)); // 0 AT THE START & END, 1 HALFWAY
-	} else { game.knightHop = 0; } // ON THE BOARD
+		game.knightHop = hopArc(Math.max(xMoved, yMoved)); // 0 at the start & end, 1 halfway
+	} else { game.knightHop = 0; } // On the board
 }
 
 /* ---------------------------------------------------------------- */
@@ -90,20 +100,32 @@ export function trayNudge(row) {
  */
 export function getRestartPieces(withTrays) {
 	let pieces = [];
-	let board = chessInst.board(); // ROW 0 IS RANK 8, COLUMN 0 IS THE a FILE
-	if (game.viewColor == 'b') { // FLIPPED BOARD, SAME AS handleInitialData()
+	let board = chessInst.board(); // Row 0 is rank 8, column 0 is the a file
+	if (game.viewColor == 'b') { // The flipped board, same as handleInitialData()
 		board = board.reverse();
 		for (let i = board.length - 1; i >= 0; i--) { board[i] = board[i].reverse(); }
 	}
-	for (let i = 0; i < board.length; i++) { // ROW
-		for (let j = 0; j < board[i].length; j++) { // COLUMN
-			if (board[i][j]) { pieces[pieces.length] = { type: board[i][j].type, color: board[i][j].color, square: board[i][j].square, x: j, y: i - 0.1 }; } // RESTING PIECES SIT A TENTH OF A SQUARE UP
+	for (let i = 0; i < board.length; i++) { // Row
+		for (let j = 0; j < board[i].length; j++) { // Column
+			const piece = board[i][j];
+			if (piece) { // Resting pieces sit a tenth of a square up
+				pieces[pieces.length] = { type: piece.type, color: piece.color, square: piece.square, x: j, y: i - 0.1 };
+			}
 		}
 	}
-	if (withTrays && !game.currPromotion && overlayShows(game) === "all") { // WHILE PROMOTING THE TRAY IS THE PROMOTION PICKER
+	if (withTrays && !game.currPromotion && overlayShows(game) === "all") { // While promoting the tray is the promotion picker
 		const takenPieces = [...(game.wTakenPieces || []), ...(game.bTakenPieces || [])];
 		for (let i = 0; i < takenPieces.length; i++) {
-			if (takenPieces[i].x !== undefined) { pieces[pieces.length] = { type: takenPieces[i].type, color: takenPieces[i].color, square: null, x: takenPieces[i].x, y: takenPieces[i].y + trayNudge(takenPieces[i].y) }; } // DRAWN IN A TRAY
+			const takenPiece = takenPieces[i];
+			if (takenPiece.x !== undefined) { // Drawn in a tray
+				pieces[pieces.length] = {
+					type: takenPiece.type,
+					color: takenPiece.color,
+					square: null,
+					x: takenPiece.x,
+					y: takenPiece.y + trayNudge(takenPiece.y)
+				};
+			}
 		}
 	}
 	return pieces;
@@ -116,30 +138,39 @@ export function getRestartPieces(withTrays) {
  * @param  {[array]} fromPieces [the old game, getRestartPieces(true) before it was replaced]
  */
 export function startRestartSlide(fromPieces) {
-	const toPieces = getRestartPieces(false); // THE NEW GAME'S START SQUARES
-	let pairs = []; // EVERY OLD & NEW PIECE THAT COULD BE THE SAME PIECE
+	const toPieces = getRestartPieces(false); // The new game's start squares
+	let pairs = []; // Every old & new piece that could be the same piece
 	for (let t = 0; t < toPieces.length; t++) {
+		const toPiece = toPieces[t];
 		for (let f = 0; f < fromPieces.length; f++) {
-			if (toPieces[t].color != fromPieces[f].color || toPieces[t].type != fromPieces[f].type) { continue; }
-			let distance = Math.hypot(toPieces[t].x - fromPieces[f].x, toPieces[t].y - fromPieces[f].y);
-			if (toPieces[t].type == 'b' && fromPieces[f].square && chessInst.squareColor(fromPieces[f].square) != chessInst.squareColor(toPieces[t].square)) { distance += 100; } // A BISHOP STAYS ON ITS SQUARE COLOR
+			const fromPiece = fromPieces[f];
+			if (toPiece.color != fromPiece.color || toPiece.type != fromPiece.type) { continue; }
+			let distance = Math.hypot(toPiece.x - fromPiece.x, toPiece.y - fromPiece.y);
+			// A bishop stays on its square color
+			if (toPiece.type == 'b' && fromPiece.square
+				&& chessInst.squareColor(fromPiece.square) != chessInst.squareColor(toPiece.square)) { distance += 100; }
 			pairs[pairs.length] = { t, f, distance };
 		}
 	}
-	pairs.sort(function (a, b) { return a.distance - b.distance; }); // CLOSEST FIRST
+	pairs.sort(function (a, b) { return a.distance - b.distance; }); // Closest first
 	let pieces = [];
 	let toUsed = [];
 	let fromUsed = [];
 	for (let i = 0; i < pairs.length; i++) {
-		if (toUsed[pairs[i].t] || fromUsed[pairs[i].f]) { continue; } // ONE OF THEM IS ALREADY PAIRED
-		toUsed[pairs[i].t] = true;
-		fromUsed[pairs[i].f] = true;
-		pieces[pieces.length] = setSlidePiece(fromPieces[pairs[i].f], toPieces[pairs[i].t], 0);
+		const pair = pairs[i];
+		if (toUsed[pair.t] || fromUsed[pair.f]) { continue; } // One of them is already paired
+		toUsed[pair.t] = true;
+		fromUsed[pair.f] = true;
+		pieces[pieces.length] = setSlidePiece(fromPieces[pair.f], toPieces[pair.t], 0);
 	}
-	for (let t = 0; t < toPieces.length; t++) { if (!toUsed[t]) { pieces[pieces.length] = setSlidePiece(toPieces[t], toPieces[t], 1); } } // FADES IN
-	for (let f = 0; f < fromPieces.length; f++) { if (!fromUsed[f]) { pieces[pieces.length] = setSlidePiece(fromPieces[f], fromPieces[f], -1); } } // FADES OUT
+	for (let t = 0; t < toPieces.length; t++) { // Fades in
+		if (!toUsed[t]) { pieces[pieces.length] = setSlidePiece(toPieces[t], toPieces[t], 1); }
+	}
+	for (let f = 0; f < fromPieces.length; f++) { // Fades out
+		if (!fromUsed[f]) { pieces[pieces.length] = setSlidePiece(fromPieces[f], fromPieces[f], -1); }
+	}
 	game.restartSlide = { pieces, startTime: Date.now() };
-	glideHome3D(); // ON 3D ITS PIECES GLIDE HOME IN THE SAME TIME (THE 2D SLIDE STILL RUNS HIDDEN & ENDS IT)
+	glideHome3D(); // On 3D its pieces glide home in the same time (the 2D slide still runs hidden & ends it)
 }
 
 /**
@@ -153,29 +184,41 @@ export function startRestartSlide(fromPieces) {
  * @return {[object]} { type, xFrom, yFrom, xTo, yTo, fade, imgArr }
  */
 function setSlidePiece(from, to, fade) {
-	let imgArr; // REFLECTION, SHADOW, PIECE
-	const square = to.square || from.square; // A BISHOP'S IMAGE FOLLOWS ITS SQUARE COLOR
-	if (to.type == 'p') { // PAWN
+	let imgArr; // Reflection, shadow, piece
+	const square = to.square || from.square; // A bishop's image follows its square color
+	if (to.type == 'p') { // Pawn
 		handlePawnDirection();
-		if (to.color == 'w') { imgArr = [game.wPawnRefl, game.wPawnShdw, game.wPawnImg]; } else { imgArr = [game.bPawnRefl, game.bPawnShdw, game.bPawnImg]; }
-	} else if (to.type == 'n') { // KNIGHT
+		if (to.color == 'w') {
+			imgArr = [game.wPawnRefl, game.wPawnShdw, game.wPawnImg];
+		} else {
+			imgArr = [game.bPawnRefl, game.bPawnShdw, game.bPawnImg];
+		}
+	} else if (to.type == 'n') { // Knight
 		const right = to.x > from.x || (to.x == from.x && to.x < 4);
-		if (to.color == 'w') { imgArr = right ? [wRightKnightRefl, wRightKnightShdw, wRightKnightImg] : [wLeftKnightRefl, wLeftKnightShdw, wLeftKnightImg]; }
-		else { imgArr = right ? [bRightKnightRefl, bRightKnightShdw, bRightKnightImg] : [bLeftKnightRefl, bLeftKnightShdw, bLeftKnightImg]; }
-	} else { // KING, QUEEN, BISHOP OR ROOK
-		const yFrom = from.y == to.y ? null : from.y; // null: SIDEWAYS (OR STAYING), FACES ITS START WAY
+		if (to.color == 'w') {
+			imgArr = right ? [wRightKnightRefl, wRightKnightShdw, wRightKnightImg] : [wLeftKnightRefl, wLeftKnightShdw, wLeftKnightImg];
+		}
+		else {
+			imgArr = right ? [bRightKnightRefl, bRightKnightShdw, bRightKnightImg] : [bLeftKnightRefl, bLeftKnightShdw, bLeftKnightImg];
+		}
+	} else { // King, queen, bishop or rook
+		const yFrom = from.y == to.y ? null : from.y; // null: sideways (or staying), faces its start way
 		const yTo = from.y == to.y ? null : to.y;
 		const lightSquare = square && chessInst.squareColor(square) == 'light';
 		setPieceSprites(to.color, awayFromRows(yFrom, yTo, to.color, game.viewColor));
 		if (to.color == 'w') {
 			if (to.type == 'k') { imgArr = [game.wKingRefl, game.wKingShdw, game.wKingImg]; }
 			else if (to.type == 'q') { imgArr = [game.wQueenRefl, game.wQueenShdw, game.wQueenImg]; }
-			else if (to.type == 'b') { imgArr = [game.wBishopRefl, game.wBishopShdw, lightSquare ? game.wBishopWhiteSqImg : game.wBishopBlackSqImg]; }
+			else if (to.type == 'b') {
+				imgArr = [game.wBishopRefl, game.wBishopShdw, lightSquare ? game.wBishopWhiteSqImg : game.wBishopBlackSqImg];
+			}
 			else if (to.type == 'r') { imgArr = [game.wRookRefl, game.wRookShdw, game.wRookImg]; }
 		} else {
 			if (to.type == 'k') { imgArr = [game.bKingRefl, game.bKingShdw, game.bKingImg]; }
 			else if (to.type == 'q') { imgArr = [game.bQueenRefl, game.bQueenShdw, game.bQueenImg]; }
-			else if (to.type == 'b') { imgArr = [game.bBishopRefl, game.bBishopShdw, lightSquare ? game.bBishopWhiteSqImg : game.bBishopBlackSqImg]; }
+			else if (to.type == 'b') {
+				imgArr = [game.bBishopRefl, game.bBishopShdw, lightSquare ? game.bBishopWhiteSqImg : game.bBishopBlackSqImg];
+			}
 			else if (to.type == 'r') { imgArr = [game.bRookRefl, game.bRookShdw, game.bRookImg]; }
 		}
 	}
@@ -185,29 +228,34 @@ function setSlidePiece(from, to, fade) {
 /**
  * @description One frame of the slide home, the render loop calls it instead of drawScreen while restartSlide is set.
  * Draws the board, then every piece part of the way home on a slow start & landing, back to front so the lower pieces
- * cover the ones above them. Knights hop like a move, their image is drawn on top while they're in the air (their reflection & shadow
- * stay in order, under the pieces in front of them). When the time is up
- * the new game takes over (its first frame turns the pieces to their start, an AI move slides in after). With reduce motion on the time is up on the first frame, so the pieces are just set
+ * cover the ones above them. Knights hop like a move, their image is drawn on top while they're in the air (their
+ * reflection & shadow stay in order, under the pieces in front of them). When the time is up the new game takes over (its
+ * first frame turns the pieces to their start, an AI move slides in after). With reduce motion on the time is up on the
+ * first frame, so the pieces are just set
  */
 export function drawRestartSlide() {
-	const progress = game.reduceMotion ? 1 : Math.min((Date.now() - game.restartSlide.startTime) / RESTART_SLIDE_MS, 1); // 0 - 1 OF THE TIME
-	if (progress == 1) { // HOME: THE NEW GAME TAKES OVER
+	const progress = game.reduceMotion ? 1 : Math.min((Date.now() - game.restartSlide.startTime) / RESTART_SLIDE_MS, 1); // 0 - 1 of the time
+	if (progress == 1) { // Home: the new game takes over
 		game.restartSlide = null;
 		setRestartLoading(false);
 		optBtn.style.display = "flex";
-		if (document.activeElement == document.body) { optBtn.focus(); } // THE MENU CLOSED WHILE THE BUTTON WAS AWAY, THE FOCUS GOES BACK TO IT NOW
-		game.opposingMove = chessInst.turn() != game.playerColor; // LOCKED IF THE OPPONENT GOES FIRST
+		// The menu closed while the button was away, the focus goes back to it now
+		if (document.activeElement == document.body) { optBtn.focus(); }
+		game.opposingMove = chessInst.turn() != game.playerColor; // Locked if the opponent goes first
 		game.boardReset = false;
-		game.drawScreen(); // THE NEW GAME'S FIRST FRAME, IT ALSO PUTS THE SQUARES ON tiles SO AN AI MOVE FINDS ITS PIECE
-		game.refresh = true; // AN AI MOVE SLIDES IN NEXT
+		game.drawScreen(); // The new game's first frame, it also puts the squares on tiles so an AI move finds its piece
+		game.refresh = true; // An AI move slides in next
 		return;
 	}
-	const eased = easeInOut(progress); // HOW FAR ALONG, SLOW START & LANDING
-	const hop = hopArc(progress); // KNIGHTS: 0 ON THE BOARD, 1 HALFWAY (HALF A SQUARE UP), SAME ARC AS handleKnightHop()
+	const eased = easeInOut(progress); // How far along, slow start & landing
+	const hop = hopArc(progress); // Knights: 0 on the board, 1 halfway (half a square up), same arc as handleKnightHop()
 	renderBoard();
-	if (overlayShows(game) !== "all") { ctx.clearRect(0, 0, game.cw, game.ch); return; } // 3D: ITS PIECES GLIDE HOME ON THEIR OWN (glideHome3D), THE OVERLAY STAYS CLEAR
+	if (overlayShows(game) !== "all") { // 3D: its pieces glide home on their own (glideHome3D), the overlay stays clear
+		ctx.clearRect(0, 0, game.cw, game.ch);
+		return;
+	}
 
-	let drawPieces = []; // WHERE EACH PIECE IS THIS FRAME
+	let drawPieces = []; // Where each piece is this frame
 	for (let i = 0; i < game.restartSlide.pieces.length; i++) {
 		const piece = game.restartSlide.pieces[i];
 		const moving = piece.xFrom != piece.xTo || piece.yFrom != piece.yTo;
@@ -216,29 +264,43 @@ export function drawRestartSlide() {
 			x: piece.xFrom + (piece.xTo - piece.xFrom) * eased,
 			y: piece.yFrom + (piece.yTo - piece.yFrom) * eased,
 			hop: (piece.type == 'n' && moving) ? hop : 0,
-			alpha: piece.fade == 1 ? progress : piece.fade == -1 ? 1 - progress : 1 // FADES IN, FADES OUT OR SOLID
+			alpha: piece.fade == 1 ? progress : piece.fade == -1 ? 1 - progress : 1 // Fades in, fades out or solid
 		};
 	}
-	drawPieces.sort(function (a, b) { return a.y - b.y; }); // BACK TO FRONT BY WHERE THEY ARE ON THE BOARD (A KNIGHT IN THE AIR BY THE SQUARE UNDER IT)
+	// Back to front by where they are on the board (a knight in the air by the square under it)
+	drawPieces.sort(function (a, b) { return a.y - b.y; });
 
 	for (let i = 0; i < drawPieces.length; i++) {
 		const piece = drawPieces[i];
 		const x = piece.x * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2;
 		const y = piece.y * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2;
-		ctx.globalAlpha = 0.30 * piece.alpha; // REFLECTION & SHADOW STAY ON THE BOARD, SHIFTED UP TO A FIFTH OF A SQUARE LEFT AS A KNIGHT RISES
-		ctx.drawImage(images[piece.imgArr[0]].image, x - (game.tileWidth / 5) * piece.hop, y, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
+		// Reflection & shadow stay on the board, shifted up to a fifth of a square left as a knight rises
+		ctx.globalAlpha = 0.30 * piece.alpha;
+		ctx.drawImage(images[piece.imgArr[0]].image, x - (game.tileWidth / 5) * piece.hop, y,
+			game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 		ctx.globalAlpha = 0.75 * piece.alpha;
-		ctx.drawImage(images[piece.imgArr[1]].image, x - (game.tileWidth / 5) * piece.hop, y, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
+		ctx.drawImage(images[piece.imgArr[1]].image, x - (game.tileWidth / 5) * piece.hop, y,
+			game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
 		ctx.globalAlpha = piece.alpha;
-		if (piece.hop == 0) { ctx.drawImage(images[piece.imgArr[2]].image, x, y, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset); } // PIECE (A KNIGHT IN THE AIR IS DRAWN BELOW)
+		if (piece.hop == 0) { // The piece (a knight in the air is drawn below)
+			ctx.drawImage(images[piece.imgArr[2]].image, x, y, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
+		}
 	}
-	for (let i = 0; i < drawPieces.length; i++) { // KNIGHTS IN THE AIR GO OVER EVERYTHING, UP TO HALF A SQUARE UP (ONLY THE IMAGE, LIKE drawSlideBox, THEIR SHADOWS STAYED IN ORDER ABOVE)
+	// Knights in the air go over everything, up to half a square up (only the image, like drawSlideBox, their shadows stayed
+	// in order above)
+	for (let i = 0; i < drawPieces.length; i++) {
 		const piece = drawPieces[i];
 		if (piece.hop == 0) { continue; }
 		ctx.globalAlpha = piece.alpha;
-		ctx.drawImage(images[piece.imgArr[2]].image, piece.x * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2, piece.y * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2 - (game.tileHeight / 2) * piece.hop, game.tileWidth + game.xPieceOffset, game.tileHeight + game.yPieceOffset);
+		ctx.drawImage(
+			images[piece.imgArr[2]].image,
+			piece.x * game.tileWidth + game.xBoardOff - game.xPieceOffset / 2,
+			piece.y * game.tileHeight + game.yBoardOff - game.yPieceOffset / 2 - (game.tileHeight / 2) * piece.hop,
+			game.tileWidth + game.xPieceOffset,
+			game.tileHeight + game.yPieceOffset
+		);
 	}
 	ctx.globalAlpha = 0.05
-	ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // RENDER TABLE SHDW
+	ctx.drawImage(images[tableShdw].image, 0, 0, game.cw, game.ch); // The table's shadow
 	ctx.globalAlpha = 1;
 }

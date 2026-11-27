@@ -23,7 +23,7 @@ const GUEST_EXPIRES_IN = "365d"; // AS LONG AS THE COOKIE, THE GAME ITSELF EXPIR
 /**
  * @description A signed in player's access & refresh tokens. Both carry the session id on their user_db row, a refresh is refused once it changes
  * @param  {[object]} user [{ user_id, email, email_verified, user_metadata }, what the chess server reads from the access token]
- * @param  {[string]} sid [the session id on their row (startSession in dynamoDB.js)]
+ * @param  {[string]} sid [the session id on their row (startSession in db/)]
  * @return {[object]} tokens [{ access_token, refresh_token }]
  */
 function sessionTokens(user, sid) {

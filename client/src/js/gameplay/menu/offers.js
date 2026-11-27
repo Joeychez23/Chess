@@ -340,7 +340,7 @@ export function showGameOver(result, onLoad) {
 	showResult(result);
 	optRestartBtn.innerHTML = game.ai ? "Restart" : "Rematch";
 	optReplayBtn.href = `/replay/${encodeURIComponent(game.GAME_ID)}`; // STEP THROUGH THE GAME THAT JUST ENDED (#78)
-	optReplayBtn.parentElement.hidden = !game.SIGNED_IN || game.readOnly; // THE REPLAY PAGE IS FOR SIGNED IN PLAYERS
+	optReplayBtn.parentElement.hidden = !game.SIGNED_IN || game.readOnly || Boolean(game.cardGame); // THE REPLAY PAGE IS FOR SIGNED IN PLAYERS & DOESN'T KNOW THE CARDS
 	if (!zoomed) {
 		handleRemoteMenuEnter(optRestartBtn); // REMOTE-ONLY MODE: SELECT RESTART / REMATCH
 		if (!game.REMOTE_ONLY_CONDITIONAL) { optRestartBtn.focus(); } // KEYBOARD: THE NEXT THING TO PRESS

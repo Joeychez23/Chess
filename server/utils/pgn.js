@@ -10,7 +10,7 @@
 /* ---------------------------------------------------------------- */
 
 const { Chess } = require("chess.js");
-const { isAiGame, playerName, startParams } = require("./games.js");
+const { isAiGame, playerName, startParams } = require("./plainItems.js");
 
 const RESULTS = { w: "1-0", b: "0-1", draw: "1/2-1/2" };
 const UNKNOWN_DATE = "????.??.??"; // GAMES FROM BEFORE created_at
@@ -44,7 +44,7 @@ function pgnDate(createdAt) {
  * @return {[string]} result ["1-0", "0-1", "1/2-1/2", or "*" while the game isn't finished]
  */
 function pgnResult(gameData) {
-	return (gameData.state?.S == "CLOSED" && RESULTS[gameData.winner?.S]) || "*";
+	return (gameData.state == "CLOSED" && RESULTS[gameData.winner]) || "*";
 }
 
 /**
@@ -56,7 +56,7 @@ function pgnResult(gameData) {
  */
 function sideName(gameData, color, { aiLevel, player }) {
 	if (!isAiGame(gameData)) { return playerName(gameData, color) || UNKNOWN_NAME; }
-	const playerId = color == "w" ? gameData.white_player_id.S : gameData.black_player_id.S;
+	const playerId = color == "w" ? gameData.white_player_id : gameData.black_player_id;
 	return playerId == "CHESS_AI" ? `Stockfish level ${aiLevel}` : player;
 }
 
@@ -75,7 +75,7 @@ function fileNamePart(name, fallback) {
 
 /**
  * @description The game as a PGN file. Replays from the game's set position when it has one, chess.js then adds the SetUp & FEN headers
- * @param  {[object]} gameData [game item, moves.S is the parsed array of SAN moves]
+ * @param  {[object]} gameData [game item, moves is the parsed array of SAN moves]
  * @param  {[object]} options [{ site: the live url, aiLevel, player: the name of an AI game's player }]
  * @return {[object]} file [{ pgn, filename: "<white>-vs-<black>.pgn" }]
  * @throws when a saved move can't be replayed
@@ -83,18 +83,18 @@ function fileNamePart(name, fallback) {
 function buildPgn(gameData, { site, aiLevel, player }) {
 	const fen = startParams(gameData).fen;
 	const chess = fen ? new Chess(fen) : new Chess();
-	for (const move of gameData.moves.S) { chess.move(move); }
+	for (const move of gameData.moves) { chess.move(move); }
 
 	const white = headerValue(sideName(gameData, "w", { aiLevel, player }));
 	const black = headerValue(sideName(gameData, "b", { aiLevel, player }));
 	const headers = {
 		Event: isAiGame(gameData) ? "AI Game" : "Friend Game",
 		Site: site,
-		Date: pgnDate(gameData.created_at?.S),
+		Date: pgnDate(gameData.created_at),
 		White: white,
 		Black: black,
 		Result: pgnResult(gameData),
-		Termination: gameData.reason?.S || "unterminated",
+		Termination: gameData.reason || "unterminated",
 	};
 	for (const [name, value] of Object.entries(headers)) { chess.setHeader(name, value); }
 
