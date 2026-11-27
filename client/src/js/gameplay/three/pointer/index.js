@@ -80,6 +80,11 @@ export function createControls(camera, canvas) {
 	controls.addEventListener("change", function () {
 		requestRender();
 		const { controlsActive, press, pointerAt } = view;
+		// The camera moved under a held card or piece (a wheel zoom while it's dragged): it stays under the pointer
+		if (cardHeld === "moving" || (view.held && view.held.following)) {
+			view.camera.updateMatrixWorld();
+			if (cardHeld === "moving") { followCard(pointerAt.x, pointerAt.y); } else { liftHeld(); }
+		}
 		if (controlsActive && Math.hypot(pointerAt.x - press.x, pointerAt.y - press.y) > DRAG_PX) { startGesture(); }
 	});
 	controls.addEventListener("end", function () {
@@ -124,13 +129,15 @@ export function onPointerDown(e) {
 	// square picks it up too
 	const square = left && squareUnder(e);
 	// Zoomed on the monitor the camera stays put. A left press on any card (the table's, both decks, a promotion card)
-	// never pans: right-drag and scroll still work over them
-	view.controls.enabled = cameraFree({
+	// never pans: right-drag and scroll still work over them, and scroll zooms while the piece or card is held (the left
+	// button is taken from the controls, not the controls switched off)
+	view.controls.enabled = monitorIdle();
+	view.controls.mouseButtons.LEFT = cameraFree({
 		idle: monitorIdle(),
 		left,
 		piece: Boolean(square && view.pieces.has(square)),
 		card: left && (tableCovers(e) || cardAt(e) !== null)
-	});
+	}) ? MOUSE.PAN : null;
 	if (cardHeld) { releaseCard(null); } // A card still held: its release never came, it goes back first
 	tableDrag = false;
 	// A piece still held: its release never came (let go outside the window), it goes back first. dragged: as
@@ -162,10 +169,17 @@ export function onPointerDown(e) {
 // The held card goes under the pointer at (x, y)
 function followCard(x, y) {
 	cardHeld = "moving";
+	const zoomed = view.table.zoomed();
 	const rect = view.renderer.domElement.getBoundingClientRect();
 	pointer.set(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1);
 	raycaster.setFromCamera(pointer, view.camera);
 	view.table.follow(raycaster);
+	// The pick-up ended a zoom and the camera jumped back: cast again from where it is now, or the card sits off the pointer
+	if (zoomed && !view.table.zoomed()) {
+		view.camera.updateMatrixWorld();
+		raycaster.setFromCamera(pointer, view.camera);
+		view.table.follow(raycaster);
+	}
 }
 
 // A held piece past the drag threshold follows the pointer (dragHeld). Before gameplay/input's mousemove / touchmove,
@@ -203,6 +217,7 @@ export function onPointerMove(e) {
 export function onPointerUp(e) {
 	if (!view) { return; }
 	view.controls.enabled = monitorIdle();
+	view.controls.mouseButtons.LEFT = MOUSE.PAN;
 	if (e.pointerType === "mouse") {
 		releaseTable(e);
 		releaseCard(e);
@@ -234,6 +249,11 @@ function releaseTable(e) {
 // true: taken) and the card stays there, else it slides back (nowhere, on the glass, a cancelled pointer, a drop the
 // game doesn't offer). A press that never dragged is left to its click
 function releaseCard(e) {
+	// A flick let go before DRAG_HOLD_MS but past DRAG_PX from its press is a drag too, never a click (owner, 2026-11-27)
+	if (cardHeld === true && e && e.type === "pointerup" && view.table
+		&& Math.hypot(e.clientX - view.press.x, e.clientY - view.press.y) > DRAG_PX) {
+		followCard(e.clientX, e.clientY);
+	}
 	// The place is measured at the release, from the camera as it is now: it may have glided since the last move
 	if (cardHeld === "moving" && e && e.type === "pointerup" && view.table) {
 		const rect = view.renderer.domElement.getBoundingClientRect();

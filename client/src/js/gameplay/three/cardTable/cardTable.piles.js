@@ -50,8 +50,8 @@ export function pilesPart(table) {
 		return `${face.name}, ${face.type}${face.text ? `: ${face.text}` : ""}`;
 	}
 	// The camera frames the opened pile's column (again when it grows or shrinks) or the zoomed hand card, and goes back when it is
-	// neither. A refresh that changes nothing leaves the camera alone
-	function frameOpen() {
+	// neither. A refresh that changes nothing leaves the camera alone. snap: it jumps there, no glide
+	function frameOpen(snap = false) {
 		const z = table.zoomId && table.cards.get(`${table.current.view.you}:${table.zoomId}`);
 		const list = table.openPile ? pileCards(table.current.view, table.openPile) : [];
 		const box = table.openPile
@@ -66,11 +66,10 @@ export function pilesPart(table) {
 			: list.slice().reverse().map(say);
 		const text = table.openPile ? `${PILE_NAMES[table.openPile]}, newest first: ${said.join("; ")}` : "";
 		if (table.reader.textContent !== text) { table.reader.textContent = text; }
-		// While a placed card is dragged, the camera shows the way to the discard pile (follow)
-		if (key === table.boxKey || (table.drag && table.drag.moved && table.drag.from === "pile")) { return; }
+		if (key === table.boxKey) { return; }
 		table.boxKey = key;
 		// zoomId: what is zoomed in on goes to flow.js too (three/index.js), where Escape and a play end it
-		table.frameBox(box, table.zoomId);
+		table.frameBox(box, table.zoomId, snap);
 	}
 
 	return {
