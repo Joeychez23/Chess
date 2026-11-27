@@ -34,11 +34,11 @@ function template() { // A CARD: ITS FACE ON TOP LOOKING UP, ITS BACK UNDER IT L
 	return g;
 }
 function setup() {
-	const room = new THREE.Group(), animations = createAnimations(() => {}), framed = [], told = [];
+	const room = new THREE.Group(), animations = createAnimations(() => {}), framed = [], told = [], snaps = [];
 	let now = 0;
-	const table = createCardTable({ template: template(), room, animations, requestRender() {}, frame: (box, zoom = null) => { framed.push(box); told.push(zoom); } });
+	const table = createCardTable({ template: template(), room, animations, requestRender() {}, frame: (box, zoom = null, snap = false) => { framed.push(box); told.push(zoom); snaps.push(snap); } });
 	const run = () => { while (animations.step((now += 16))) { /* TO THE END */ } room.updateMatrixWorld(true); };
-	return { room, table, framed, told, run };
+	return { room, table, framed, told, snaps, run };
 }
 const rayDown = (x, z) => { const r = new THREE.Raycaster(); r.set(new THREE.Vector3(x, 30, z), new THREE.Vector3(0, -1, 0)); return r; };
 const move = (id) => ({ id, key: "move", piece: "p" });
@@ -143,6 +143,41 @@ test("the zoom ends when its card leaves the hand, a pile opens, a duel is dealt
 	table.zoom("a1");
 	table.togglePile("mine");
 	assert.deepEqual(framed.at(-1), columnBox("mine", 1), "the opened pile has the frame");
+	table.dispose();
+});
+
+test("a drag of the zoomed-in card ends the zoom at once, with no glide", () => {
+	const { table, framed, snaps, run } = setup(), v = view(), s = spots(v).get("w:a1");
+	table.set(v, {});
+	run();
+	table.zoom("a1");
+	assert.equal(snaps.at(-1), false, "the zoom itself glides in");
+	assert.equal(table.grab({ id: "a1" }, ["spot"]), true);
+	table.follow(rayDown(s.x, s.z - 8));
+	assert.equal(framed.at(-1), null, "back to the table view");
+	assert.equal(snaps.at(-1), true, "a snap, not a glide");
+	table.dispose();
+});
+
+test("the player's pile cards drag open or closed and the camera stays still; Card Guy's don't drag", () => {
+	const { table, framed, run } = setup(), v = view(), at = spots(v), s1 = at.get("w:s1");
+	table.set(v, {});
+	run();
+	const before = framed.length;
+	assert.equal(table.grab({ id: "s1" }, ["discard"]), true, "the active spot, closed");
+	table.follow(rayDown(s1.x + 6, s1.z));
+	assert.equal(framed.length, before, "no camera move for a closed pile's drag");
+	table.release();
+	table.settle(false);
+	table.togglePile("mineSpot");
+	run();
+	const opened = framed.length;
+	assert.equal(table.grab({ id: "s1" }, ["discard"]), true, "the active spot, opened");
+	table.follow(rayDown(s1.x + 6, s1.z + 4));
+	assert.equal(framed.length, opened, "no camera move for an opened pile's drag");
+	table.release();
+	table.settle(false);
+	assert.equal(table.grab({ id: "s2" }, ["discard"]), false, "Card Guy's active spot");
 	table.dispose();
 });
 

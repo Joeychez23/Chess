@@ -2,14 +2,14 @@
 drag (createCardTable, index.js) ---- */
 
 import { Plane, Vector3 } from "three";
-import { CARD_SIZE, CARD_Y, DECK } from "../cardLayout.js";
+import { CARD_Y, DECK } from "../cardLayout.js";
 import {
 	findParts, lerp, CARD_LIGHT, CARD_BACK, HOVER_LIGHT, FRAME_DROP, LIFT, LIFT_MS, DEAL_MS, DEAL_STAGGER_MS, STACK_STEP, FACE_W,
 	FACE_H
 } from "./promotionCards.js";
 import { DESK_Y } from "../constants.js";
 import { faceOf, drawPlayFace, drawBackFace } from "./cardFaces.js";
-import { tableSpots, pileCards, columnBox, placeAt, deskPoint, PILES, DISCARD, HAND_Z } from "./tableLayout.js";
+import { tableSpots, pileCards, placeAt, deskPoint, PILES, HAND_Z } from "./tableLayout.js";
 import { CARD_LAYER, PILE_BASE_LIFT } from "./cardTable.piles.js";
 import { duelPath, giveFace } from "./cardTable.duel.js";
 
@@ -319,7 +319,7 @@ export function handPart(table) {
 			refreshLift();
 		},
 		/**
-		 * @description The mouse went down on a card: one of the player's hand cards, or a face-up card of their own opened pile, is
+		 * @description The mouse went down on a card: one of the player's hand cards, or a face-up card of their own pile (open or not), is
 		 * held. It moves once the pointer does (follow)
 		 * @param {{ id: string|null }} hit what hit() gave
 		 * @param {string[]|null} places the player's places it can be let go on ("spot", "passive", "discard": framed while it's
@@ -328,13 +328,14 @@ export function handPart(table) {
 		 */
 		grab(hit, places) {
 			const c = table.current.view && hit.id && places ? table.cards.get(`${table.current.view.you}:${hit.id}`) : null;
-			if (!c || !(c.spot.hand || (c.spot.pile && c.spot.pile === table.openPile && PILES[table.openPile].side === "mine"))) { return false; }
+			// A pile's card of the player's, open or not (closed: its top card, the one the ray meets)
+			if (!c || !(c.spot.hand || (c.spot.pile && PILES[c.spot.pile].side === "mine"))) { return false; }
 			table.drag = { c, id: hit.id, from: c.spot.hand ? "hand" : "pile", places, moved: false, desk: null };
 			return true;
 		},
 		/**
-		 * @description The held card goes under the pointer, floating. The first time, its landing places are framed, and for a placed
-		 * card the camera shows its column and the discard pile
+		 * @description The held card goes under the pointer, floating. The first time, its landing places light and a zoom ends at once;
+		 * the camera stays still for every drag
 		 * @param {Raycaster} raycaster already set from the camera and pointer
 		 */
 		follow(raycaster) {
@@ -349,21 +350,11 @@ export function handPart(table) {
 				c.lift = c.liftTo = 0;
 				c.landed = false;
 				showLands(table.drag.places);
-				// The camera goes back, so the places are in view
+				// The zoom ends at once (no glide), so the drag happens in the table view. Otherwise the camera stays still while
+				// any card is dragged, as the owner asked (2026-11-27)
 				if (table.zoomId) {
 					table.zoomId = null;
-					table.frameOpen();
-				}
-				if (table.drag.from === "pile") {
-					const b = columnBox(c.spot.pile, pileCards(table.current.view, c.spot.pile).length);
-					const d = DISCARD.mine;
-					table.boxKey = "drag";
-					table.frameBox({
-						x0: Math.min(b.x0, d.x - CARD_SIZE.w / 2),
-						x1: Math.max(b.x1, d.x + CARD_SIZE.w / 2),
-						z0: Math.min(b.z0, d.z - CARD_SIZE.h / 2),
-						z1: Math.max(b.z1, d.z + CARD_SIZE.h / 2)
-					});
+					table.frameOpen(true);
 				}
 			}
 			c.at = { x: dragPoint.x, y: DRAG_Y, z: dragPoint.z, yaw: 0 };
@@ -391,7 +382,7 @@ export function handPart(table) {
 		},
 		/**
 		 * @description After release(): the card lies on the place it was let go on while it's the lifted card (its play is on its
-		 * way, or its targets are picked), or slides back to where it was. The camera goes back to the opened pile
+		 * way, or its targets are picked), or slides back to where it was.
 		 * @param {boolean} held the drop was taken
 		 */
 		settle(held) {

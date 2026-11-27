@@ -491,9 +491,9 @@ export function setCardTable(state, legal, opts = {}) {
 			return REDUCE.matches;
 		}
 		// A pile opened or a hand card zoomed in on: the camera frames it, and flow.js hears what is zoomed in on (Escape
-		// and a play end it)
-		function framePileOrZoom(box, zoom = null) {
-			framePile(box, !REDUCE.matches);
+		// and a play end it). snap: no glide (a zoom ended by a drag)
+		function framePileOrZoom(box, zoom = null, snap = false) {
+			framePile(box, !snap && !REDUCE.matches);
 			view.cardOptions.onTable({ kind: "zoom", id: zoom });
 		}
 		// inView: the plaques lie on the desk in view; camera: they are checked on screen through the live camera. The
