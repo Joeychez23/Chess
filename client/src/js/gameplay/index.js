@@ -19,7 +19,7 @@
 const { game, canvas, chessInst, validateState, startFrames, requestFrame, OVERRIDE_REMOTE_ONLY } = require("./state/index.js");
 const { playAi } = require("./ai/index.js"); // Asks the server for the AI's move
 // What the AI's bot says about its move & the face the 3D room's monitor makes at it
-const { momentFor, faceFor } = require("./bots/index.js");
+const { momentFor } = require("./bots/index.js");
 const { sayLine } = require("./bots/say.js"); // & says it beside the board
 const { imageProgress } = require("./images/index.js"); // How many of the game's images have loaded (0 - 1)
 const { handleWindowResize } = require("./layout/index.js");
@@ -47,7 +47,7 @@ const { addMoveBoxListeners } = require("./movebox/index.js"); // The box for ty
 const { loadEvalBar, handleEvalBar } = require("./analysis/index.js");
 const { startMonitor } = require("./monitor/index.js"); // The 3D room's monitor: its data, actions & hide rules
 // Picks the 2D canvas or the 3D board, the only place that knows which is on
-const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D, setFace, can3D } = require("./renderer/index.js");
+const { drawBoard, VIEWS, addBoardListener, stopMotion3D, whenDrawn3D, can3D } = require("./renderer/index.js");
 // Switches mid-game (the 3D board is downloaded the first time, its own "three" chunk)
 export { setView, currentView, VIEWS } from "./renderer/index.js";
 const main = document.querySelector("#main"); // The canvas is added here
@@ -80,6 +80,7 @@ export async function renderCanvas(playerData) {
 	game.GAME_URL = playerData.GAME_URL; // The game's constants
 	game.PLAYER_ID = playerData.PLAYER_ID;
 	game.REMOTE_ONLY_CONDITIONAL = playerData.REMOTE_ONLY_CONDITIONAL;
+	game.USERNAME = playerData.USERNAME || null; // The signed in player's username (null: a guest, or none picked yet), the 3D monitor's terminal names them by it
 	game.SIGNED_IN = playerData.SIGNED_IN; // A signed in player (not a guest): restart changes the URL, exit logs out
 	game.GAME_ID = playerData.GAME_ID; // Changes when an AI game restarts or a friend game rematches
 	game.readOnly = Boolean(playerData.READ_ONLY); // A replay: the board only shows the game
@@ -253,7 +254,6 @@ async function startAiSlide() {
 		validateState.load(game.response.game_board); // Check the move on the scratch board (throws if it's not legal)
 		const played = validateState.move(game.moveObj);
 		sayLine(momentFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // A capture, check or mate
-		setFace(faceFor(played, validateState, game.playerColor == "w" ? "b" : "w")); // The monitor's face is pleased with it (3D only)
 		clearStatus("ai");
 		startSlide(game.moveObj.from, game.moveObj.to); // Stops any other slide
 		game.aiTurn = false;

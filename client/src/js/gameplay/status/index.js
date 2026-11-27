@@ -56,6 +56,15 @@ export function hideKinds(kinds) {
 }
 
 /**
+ * @description Whether a kind of message is up (hidden or not)
+ * @param  {[string]} kind [same as showStatus]
+ * @return {[boolean]}
+ */
+export function showing(kind) {
+	return messages.some((message) => message.kind === kind);
+}
+
+/**
  * @description Takes a kind of message away, things recovered
  * @param  {[string]} kind [same as showStatus]
  */

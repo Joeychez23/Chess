@@ -1,16 +1,15 @@
-// The monitor's pure helpers: tab row, hit testing, focus, keys, zoom maths, screen reader text (no state)
-import { W, H, NAMES, SHORT, tabRow, sentence } from "./kit.js";
-import { CHANNELS, NOT_IN_CARDS } from "./prefs.js";
-import { textWidth } from "../pixelFont.js";
+/*
+ *  controls.js  --  chess frontend
+ *	The Meridian Terminal's Controls
+ *	Pure helpers for the zoomed terminal: the footer tabs, hit testing, focus, keys, zoom maths & the screen reader text (no state)
+ *	No DOM & no three.js here: the tests load it in Node (client/test/monitor/controls.test.js)
+ *
+ */
 
-// Channel ids in tab order. A copy, so nothing here can change the list in prefs.js.
-export const ORDER = [...CHANNELS];
-// A tab is its label plus a 1 px border on each side (pad). The row's spare width goes between the tabs, up to maxGap,
-// so two lit tabs don't merge. All six tabs and ◀ fit the safe area's 144 px with none to spare.
-const TAB = { pad: 2, maxGap: 3 };
-const BACK = "◀ BACK";
-const BACK_SHORT = "◀";
-export const YOUR_MOVE = "▶ YOUR MOVE";
+import { W, H, FOOT, TAB_NAMES, sentence } from "./kit.js";
+import { drawable } from "../pixelFont.js";
+
+const SCREENS = Object.keys(TAB_NAMES); // SESSION, LOG, MAIL, SYSTEMS: THE FOOTER'S ORDER & THE KEYS 1 TO 4
 const KEYS = { w: "up", a: "left", s: "down", d: "right" };
 const ARROWS = { ArrowUp: "up", ArrowLeft: "left", ArrowDown: "down", ArrowRight: "right" };
 // Each direction as [axis, sign]; axis 0 is x and 1 is y.
@@ -59,90 +58,17 @@ export function isTap(press, release, type) {
 }
 
 /* ---------------------------------------------------------------- */
-// Channels
-/* ---------------------------------------------------------------- */
-
-/**
- * @description The channels this game & these settings offer, in tab order
- * @param  {[object]} data [the game's data]
- * @param  {[object]} prefs [the settings]
- * @return {[string[]]} ids
- */
-export function available(data, prefs) {
-	return ORDER.filter(function (id) {
-		// There is always a way back to the settings.
-		if (id === "setup") { return true; }
-		// Chess Cards has no face or eval channel, so the monitor opens on the opponent (idleChannel).
-		if (data.cards && NOT_IN_CARDS.includes(id)) { return false; }
-		// A lost connection shows on the opponent channel, even when the player switched it off.
-		if (id === "opponent" && data.offline) { return true; }
-		if (!prefs.enabled.includes(id)) { return false; }
-		if (id === "face") { return !!data.ai; }
-		return true;
-	});
-}
-
-/**
- * @description The channel the monitor shows on the desk
- * @param  {[object]} data [the game's data]
- * @param  {[object]} prefs [the settings]
- * @return {[string]} id
- */
-export function idleChannel(data, prefs) {
-	const offered = available(data, prefs);
-	// It shows the reconnecting state until the connection is back.
-	if (data.offline && !data.over) { return "opponent"; }
-	if (prefs.defaultChannel && offered.includes(prefs.defaultChannel)) { return prefs.defaultChannel; }
-	if (data.ai && offered.includes("face")) { return "face"; }
-	return offered.includes("opponent") ? "opponent" : "setup";
-}
-
-/* ---------------------------------------------------------------- */
 // Buttons
 /* ---------------------------------------------------------------- */
 
 /**
- * @description The tab row: BACK, then one tab per channel, centred in the safe area's top row (kit.js tabRow)
- * @param  {[string[]]} ids [the channels, in order]
- * @param  {[string]} [active] [the showing channel, whose tab is marked selected]
- * @return {[object[]]} buttons
+ * @description The footer's four screen tabs (kit.js footer draws them at the same places)
+ * @param  {[string]} [active] [the showing screen; unused, the footer marks it when it draws]
+ * @return {[object[]]} buttons, { id: "tab:<screen>", x, y, w, h, label, enabled: true }
  */
-export function tabButtons(ids, active) {
-	const tabW = (label) => textWidth(label) + TAB.pad;
-	const row = (back) => tabW(back) + ids.reduce((sum, id) => sum + tabW(SHORT[id]), 0);
-	const area = tabRow();
-	// Just the arrow when the word won't fit.
-	const back = row(BACK) <= area.w ? BACK : BACK_SHORT;
-	// One gap after BACK and after each tab but the last.
-	const room = ids.length ? Math.min(TAB.maxGap, Math.floor((area.w - row(back)) / ids.length)) : 0;
-	// Kept odd, so no column in a gap is equally near both tabs (hit() would call a press there a miss).
-	const gap = room > 0 && room % 2 === 0 ? room - 1 : room;
-	let x = area.x + Math.floor((area.w - row(back) - gap * ids.length) / 2);
-	const list = [];
-	for (const [id, label] of [["back", back], ...ids.map((c) => [`tab:${c}`, SHORT[c]])]) {
-		const w = tabW(label);
-		const button = { id, x, y: area.y, w, h: area.h, label, enabled: true };
-		if (id === `tab:${active}`) { button.selected = true; }
-		list.push(button);
-		x += w + gap;
-	}
-	return list;
-}
-
-/* ---------------------------------------------------------------- */
-// litTab
-/* ---------------------------------------------------------------- */
-
-/**
- * @description The one tab to light: the focused one while the focus is on the tab row, else the showing channel's
- * (never two at once, they'd read as one)
- * @param  {[object[]]} tabs [from tabButtons]
- * @param  {[string|null]} focus [the focused button's id]
- * @param  {[string]} channel [the showing channel]
- * @return {[string]} id
- */
-export function litTab(tabs, focus, channel) {
-	return tabs.some((b) => b.id === focus) ? focus : `tab:${channel}`;
+// eslint-disable-next-line no-unused-vars -- KEPT IN THE SIGNATURE THE PLAN PINS
+export function tabButtons(active) {
+	return SCREENS.map((id, i) => ({ id: `tab:${id}`, x: FOOT.x + i * FOOT.pitch, y: FOOT.y, w: FOOT.tabW, h: FOOT.h, label: TAB_NAMES[id], enabled: true }));
 }
 
 // How far a point is from a button's box (Chebyshev distance), 0 inside it.
@@ -205,24 +131,36 @@ export function nextFocus(buttons, fromId, dir) {
 }
 
 /**
- * @description What a key does on the zoomed monitor
- * @param  {[string]} key [KeyboardEvent.key: W, A, S, D or an arrow moves, Enter or Space presses, Escape leaves]
- * @return {[string|null]} up, down, left, right, press, leave or null
+ * @description What a key does on the zoomed terminal
+ * @param  {[string]} key [KeyboardEvent.key]
+ * @param  {[boolean]} typing [whether the console's input has the keys]
+ * @return {[object|null]} { type: "leave" } on Escape always. Typing: run (Enter), erase (Backspace), cancel ("Cancel": Control + C), move up or down
+ * (the up & down arrows, Tab as down), char (a single letter the font draws, space included). Not typing: move (W, A, S, D
+ * & the arrows), press (Enter or space), tab (1 to 4, { id } a screen). Else null, so the browser keeps the key
  */
-export function keyAction(key) {
+export function keyAction(key, typing) {
 	if (typeof key !== "string") { return null; }
-	if (KEYS[key.toLowerCase()] && key.length === 1) { return KEYS[key.toLowerCase()]; }
-	if (ARROWS[key]) { return ARROWS[key]; }
-	if (key === "Enter" || key === " ") { return "press"; }
-	if (key === "Escape") { return "leave"; }
-	return null;
+	if (key === "Escape") { return { type: "leave" }; }
+	if (typing) {
+		if (key === "Enter") { return { type: "run" }; }
+		if (key === "Backspace") { return { type: "erase" }; }
+		if (key === "Cancel") { return { type: "cancel" }; } // CONTROL + C, AS ../pointer SENDS IT
+		if (key === "ArrowUp" || key === "ArrowDown") { return { type: "move", dir: ARROWS[key] }; }
+		if (key === "Tab") { return { type: "move", dir: "down" }; }
+		return key.length === 1 && drawable(key) ? { type: "char", char: key } : null;
+	}
+	if (key.length === 1 && KEYS[key.toLowerCase()]) { return { type: "move", dir: KEYS[key.toLowerCase()] }; }
+	if (ARROWS[key]) { return { type: "move", dir: ARROWS[key] }; }
+	if (key === "Enter" || key === " ") { return { type: "press" }; }
+	return /^[1-4]$/.test(key) ? { type: "tab", id: SCREENS[key - 1] } : null;
 }
 
 /**
  * @description What the screen reader says for a button
  * @param  {[object]} button
- * @param  {[object[]]} buttons [the tab row & the channel's buttons it is among]
- * @return {[string]} e.g. "Takeback, button, 2 of 4" or "Moves, tab, 3 of 6, selected", with ", unavailable" when disabled
+ * @param  {[object[]]} buttons [the footer tabs & the screen's buttons it is among]
+ * @return {[string]} e.g. "Takeback, button, 2 of 4" or "Mail, tab, 3 of 4", with ", selected" when the button says so
+ * & ", unavailable" when disabled
  */
 export function describe(button, buttons) {
 	const isTab = button.id.startsWith("tab:");
@@ -230,7 +168,7 @@ export function describe(button, buttons) {
 	if (button.id === "back") { text = "Back, button"; }
 	else if (isTab) {
 		const tabs = buttons.filter((b) => b.id.startsWith("tab:"));
-		text = `${NAMES[button.id.slice(4)]}, tab, ${tabs.findIndex((b) => b.id === button.id) + 1} of ${tabs.length}`;
+		text = `${sentence(button.label)}, tab, ${tabs.findIndex((b) => b.id === button.id) + 1} of ${tabs.length}`;
 		if (button.selected) { text += ", selected"; }
 	} else {
 		const own = buttons.filter((b) => b.id !== "back" && !b.id.startsWith("tab:"));

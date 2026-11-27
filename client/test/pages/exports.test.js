@@ -92,8 +92,8 @@ test("three/index.js answers as it did, with the mount and the facing in their o
 		"faceTravel", "fileOf", "fitCamera", "flipDuel", "focusCard", "focusMonitor", "focusTableButton", "forward", "glassCentre", "glassNormal",
 		"glassScale", "glassSize", "glideHome", "hasCards", "highlight", "highlightSquares", "holdStatuses", "homeYaw", "isCameraGesture", "leaveMonitor",
 		"liftCard", "monitorState", "mount", "offset", "openCardPile", "perfLoaded", "pickStatuses", "place", "playBoardStep", "pointer",
-		"pressTableButton", "raycaster", "relayPlaques", "removePiece", "requestRender", "resetCamera", "rowOf", "setCardTable", "setFace", "setFacing",
-		"setHeld", "setLabels", "setMonitor", "setPickable", "setPromotion", "setScreen", "setSide", "setTaken", "setYaw", "shadeOnGround",
+		"pressTableButton", "raycaster", "relayPlaques", "removePiece", "requestRender", "resetCamera", "rowOf", "setCardTable", "setFacing",
+		"setHeld", "setLabels", "setMonitor", "setPickable", "setPromotion", "setSide", "setTaken", "setYaw", "shadeOnGround",
 		"showTableButtons", "slotOf", "spherical", "squareUnder", "stopMotion", "storedYaw", "syncFromBoard", "syncStatuses", "table", "tablePoint",
 		"toCell", "toggleCardPile", "unmount", "view", "whenDrawn", "yawSide", "yawToward",
 	]);
@@ -118,7 +118,7 @@ test("three/pointer/ answers as pointer.js did, with the card and monitor picks 
 	checkSplit("three/pointer/index.js", subFilesOf("three/pointer/index.js", "pointer"), [
 		"PROMOTION_DEAD_ZONE", "PROMOTION_DEAD_ZONE_TOUCH", "createControls", "enterMonitor", "focusMonitor", "hoverBoard", "inPromotionDeadZone",
 		"leaveMonitor", "monitorIdle", "monitorInput", "monitorState", "onClick", "onKeyDown", "onMonitorShow", "onPointerDown", "onPointerLeave",
-		"onPointerMove", "onPointerUp", "onTouchTap", "rehover", "rehoverPlaque", "setMonitor",
+		"onPointerMove", "onPointerUp", "onTouchTap", "onWheel", "rehover", "rehoverPlaque", "setMonitor",
 	]);
 });
 
@@ -126,7 +126,7 @@ test("renderer/index.js answers as it did, with the draw, the card table, the 3D
 	checkSplit("renderer/index.js", subFilesOf("renderer/index.js", "renderer"), [
 		"VIEWS", "addBoardListener", "boardStep3D", "can3D", "currentView", "dealDuel3D", "drawBoard", "dropTablePiece3D", "endDuel3D", "enterMonitor3D",
 		"flipDuel3D", "focusMonitor3D", "focusTableButton3D", "glideHome3D", "holdTablePiece3D", "isCameraGesture", "leaveMonitor3D", "monitorState3D",
-		"onCardPick", "onTablePick", "onViewChange", "pressTableButton3D", "resetCamera", "setFace", "setMonitorHooks", "setTable3D", "setView",
+		"onCardPick", "onTablePick", "onViewChange", "pressTableButton3D", "resetCamera", "setMonitorHooks", "setTable3D", "setView",
 		"showTableButtons3D", "skipNextAnimation3D", "squareUnder3D", "stopMotion3D", "tablePileOpen3D", "toggleTablePile3D", "whenDrawn3D",
 	]);
 });

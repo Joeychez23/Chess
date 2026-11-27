@@ -9,8 +9,8 @@ const { showStatus, clearStatus, MESSAGE_TIME } = require("../status/index.js");
 const { syncAnalysis } = require("../analysis/index.js"); // THE HINT, WHAT A GAME FROM THE SERVER MEANS FOR THE HINT & THE EVALUATION BAR
 const { disarmConfirm } = require("../../pages/utils/confirm.js"); // FORFEIT & LOGOUT NEED A SECOND PRESS
 const { setUnavailable, setFill, stopFill } = require("../../pages/utils/menuItem.js"); // THE MENU ITEMS' STATES, LIKE THE OTHER PAGES
-const { setFace } = require("../renderer/index.js"); // 2D OR 3D, THE 3D CAMERA, THE 3D ROOM'S MONITOR (NOT gameplay/monitor: IT REQUIRES THIS FILE)
-const { endMomentFor, endFaceFor } = require("../bots/index.js"); // WHAT THE AI'S BOT SAYS WHEN THE GAME ENDS (#76)
+const { offerFrom } = require("../monitor/data.js"); // PURE, NO DOM
+const { endMomentFor } = require("../bots/index.js"); // WHAT THE AI'S BOT SAYS WHEN THE GAME ENDS (#76)
 const { sayLine } = require("../bots/say.js"); // & SAYS IT BESIDE THE BOARD
 import { moveInFlight, optBtn, syncDeadline, optRestartBtn, optResumeBtn, openMenu } from "./index.js";
 import { loadNewBoard, monitorHoldsMenu, placeEndGroup, showResult, optReplayBtn, resultAnnouncement, resultDisplay, resultReason } from "./endGame.js";
@@ -19,6 +19,22 @@ export const optTakebackBtn = document.getElementById("optTakeback"); // MENU: T
 export const optDrawBtn = document.getElementById("optDraw"); // MENU: OFFER DRAW, WHILE THE GAME IS GOING
 const drawPrompt = document.getElementById("drawPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S OFFER STANDS
 const takebackPrompt = document.getElementById("takebackPrompt"); // ACCEPT & DECLINE, WHILE THE OPPONENT'S TAKEBACK REQUEST STANDS
+/**
+ * @description The draw offer as the 3D monitor's terminal reads it
+ * @return {[string|null]} ["sent" | "incoming" | null]
+ */
+export function drawOffer() {
+	return offerFrom(drawSent, drawIncoming);
+}
+
+/**
+ * @description The takeback request as the 3D monitor's terminal reads it
+ * @return {[string|null]} ["sent" | "incoming" | null]
+ */
+export function takebackOffer() {
+	return offerFrom(takebackSent, takebackIncoming);
+}
+
 let drawBoard = null; // THE BOARD drawSent & drawIncoming ARE ABOUT, A MOVE ENDS THEM
 let drawSent = false; // THIS PLAYER USED THEIR OFFER FOR THIS MOVE
 let drawIncoming = false; // THE OPPONENT'S OFFER IS STANDING
@@ -313,7 +329,6 @@ export function showGameOver(result, onLoad) {
 	game.gameOver = true;
 	game.result = result; // THE 3D ROOM'S MONITOR SHOWS IT (gameplay/renderer)
 	if (game.ai && !onLoad) { sayLine(endMomentFor(result, game.playerColor == "w" ? "b" : "w")); } // THE BOT WON OR LOST, A DRAW SAYS NOTHING
-	if (game.ai) { setFace(endFaceFor(result, game.playerColor == "w" ? "b" : "w")); } // & ITS FACE HOLDS THE RESULT, ON A GAME THAT LOADED OVER TOO
 	syncDeadline(null);
 	disarmConfirm(); // THE GAME THE QUESTION WAS ABOUT ENDED, BEFORE THE BUTTON BECOMES REMATCH
 	stopFill(optRestartBtn); // A FORFEIT WAS WAITING ON THE SERVER, IT'S ANSWERED OR THE GAME ENDED ANOTHER WAY

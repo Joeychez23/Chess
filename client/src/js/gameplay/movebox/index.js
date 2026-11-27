@@ -373,12 +373,25 @@ function handleSubmit(e) {
  * @param  {[string]} text [the move]
  */
 function playTypedMove(text) {
+	const { reason } = typeMove(text);
+	if (reason) { refusal.textContent = reason; return; }
+	closeMoveBox();
+}
+
+/**
+ * @description Plays a typed move without the box (its input, refusal & open or closed state stay as they are), the box plays through this too.
+ * Its slide locks the board, so the same move sent again is refused ("Not your turn") instead of sent twice
+ * @param  {[string]} text [the move]
+ * @return {[object]} { san } | { reason } [san = chess.js's name for the move that's sliding, reason = why it can't be played, the box's wording]
+ */
+export function typeMove(text) {
+	if (game.readOnly || game.cardGame) { return { reason: "Moves can't be typed in this game" }; } // THE BOX ISN'T ON THERE (input/modes.js)
 	const { move, reason } = readTypedMove(text);
-	if (!move) { refusal.textContent = reason; return; }
+	if (!move) { return { reason }; }
 	if (game.clickedTile || game.mousedownTile || game.currPromotion) { refreshData(game.response); }
 	game.moveObj = { from: move.from, to: move.to, promotion: move.promotion, typed: true }; // typed: THE PIECE IS ALREADY CHOSEN, NO PICKER WHEN IT LANDS
-	closeMoveBox();
 	startTypedSlide();
+	return { san: move.san };
 }
 
 /* ---------------------------------------------------------------- */

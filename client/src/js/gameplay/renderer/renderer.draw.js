@@ -40,7 +40,6 @@ export function drawBoard() {
 	if (game.viewColor !== rendererState.state.tableSide) { tableUp(); }
 	syncCards3D();
 	syncMarks3D();
-	syncScreen3D();
 	syncMonitor3D();
 	const fen = chessInst.fen();
 	if (fen !== rendererState.state.shownFen) { // Unchanged: a sync would cut a slide short
@@ -106,38 +105,7 @@ function marks3D() {
 	return marks;
 }
 
-// Puts screen3D() on the monitor when it changed
-export function syncScreen3D() {
-	const state = screen3D();
-	const key = JSON.stringify(state);
-	if (key === rendererState.state.shownScreen) { return; }
-	rendererState.state.shownScreen = key;
-	rendererState.state.board3D.setScreen(state);
-}
-
-/**
- * @description What the library's monitor shows: the opponent (the AI's bot or a friend, by name) and a status line. Before a
- * game has loaded there's no name, and the monitor shows its test card
- * @return {[object]} { name, status, ai, thinking }
- */
-function screen3D() {
-	const response = game.response;
-	if (!response || response.status != 200) { return { name: "", status: "", ai: false, thinking: false }; }
-	const ai = Boolean(response.ai);
-	const name = ai ? game.bot?.name || "Computer" : response.opponent_name || "Opponent";
-	const theirTurn = chessInst.turn() !== game.playerColor;
-	let status = theirTurn ? (ai ? "thinking..." : "their move") : "your move";
-	if (game.gameOver || response.state == "CLOSED") {
-		const winner = (game.result || response).winner;
-		if (winner !== "w" && winner !== "b") { status = "draw"; }
-		else if (winner === game.playerColor) { status = "you win"; }
-		else if (ai) { status = "i win"; }
-		else { status = "you lose"; }
-	}
-	return { name, status, ai, thinking: ai && theirTurn && !game.gameOver };
-}
-
-// Puts the channels' data on the monitor when it changed
+// Puts the terminal's data on the monitor when it changed
 export function syncMonitor3D() {
 	if (!rendererState.state.monitorHooks) { return; }
 	const data = rendererState.state.monitorHooks.data();

@@ -1,21 +1,36 @@
 /*
  *  monitor.js  --  chess frontend
- *	The CRT Monitor's State Machine
- *	The monitor as the game's menu: idle on the desk, zooming in, zoomed (the tab row & the channel's buttons) & leaving.
- *	It is fed pointer hits in grid pixels & keys by ../index.js, & screen.js draws its view().
- *	The pure helpers (tab row, hit testing, focus, keys, zoom maths, screen reader text) are in controls.js.
- *	No DOM & no three.js here, so the tests load it in Node (client/test/monitor/monitor.test.js)
+ *	The Meridian Terminal's State Machine
+ *	The monitor on the desk: idle, zooming in, zoomed (the terminal takes the keys & the pointer) & leaving. It keeps the terminal's state
+ *	(the kept term & its windows, the input, the focus, each window's ui & scroll, the fault's phases) & builds what screen.js draws, view().
+ *	It is fed pointer hits in grid pixels & keys by ../pointer. The pure helpers are in controls.js (hit testing, focus, keys) & windows.js (geometry).
+ *	No DOM, no three.js & no timers here (time only through deps.now()), so the tests load it in Node (client/test/monitor/monitor.test.js)
  *
  */
 
-import { W, H, NAMES, sentence } from "./kit.js";
-import { CHANNEL } from "./channels/index.js";
-import { slots } from "./channels/actions.js";
-import { clean, loadPrefs as loadStored, savePrefs as saveStored } from "./prefs.js";
-import { tabButtons, available, describe, YOUR_MOVE, idleChannel, hit, keyAction, nextFocus } from "./controls.js";
-export {
-	ORDER, YOUR_MOVE, uvToGrid, zoomDistance, isTap, available, idleChannel, tabButtons, litTab, hit, nextFocus, keyAction, describe
-} from "./controls.js";
+import { themeFor } from "./themes.js";
+import { clean as cleanPrefs, defaults, loadPrefs as loadStoredPrefs, savePrefs as saveStoredPrefs } from "./prefs.js";
+import { blank, clean as cleanTerm, loadTerm as loadStoredTerm, saveTerm as saveStoredTerm, LINES_MAX, LOG_MAX, MAIL_MAX } from "./store.js";
+import { eventsFrom, plies } from "./events.js";
+import { INPUT_MAX, run } from "./commands.js";
+import { nextPhase, bootLines, FAULT_MS, SPLASH_MS, LINE_MS } from "./boot.js";
+import { tabButtons, hit, nextFocus, keyAction, describe } from "./controls.js";
+import { IDS, TABBED, TITLES, open as openWin, close as closeWin, shown, front, at as winAt, move, resize, parts, thumbTo, page } from "./windows.js";
+import { SCREEN, NAMES } from "./screens/index.js";
+export { uvToGrid, zoomDistance, isTap } from "./controls.js"; // FOR THE CALLERS THAT IMPORTED THEM FROM HERE
+
+const OUTSIDE = ["hint", "takeback", "draw", "declineDraw", "declineTakeback", "restart", "forfeit", "sound", "move"];
+const HINT = ["Type help for commands.", "dim"]; // THE ONE LINE OF A BLANK OR EMPTIED CONSOLE
+
+// A storage read that falls back when the storage throws
+function attempt(fn, fallback) {
+	try { return fn(); } catch { return fallback(); }
+}
+
+const inside = (r, x, y) => Boolean(r) && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+// The scroll along one axis that shows [pos, pos + len) in a view of size at scroll s, moving as little as it can
+// (one longer than the view shows its start)
+const showing = (pos, len, s, size) => (pos < s || len > size ? pos : pos + len > s + size ? pos + len - size : s);
 
 /* ---------------------------------------------------------------- */
 // Monitor
@@ -23,234 +38,447 @@ export {
 
 /**
  * @description Makes the monitor's state machine
- * @param  {[object]} deps [show() when view() changed, announce(text) for the screen reader (the channel, what it shows,
- *                          the focused button & the banner), handlers (hint, takeback, draw, restart, pgn, watchEval(on)),
- *                          loadPrefs() & savePrefs(prefs) (prefs.js's by default), reduce() whether motion is reduced]
- * @return {[object]} monitor: state, channel, focus, handlers, update, enter, arrived, leave, left, reset, pointer, deskFocus, key, view
+ * @param  {[object]} deps [show() when view() changed, announce(text) for the screen reader, handlers (the game's: hint, takeback, draw,
+ *                          declineDraw, declineTakeback, restart, forfeit, sound, move), loadPrefs() & savePrefs(prefs) (prefs.js's),
+ *                          loadTerm() & saveTerm(term) (store.js's), reduce() whether motion is reduced, now() ms (Date.now)]
+ * @return {[object]} monitor: state, handlers, update, enter, arrived, leave, left, reset, pointer, deskFocus, key, view
  */
 export function createMonitor(deps) {
 	const reduce = deps.reduce || (() => false);
+	const now = deps.now || Date.now;
 	const outside = deps.handlers || {};
-	const save = deps.savePrefs || saveStored;
-	let prefs = (deps.loadPrefs || loadStored)();
+	const storePrefs = deps.savePrefs || saveStoredPrefs;
+	const storeTerm = deps.saveTerm || saveStoredTerm;
+	let prefs = cleanPrefs(attempt(deps.loadPrefs || loadStoredPrefs, defaults));
+	const term = cleanTerm(attempt(deps.loadTerm || loadStoredTerm, blank));
+	// What the commands keep between lines: the board's side & a confirmation waiting for its second word.
+	const cmd = { flipped: term.flipped, confirm: null };
+	// Per window, in memory only: its screen's state & its scroll; the Log follows its bottom until scrolled away from it.
+	const ui = Object.fromEntries(IDS.map((id) => [id, {}]));
+	const scroll = Object.fromEntries(IDS.map((id) => [id, { x: 0, y: 0 }]));
+	let follow = true;
 	let data = null;
-	// Each channel's own state, cleared when the monitor is back on the desk.
-	let uis = {};
-	let burst = false;
-	// The "your move" banner is up.
-	let yourMove = false;
-	// The game ended during the zoom-in; arrived() shows it.
-	let endedZooming = false;
-	// The connection was lost during the zoom-in; arrived() shows the opponent channel.
-	let offlineZooming = false;
-	let watching = false;
-	let spokenBanner = null;
-	// What the screen reader was last told the showing channel shows.
-	let spokenChannel = null, spokenContent = null;
-	// The keyboard's focus is on the screen (deskFocus). The page's focus owns this, so it outlives a zoom and a reset.
+	let input = "";
+	let focus = null, hover = null, at = null;
 	let keyFocus = false;
+	let keys = true; // THE FOCUS SHOWS: IT WAS LAST MOVED BY THE KEYBOARD. A POINTER PRESS LEAVES NO BUTTON LIT ONCE THE POINTER IS OFF IT
+	const seen = () => (keys || focus === "console" ? focus : null); // THE CONSOLE'S FOCUS IS ITS CURSOR: IT ALWAYS SHOWS
+	let drag = null; // { kind: move | resize | thumb, id, x, y (where it started), win (the record then), axis, off }
+	let raised = false; // a "down" brought a window to the front: saved when the press ends
+	// The fault & the maker's screen
+	// THE MAKER'S SCREEN, THEN THE BOOT LINES, PLAY EACH TIME THE TERMINAL STARTS (EVERY PAGE LOAD), FROM THE FIRST DATA; NOT UNDER REDUCED MOTION, & NOT WHEN deps.boot IS false
+	const booting = () => deps.boot !== false && !reduce();
+	const bootCount = () => (booting() ? bootLines(data).length : 0);
+	let phase = booting() ? "splash" : null;
+	let phaseAt = null;
+	let onlineAt = -Infinity;
+	const startedAt = now();
+	let movedAt = null;
 
-	const monitor = { state: "idle", channel: null, focus: null, hover: null };
+	const monitor = { state: "idle" };
 
-	// The data a channel sees.
-	function channelData() {
-		return { ...data, prefs, ui: uis[monitor.channel] || {}, zoomed: monitor.state === "zoomed" };
+	const save = () => attempt(() => storeTerm(term), () => false);
+	const zoomedNow = () => monitor.state === "zoomed";
+	// The screen reader hears nothing on the desk.
+	const say = (text) => { if (text && zoomedNow()) { deps.announce(text); } };
+	const winOf = (id) => term.wins.find((w) => w.id === id);
+	const frontId = () => (front(term.wins) || {}).id || null;
+	const stamp = () => {
+		const t = new Date(now());
+		return `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+	};
+
+	/* ---------------- Layout ---------------- */
+
+	// The data every screen gets
+	function baseData() {
+		return { ...data, T: themeFor(prefs.theme), term, input, zoomed: zoomedNow(), reduce: Boolean(reduce()), now: now(), startedAt, movedAt };
 	}
 
-	// The tab row and the channel's buttons, empty unless zoomed.
-	function rows() {
-		if (monitor.state !== "zoomed" || !data) { return { tabs: [], buttons: [] }; }
-		return {
-			tabs: tabButtons(available(data, prefs), monitor.channel),
-			buttons: CHANNEL[monitor.channel].buttons(channelData())
-		};
-	}
-
-	// Tells the screen reader which button has the focus.
-	function sayFocus() {
-		const { tabs, buttons } = rows();
-		const all = [...tabs, ...buttons];
-		const button = all.find((b) => b.id === monitor.focus);
-		if (button) { deps.announce(describe(button, all)); }
-	}
-
-	// The only banner across the zoomed screen is "your move". A finished game has none (the actions channel shows the result),
-	// and there is none while the connection is lost.
-	function banner() {
-		if (monitor.state !== "zoomed" || !data || data.over || data.offline) { return null; }
-		return yourMove ? YOUR_MOVE : null;
-	}
-
-	// What the showing channel says it shows, or "" when it says nothing.
-	function speech() {
-		const channel = CHANNEL[monitor.channel];
-		return typeof channel.speak === "function" ? channel.speak(channelData()) : "";
-	}
-
-	// Tells the screen reader the showing channel's name and what it shows.
-	function sayChannel() {
-		spokenChannel = monitor.channel;
-		spokenContent = speech();
-		deps.announce(spokenContent ? `${NAMES[monitor.channel]} channel. ${spokenContent}` : `${NAMES[monitor.channel]} channel`);
-	}
-
-	// Shows a channel while zoomed, with the focus on its tab (or on its first enabled button).
-	function switchTo(id, intoButtons = false) {
-		if (id === monitor.channel) { return; }
-		monitor.channel = id;
-		// Fresh slots each time the actions channel is entered.
-		if (id === "actions") { uis.actions = { ...uis.actions, slots: slots(undefined, data.actions, data.over), confirm: null }; }
-		if (monitor.state === "zoomed") {
-			const first = intoButtons ? rows().buttons.find((b) => b.enabled) : null;
-			monitor.focus = first ? first.id : `tab:${id}`;
-			burst = !reduce();
-			sayChannel();
-			sayFocus();
+	// A window laid out: its screen data sized to the view its bars leave, its content's size & its parts (with the clamped scroll)
+	function layout(win, d = baseData()) {
+		const mod = SCREEN[win.id];
+		const isFront = frontId() === win.id;
+		const dataFor = (view) => ({ ...d, ui: ui[win.id], focus: isFront ? seen() : null, hover: isFront ? hover : null, box: { w: view.w, h: view.h } });
+		let v = dataFor(parts(win, null).view);
+		let content = mod.size(v);
+		let p = parts(win, content, scroll[win.id]);
+		// A bar narrows the view & a reflowing screen sizes to its box: ask again until they agree (a bar can come & go once each)
+		for (let i = 0; i < 2 && (p.view.w !== v.box.w || p.view.h !== v.box.h); i++) {
+			v = dataFor(p.view);
+			content = mod.size(v);
+			p = parts(win, content, scroll[win.id]);
 		}
+		// The kept scroll clamped to this size, so a resize leaves no stale scroll; the Log follows again when that puts it at its bottom
+		if (win.id === "log") {
+			follow = follow || p.scroll.y >= p.max.y;
+			if (follow && p.scroll.y !== p.max.y) { p = parts(win, content, { ...p.scroll, y: p.max.y }); }
+		}
+		scroll[win.id] = p.scroll;
+		return { id: win.id, title: TITLES[win.id], front: isFront, p, content, v };
 	}
 
-	// The game ended while zoomed: switch to the actions channel (the result, restart and download PGN) with the focus on its
-	// first button. Without an actions channel, just say the result.
-	function ended() {
-		if (!available(data, prefs).includes("actions")) {
-			if (data.result) { deps.announce(sentence(data.result)); }
+	// A laid-out window's buttons in grid pixels, those not wholly inside its view marked hidden, then its close box
+	function winButtons(L) {
+		const { view, scroll: s } = L.p;
+		const own = SCREEN[L.id].buttons(L.v).map(function (b) {
+			const x = view.x + b.x - s.x, y = view.y + b.y - s.y;
+			return inside(view, x, y) && inside(view, x + b.w - 1, y + b.h - 1) ? { ...b, x, y } : { ...b, x, y, hidden: true };
+		});
+		return [...own, { id: "win:close", ...L.p.close, label: "Close", enabled: true }];
+	}
+
+	const frontLayout = () => (front(term.wins) ? layout(front(term.wins)) : null);
+	const frontButtons = () => { const L = frontLayout(); return L ? winButtons(L) : []; };
+
+	// The footer tabs: lit while their window is open, selected for the front window
+	const tabs = () => tabButtons().map(function (b) {
+		const w = winOf(b.id.slice(4));
+		return { ...b, lit: w.open, selected: b.id === `tab:${frontId()}` };
+	});
+	const allButtons = () => [...frontButtons(), ...tabs()];
+
+	/* ---------------- Focus & scroll ---------------- */
+
+	// Scrolls a window, clamped; the Log follows its bottom again once scrolled back to it. Whether the scroll changed
+	function scrollTo(id, s) {
+		const L = layout(winOf(id));
+		const next = parts(winOf(id), L.content, s).scroll;
+		scroll[id] = next;
+		if (id === "log") { follow = next.y >= L.p.max.y; }
+		return next.x !== L.p.scroll.x || next.y !== L.p.scroll.y;
+	}
+
+	// Scrolls the front window just enough to show its focused content button
+	function reveal() {
+		const L = frontLayout();
+		const b = L && SCREEN[L.id].buttons(L.v).find((x) => x.id === focus);
+		if (!b) { return; }
+		const { view, scroll: s } = L.p;
+		scrollTo(L.id, { x: showing(b.x, b.w, s.x, view.w), y: showing(b.y, b.h, s.y, view.h) });
+	}
+
+	// Moves the focus to a button & says it
+	function focusOn(id) {
+		focus = id;
+		reveal();
+		const all = allButtons();
+		const b = all.find((x) => x.id === id);
+		if (b) { say(describe(b, all)); }
+	}
+
+	// Where the focus rests on the front window: the console on Session, its tab, or its close box (Diagnostics, Theme);
+	// with no window showing, the tab of `fallback` (else Session's)
+	function home(fallback) {
+		const id = frontId();
+		if (!id) { return `tab:${TABBED.includes(fallback) ? fallback : "session"}`; }
+		if (id === "session") { return "console"; }
+		return TABBED.includes(id) ? `tab:${id}` : "win:close";
+	}
+
+	// Keeps the focus & the hover on what exists: a focus on a button that is gone goes home
+	function repair() {
+		const ids = allButtons().map((b) => b.id);
+		if (hover !== null && (phase || !ids.includes(hover))) { hover = null; }
+		if (focus === null || ids.includes(focus)) { return; }
+		focusOn(home());
+	}
+
+	// Every redraw goes through the repair, so no stale focus reaches the view
+	const show = () => { repair(); deps.show(); };
+
+	/* ---------------- Windows ---------------- */
+
+	// Opens a window or brings it to the front, focused & announced; one already in front stays as it is
+	function bring(id, later = false) {
+		if (!SCREEN[id] || frontId() === id) { return; }
+		term.wins = openWin(term.wins, id);
+		if (later) { raised = true; } else { save(); }
+		const L = layout(winOf(id));
+		// Its first button in view
+		const first = winButtons(L).find((b) => b.enabled && !b.hidden && !b.id.startsWith("win:"));
+		focus = id === "session" ? "console" : first ? first.id : home();
+		say(`${NAMES[id]} window. ${SCREEN[id].speak(L.v)}`);
+	}
+
+	// Closes a window: where it is & its size are kept, its ui & scroll reset; the focus goes to the new front window
+	function hide(id) {
+		term.wins = closeWin(term.wins, id);
+		ui[id] = {};
+		scroll[id] = { x: 0, y: 0 };
+		if (id === "log") { follow = true; }
+		say(`${NAMES[id]} closed.`);
+		save();
+		focusOn(home(id));
+	}
+
+	// A footer tab: closed opens in front, behind comes to the front, in front closes
+	function tabPress(id) {
+		if (frontId() === id) { hide(id); } else { bring(id); }
+	}
+
+	// Runs a focused or pressed id: a tab, the front window's boxes or one of its content buttons
+	function activate(id) {
+		if (id.startsWith("tab:")) { tabPress(id.slice(4)); return; }
+		const L = frontLayout();
+		if (!L) { return; }
+		if (id === "win:close") { hide(L.id); }
+		else { SCREEN[L.id].press(id, handlers, L.v); }
+	}
+
+	/* ---------------- Pointer ---------------- */
+
+	// The tab under a point: the footer is below the desk, so no window covers it
+	const tabAt = (x, y) => (winAt(term.wins, x, y) ? null : hit(tabs(), x, y));
+
+	// The content button of a laid-out window drawn under a grid point: the point in its view (not on the grip), never a button scrolled out of it
+	function contentAt(L, x, y) {
+		const { view, scroll: s } = L.p;
+		if (!inside(view, x, y) || inside(L.p.grip, x, y)) { return null; } // THE GRIP CAN LIE IN A VIEW WITH NO BARS
+		const seen = SCREEN[L.id].buttons(L.v).filter((b) => b.x < s.x + view.w && b.x + b.w > s.x && b.y < s.y + view.h && b.y + b.h > s.y);
+		return hit(seen, x - view.x + s.x, y - view.y + s.y);
+	}
+
+	// What the pointer hovers: a tab, the front window's boxes or one of its buttons (other windows' buttons do not hover)
+	function hoverAt(x, y) {
+		if (phase) { return null; }
+		const t = tabAt(x, y);
+		if (t) { return t.id; }
+		const w = winAt(term.wins, x, y);
+		if (!w || w.id !== frontId()) { return null; }
+		const L = layout(winOf(w.id));
+		if (inside(L.p.close, x, y)) { return "win:close"; }
+		const b = contentAt(L, x, y);
+		return b ? b.id : null;
+	}
+
+	// The topmost window under a point brought to the front, laid out; null when there is none
+	function grab(x, y, later = false) {
+		const w = winAt(term.wins, x, y);
+		if (!w) { return null; }
+		bring(w.id, later);
+		return layout(winOf(w.id));
+	}
+
+	// A tap: a tab, else by the part of the window under it
+	function pressAt(x, y) {
+		const t = tabAt(x, y);
+		if (t) { focus = t.id; tabPress(t.id.slice(4)); return; }
+		const L = grab(x, y);
+		if (!L) { return; }
+		const { p } = L;
+		if (inside(p.close, x, y)) { hide(L.id); return; }
+		for (const [axis, bar, th] of [["y", p.vbar, p.vthumb], ["x", p.hbar, p.hthumb]]) {
+			if (!inside(bar, x, y)) { continue; }
+			if (!inside(th, x, y)) { // THE TRACK PAGES TOWARDS THE POINT
+				const dir = (axis === "y" ? y < th.y : x < th.x) ? -1 : 1;
+				scrollTo(L.id, { ...p.scroll, [axis]: page(winOf(L.id), L.content, p.scroll, axis, dir) });
+			}
 			return;
 		}
-		if (monitor.channel !== "actions") { switchTo("actions", true); return; }
-		// Already on it: the result is new content, and sync() says it.
-		const first = rows().buttons.find((b) => b.enabled);
-		if (first && first.id !== monitor.focus) {
-			monitor.focus = first.id;
-			sayFocus();
+		const b = contentAt(L, x, y);
+		if (!b) { return; }
+		focus = b.id;
+		reveal();
+		activate(b.id);
+	}
+
+	// A press held down: the window comes to the front & a drag starts on its title bar, its grip or a thumb
+	// shortcut: there is no keyboard way to move or resize a window; everything in one is still reached by keys because it scrolls
+	function down(x, y) {
+		up();
+		const L = grab(x, y, true);
+		if (!L || inside(L.p.close, x, y)) { return; }
+		const { p } = L, start = { id: L.id, x, y, win: winOf(L.id) };
+		if (inside(p.grip, x, y)) { drag = { ...start, kind: "resize" }; } // FIRST ONLY AS A SAFEGUARD: NO BAR OR THUMB REACHES THE GRIP
+		else if (inside(p.title, x, y)) { drag = { ...start, kind: "move" }; }
+		else if (inside(p.vthumb, x, y)) { drag = { ...start, kind: "thumb", axis: "y", off: y - p.vthumb.y }; }
+		else if (inside(p.hthumb, x, y)) { drag = { ...start, kind: "thumb", axis: "x", off: x - p.hthumb.x }; }
+	}
+
+	// The drag carried on: the window moved or resized by the distance from where it started (so the grabbed point stays under
+	// the pointer after it met an edge), or the thumb kept under the point where it was grabbed
+	function dragTo(x, y) {
+		const w = winOf(drag.id);
+		if (!w.open || w.min) { drag = null; return; }
+		if (drag.kind === "thumb") {
+			const L = layout(w), pos = (drag.axis === "y" ? y : x) - drag.off;
+			scrollTo(drag.id, { ...L.p.scroll, [drag.axis]: thumbTo(w, L.content, drag.axis, pos) });
+			return;
+		}
+		const next = (drag.kind === "move" ? move : resize)(drag.win, x - drag.x, y - drag.y);
+		term.wins = term.wins.map((r) => (r.id === drag.id ? next : r));
+	}
+
+	// The press ends (or is cut short); a window raised, moved or resized is saved once, here
+	function up() {
+		const w = drag && drag.kind !== "thumb" && winOf(drag.id);
+		if (raised || (w && ["x", "y", "w", "h"].some((k) => w[k] !== drag.win[k]))) { save(); }
+		drag = null;
+		raised = false;
+	}
+
+	/* ---------------- Terminal ---------------- */
+
+	// Prints a line, logs it & mails it when it has a kind; all capped
+	function record(text, tone, kind) {
+		const time = stamp();
+		term.lines = [...term.lines, [`${time} ${text}`, tone]].slice(-LINES_MAX);
+		term.log = [...term.log, [time, text, tone]].slice(-LOG_MAX);
+		if (kind) { term.mail = [...term.mail, { kind, at: time, text, read: false }].slice(-MAIL_MAX); }
+	}
+
+	// When a phase ends, from its start
+	function endOf(p, from) {
+		if (p === "boot") { return from + bootCount() * LINE_MS; }
+		return p === "fault" ? Math.max(from + FAULT_MS, onlineAt) : from + SPLASH_MS;
+	}
+
+	// Runs the phases on to now: fault, splash, the boot lines, then the desktop
+	function advance() {
+		while (phase && phaseAt !== null) {
+			const next = nextPhase(phase, now() - phaseAt, { offline: Boolean(data && data.offline), lines: bootCount() });
+			if (next === phase) { return; }
+			phaseAt = endOf(phase, phaseAt);
+			phase = next;
 		}
 	}
 
-	// Keeps everything consistent after a change, then redraws.
-	function sync() {
-		if (data) {
-			// On the desk with no default channel set, the monitor keeps the last tab. It takes the game's own default at the start,
-			// or when that tab goes away.
-			if (monitor.state === "idle") {
-				const keep = !prefs.defaultChannel && !(data.offline && !data.over) && available(data, prefs).includes(monitor.channel);
-				if (!keep) { monitor.channel = idleChannel(data, prefs); }
+	const handlers = {
+		screen(id) {
+			bring(id);
+			show();
+		},
+		ui(patch) {
+			const { typing, ...rest } = patch || {};
+			if (typing) { focus = "console"; }
+			const id = frontId();
+			if (id) { ui[id] = { ...ui[id], ...rest }; }
+			show();
+		},
+		clear() {
+			term.lines = [HINT];
+			save();
+			show();
+		},
+		exit() {
+			monitor.leave();
+			show();
+		},
+		prefs(patch) {
+			prefs = cleanPrefs({ ...prefs, ...patch });
+			attempt(() => storePrefs(prefs), () => false);
+			show();
+		},
+		read(i) {
+			if (term.mail[i]) {
+				term.mail[i].read = true;
+				save();
 			}
-			// The showing channel went away.
-			else if (!available(data, prefs).includes(monitor.channel)) { switchTo("setup"); }
-			if (monitor.state !== "idle" && monitor.channel === "actions") {
-				const ui = uis.actions || {};
-				const draw = data.actions.find((a) => a.id === "draw");
-				// A draw offer that is no longer available cancels its confirmation prompt.
-				uis.actions = { ...ui, slots: slots(ui.slots, data.actions, data.over), confirm: draw && draw.enabled ? ui.confirm : null };
-			}
-			if (monitor.state === "zoomed") {
-				const said = speech();
-				// What it shows changed (a new move, a new score): one line for the screen reader.
-				if (monitor.channel === spokenChannel && said !== spokenContent) {
-					spokenContent = said;
-					if (said) { deps.announce(said); }
-				}
-				const { tabs, buttons } = rows();
-				// The focused button went away.
-				if (![...tabs, ...buttons].some((b) => b.id === monitor.focus)) {
-					const first = buttons.find((b) => b.enabled);
-					monitor.focus = first ? first.id : `tab:${monitor.channel}`;
-					sayFocus();
-				}
-			}
-		}
-		const on = monitor.channel === "eval";
-		if (on !== watching) {
-			watching = on;
-			if (typeof outside.watchEval === "function") { outside.watchEval(on); }
-		}
-		const text = banner();
-		if (text !== spokenBanner) {
-			spokenBanner = text;
-			if (text) { deps.announce(text === YOUR_MOVE ? "Your move" : text); }
-		}
-		deps.show();
+			show();
+		},
+	};
+	for (const name of new Set([...OUTSIDE, ...Object.keys(outside)])) {
+		if (handlers[name]) { continue; }
+		handlers[name] = (...args) => {
+			const out = typeof outside[name] === "function" ? outside[name](...args) : undefined;
+			show();
+			return out;
+		};
 	}
 
 	// Straight back to the desk.
 	function toIdle() {
 		monitor.state = "idle";
-		monitor.focus = null;
-		monitor.hover = null;
-		uis = {};
-		burst = false;
-		yourMove = false;
-		// A zoom-in that turned back: the next one finds the game already over.
-		endedZooming = false;
-		// The next zoom-in starts from the desk's opponent channel anyway.
-		offlineZooming = false;
-		spokenChannel = spokenContent = null;
-		sync();
+		up();
+		focus = hover = at = null;
+		cmd.confirm = null;
+		show();
 	}
 
-	// On the desk, the hover is the centre of the third of the grid the pointer is in. The face's eyes only look by thirds,
-	// so a move inside one third needs no redraw.
-	function deskHover(x) {
-		const third = Math.min(2, Math.max(0, Math.floor((x * 3) / W)));
-		const at = { x: Math.round((W * (third * 2 + 1)) / 6), y: H / 2 };
-		const was = monitor.hover;
-		if (was && was.x === at.x && was.y === at.y) { return; }
-		monitor.hover = at;
-		deps.show();
+	// Runs the typed line
+	function runInput() {
+		if (!input) { return; }
+		const line = input;
+		input = "";
+		term.lines = [...term.lines, ["> " + line, "dim"]];
+		const reply = run(line, { data: data || {}, handlers, term: cmd });
+		term.lines = [...term.lines, ...reply].slice(-LINES_MAX);
+		term.flipped = cmd.flipped;
+		save();
+		say(reply.map((l) => l[0]).join(" "));
 	}
 
-	// Presses a button by its id.
-	function press(id) {
-		if (id === "back") { monitor.leave(); return; }
-		if (id.startsWith("tab:")) { handlers.tab(id.slice(4)); return; }
-		CHANNEL[monitor.channel].press(id, handlers, channelData());
-		sync();
+	// A key while typing in the console
+	function typingKey(action) {
+		if (action.type === "char") { if (input.length < INPUT_MAX) { input += action.char; } }
+		else if (action.type === "erase") { input = input.slice(0, -1); }
+		else if (action.type === "cancel") { // CONTROL + C: THE LINE IS DROPPED & A QUESTION WAITING FOR ITS ANSWER WITH IT. WHAT WAS TYPED STAYS IN THE CONSOLE AS A LINE (NO ^C), KEPT UNTIL CLEARED
+			if (input) {
+				term.lines = [...term.lines, ["> " + input, "dim"]].slice(-LINES_MAX);
+				save();
+			}
+			input = "";
+			cmd.confirm = null;
+			say("Cancelled.");
+		}
+		else if (action.type === "move") { focusOn("tab:session"); }
+		else { runInput(); }
+		show();
+		return true;
 	}
-
-	const handlers = {
-		...outside,
-		ui(patch) {
-			uis[monitor.channel] = { ...uis[monitor.channel], ...patch };
-			sync();
-		},
-		prefs(patch) {
-			prefs = clean({ ...prefs, ...patch });
-			save(prefs);
-			sync();
-		},
-		back() { monitor.leave(); },
-		tab(id) {
-			if (!data || monitor.state === "idle" || !available(data, prefs).includes(id)) { return; }
-			switchTo(id);
-			sync();
-		},
-	};
 
 	return Object.assign(monitor, {
 		handlers,
 
 		/**
-		 * @description Takes new game data
-		 * @param  {[object]} next [the data, see common shapes]
+		 * @description Takes new game data (never changed here)
+		 * @param  {[object]} next [the game data d]
 		 */
 		update(next) {
-			const was = data ? data.yourTurn : false;
-			// Only on the update where the game ends.
-			const end = Boolean(data && !data.over && next.over);
-			// Only on the update where the connection drops, so the player can change tabs after it.
-			const lost = Boolean(next.offline && !next.over && !(data && data.offline));
-			data = next;
-			if (monitor.state === "zoomed") {
-				if (!next.yourTurn) { yourMove = false; }
-				// Only on the update where it becomes the player's turn.
-				else if (!was) { yourMove = true; }
-				if (end) { ended(); }
-				if (lost) { switchTo("opponent"); }
-			} else if (monitor.state === "zooming") {
-				// Nothing to switch yet, the camera is on its way: arrived() acts on these.
-				if (end) { endedZooming = true; }
-				if (lost) { offlineZooming = true; }
+			const prev = data;
+			const d = next || {};
+			data = d;
+			let changed = false;
+			if (!prev) {
+				if (phase) { phaseAt = now(); } // THE START'S CLOCK RUNS FROM THE FIRST DATA
+				if (!term.lines.length) {
+					term.lines = [HINT];
+					changed = true;
+				}
+				if ((term.gameId ?? null) !== (d.gameId ?? null)) {
+					record("New session opened.", "ink", null);
+					term.gameId = d.gameId ?? null;
+					changed = true;
+				}
+				movedAt = now();
+			} else {
+				for (const e of eventsFrom(prev, d)) {
+					record(e.text, e.tone, e.mail);
+					say(e.text);
+					changed = true;
+				}
+				if (prev.gameId !== d.gameId) {
+					term.gameId = d.gameId ?? null;
+					cmd.confirm = null;
+					changed = true;
+				}
+				if (plies(prev).length !== plies(d).length) { movedAt = now(); }
+				if (prev.offline && !d.offline) { onlineAt = now(); }
 			}
-			sync();
+			if (d.offline && !(prev && prev.offline)) {
+				if (!prev) { record("Line fault.", "hot", "fault"); } // LATER DROPS COME THROUGH eventsFrom
+				term.lines = [HINT];
+				input = "";
+				cmd.confirm = null;
+				drag = null; // THIS UPDATE'S SAVE KEEPS THE DRAG SO FAR
+				raised = false;
+				phase = "fault";
+				phaseAt = now();
+				changed = true;
+			}
+			if (changed) { save(); }
+			show();
 		},
 
 		/**
@@ -260,7 +488,7 @@ export function createMonitor(deps) {
 			if (monitor.state !== "idle" || !data) { return; }
 			monitor.state = "zooming";
 			if (reduce()) { monitor.arrived(); return; }
-			sync();
+			show();
 		},
 
 		/**
@@ -268,22 +496,14 @@ export function createMonitor(deps) {
 		 */
 		arrived() {
 			if (monitor.state !== "zooming") { return; }
-			// Still zooming here, so switchTo() only changes the channel; the lines below announce it.
-			if (offlineZooming) {
-				offlineZooming = false;
-				if (data.offline) { switchTo("opponent"); }
-			}
+			advance();
 			monitor.state = "zoomed";
-			monitor.focus = `tab:${monitor.channel}`;
-			sayChannel();
-			sync();
-			sayFocus();
-			// The same as the game ending while zoomed: the result, restart and download PGN.
-			if (endedZooming) {
-				endedZooming = false;
-				ended();
-				sync();
-			}
+			const L = frontLayout();
+			if (L) {
+				focus = home();
+				say(`${NAMES[L.id]} window. ${SCREEN[L.id].speak(L.v)}`);
+			} else { focusOn(home()); }
+			show();
 		},
 
 		/**
@@ -293,10 +513,10 @@ export function createMonitor(deps) {
 			if (monitor.state !== "zoomed" && monitor.state !== "zooming") { return; }
 			if (reduce()) { toIdle(); return; }
 			monitor.state = "leaving";
-			monitor.focus = null;
-			monitor.hover = null;
-			yourMove = false;
-			sync();
+			up();
+			focus = hover = at = null;
+			cmd.confirm = null;
+			show();
 		},
 
 		/**
@@ -313,106 +533,129 @@ export function createMonitor(deps) {
 
 		/**
 		 * @description A pointer on the glass
-		 * @param  {[string]} kind [move, press or out]
+		 * @param  {[string]} kind [move, out, press (a tap), down, drag, up or wheel]
 		 * @param  {[number]} x [grid pixels]
 		 * @param  {[number]} y
-		 * @return {[string|null]} zoom when ../index.js should zoom in (it calls enter()), leave when BACK was pressed
+		 * @param  {[object]} [extra] [wheel: { dx, dy } in grid pixels]
+		 * @return {[string|null]} zoom when the caller should zoom in (it calls enter()), leave when the press made the monitor leave
 		 * (leave() already ran), else null
 		 */
-		pointer(kind, x, y) {
+		pointer(kind, x, y, extra) {
+			advance();
+			repair();
 			if (kind === "out") {
-				if (monitor.hover !== null) { monitor.hover = null; deps.show(); }
+				if (hover !== null || at !== null) { hover = at = null; show(); }
 				return null;
 			}
-			if (monitor.state === "idle") {
-				if (kind === "move") { deskHover(x); }
-				return kind === "press" && data ? "zoom" : null;
-			}
-			if (monitor.state !== "zoomed") { return null; }
-			const { tabs, buttons } = rows();
-			// Tabs first.
-			const button = hit([...tabs, ...buttons], x, y);
+			if (kind === "up") { up(); return null; } // IN ANY STATE OR PHASE, SO NO DRAG OUTLIVES ITS PRESS
+			if (monitor.state === "idle") { return kind === "press" && data ? "zoom" : null; }
+			if (!zoomedNow()) { return null; }
 			if (kind === "move") {
-				const id = button ? button.id : null;
-				if (id !== monitor.hover) { monitor.hover = id; deps.show(); }
+				const id = hoverAt(x, y);
+				if (at && at.x === x && at.y === y && id === hover) { return null; }
+				keys = false;
+				at = { x, y };
+				hover = id;
+				show();
 				return null;
 			}
-			if (kind !== "press" || !button) { return null; }
-			press(button.id);
-			return button.id === "back" ? "leave" : null;
+			if (phase) { up(); return null; }
+			if (kind === "down" || kind === "press") { keys = false; }
+			if (kind === "down") { down(x, y); show(); return null; }
+			if (kind === "drag") { if (drag) { dragTo(x, y); show(); } return null; }
+			if (kind === "wheel") {
+				const w = winAt(term.wins, x, y), e = extra || {};
+				if (w) {
+					const { p } = layout(winOf(w.id));
+					if (scrollTo(w.id, { x: p.scroll.x + (Number(e.dx) || 0), y: p.scroll.y + (Number(e.dy) || 0) })) { show(); }
+				}
+				return null;
+			}
+			if (kind !== "press") { return null; }
+			pressAt(x, y);
+			show();
+			return zoomedNow() ? null : "leave";
 		},
 
 		/**
-		 * @description The keyboard's focus came to the screen or left it (the page's stop for the monitor).
-		 * On the desk the glass shows it, view().deskFocus
+		 * @description The keyboard's focus came to the screen or left it (the page's stop for the monitor). On the desk the glass
+		 * shows it, view().deskFocus
 		 * @param  {[boolean]} on
 		 */
 		deskFocus(on) {
 			if (keyFocus === Boolean(on)) { return; }
 			keyFocus = Boolean(on);
-			deps.show();
+			show();
 		},
 
 		/**
 		 * @description A key while zoomed, or Escape while zooming in
 		 * @param  {[string]} key [KeyboardEvent.key]
+		 * @param  {[boolean]} repeat [a held key; a held Enter runs nothing]
 		 * @return {[boolean]} whether the monitor used it
 		 */
-		key(key) {
-			if (!data || (monitor.state !== "zoomed" && monitor.state !== "zooming")) { return false; }
-			const action = keyAction(key);
-			if (!action) { return false; }
-			if (action === "leave") { monitor.leave(); return true; }
-			// While zooming in, only Escape does anything.
-			if (monitor.state !== "zoomed") { return false; }
-			const { tabs, buttons } = rows();
-			if (action === "press") {
-				const button = [...tabs, ...buttons].find((b) => b.id === monitor.focus);
-				if (button && button.enabled) { press(button.id); }
+		key(key, repeat = false) {
+			advance();
+			if (!zoomedNow() && monitor.state !== "zooming") { return false; }
+			repair();
+			if (key === "PageUp" || key === "PageDown") { // THE FRONT WINDOW, ONE PAGE, WHEN IT HAS A VERTICAL BAR
+				const L = zoomedNow() && !phase ? frontLayout() : null;
+				if (!L || !L.p.vbar) { return false; }
+				scrollTo(L.id, { ...L.p.scroll, y: page(winOf(L.id), L.content, L.p.scroll, "y", key === "PageUp" ? -1 : 1) });
+				show();
 				return true;
 			}
-			const onTabs = tabs.some((b) => b.id === monitor.focus);
-			const channel = CHANNEL[monitor.channel];
-			// The channel may use the key itself (W and S scroll the moves channel).
-			if (!onTabs && typeof channel.keys === "function" && channel.keys(action, channelData(), handlers)) { return true; }
-			let to;
-			if (action === "left" || action === "right") {
-				to = nextFocus(onTabs ? tabs : buttons, monitor.focus, action);
-				// A and D change the tab at once; landing on the showing tab only moves the focus (below).
-				if (onTabs && to && to.startsWith("tab:") && to !== `tab:${monitor.channel}`) { handlers.tab(to.slice(4)); return true; }
-			} else {
-				to = nextFocus([...tabs, ...buttons], monitor.focus, action);
-				// Up from the buttons lands on the showing tab, whichever tab was nearest.
-				if (!onTabs && tabs.some((b) => b.id === to)) { to = `tab:${monitor.channel}`; }
-			}
-			if (to && to !== monitor.focus) {
-				monitor.focus = to;
-				sayFocus();
-				deps.show();
+			const typing = focus === "console" && frontId() === "session";
+			const action = keyAction(key, typing);
+			if (!action) { return false; }
+			if (action.type === "leave") { monitor.leave(); return true; }
+			if (!zoomedNow() || phase) { return false; }
+			keys = true;
+			if (typing) { return action.type === "run" && repeat ? true : typingKey(action); }
+			const all = allButtons();
+			if (action.type === "move") {
+				const to = nextFocus(all, focus, action.dir);
+				if (to && to !== focus) { focusOn(to); show(); }
+			} else if (action.type === "press") {
+				const b = all.find((x) => x.id === focus);
+				if (b && b.enabled) { activate(b.id); show(); }
+			} else if (action.type === "tab") {
+				tabPress(action.id);
+				show();
 			}
 			return true;
 		},
 
 		/**
 		 * @description What screen.js draws
-		 * @return {[object]} { channel, zoomed, tabs, buttons, focus, hover, deskFocus (the keyboard's focus is on the screen, on the desk),
-		 * banner, burst (true once after a switch), data }
+		 * @return {[object]} { state, zoomed, phase ("fault", "splash" or null), elapsed (ms into the phase), tabs ({ ...tab, lit,
+		 * selected }), wins (the shown windows back to front: { id, title, front, p (windows.js parts, with scroll & max), content, v }),
+		 * buttons (the front window's, grid pixels, then win:close; none during a phase), focus, keys (the focus shows), hover, pointer ({ x, y } or
+		 * null), deskFocus, input, v (the front window's screen data, else the base data) }
 		 */
 		view() {
-			const { tabs, buttons } = rows();
-			const once = burst;
-			burst = false;
+			advance();
+			repair();
+			const zoomed = zoomedNow();
+			const d = baseData();
+			const wins = shown(term.wins).map((w) => layout(w, d));
+			const f = wins.find((w) => w.front);
 			return {
-				channel: monitor.channel,
-				zoomed: monitor.state === "zoomed",
-				tabs,
-				buttons,
-				focus: monitor.focus,
-				hover: monitor.hover,
+				state: monitor.state,
+				zoomed,
+				phase,
+				elapsed: phase && phaseAt !== null ? now() - phaseAt : 0,
+				lines: phase === "boot" ? bootLines(data) : [],
+				tabs: tabs(),
+				wins,
+				buttons: f && !phase ? winButtons(f) : [],
+				focus,
+				keys, // WHETHER THE FOCUS SHOWS: A POINTER PRESS MOVES IT WITHOUT LIGHTING ANYTHING
+				hover: zoomed ? hover : null,
+				pointer: zoomed ? at : null,
 				deskFocus: keyFocus && monitor.state === "idle",
-				banner: banner(),
-				burst: once,
-				data: data ? channelData() : null
+				input,
+				v: f ? f.v : d,
 			};
 		},
 	});

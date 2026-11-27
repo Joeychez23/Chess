@@ -79,6 +79,7 @@ window.addEventListener("load", async function () {
 		playerData = { GAME_URL: CHESS_URL, GAME_ID: guestId, PLAYER_ID: guestId }
 	}
 	playerData.REMOTE_ONLY_CONDITIONAL = REMOTE_ONLY; // REMOTE-ONLY MODE CONDITIONAL
+	playerData.USERNAME = sessionUser?.username || null; // THE 3D MONITOR'S TERMINAL NAMES THE PLAYER, GUEST WITHOUT ONE
 	playerData.SIGNED_IN = !!sessionUser; // EXIT: LOGOUT OR LOGIN, A NEW GAME ID GOES IN THE URL
 	playerData.READ_ONLY = replay; // THE BOARD ONLY SHOWS THE GAME: NO MOVES, AI OR SOCKET
 

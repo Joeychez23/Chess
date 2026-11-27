@@ -14,7 +14,6 @@ export const state = {
 	shownFacings: null, // The position and piece facings the 3D board was last turned to (syncFacing3D)
 	shownTaken: null, // What the 3D board's piles were last set from (syncTaken3D), so they're only redone when it changes
 	shownMarks: null, // The highlights the 3D board shows (marks3D() as JSON), so they're only redone when they change
-	shownScreen: null, // What the 3D room's monitor was last told to show (screen3D() as JSON)
 	cardPick: null, // What a picked promotion card calls (onCardPick): gameplay/input's choosePromotion
 	shownPromotion: null, // The colour the 3D cards were last dealt for, null when they're on the deck (syncCards3D)
 	shownCardFocus: null, // The card the 3D board frames (game.cardFocus)
@@ -25,7 +24,6 @@ export const state = {
 	// square are laid again
 	tableSide: null,
 	tableDuel: null, // The card duel the table was last dealt (dealDuel3D), dealt on every 3D board mounted later, null for none
-	heldFace: null, // The face the monitor holds (a result's), put back on a 3D board mounted later
 	monitorHooks: null, // gameplay/monitor's { handlers, announce, onChange, data } (setMonitorHooks), given to every 3D board
 	shownMonitor: null, // What the monitor's channels were last sent (monitorHooks.data() as JSON)
 };

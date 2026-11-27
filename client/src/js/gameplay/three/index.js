@@ -22,12 +22,11 @@ import { createPiece, updateShadow } from "./board/pieces.js";
 import { orientLabels } from "./board/board.js";
 import { pileSpots } from "./cardTable/takenPiles.js"; // Where the taken pieces stand on the desk
 
-import { setScreen as showOnScreen, setFace as showFace } from "./monitor/screen.js";
 export { perfLoaded } from "./perf.js"; // load.js gives it the chunk's download time
 import "../../../css/board3D.css"; // #board3D, the controls hint and the perf readout: in this chunk, not the play bundle
 
 import { frameDeal, unframeDeal, landTurn, stepZoom } from "./camera/index.js";
-import { monitorIdle, monitorInput, rehoverPlaque } from "./pointer/index.js";
+import { monitorIdle, rehoverPlaque } from "./pointer/index.js";
 import { putDownHeld, finishAnims, animate } from "./board/motion.js";
 // A Chess Cards piece's statuses, as effects or badges
 import { focusStatuses } from "./statusFx/index.js";
@@ -176,30 +175,6 @@ export function stopMotion() {
 	landTurn();
 	if (view.zoom) { stepZoom(Infinity); }
 	requestRender();
-}
-
-/**
- * @description What the library's monitor shows (three/monitor/screen.js setScreen). Kept until the room has loaded, nothing on
- * a board with no monitor
- * @param  {[object]} state { name, status, ai, thinking }
- */
-export function setScreen(state) {
-	if (!view) { return; }
-	view.screenState = state;
-	showOnScreen(state);
-	// Its name and status are the monitor's data too
-	if (view.monitor && view.monitorData) { view.monitor.update(monitorInput(view.monitorData)); }
-}
-
-/**
- * @description The monitor's face reacts (AI games, three/monitor/screen.js setFace). The last one is kept until the room has
- * loaded
- * @param  {[string]} name [a face in three/monitor/faces.js]
- */
-export function setFace(name) {
-	if (!view) { return; }
-	view.screenFace = name;
-	showFace(name);
 }
 
 /**

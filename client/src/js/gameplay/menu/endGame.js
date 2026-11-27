@@ -149,6 +149,15 @@ export function setRestartLoading(load) {
  */
 async function handleForfeit() {
 	if (!confirmPress(optRestartBtn)) { return; } // FIRST PRESS ASKS
+	return await forfeit();
+}
+
+/**
+ * @description The forfeit itself, with no "Are you sure?" (the menu's second press, the monitor terminal). Keeps handleRestart's guards: a game
+ * that's over, a new board loading or a request already out (setFill marks the button busy before the await, so a second call sends nothing)
+ */
+export async function forfeit() {
+	if (game.readOnly || game.gameOver || game.boardReset || isBusy(optRestartBtn)) { return; } // A REPLAY: THE MENU HIDES ITS BUTTON THERE, THE TERMINAL HAS NONE TO HIDE
 	if (game.ai && ((game.aiTurn && !game.cardGame) || moveInFlight())) { return showStatus("action", "Wait for the AI's move to finish.", MESSAGE_TIME); }
 	if (game.ai) { clearTimeout(game.aiTimer); }
 	setFill(optRestartBtn);

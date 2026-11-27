@@ -1,11 +1,13 @@
 /*
  *  data.js  --  chess frontend
  *	Monitor Data
- *	The pure part of what the game gives the 3D room's monitor (gameplay/monitor/index.js): the actions read from the menu's items, the result line
+ *	The pure part of what the game gives the 3D room's monitor (gameplay/monitor/index.js): the actions read from the menu's items, the result line, the player's name, the offers
  *	& the eval scores kept by ply (gameplay/analysis). No DOM & no process.env here, so the tests load it in Node (client/test/monitor/monitorData.test.js)
  *
  */
 
+// THE LETTERS OF A NAME THE MONITOR'S FONT DRAWS: a-z PLUS THE KEYS OF GLYPHS IN three/pixelFont.js, WITHOUT ITS ARROWS & ELLIPSIS (THOSE ARE THE SCREEN'S OWN). KEPT HERE, NOT IMPORTED, SO THIS FILE STAYS PURE
+const DRAWN = new Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?-_':/+#=%()");
 const ACTION_IDS = ["hint", "takeback", "draw", "restart", "pgn"]; // THE MONITOR'S ACTIONS, IN ITS ORDER (THE MENU'S optHint, optTakeback, optDraw, optRestart, optPgn)
 
 /* ---------------------------------------------------------------- */
@@ -83,4 +85,32 @@ function trimScores(scores, plies) {
 	return Array.from({ length: Math.max(0, plies) + 1 }, (_, i) => (typeof scores[i] === "number" ? scores[i] : null));
 }
 
-module.exports = { actionsFrom, resultText, materialText, plyOf, startPlyFor, trimScores };
+/* ---------------------------------------------------------------- */
+// Player
+/* ---------------------------------------------------------------- */
+/**
+ * @description The player's name as the monitor draws it: accents dropped, letters the font lacks removed, case kept, length not cut
+ * @param  {[string]} username [the signed-in username, or nothing for a guest]
+ * @return {[string]} who ["Zoe" from "Zoë", "GUEST" when nothing drawable is left]
+ */
+function whoFrom(username) {
+	if (typeof username !== "string") { return "GUEST"; }
+	const plain = Array.from(username.normalize("NFD").replace(/\p{M}/gu, "")).filter((c) => DRAWN.has(c)).join("").trim();
+	return plain || "GUEST";
+}
+
+/* ---------------------------------------------------------------- */
+// Offers
+/* ---------------------------------------------------------------- */
+/**
+ * @description One offer's state (a draw or a takeback): one waiting on the player comes first
+ * @param  {[boolean]} sent [the player offered it]
+ * @param  {[boolean]} incoming [the opponent offered it]
+ * @return {[string]} offer [null | "sent" | "incoming"]
+ */
+function offerFrom(sent, incoming) {
+	if (incoming) { return "incoming"; }
+	return sent ? "sent" : null;
+}
+
+module.exports = { actionsFrom, resultText, materialText, plyOf, startPlyFor, trimScores, whoFrom, offerFrom };

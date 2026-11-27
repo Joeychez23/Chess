@@ -19,8 +19,6 @@ const { setTiles, countStartPieces } = require("../utils/index.js");
 const { showGameOver, syncDrawOffer } = require("../menu/offers.js");
 const { showStatus, clearStatus, noAnswer, MESSAGE_TIME } = require("../status/index.js"); // The message area on the play page
 const { showBot, sayLine } = require("../bots/say.js"); // The AI's bot beside the board
-const { faceFor } = require("../bots/index.js"); // The face the 3D room's monitor makes at a move
-const { setFace } = require("../renderer/index.js"); // & shows it (3D only)
 const { setMoves, addMove, showOpening } = require("../movelist/index.js"); // The move list panel & the opening under it
 import { setLastOpponentMove, updateOpponentStateSlide } from "./opponent.js";
 
@@ -61,7 +59,6 @@ export async function setInitialData(loaded) {
 		const isNewGame = !loaded && game.response.state != "CLOSED" && !game.response.moves?.length;
 		// Not awaited, the game doesn't wait for the levels
 		showBot(game.GAME_URL, game.response).then(() => { if (isNewGame) { sayLine("start"); } });
-		if (isNewGame) { setFace("neutral"); } // The monitor's face starts over with the game
 		if (game.response.state == "CLOSED") { // The game is over (checkmate, draw or forfeit)
 			game.ai = game.response.ai;
 			showGameOver(game.response, true); // Already over when it loaded, the bot doesn't speak
@@ -394,9 +391,6 @@ export async function validateMove() {
 		game.response = moveResponse;
 		syncDrawOffer(moveResponse); // This move ended any offer
 		addMove(playedMove.san); // Only now: the server could have turned it down
-		if (game.response.ai) { // The monitor's face takes the player's move badly (3D only)
-			setFace(faceFor(playedMove, chessInst, game.playerColor == "w" ? "b" : "w"));
-		}
 		showOpening(game.response.opening);
 		clearStatus("move");
 		clearStatus("server");

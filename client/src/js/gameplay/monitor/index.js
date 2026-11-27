@@ -1,14 +1,15 @@
 /*
  *  index.js  --  chess frontend
  *	Monitor
- *	The game's side of the 3D room's CRT monitor (three/monitor is in the lazily loaded three chunk, so nothing here requires it):
- *	the data its channels show (monitorData), its actions (they press the menu's own buttons, so the menu's rules run), the screen
- *	reader's line, the focus while zoomed (#monitorFocus), the keyboard's stop for the screen on the desk and the hide rules.
+ *	The game's side of the 3D room's CRT monitor, a terminal the player types at ("Meridian"; three/monitor is in the lazily loaded
+ *	three chunk, so nothing here requires it): the data its screens and console read (monitorData), its actions (they press the
+ *	menu's own buttons or call the menu's own functions, so the menu's rules run), the screen reader's line, the focus while zoomed
+ *	(#monitorFocus), the keyboard's stop for the screen on the desk and the hide rules.
  *	The stop (#monitorStop) is the leftmost of Left and Right's stops, after the type-move box: the glass shows a border, Enter
  *	zooms in and Escape drops the focus.
- *	While the room and its monitor are up and reduced motion is off, what it shows (the eval bar, the move list, the opening, the
- *	opponent's name, the menu's Hint, Takeback, Offer Draw and Eval Bar) leaves the page with data-on-monitor (style.css), and the
- *	menu's Monitor item zooms in to it.
+ *	While the room and its monitor are up and reduced motion is off, what it shows (the move list, the opening, the opponent's
+ *	name, the menu's Hint, Takeback, Offer Draw and Eval Bar) leaves the page with data-on-monitor (style.css), and the menu's Monitor item
+ *	zooms in to it. The eval bar and its menu item leave the page too: the terminal's Systems window has the evaluation's graph.
  *	The hidden attributes stay the menu code's: an action shows on the monitor exactly when its menu <li> isn't hidden
  *	(data.js actionsFrom)
  *
@@ -20,18 +21,21 @@
 const { game, chessInst } = require("../state/index.js");
 const { openMenu, closeMenu } = require("../menu/index.js"); // The menu button opens it after the camera leaves the monitor
 const { setMonitorHooks, enterMonitor3D, leaveMonitor3D, monitorState3D, focusMonitor3D } = require("../renderer/index.js");
-const { watchEval, evalState, hideEvalBar } = require("../analysis/index.js"); // The eval channel's data, the bar it replaces
 const { moveListState } = require("../movelist/index.js");
 const { menuItems } = require("../../pages/utils/nav.js"); // A key that opens the menu focuses its first item
 const { isBusy } = require("../../pages/utils/menuItem.js"); // A busy item (.loading) can't be pressed on the monitor
 const { materialDiff } = require("../utils/index.js");
-const { hideKinds } = require("../status/index.js"); // The 3D monitor shows a lost connection, so the page's message hides
-const { actionsFrom, resultText, materialText } = require("./data.js"); // The pure part (client/test/monitor/monitorData.test.js)
+const { hideEvalBar, watchEval, evalState } = require("../analysis/index.js"); // The page's bar counts as off in the 3D room; the terminal's Systems window draws the evaluation instead
+const { hideKinds, showing } = require("../status/index.js"); // The 3D monitor shows a lost connection, so the page's message hides
+const { drawOffer, takebackOffer } = require("../menu/offers.js"); // Whether an offer was sent or is waiting for an answer
+const { forfeit } = require("../menu/endGame.js"); // The console's resign asks twice itself, then forfeits without the menu's question
+const { typeMove } = require("../movebox/index.js"); // A move typed in the console plays as one typed in the move box
+const { actionsFrom, resultText, materialText, whoFrom } = require("./data.js"); // The pure part (client/test/monitor/monitorData.test.js)
 const optBtn = document.getElementById("optBtn"); // Menu button (3 lines): at the monitor it zooms out first
 const optMonitorBtn = document.getElementById("optMonitor"); // Menu: Monitor, zooms in
 const resultDisplay = document.getElementById("resultDisplay"); // Menu title ("Chess" or the result)
 const resultReason = document.getElementById("resultReason"); // The line under the result
-// Screen readers: the monitor's channel, what it shows, its focused button and the banner
+// Screen readers: the monitor's screen, what it shows, its focused button and a command's reply
 const monitorAnnouncement = document.getElementById("monitorAnnouncement");
 // Where the focus goes while zoomed (role="application": a screen reader passes the keys on)
 const monitorFocus = document.getElementById("monitorFocus");
@@ -45,7 +49,12 @@ const ACTION_BUTTONS = { // The monitor's actions -> the menu buttons they press
 	restart: document.getElementById("optRestart"),
 	pgn: document.getElementById("optPgn"),
 };
-const ON_MONITOR = [ // What leaves the page while the monitor shows it
+const OTHER_BUTTONS = { // The menu's other buttons the terminal presses, each only while it's on offer
+	declineDraw: document.getElementById("drawDecline"),
+	declineTakeback: document.getElementById("takebackDecline"),
+	sound: document.getElementById("optSound"),
+};
+const ON_MONITOR = [ // What leaves the page while the monitor is up: what it shows, and the eval bar (no eval in the 3D room)
 	document.getElementById("evalBar"),
 	document.getElementById("moveList"),
 	document.getElementById("openingDisplay"),
@@ -61,25 +70,42 @@ let said = []; // The texts waiting to be written to the live region (announce)
 // Data
 /* ---------------------------------------------------------------- */
 /**
- * @description What the monitor's channels show (the shared data shape, up to actions). renderer/index.js sends it when it changed
- * @return {[object]} { ai, cards, over, yourTurn, offline, result, material, moves, opening, eval, actions }
+ * @description What the monitor's terminal reads (the shared data shape: every screen, the console and the session's events).
+ * renderer/index.js sends it when it changed
+ * @return {[object]} { gameId, who, signedIn, cards, ai, over, yourTurn, playerColor, offline, thinking, saving, fen, check,
+ * result, material, moves, opening, opponent, hint, offers, sound, eval, actions }
  */
 function monitorData() {
 	const over = Boolean(game.gameOver);
 	const { rows, opening } = moveListState();
 	const items = Object.fromEntries(Object.entries(ACTION_BUTTONS).map(([id, button]) => [id, actionItem(button)]));
+	const ai = Boolean(game.ai);
+	const theirTurn = chessInst.turn() !== game.playerColor;
 	return {
-		cards: Boolean(game.cardGame), // Chess Cards: no face or eval channel (three/monitor/controls.js available)
-		ai: Boolean(game.ai),
+		gameId: game.GAME_ID || null,
+		who: whoFrom(game.USERNAME),
+		signedIn: Boolean(game.SIGNED_IN && game.USERNAME), // No username yet: GUEST (the terminal's "clearance")
+		cards: Boolean(game.cardGame), // Chess Cards: the console takes no typed moves there
+		ai,
 		over,
-		yourTurn: chessInst.turn() === game.playerColor && !over,
-		offline: Boolean(game.offline),
+		yourTurn: !theirTurn && !over,
+		playerColor: game.playerColor,
+		// The link is down: the friend game's socket dropped, or a request got no answer
+		offline: Boolean(game.offline) || showing("server"),
+		thinking: ai && theirTurn && !over,
+		saving: Boolean(game.moveSaving),
+		fen: chessInst.fen(),
+		check: chessInst.isCheck(),
 		// Text only (innerText / innerHTML of plain words)
 		result: over ? resultText(resultDisplay.textContent.trim(), resultReason.textContent.trim()) : "",
 		material: materialText(materialDiff(chessInst.board())),
 		moves: rows,
 		opening,
-		eval: evalState(),
+		opponent: ai ? game.bot?.name || "Computer" : game.response?.opponent_name || "Opponent",
+		hint: game.hint || null,
+		offers: { draw: drawOffer(), takeback: takebackOffer() },
+		sound: Boolean(game.soundOn),
+		eval: evalState(), // { allowed, scores, failed }: White's win chance by ply, for the Systems window's graph
 		actions: actionsFrom(items),
 	};
 }
@@ -105,6 +131,12 @@ function press(id) {
 	button.click(); // The menu's own listener and rules run (gameplay/menu)
 }
 
+// Presses one of the menu's other buttons, only while it's on the page's offer (not inside anything hidden)
+function pressOther(id) {
+	const button = OTHER_BUTTONS[id];
+	if (button && !button.closest("[hidden]")) { button.click(); }
+}
+
 /**
  * @description The camera is at the monitor (zooming in, there or leaving), not on the desk
  * @return {[boolean]}
@@ -118,7 +150,7 @@ export function monitorZoomed() {
 // Screen Reader
 /* ---------------------------------------------------------------- */
 /**
- * @description Says a text in the monitor's live region. Texts said together (the channel, then its focused tab) are written as
+ * @description Says a text in the monitor's live region. Texts said together (the screen, then its focused button) are written as
  * one, after the region was emptied, so none overwrites another and a repeated one is read again
  * @param  {[string]} text
  */
@@ -181,6 +213,7 @@ function syncHideRules() {
 	if (!stop && document.activeElement === monitorStop) { optBtn.focus({ preventScroll: true }); }
 	monitorStop.hidden = !stop;
 	hideEvalBar(on); // The bar and its menu item are off the page: a bar saved on counts as off
+	watchEval(on); // The terminal keeps the evaluation by ply instead (AI games and finished games only, as the bar)
 	game.refresh = true;
 }
 
@@ -249,7 +282,11 @@ export function startMonitor() {
 			draw() { press("draw"); },
 			restart() { press("restart"); }, // Only offered once the game is over: no forfeit question
 			pgn() { press("pgn"); },
-			watchEval,
+			declineDraw() { pressOther("declineDraw"); },
+			declineTakeback() { pressOther("declineTakeback"); },
+			sound() { pressOther("sound"); },
+			forfeit() { forfeit(); }, // The console asked twice (three/monitor/commands.js); forfeit() keeps the menu's guards
+			move: typeMove, // { san } or { reason }
 		},
 		announce,
 		onChange({ ready: up, state }) {
@@ -258,7 +295,6 @@ export function startMonitor() {
 			ready = Boolean(up);
 			hideKinds(ready ? ["connection"] : []); // Only in the 3D room: on 2D the message is the only sign
 			syncFocus(ready, state);
-			if (!ready) { watchEval(false); } // Gone (2D, a failed room): no eval channel is showing, whatever its last state was
 			syncHideRules();
 			focusMonitor3D(document.activeElement === monitorStop); // A new board's monitor (the room loaded, a lost context) hasn't heard
 		},
@@ -272,6 +308,8 @@ export function startMonitor() {
 		const watched = { attributes: true, attributeFilter: ["aria-disabled", "class"], childList: true, characterData: true, subtree: true };
 		observer.observe(button, watched);
 	});
+	Object.values(OTHER_BUTTONS).forEach((button) => observer.observe(button, { childList: true, characterData: true, subtree: true })); // Sound's words change with it
+	[document.getElementById("drawPrompt"), document.getElementById("takebackPrompt")].forEach((prompt) => observer.observe(prompt, { attributes: true, attributeFilter: ["hidden"] })); // An offer came or went
 	[resultDisplay, resultReason].forEach((element) => observer.observe(element, { childList: true, characterData: true, subtree: true }));
 
 	// Runs after startGame's own listener has set game.reduceMotion

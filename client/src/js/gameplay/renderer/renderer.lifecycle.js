@@ -10,7 +10,7 @@ const { load3D } = require("../three/load.js"); // Downloads the 3D board the fi
 const { showStatus, MESSAGE_TIME } = require("../status/index.js");
 const { reportError } = require("../../pages/utils/reportErrors.js");
 const rendererState = require("./renderer.state.js");
-const { syncScreen3D, syncMonitor3D, syncTaken3D, syncFacing3D } = require("./renderer.draw.js");
+const { syncMonitor3D, syncTaken3D, syncFacing3D } = require("./renderer.draw.js");
 const { applyTable3D, tableUp } = require("./renderer.table.js");
 
 export const VIEWS = { TWO_D: "2d", THREE_D: "3d" };
@@ -176,14 +176,11 @@ async function show3D() {
 	rendererState.state.shownCardFocus = null;
 	game.cardFocus = null;
 	syncTaken3D();
-	rendererState.state.shownScreen = null;
-	syncScreen3D();
 	rendererState.state.shownMonitor = null; // A new board (one rebuilt after a lost context too) gets the data again
 	syncMonitor3D();
 	applyTable3D();
 	tableUp();
 	if (rendererState.state.tableDuel) { rendererState.state.board3D.dealDuel(rendererState.state.tableDuel); }
-	if (rendererState.state.heldFace) { rendererState.state.board3D.setFace(rendererState.state.heldFace); } // The game ended before this board went up
 	game.refresh = true;
 	requestFrame();
 	return VIEWS.THREE_D;

@@ -14,7 +14,7 @@
 
 | Variable | Purpose |
 | --- | --- |
-| `CHESS_ASSETS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com/v1` (CloudFront, the version folder of the current upload), or `http://localhost:3001` to use local copies (see below). It's built into the bundle, so rebuild after changing it. |
+| `CHESS_ASSETS_URL` | Where the images and audio load from, with `https://` and no trailing slash: `https://assets.chess.aws-prac-route53.com` (CloudFront), or `http://localhost:3001` to use local copies (see below). It's built into the bundle, so rebuild after changing it. |
 
 **Images and audio aren't in the repo** (`client/src/images` and `client/src/audio`
 are git-ignored). They're in the `aws-prac-chess-s3` bucket and CloudFront serves
@@ -26,8 +26,8 @@ To use local copies instead of CloudFront, put them in `client/dist`, which the
 server already serves (and builds leave in place). From the repo root:
 
 ```bash
-aws s3 sync s3://aws-prac-chess-s3/v1/images client/src/images   # skip if client/src already has them
-aws s3 sync s3://aws-prac-chess-s3/v1/audio client/src/audio
+aws s3 sync s3://aws-prac-chess-s3/images client/src/images   # skip if client/src already has them
+aws s3 sync s3://aws-prac-chess-s3/audio client/src/audio
 mkdir -p client/dist && cp -R client/src/images client/src/audio client/dist/
 ```
 
@@ -36,19 +36,20 @@ Then set `CHESS_ASSETS_URL=http://localhost:3001` in both `client/.env` and
 with `npm start` or `npm run dev`. Don't use `.`: on `/play/:gameId` it asks for
 `/play/images/...`, which isn't an asset. Copy again after an image or sound changes.
 
-Each upload goes into a version folder (`s3://aws-prac-chess-s3/v1/images/...`)
-with `Cache-Control: public, max-age=31536000, immutable`, so browsers keep the
-sprites and the move sound for a year and a second visit doesn't download them
-again. Never change a file inside an uploaded version: upload the whole set to
-the next version, point `CHESS_ASSETS_URL` in `client/.env` at it and rebuild
-the client (the server's CSP only uses the origin, so `server/.env` can stay).
-The new urls show at once, with no CloudFront invalidation:
+The assets sit at the bucket's root (`s3://aws-prac-chess-s3/images/...`,
+`.../audio/...`) with `Cache-Control: public, max-age=86400`, so browsers keep
+the sprites and the move sound for a day. After an image or sound changes,
+upload again. The script syncs both folders, deletes nothing, and clears
+CloudFront's copies:
 
 ```bash
-deploy/upload-assets.sh v2   # syncs client/src/images & client/src/audio to s3://aws-prac-chess-s3/v2/
+deploy/upload-assets.sh   # syncs client/src/images & client/src/audio to s3://aws-prac-chess-s3/
 ```
 
-Delete the old version folder once no deployed build uses it.
+A changed file keeps its url, so a browser that already has it shows the old one
+for up to a day. `CHESS_ASSETS_URL` doesn't change and the client needs no rebuild.
+When new code needs a changed file (a rebaked `library.glb`, say), upload first,
+then deploy.
 
 ## Run
 

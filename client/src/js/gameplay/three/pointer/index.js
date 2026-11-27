@@ -8,13 +8,13 @@ import { MIN_DISTANCE, MAX_DISTANCE, MAX_TILT, BOARD_SIZE, DRAG_PX, DRAG_HOLD_MS
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { MOUSE, TOUCH } from "three";
 import { dismissHint } from "../hint.js";
-import { isTap } from "../monitor/monitor.js";
+import { isTap } from "../monitor/controls.js";
 import { tapStatuses } from "../statusFx/index.js";
-import { monitorIdle, monitorInput, glassHit, hoverGlass } from "./pointer.monitor.js";
+import { monitorIdle, monitorInput, glassHit, hoverGlass, setCursor, glassDown, glassDrag, glassUp, glassHeld } from "./pointer.monitor.js";
 import { PROMOTION_DEAD_ZONE, PROMOTION_DEAD_ZONE_TOUCH, cardAt, tableAt, tableCovers, pickCard, togglePile, inPromotionDeadZone, baizePoint }
 	from "./pointer.cards.js";
 
-export { monitorIdle, monitorInput, onMonitorShow } from "./pointer.monitor.js";
+export { monitorIdle, monitorInput, onMonitorShow, glassWheel as onWheel } from "./pointer.monitor.js";
 export { PROMOTION_DEAD_ZONE, PROMOTION_DEAD_ZONE_TOUCH, inPromotionDeadZone } from "./pointer.cards.js";
 
 // This press dragged a Chess Cards game's piece (releaseTable) or card (releaseCard): its click isn't a tap
@@ -119,6 +119,7 @@ export function onPointerDown(e) {
 	}
 	view.pointerAt = { x: e.clientX, y: e.clientY };
 	view.pointerType = e.pointerType;
+	if (e.pointerType !== "mouse" || e.button === 0) { glassDown(e); } // Zoomed on the glass: the terminal's windows drag
 	// Every finger (or pen) down: a second one makes this touch a pinch or orbit, never a tap
 	if (e.pointerType !== "mouse") {
 		view.touches.add(e.pointerId);
@@ -186,11 +187,12 @@ function followCard(x, y) {
 // so its square lookup skips the piece too
 export function onPointerMove(e) {
 	view.pointerAt = { x: e.clientX, y: e.clientY };
+	glassDrag(e); // A press held on the zoomed glass drags a terminal window, a finger's too
 	// Touch has no hover, a drag is the camera's. A picked piece that only floats (no press down) leaves the mouse its
 	// hover
 	if (e.pointerType === "mouse" && !cardHeld && !(view.held && view.held.dragging) && !view.controlsActive) {
 		hoverGlass(e);
-		hoverCards(e);
+		if (!glassHeld()) { hoverCards(e); } // A drag on the glass keeps the cursor hidden over the cards too
 	}
 	// Also while a piece is dragged: the box leads, the held piece floats over its tile (liftHeld)
 	if (e.pointerType === "mouse") {
@@ -215,7 +217,10 @@ export function onPointerMove(e) {
 
 // On the window, after onTouchTap(): the finger is up, and once every finger is the next touch can be a tap again
 export function onPointerUp(e) {
+	const dragged = glassHeld();
+	glassUp();
 	if (!view) { return; }
+	if (dragged && e.pointerType === "mouse") { hoverGlass(e); } // The drag's hidden cursor is back at once where the mouse is off the glass
 	view.controls.enabled = monitorIdle();
 	view.controls.mouseButtons.LEFT = MOUSE.PAN;
 	if (e.pointerType === "mouse") {
@@ -308,8 +313,9 @@ export function onPointerLeave() {
 	}
 	view.cardCursor = false;
 	if (!view.monitor) { return; }
+	if (view.monitor.state === "zoomed") { return; } // Zoomed, the terminal's pointer waits at the glass's edge; a drag's capture keeps the moves coming
 	view.monitor.pointer("out");
-	view.container.style.cursor = "";
+	setCursor("");
 }
 
 /* ---------------------------------------------------------------- */
@@ -327,12 +333,12 @@ function hoverCards(e) {
 		hoverPlaque(table && table.kind === "button" ? table.id : null);
 	}
 	if (over !== null || table) {
-		view.container.style.cursor = "pointer";
+		setCursor("pointer");
 		view.cardCursor = true;
 	}
 	else if (view.cardCursor) {
 		view.cardCursor = false;
-		if (!view.monitor) { view.container.style.cursor = ""; } // With a monitor hoverGlass() already set it
+		if (!view.monitor) { setCursor(""); } // With a monitor hoverGlass() already set it
 	}
 }
 
@@ -442,11 +448,12 @@ export function onTouchTap(e) {
 // no typing target, so its keys come here
 export function onKeyDown(e) {
 	const monitor = view && view.monitor;
-	if (!monitor || e.altKey || e.ctrlKey || e.metaKey) { return; }
+	const cancel = e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "c"; // CONTROL + C: THE CONSOLE DROPS ITS LINE
+	if (!monitor || ((e.altKey || e.ctrlKey || e.metaKey) && !cancel)) { return; }
 	if (monitor.state !== "zoomed" && !(monitor.state === "zooming" && e.key === "Escape")) { return; }
 	const target = e.target;
 	if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) { return; }
-	if (monitor.key(e.key)) {
+	if (monitor.key(cancel ? "Cancel" : e.key, e.repeat)) { // A held Enter never runs a command twice
 		e.preventDefault();
 		e.stopImmediatePropagation();
 	}

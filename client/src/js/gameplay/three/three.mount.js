@@ -13,7 +13,7 @@ import { createCards } from "./cardTable/promotionCards.js"; // The promotion ca
 import { createCardTable, deskInView } from "./cardTable/index.js"; // A Chess Cards game's hands, decks and board effects
 import { createAnimations } from "./animations.js"; // Their slides
 
-import { createScreen, setScreen as showOnScreen, setFace as showFace, pauseScreen, disposeScreen, setMonitorView } from "./monitor/screen.js";
+import { createScreen, pauseScreen, disposeScreen, setMonitorView } from "./monitor/screen.js";
 import { createMonitor } from "./monitor/monitor.js"; // The monitor as the game's menu: its states, buttons and keys
 import { loadPrefs, savePrefs } from "./monitor/prefs.js";
 import { createFire, stepFire, pauseFire, disposeFire } from "./room/fire.js"; // The fireplace's flames, embers and flicker
@@ -24,7 +24,7 @@ import { perfStart, perfStop, perfFrame, perfMoving, perfLost } from "./perf.js"
 
 import { resize, frameDeal, framePile, placeCamera, stepCamera, sideAngle, stepZoom, openCardCamera } from "./camera/index.js";
 import {
-	createControls, onPointerDown, onPointerMove, onPointerUp, monitorIdle, monitorInput, onMonitorShow, onPointerLeave, onClick,
+	createControls, onPointerDown, onPointerMove, onPointerUp, monitorIdle, monitorInput, onMonitorShow, onPointerLeave, onClick, onWheel,
 	onTouchTap, onKeyDown
 } from "./pointer/index.js";
 import { stepAnim, finishAnims } from "./board/motion.js";
@@ -107,8 +107,6 @@ async function addRoom(mountedView) {
 		mountedView.container.style.backgroundColor = mountedView.scene.background.getStyle();
 		turnRoom(group, mountedView.cameraTurn ? mountedView.cameraTurn.roomFrom : sideAngle(mountedView.side));
 		createScreen(screen, requestRender);
-		if (mountedView.screenState) { showOnScreen(mountedView.screenState); }
-		if (mountedView.screenFace) { showFace(mountedView.screenFace); }
 		mountedView.glass = screen;
 		mountedView.monitor = createMonitor({
 			show: () => onMonitorShow(mountedView),
@@ -321,9 +319,7 @@ export function mount(container, {
 		onContextLost: lost,
 		onContextRestored: restored,
 		held: null, // The picked up piece (setHeld) { mesh, dragging, following }
-		room: null, // The library once it's loaded (addRoom)
-		screenState: null, // screenState and screenFace: what its monitor was last told
-		screenFace: null
+		room: null // The library once it's loaded (addRoom)
 	});
 	Object.assign(view, {
 		monitorOptions: { ...NO_MONITOR, ...(monitor || {}) },
@@ -376,6 +372,7 @@ export function mount(container, {
 	container.addEventListener("pointermove", onPointerMove, true);
 	container.addEventListener("pointerleave", onPointerLeave);
 	container.addEventListener("click", onClick, true);
+	container.addEventListener("wheel", onWheel, { capture: true, passive: false }); // Zoomed on the glass: scrolls a terminal window
 	container.addEventListener("pointerup", onTouchTap, true);
 	window.addEventListener("keydown", onKeyDown, true);
 	window.addEventListener("pointerup", onPointerUp);
@@ -441,6 +438,7 @@ export function unmount() {
 	container.removeEventListener("pointermove", onPointerMove, true);
 	container.removeEventListener("pointerleave", onPointerLeave);
 	container.removeEventListener("click", onClick, true);
+	container.removeEventListener("wheel", onWheel, { capture: true });
 	container.removeEventListener("pointerup", onTouchTap, true);
 	container.style.cursor = ""; // The glass's hand cursor
 	window.removeEventListener("keydown", onKeyDown, true);

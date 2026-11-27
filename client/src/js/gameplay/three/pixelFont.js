@@ -1,8 +1,9 @@
 /*
  *  pixelFont.js  --  chess frontend
  *	The CRT Monitor's Font
- *	A 5 x 7 pixel font for the monitor's name & status strip (three/monitor/screen.js), so its text is as chunky as its picture. Capitals,
- *	digits & a little punctuation: lower case is drawn as capitals, accents are dropped (é as E), anything else as a box.
+ *	A 5 x 7 pixel font for the monitor's terminal (three/monitor/), so its text is as chunky as its picture. Capitals, lower case,
+ *	digits & a little punctuation: accents are dropped (é as e), anything else as a box. Larger text keeps the small text's pixel size
+ *	and spends the extra pixels smoothing the steps
  *	No DOM & no three.js here, so the tests load it in Node (client/test/monitor/pixelFont.test.js)
  *
  */
@@ -68,6 +69,35 @@ const GLYPHS = {
 	"◀": "....# ...## ..### .#### ..### ...## ....#",
 	"▶": "#.... ##... ###.. ####. ###.. ##... #....",
 	"…": "..... ..... ..... ..... ..... ..... #.#.#",
+	a: "..... ..... .###. ....# .#### #...# .####",
+	b: "#.... #.... #.##. ##..# #...# #...# ####.",
+	c: "..... ..... .###. #.... #.... #...# .###.",
+	d: "....# ....# .##.# #..## #...# #...# .####",
+	e: "..... ..... .###. #...# ##### #.... .###.",
+	f: "..##. .#..# .#... ###.. .#... .#... .#...",
+	g: "..... .#### #...# #...# .#### ....# .###.",
+	h: "#.... #.... #.##. ##..# #...# #...# #...#",
+	i: "..#.. ..... .##.. ..#.. ..#.. ..#.. .###.",
+	j: "...#. ..... ..##. ...#. ...#. #..#. .##..",
+	k: "#.... #.... #..#. #.#.. ##... #.#.. #..#.",
+	l: ".##.. ..#.. ..#.. ..#.. ..#.. ..#.. .###.",
+	m: "..... ..... ##.#. #.#.# #.#.# #...# #...#",
+	n: "..... ..... #.##. ##..# #...# #...# #...#",
+	o: "..... ..... .###. #...# #...# #...# .###.",
+	p: "..... ..... ####. #...# ####. #.... #....",
+	q: "..... ..... .##.# #..## .#### ....# ....#",
+	r: "..... ..... #.##. ##..# #.... #.... #....",
+	s: "..... ..... .###. #.... .###. ....# ####.",
+	t: ".#... .#... ###.. .#... .#... .#..# ..##.",
+	u: "..... ..... #...# #...# #...# #..## .##.#",
+	v: "..... ..... #...# #...# #...# .#.#. ..#..",
+	w: "..... ..... #...# #...# #.#.# #.#.# .#.#.",
+	x: "..... ..... #...# .#.#. ..#.. .#.#. #...#",
+	y: "..... ..... #...# #...# .#### ....# .###.",
+	z: "..... ..... ##### ...#. ..#.. .#... #####",
+	"[": ".###. .#... .#... .#... .#... .#... .###.",
+	"]": ".###. ...#. ...#. ...#. ...#. ...#. .###.",
+	">": "#.... .#... ..#.. ...#. ..#.. .#... #....",
 };
 const BOX = "##### #...# #...# #...# #...# #...# #####"; // A CHARACTER THE FONT DOESN'T HAVE
 
@@ -87,25 +117,49 @@ function plain(text) {
 /**
  * @description How wide a line of text is
  * @param  {[string]} text
- * @return {[number]} width [in font pixels, no trailing gap]
+ * @return {[number]} width [in font pixels, no trailing gap; at size k the text is textWidth * k grid pixels wide]
  */
 function textWidth(text) {
 	return Math.max(0, [...plain(text)].length * ADVANCE - 1);
 }
 
 /**
- * @description The lit pixels of a line of text
- * @param  {[string]} text [drawn in capitals]
- * @return {[number[][]]} cells [[x, y] in font pixels, (0, 0) the text's top left]
+ * @description Whether the font has a character, so the console's input only takes what it can draw
+ * @param  {[string]} char
+ * @return {[boolean]}
  */
-function textCells(text) {
+function drawable(char) {
+	return typeof char === "string" && Object.hasOwn(GLYPHS, char);
+}
+
+/**
+ * @description The lit pixels of a line of text. At size k each font pixel is a k x k block, and where two lit pixels touch only at a
+ * corner, each of the two empty cells between them gains a one-pixel-stepped wedge, so large text reads smooth, not stepped
+ * @param  {[string]} text
+ * @param  {[number]} size [a whole number, 1 the plain font]
+ * @return {[number[][]]} cells [[x, y] in grid pixels, (0, 0) the text's top left, each listed once]
+ */
+function textCells(text, size = 1) {
+	const k = Number.isFinite(size) && size >= 1 ? Math.floor(size) : 1; // A BAD SIZE DRAWS PLAIN, NEVER FRACTIONAL OR ENDLESS
 	const cells = [];
-	[...plain(text).toUpperCase()].forEach(function (char, i) {
-		(Object.hasOwn(GLYPHS, char) ? GLYPHS[char] : BOX).split(" ").forEach(function (row, y) {
-			[...row].forEach(function (c, x) {
-				if (c === "#") { cells.push([i * ADVANCE + x, y]); }
-			});
-		});
+	const seen = new Set();
+	const lit = (x, y) => { const key = `${x},${y}`; if (!seen.has(key)) { seen.add(key); cells.push([x, y]); } };
+	[...plain(text)].forEach(function (char, n) {
+		const rows = (Object.hasOwn(GLYPHS, char) ? GLYPHS[char] : BOX).split(" ");
+		const on = (gx, gy) => rows[gy]?.[gx] === "#";
+		const ox = n * ADVANCE * k;
+		const wedge = (gx, gy, m) => { // FILLS THE PIXELS OF AN EMPTY CELL WHERE m(i, j) < k - 1
+			for (let j = 0; j < k; j++) { for (let i = 0; i < k; i++) { if (m(i, j) < k - 1) { lit(ox + gx * k + i, gy * k + j); } } }
+		};
+		for (let gy = 0; gy < HEIGHT; gy++) {
+			for (let gx = 0; gx < WIDTH; gx++) {
+				if (on(gx, gy)) { wedge(gx, gy, () => -1); }
+				if (k < 2) { continue; }
+				const a = on(gx, gy), b = on(gx + 1, gy), d = on(gx, gy + 1), e = on(gx + 1, gy + 1); // THE 2 x 2 NEIGHBOURHOOD
+				if (a && e && !b && !d) { wedge(gx + 1, gy, (i, j) => i + (k - 1 - j)); wedge(gx, gy + 1, (i, j) => (k - 1 - i) + j); }
+				if (b && d && !a && !e) { wedge(gx, gy, (i, j) => (k - 1 - i) + (k - 1 - j)); wedge(gx + 1, gy + 1, (i, j) => i + j); }
+			}
+		}
 	});
 	return cells;
 }
@@ -126,4 +180,4 @@ function fitText(text, width) {
 	return words ? `${words}…` : `${chars.slice(0, max - 1).join("")}.`;
 }
 
-export { GLYPHS, WIDTH, HEIGHT, ADVANCE, textWidth, textCells, fitText };
+export { GLYPHS, WIDTH, HEIGHT, ADVANCE, textWidth, textCells, fitText, drawable };

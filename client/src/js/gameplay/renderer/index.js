@@ -82,17 +82,6 @@ export function focusMonitor3D(on) {
 	if (rendererState.state.board3D) { rendererState.state.board3D.focusMonitor(on); }
 }
 
-/**
- * @description The monitor's face reacts to a move or the result (AI games, gameplay/bots faceFor and endFaceFor). Does nothing
- * on 2D, but a result's face is remembered for a 3D board put up later
- * @param  {[string]} name ["happy" | "sad" | "angry" | "won" | "lost" | "neutral" | null (no change)]
- */
-export function setFace(name) {
-	if (!name || name === rendererState.state.heldFace) { return; } // The mating move already showed the result: game over doesn't start it again
-	rendererState.state.heldFace = name === "won" || name === "lost" ? name : null;
-	if (rendererState.state.board3D) { rendererState.state.board3D.setFace(name); }
-}
-
 /* ---------------------------------------------------------------- */
 // Pieces
 /* ---------------------------------------------------------------- */
